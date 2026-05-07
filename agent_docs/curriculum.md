@@ -1,0 +1,126 @@
+# Curriculum — Standards, Subjects, and Sequencing
+
+## Standards Alignment
+
+### Primary: Tennessee Academic Standards
+
+Tennessee uses its own standards (influenced by but distinct from Common Core). TCAP tests against these specifically. Every curriculum item is indexed to a TN standard ID.
+
+**Subjects tested on TCAP (grades 6-8):**
+
+| Subject | Format | Key Details |
+|---------|--------|-------------|
+| ELA | 4 subparts, 230 min total | Passage-based items, writing prompt, editing. Sub-scores: Written Expression (25-29%), Conventions (7-9%), Literature (25-30%), Informational (25-30%), Vocabulary (8-12%) |
+| Math | 3 subparts | Subpart 1: no calculator. MC, multi-select, equation editor, matching tables, constructed response |
+| Science | 2 subparts | Calculator allowed |
+| Social Studies | Grades 6-8 | History, geography, civics, economics |
+
+**Performance levels**: Below → Approaching → On-Track → Mastered (scale 200-450)
+
+Target: **Mastered** across all subjects.
+
+### Secondary: Common Core Reference
+
+CCSS provides additional depth and widely available supplementary materials. Cross-referenced but not the primary tracking target.
+
+**CCSS Math structure**: Grade → Domain → Cluster → Standard (e.g., `6.RP.A.3`)
+**CCSS ELA structure**: Strand → Grade → Standard (e.g., `RL.6.1`)
+
+### Standard Schema
+
+```yaml
+standard:
+  id: "TN.MATH.6.RP.A.3"
+  source: "tennessee"              # tennessee | common-core | custom
+  subject: "math"
+  grade: 6
+  domain: "ratios-proportional"
+  cluster: "understand-ratio-concepts"
+  description: "Use ratio and rate reasoning to solve problems"
+  tcap_weight: "high"
+  ccss_equivalent: "6.RP.A.3"
+  prerequisites: ["TN.MATH.5.NF.B.3"]
+  mastery_criteria:
+    - "Can identify ratios in real-world contexts"
+    - "Can solve unit rate problems"
+    - "Can use ratio tables and double number lines"
+    - "Can convert measurement units using ratios"
+```
+
+## Subject Domains
+
+### Mathematics (Grades 6-8)
+
+| Grade | Domains |
+|-------|---------|
+| 6 | Ratios & Proportional Relationships, The Number System, Expressions & Equations, Geometry, Statistics & Probability |
+| 7 | Same + increasing complexity, emphasis on proportional reasoning |
+| 8 | The Number System, Expressions & Equations, Functions (new), Geometry, Statistics & Probability |
+
+Practical projects provide applied math contexts. The "numerical precision" guard ensures units, estimation, and reasonableness are always enforced.
+
+### English Language Arts
+
+- **Reading**: Literature and informational text. Complete books, not excerpts. Close reading with evidence.
+- **Writing**: Argumentative, informative/explanatory, narrative. Clarity, evidence, structure. Happens across ALL subjects via guards.
+- **Language**: Grammar, mechanics, vocabulary, usage. Enforced as guard injector everywhere.
+- **Speaking & Listening**: Oral narration, discussion with parent, project presentations. Off-screen.
+
+### Science
+
+Tennessee science standards. Heavy emphasis on hands-on investigation via practical projects.
+- Life Science: organisms, ecosystems, heredity
+- Earth & Space: weather, geology, astronomy
+- Physical Science: matter, energy, forces, waves
+
+### Social Studies
+
+History, geography, civics, economics. Burkean framework most explicit here:
+- **History as inheritance**: A story of civilization built across generations. Primary sources.
+- **Civics as ordered liberty**: The Constitution as preserving liberty through structure.
+- **Economics as stewardship**: Markets, budgets, property as responsibility.
+- **Geography as place**: Physical reality that shapes culture.
+
+## Sequencing: Mastery-Based with Active Reinforcement
+
+No calendar-driven progression. Key principles:
+
+1. **Advance on demonstrated mastery** — not time elapsed
+2. **Mastered skills stay in active use** — the system weaves them into new contexts
+3. **Periodic reinforcement checks** — spaced repetition at the skill level
+4. **TCAP readiness tracking** — parallel view of coverage vs. tested standards
+5. **Spiral integration** — nothing stays "done"; earlier skills are prerequisites for later ones
+
+### Reinforcement Scheduling
+
+```yaml
+reinforcement_policy:
+  initial_interval_days: 7       # first check after 7 days
+  growth_factor: 2.0             # double interval on success
+  max_interval_days: 90          # check at least every 90 days
+  decay_threshold: 0.7           # below this → re-teach
+  integration_preferred: true    # prefer reinforcing via new context over standalone review
+```
+
+The system prefers "use it in a new context" over "drill it again." If proportional reasoning was mastered in Q1 math, it should appear naturally in Q3 recipe scaling or Q4 data analysis — not as a standalone review worksheet.
+
+## Content Model
+
+### Curated by Parent
+
+- Reading lists (literature, history, science)
+- Primary source documents
+- Textbook selections
+- Video/documentary selections (TV channel)
+- Project definitions and scope
+
+### Generated by System
+
+- Practice problems (infinite, adaptive, standards-aligned)
+- Quizzes and TCAP practice tests
+- Writing prompts
+- Discussion questions about curated readings
+- Cross-cutting corrections and feedback
+- Connections between subjects and projects
+
+The parent controls the intellectual diet. The system controls assessment and tutoring around that content.
