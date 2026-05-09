@@ -8,7 +8,7 @@
   boot.initrd.systemd.services.rollback = {
     description = "Rollback root subvolume to empty state";
     wantedBy = [ "initrd.target" ];
-    after = [ "systemd-cryptsetup@*.service" ];
+    after = [ "initrd-root-device.target" ];
     before = [ "sysroot.mount" ];
     unitConfig.DefaultDependencies = "no";
     serviceConfig.Type = "oneshot";
@@ -31,14 +31,17 @@
     '';
   };
 
+  # /persist must be available early for impermanence
+  fileSystems."/persist".neededForBoot = true;
+
   # Declare what persists across reboots
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
       "/etc/nixos"              # NixOS config (for rebuilds)
-      "/etc/ssh"                # SSH host keys
       "/var/lib/systemd"        # systemd state (timers, etc.)
       "/var/lib/nixos"          # NixOS state (uid/gid maps)
+      "/var/log"                # Full journal + audit logs
     ];
     files = [
       "/etc/machine-id"

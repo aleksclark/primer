@@ -20,7 +20,15 @@ NixOS configuration for the Primer student workstation (Lenovo ThinkCentre M93p 
 
 ## Bootstrap Process
 
-### 1. Build the installer USB (on your workstation)
+### 1. Enable flakes on your build machine (one-time)
+
+```bash
+# Copy the nix config (or symlink it)
+sudo cp workstation/nix.conf /etc/nix/nix.conf
+sudo systemctl restart nix-daemon
+```
+
+### 2. Build the installer USB (on your workstation)
 
 ```bash
 cd workstation

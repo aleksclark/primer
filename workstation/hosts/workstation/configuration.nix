@@ -67,6 +67,10 @@
   # SSH access for parent/admin
   services.openssh = {
     enable = true;
+    hostKeys = [
+      { path = "/persist/etc/ssh/ssh_host_ed25519_key"; type = "ed25519"; }
+      { path = "/persist/etc/ssh/ssh_host_rsa_key"; type = "rsa"; bits = 4096; }
+    ];
     settings = {
       PermitRootLogin = "prohibit-password";
       PasswordAuthentication = false;
@@ -113,12 +117,9 @@
       # Only root can sudo (student cannot)
       extraRules = [];
     };
-    # Prevent student from reading other users' processes
-    hideProcessInformation = true;
   };
 
   # Disable things the student doesn't need
   services.printing.enable = false;
-  sound.enable = false; # no audio needed initially
   hardware.bluetooth.enable = false;
 }

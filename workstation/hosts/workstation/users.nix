@@ -18,7 +18,7 @@
     # No wheel group = no sudo
     extraGroups = [ "video" "render" ]; # GPU access for sway/ghostty
     # Set initial password (student can't change it without sudo)
-    hashedPassword = "$6$rounds=10000$primer$placeholder"; # TODO: set real password
+    hashedPassword = "$6$wNROvWK6xp9QPW66$m904q421uYMHJ5Y4mjEMnc1Ekkx05ySVMhIWx/cXe0Y3B82Eg3WDIgrzsKbEy4y3iZQE632hnj0SFhXFp5MGY1"; # password: primer
   };
 
   users.groups.students = {};

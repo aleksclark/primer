@@ -98,8 +98,8 @@
     }
     bindsym $mod+r mode "resize"
 
-    # Lock screen
-    bindsym $mod+Shift+l exec swaylock -c 000000
+    # Lock screen (Super+Shift+x to avoid conflict with move-right)
+    bindsym $mod+Shift+x exec swaylock -c 000000
 
     # Status bar - minimal
     bar {
@@ -124,9 +124,8 @@
     # Will auto-detect, but set scale for standard 1080p monitor
     output * bg #1a1b26 solid_color
 
-    # Idle: lock after 5 min, screen off after 10
+    # Idle: screen off after 10 min (no lock - student has limited access anyway)
     exec swayidle -w \
-      timeout 300 'swaylock -f -c 000000' \
       timeout 600 'swaymsg "output * power off"' \
       resume 'swaymsg "output * power on"'
 

@@ -31,7 +31,21 @@
   };
 
   # Process accounting - track all commands run by student
-  services.acct.enable = true;
+  environment.systemPackages = [ pkgs.acct ];
+  systemd.services.process-accounting = {
+    description = "Process accounting";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStartPre = [
+        "${pkgs.coreutils}/bin/mkdir -p /var/account"
+        "${pkgs.coreutils}/bin/touch /var/account/pacct"
+      ];
+      ExecStart = "${pkgs.acct}/bin/accton /var/account/pacct";
+      ExecStop = "${pkgs.acct}/bin/accton off";
+    };
+  };
 
   # Audit daemon - log all execve calls by student user
   security.auditd.enable = true;
@@ -45,7 +59,6 @@
 
   # Persist monitoring data
   environment.persistence."/persist".directories = [
-    "/var/log/audit"
     "/var/account"
   ];
 
