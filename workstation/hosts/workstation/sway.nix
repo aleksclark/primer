@@ -35,8 +35,8 @@
     fi
   '';
 
-  # Sway configuration
-  environment.etc."sway/config.d/primer.conf".text = ''
+  # Sway configuration — replaces default config entirely
+  environment.etc."sway/config".text = ''
     # Primer student workstation sway config
 
     # Modifier = Super key
