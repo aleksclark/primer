@@ -118,16 +118,16 @@
     client.unfocused #414868 #414868 #a9b1d6 #414868
 
     # Disable window titlebars
-    font pango:JetBrainsMono Nerd Font 0
+    font pango:JetBrainsMono Nerd Font 1
+    titlebar_padding 1
+    titlebar_border_thickness 0
 
     # Output config (DisplayPort on M93p)
     # Will auto-detect, but set scale for standard 1080p monitor
     output * bg #1a1b26 solid_color
 
     # Idle: screen off after 10 min (no lock - student has limited access anyway)
-    exec swayidle -w \
-      timeout 600 'swaymsg "output * power off"' \
-      resume 'swaymsg "output * power on"'
+    exec swayidle -w timeout 600 'swaymsg "output * power off"' resume 'swaymsg "output * power on"'
 
     # Start ghostty on login
     exec ghostty
