@@ -35,6 +35,7 @@
         ./hosts/workstation/sway.nix
         ./hosts/workstation/monitoring.nix
         ./hosts/workstation/users.nix
+        ./hosts/workstation/klipper.nix
       ];
     };
 

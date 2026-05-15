@@ -60,6 +60,7 @@
   # Persist monitoring data
   environment.persistence."/persist".directories = [
     "/var/account"
+    "/var/lib/moonraker"  # Klipper config, gcodes, database
   ];
 
   # Sway IPC window tracking daemon (tracks focused window over time)
