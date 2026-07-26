@@ -1,8 +1,16 @@
 -- +goose Up
 -- +goose StatementBegin
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+-- gen_random_uuid() is built into PostgreSQL 13+. pg_trgm accelerates
+-- free-text search but is optional: some deployments (e.g. the Patroni
+-- image) don't ship contrib extensions.
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_trgm unavailable, skipping (search still works via ILIKE)';
+END
+$$;
 
 -- Educators: the parents / administrators who manage the system.
 CREATE TABLE educators (
@@ -56,7 +64,13 @@ CREATE TABLE standards (
 
 CREATE INDEX idx_standards_subject ON standards(subject_id);
 CREATE INDEX idx_standards_parent ON standards(parent_id);
-CREATE INDEX idx_standards_desc_trgm ON standards USING gin (description gin_trgm_ops);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+        CREATE INDEX idx_standards_desc_trgm ON standards USING gin (description gin_trgm_ops);
+    END IF;
+END
+$$;
 
 -- Prerequisite graph between standards.
 CREATE TABLE standard_prerequisites (

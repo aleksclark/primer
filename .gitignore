@@ -16,6 +16,9 @@ server/internal/spa/dist/*
 # Generated artifacts (regenerate with `make client`)
 # openapi.yaml and schema.d.ts are checked in for reproducible builds
 
+# Deployment secrets
+deploy/.env
+
 # Editor / OS
 .DS_Store
 *.swp
