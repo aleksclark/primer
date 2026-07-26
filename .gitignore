@@ -19,6 +19,9 @@ server/internal/spa/dist/*
 # NixOS
 workstation/result
 
+# Deployment secrets
+deploy/.env
+
 # Editor / OS
 .DS_Store
 *.swp

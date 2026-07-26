@@ -2,7 +2,7 @@
 
 COVER_MIN := 85
 
-.PHONY: all build test cover openapi client web bundle docker dev-db migrate lint
+.PHONY: all build test cover openapi client web bundle docker deploy dev-db migrate lint
 
 all: build openapi client
 
@@ -46,6 +46,11 @@ bundle: web
 ## Build the deployment image (SPA bundled into the server binary).
 docker:
 	docker build -t primer-lms .
+
+## Build, push, and deploy to the Nomad fleet (primer.fleet.clark.team).
+## Requires deploy/.env — see deploy/.env.example.
+deploy:
+	./deploy/deploy.sh
 
 ## Start a local PostgreSQL for development.
 dev-db:
