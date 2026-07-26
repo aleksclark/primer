@@ -1,0 +1,10 @@
+# Keep build context small: only server/ and web/ sources are needed.
+.git
+workstation/
+agent_docs/
+web/node_modules
+web/dist
+server/coverage.out
+Makefile
+README.md
+AGENTS.md
