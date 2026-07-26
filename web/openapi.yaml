@@ -1,0 +1,4702 @@
+components:
+  schemas:
+    Assessment:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Assessment.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        id:
+          format: uuid
+          type: string
+        kind:
+          enum:
+            - continuous
+            - quick_check
+            - comprehensive
+            - tcap_practice
+            - quiz
+            - project_rubric
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        subjectId:
+          format: uuid
+          type: string
+        title:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - title
+        - description
+        - kind
+        - createdAt
+        - updatedAt
+      type: object
+    AssessmentAttempt:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentAttempt.json
+          format: uri
+          readOnly: true
+          type: string
+        assessmentId:
+          format: uuid
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        maxScore:
+          format: double
+          type: number
+        score:
+          format: double
+          type: number
+        scoredAt:
+          format: date-time
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - in_progress
+            - submitted
+            - scored
+          type: string
+        studentId:
+          format: uuid
+          type: string
+        submittedAt:
+          format: date-time
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - assessmentId
+        - studentId
+        - status
+        - startedAt
+        - createdAt
+        - updatedAt
+      type: object
+    AssessmentAttemptCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentAttemptCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        assessmentId:
+          format: uuid
+          type: string
+        maxScore:
+          format: double
+          minimum: 0
+          type: number
+        status:
+          enum:
+            - in_progress
+            - submitted
+            - scored
+          type: string
+        studentId:
+          format: uuid
+          type: string
+      required:
+        - assessmentId
+        - studentId
+      type: object
+    AssessmentAttemptUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentAttemptUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        maxScore:
+          format: double
+          minimum: 0
+          type: number
+        score:
+          format: double
+          minimum: 0
+          type: number
+        scoredAt:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - in_progress
+            - submitted
+            - scored
+          type: string
+        submittedAt:
+          format: date-time
+          type: string
+      type: object
+    AssessmentCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        kind:
+          enum:
+            - continuous
+            - quick_check
+            - comprehensive
+            - tcap_practice
+            - quiz
+            - project_rubric
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        subjectId:
+          format: uuid
+          type: string
+        title:
+          minLength: 1
+          type: string
+      required:
+        - title
+        - kind
+      type: object
+    AssessmentItem:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentItem.json
+          format: uri
+          readOnly: true
+          type: string
+        assessmentId:
+          format: uuid
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        difficulty:
+          enum:
+            - approaching
+            - on_track
+            - mastered
+          type: string
+        id:
+          format: uuid
+          type: string
+        itemType:
+          enum:
+            - mc
+            - multi_select
+            - equation_editor
+            - constructed_response
+            - matching
+            - short_answer
+            - true_false
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        points:
+          format: double
+          type: number
+        position:
+          format: int64
+          type: integer
+        rationale:
+          type: string
+        standardId:
+          format: uuid
+          type: string
+        stem:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - assessmentId
+        - position
+        - itemType
+        - difficulty
+        - stem
+        - rationale
+        - points
+        - createdAt
+        - updatedAt
+      type: object
+    AssessmentItemCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentItemCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        assessmentId:
+          format: uuid
+          type: string
+        difficulty:
+          enum:
+            - approaching
+            - on_track
+            - mastered
+          type: string
+        itemType:
+          enum:
+            - mc
+            - multi_select
+            - equation_editor
+            - constructed_response
+            - matching
+            - short_answer
+            - true_false
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        points:
+          format: double
+          minimum: 0
+          type: number
+        position:
+          format: int64
+          type: integer
+        rationale:
+          type: string
+        standardId:
+          format: uuid
+          type: string
+        stem:
+          minLength: 1
+          type: string
+      required:
+        - assessmentId
+        - itemType
+        - stem
+      type: object
+    AssessmentItemOption:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentItemOption.json
+          format: uri
+          readOnly: true
+          type: string
+        correct:
+          type: boolean
+        createdAt:
+          format: date-time
+          type: string
+        feedback:
+          type: string
+        id:
+          format: uuid
+          type: string
+        itemId:
+          format: uuid
+          type: string
+        position:
+          format: int64
+          type: integer
+        text:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - itemId
+        - position
+        - text
+        - correct
+        - feedback
+        - createdAt
+        - updatedAt
+      type: object
+    AssessmentItemOptionCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentItemOptionCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        correct:
+          type: boolean
+        feedback:
+          type: string
+        itemId:
+          format: uuid
+          type: string
+        position:
+          format: int64
+          type: integer
+        text:
+          minLength: 1
+          type: string
+      required:
+        - itemId
+        - text
+      type: object
+    AssessmentItemOptionUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentItemOptionUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        correct:
+          type: boolean
+        feedback:
+          type: string
+        position:
+          format: int64
+          type: integer
+        text:
+          type: string
+      type: object
+    AssessmentItemUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentItemUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        difficulty:
+          enum:
+            - approaching
+            - on_track
+            - mastered
+          type: string
+        itemType:
+          enum:
+            - mc
+            - multi_select
+            - equation_editor
+            - constructed_response
+            - matching
+            - short_answer
+            - true_false
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        points:
+          format: double
+          minimum: 0
+          type: number
+        position:
+          format: int64
+          type: integer
+        rationale:
+          type: string
+        standardId:
+          format: uuid
+          type: string
+        stem:
+          type: string
+      type: object
+    AssessmentUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssessmentUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        kind:
+          enum:
+            - continuous
+            - quick_check
+            - comprehensive
+            - tcap_practice
+            - quiz
+            - project_rubric
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        subjectId:
+          format: uuid
+          type: string
+        title:
+          type: string
+      type: object
+    Curriculum:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Curriculum.json
+          format: uri
+          readOnly: true
+          type: string
+        approach:
+          enum:
+            - mastery_based
+            - spiral
+            - classical
+            - unit_study
+            - custom
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        id:
+          format: uuid
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        name:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - approach
+        - createdAt
+        - updatedAt
+      type: object
+    CurriculumCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CurriculumCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        approach:
+          enum:
+            - mastery_based
+            - spiral
+            - classical
+            - unit_study
+            - custom
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        metadata:
+          additionalProperties: {}
+          type: object
+        name:
+          minLength: 1
+          type: string
+      required:
+        - name
+        - approach
+      type: object
+    CurriculumStandard:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CurriculumStandard.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        id:
+          format: uuid
+          type: string
+        notes:
+          type: string
+        position:
+          format: int64
+          type: integer
+        standardId:
+          format: uuid
+          type: string
+        unit:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - curriculumId
+        - standardId
+        - unit
+        - position
+        - notes
+        - createdAt
+        - updatedAt
+      type: object
+    CurriculumStandardCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CurriculumStandardCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        notes:
+          type: string
+        position:
+          format: int64
+          type: integer
+        standardId:
+          format: uuid
+          type: string
+        unit:
+          type: string
+      required:
+        - curriculumId
+        - standardId
+      type: object
+    CurriculumStandardUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CurriculumStandardUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        notes:
+          type: string
+        position:
+          format: int64
+          type: integer
+        unit:
+          type: string
+      type: object
+    CurriculumUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CurriculumUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        approach:
+          enum:
+            - mastery_based
+            - spiral
+            - classical
+            - unit_study
+            - custom
+          type: string
+        description:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        metadata:
+          additionalProperties: {}
+          type: object
+        name:
+          type: string
+      type: object
+    Educator:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Educator.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        email:
+          format: email
+          type: string
+        id:
+          format: uuid
+          type: string
+        name:
+          type: string
+        role:
+          enum:
+            - parent
+            - admin
+            - tutor
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+        - updatedAt
+      type: object
+    EducatorCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/EducatorCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        email:
+          format: email
+          minLength: 3
+          type: string
+        name:
+          minLength: 1
+          type: string
+        role:
+          default: parent
+          enum:
+            - parent
+            - admin
+            - tutor
+          type: string
+      required:
+        - email
+        - name
+      type: object
+    EducatorUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/EducatorUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        email:
+          format: email
+          type: string
+        name:
+          type: string
+        role:
+          enum:
+            - parent
+            - admin
+            - tutor
+          type: string
+      type: object
+    Enrollment:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Enrollment.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        endedOn:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        startedOn:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - active
+            - paused
+            - completed
+            - withdrawn
+          type: string
+        studentId:
+          format: uuid
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - studentId
+        - curriculumId
+        - status
+        - startedOn
+        - createdAt
+        - updatedAt
+      type: object
+    EnrollmentCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/EnrollmentCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        curriculumId:
+          format: uuid
+          type: string
+        startedOn:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - active
+            - paused
+            - completed
+            - withdrawn
+          type: string
+        studentId:
+          format: uuid
+          type: string
+      required:
+        - studentId
+        - curriculumId
+      type: object
+    EnrollmentUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/EnrollmentUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        endedOn:
+          format: date-time
+          type: string
+        startedOn:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - active
+            - paused
+            - completed
+            - withdrawn
+          type: string
+      type: object
+    ErrorDetail:
+      additionalProperties: false
+      properties:
+        location:
+          description: Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'
+          type: string
+        message:
+          description: Error message text
+          type: string
+        value:
+          description: The value at the given location
+      type: object
+    ErrorModel:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/ErrorModel.json
+          format: uri
+          readOnly: true
+          type: string
+        detail:
+          description: A human-readable explanation specific to this occurrence of the problem.
+          examples:
+            - Property foo is required but is missing.
+          type: string
+        errors:
+          description: Optional list of individual error details
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+          type:
+            - array
+            - "null"
+        instance:
+          description: A URI reference that identifies the specific occurrence of the problem.
+          examples:
+            - https://example.com/error-log/abc123
+          format: uri
+          type: string
+        status:
+          description: HTTP status code
+          examples:
+            - 400
+          format: int64
+          type: integer
+        title:
+          description: A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
+          examples:
+            - Bad Request
+          type: string
+        type:
+          default: about:blank
+          description: A URI reference to human-readable documentation for the error.
+          examples:
+            - https://example.com/errors/example
+          format: uri
+          type: string
+      type: object
+    HealthOutputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/HealthOutputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        status:
+          examples:
+            - ok
+          type: string
+      required:
+        - status
+      type: object
+    ItemResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/ItemResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        attemptId:
+          format: uuid
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        feedback:
+          type: string
+        id:
+          format: uuid
+          type: string
+        isCorrect:
+          type: boolean
+        itemId:
+          format: uuid
+          type: string
+        pointsAwarded:
+          format: double
+          type: number
+        response:
+          additionalProperties: {}
+          type: object
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - attemptId
+        - itemId
+        - feedback
+        - createdAt
+        - updatedAt
+      type: object
+    ItemResponseCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/ItemResponseCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        attemptId:
+          format: uuid
+          type: string
+        feedback:
+          type: string
+        isCorrect:
+          type: boolean
+        itemId:
+          format: uuid
+          type: string
+        pointsAwarded:
+          format: double
+          minimum: 0
+          type: number
+        response:
+          additionalProperties: {}
+          type: object
+      required:
+        - attemptId
+        - itemId
+      type: object
+    ItemResponseUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/ItemResponseUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        feedback:
+          type: string
+        isCorrect:
+          type: boolean
+        pointsAwarded:
+          format: double
+          minimum: 0
+          type: number
+        response:
+          additionalProperties: {}
+          type: object
+      type: object
+    MasteryEvidence:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/MasteryEvidence.json
+          format: uri
+          readOnly: true
+          type: string
+        context:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        kind:
+          enum:
+            - continuous
+            - formal
+            - project
+            - portfolio
+          type: string
+        masteryRecordId:
+          format: uuid
+          type: string
+        occurredOn:
+          format: date-time
+          type: string
+        sourceRef:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - masteryRecordId
+        - kind
+        - occurredOn
+        - context
+        - sourceRef
+        - createdAt
+        - updatedAt
+      type: object
+    MasteryEvidenceCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/MasteryEvidenceCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        context:
+          type: string
+        kind:
+          enum:
+            - continuous
+            - formal
+            - project
+            - portfolio
+          type: string
+        masteryRecordId:
+          format: uuid
+          type: string
+        occurredOn:
+          format: date-time
+          type: string
+        sourceRef:
+          type: string
+      required:
+        - masteryRecordId
+        - kind
+      type: object
+    MasteryEvidenceUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/MasteryEvidenceUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        context:
+          type: string
+        kind:
+          enum:
+            - continuous
+            - formal
+            - project
+            - portfolio
+          type: string
+        occurredOn:
+          format: date-time
+          type: string
+        sourceRef:
+          type: string
+      type: object
+    MasteryRecord:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/MasteryRecord.json
+          format: uri
+          readOnly: true
+          type: string
+        confidence:
+          format: double
+          maximum: 1
+          minimum: 0
+          type: number
+        createdAt:
+          format: date-time
+          type: string
+        decayRate:
+          format: double
+          type: number
+        id:
+          format: uuid
+          type: string
+        lastAssessedAt:
+          format: date-time
+          type: string
+        lastReinforcedAt:
+          format: date-time
+          type: string
+        nextReinforcementAt:
+          format: date-time
+          type: string
+        standardId:
+          format: uuid
+          type: string
+        status:
+          enum:
+            - not_introduced
+            - in_progress
+            - approaching
+            - mastered
+          type: string
+        studentId:
+          format: uuid
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - studentId
+        - standardId
+        - status
+        - confidence
+        - decayRate
+        - createdAt
+        - updatedAt
+      type: object
+    MasteryRecordCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/MasteryRecordCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        confidence:
+          format: double
+          maximum: 1
+          minimum: 0
+          type: number
+        decayRate:
+          format: double
+          maximum: 1
+          minimum: 0
+          type: number
+        lastAssessedAt:
+          format: date-time
+          type: string
+        lastReinforcedAt:
+          format: date-time
+          type: string
+        nextReinforcementAt:
+          format: date-time
+          type: string
+        standardId:
+          format: uuid
+          type: string
+        status:
+          enum:
+            - not_introduced
+            - in_progress
+            - approaching
+            - mastered
+          type: string
+        studentId:
+          format: uuid
+          type: string
+      required:
+        - studentId
+        - standardId
+      type: object
+    MasteryRecordUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/MasteryRecordUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        confidence:
+          format: double
+          maximum: 1
+          minimum: 0
+          type: number
+        decayRate:
+          format: double
+          maximum: 1
+          minimum: 0
+          type: number
+        lastAssessedAt:
+          format: date-time
+          type: string
+        lastReinforcedAt:
+          format: date-time
+          type: string
+        nextReinforcementAt:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - not_introduced
+            - in_progress
+            - approaching
+            - mastered
+          type: string
+      type: object
+    PageBodyAssessment:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyAssessment.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Assessment"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyAssessmentAttempt:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyAssessmentAttempt.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/AssessmentAttempt"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyAssessmentItem:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyAssessmentItem.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/AssessmentItem"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyAssessmentItemOption:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyAssessmentItemOption.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/AssessmentItemOption"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyCurriculum:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyCurriculum.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Curriculum"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyCurriculumStandard:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyCurriculumStandard.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/CurriculumStandard"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyEducator:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyEducator.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Educator"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyEnrollment:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyEnrollment.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Enrollment"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyItemResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyItemResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/ItemResponse"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyMasteryEvidence:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyMasteryEvidence.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/MasteryEvidence"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyMasteryRecord:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyMasteryRecord.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/MasteryRecord"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyStandard:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyStandard.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Standard"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyStudent:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyStudent.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Student"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodySubject:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodySubject.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/Subject"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    Standard:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Standard.json
+          format: uri
+          readOnly: true
+          type: string
+        cluster:
+          type: string
+        code:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        description:
+          type: string
+        domain:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        id:
+          format: uuid
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        parentId:
+          format: uuid
+          type: string
+        source:
+          enum:
+            - tennessee
+            - common_core
+            - custom
+          type: string
+        subjectId:
+          format: uuid
+          type: string
+        tcapWeight:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - source
+        - code
+        - domain
+        - cluster
+        - description
+        - tcapWeight
+        - createdAt
+        - updatedAt
+      type: object
+    StandardCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StandardCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        cluster:
+          type: string
+        code:
+          minLength: 1
+          type: string
+        description:
+          type: string
+        domain:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        metadata:
+          additionalProperties: {}
+          type: object
+        parentId:
+          format: uuid
+          type: string
+        source:
+          enum:
+            - tennessee
+            - common_core
+            - custom
+          type: string
+        subjectId:
+          format: uuid
+          type: string
+        tcapWeight:
+          enum:
+            - low
+            - medium
+            - high
+          type: string
+      required:
+        - source
+        - code
+      type: object
+    StandardUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StandardUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        cluster:
+          type: string
+        code:
+          type: string
+        description:
+          type: string
+        domain:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        metadata:
+          additionalProperties: {}
+          type: object
+        parentId:
+          format: uuid
+          type: string
+        source:
+          enum:
+            - tennessee
+            - common_core
+            - custom
+          type: string
+        subjectId:
+          format: uuid
+          type: string
+        tcapWeight:
+          enum:
+            - low
+            - medium
+            - high
+          type: string
+      type: object
+    Student:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Student.json
+          format: uri
+          readOnly: true
+          type: string
+        birthdate:
+          format: date-time
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        firstName:
+          type: string
+        gradeLevel:
+          format: int64
+          type: integer
+        id:
+          format: uuid
+          type: string
+        lastName:
+          type: string
+        notes:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - firstName
+        - lastName
+        - notes
+        - createdAt
+        - updatedAt
+      type: object
+    StudentCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StudentCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        birthdate:
+          format: date-time
+          type: string
+        firstName:
+          minLength: 1
+          type: string
+        gradeLevel:
+          format: int64
+          maximum: 12
+          minimum: 0
+          type: integer
+        lastName:
+          minLength: 1
+          type: string
+        notes:
+          type: string
+      required:
+        - firstName
+        - lastName
+      type: object
+    StudentUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StudentUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        birthdate:
+          format: date-time
+          type: string
+        firstName:
+          type: string
+        gradeLevel:
+          format: int64
+          maximum: 12
+          minimum: 0
+          type: integer
+        lastName:
+          type: string
+        notes:
+          type: string
+      type: object
+    Subject:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/Subject.json
+          format: uri
+          readOnly: true
+          type: string
+        code:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        description:
+          type: string
+        id:
+          format: uuid
+          type: string
+        name:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - code
+        - name
+        - description
+        - createdAt
+        - updatedAt
+      type: object
+    SubjectCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/SubjectCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        code:
+          minLength: 1
+          type: string
+        description:
+          type: string
+        name:
+          minLength: 1
+          type: string
+      required:
+        - code
+        - name
+      type: object
+    SubjectUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/SubjectUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        code:
+          type: string
+        description:
+          type: string
+        name:
+          type: string
+      type: object
+info:
+  description: "LMS backend for the Primer AI tutoring system: students, curricula, standards, mastery tracking, and assessments."
+  title: Primer LMS API
+  version: 0.1.0
+openapi: 3.1.0
+paths:
+  /assessment-attempts:
+    get:
+      description: List assessment-attempts with pagination, search (), sorting (status, score, started_at, submitted_at, created_at, updated_at), and filters (assessment_id, student_id, status).
+      operationId: list-assessment-attempts
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyAssessmentAttempt"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List assessment-attempts
+      tags:
+        - Assessment Attempts
+    post:
+      operationId: create-assessment-attempt
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentAttemptCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentAttempt"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a assessment-attempt
+      tags:
+        - Assessment Attempts
+  /assessment-attempts/{id}:
+    delete:
+      operationId: delete-assessment-attempt
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a assessment-attempt
+      tags:
+        - Assessment Attempts
+    get:
+      operationId: get-assessment-attempt
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentAttempt"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a assessment-attempt
+      tags:
+        - Assessment Attempts
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-assessment-attempt
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentAttemptUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentAttempt"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a assessment-attempt
+      tags:
+        - Assessment Attempts
+  /assessment-item-options:
+    get:
+      description: List assessment-item-options with pagination, search (text, feedback), sorting (position, correct, created_at, updated_at), and filters (item_id, correct).
+      operationId: list-assessment-item-options
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyAssessmentItemOption"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List assessment-item-options
+      tags:
+        - Assessment Item Options
+    post:
+      operationId: create-assessment-item-option
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentItemOptionCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentItemOption"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a assessment-item-option
+      tags:
+        - Assessment Item Options
+  /assessment-item-options/{id}:
+    delete:
+      operationId: delete-assessment-item-option
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a assessment-item-option
+      tags:
+        - Assessment Item Options
+    get:
+      operationId: get-assessment-item-option
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentItemOption"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a assessment-item-option
+      tags:
+        - Assessment Item Options
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-assessment-item-option
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentItemOptionUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentItemOption"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a assessment-item-option
+      tags:
+        - Assessment Item Options
+  /assessment-items:
+    get:
+      description: List assessment-items with pagination, search (stem, rationale), sorting (position, item_type, difficulty, points, created_at, updated_at), and filters (assessment_id, standard_id, item_type, difficulty).
+      operationId: list-assessment-items
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyAssessmentItem"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List assessment-items
+      tags:
+        - Assessment Items
+    post:
+      operationId: create-assessment-item
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentItemCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentItem"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a assessment-item
+      tags:
+        - Assessment Items
+  /assessment-items/{id}:
+    delete:
+      operationId: delete-assessment-item
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a assessment-item
+      tags:
+        - Assessment Items
+    get:
+      operationId: get-assessment-item
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentItem"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a assessment-item
+      tags:
+        - Assessment Items
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-assessment-item
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentItemUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentItem"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a assessment-item
+      tags:
+        - Assessment Items
+  /assessments:
+    get:
+      description: List assessments with pagination, search (title, description), sorting (title, kind, grade_level, created_at, updated_at), and filters (kind, subject_id, curriculum_id, grade_level).
+      operationId: list-assessments
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyAssessment"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List assessments
+      tags:
+        - Assessments
+    post:
+      operationId: create-assessment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assessment"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a assessment
+      tags:
+        - Assessments
+  /assessments/{id}:
+    delete:
+      operationId: delete-assessment
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a assessment
+      tags:
+        - Assessments
+    get:
+      operationId: get-assessment
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assessment"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a assessment
+      tags:
+        - Assessments
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-assessment
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessmentUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assessment"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a assessment
+      tags:
+        - Assessments
+  /curricula:
+    get:
+      description: List curricula with pagination, search (name, description), sorting (name, approach, grade_level, created_at, updated_at), and filters (approach, grade_level).
+      operationId: list-curricula
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyCurriculum"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List curricula
+      tags:
+        - Curricula
+    post:
+      operationId: create-curriculum
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurriculumCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Curriculum"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a curriculum
+      tags:
+        - Curricula
+  /curricula/{id}:
+    delete:
+      operationId: delete-curriculum
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a curriculum
+      tags:
+        - Curricula
+    get:
+      operationId: get-curriculum
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Curriculum"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a curriculum
+      tags:
+        - Curricula
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-curriculum
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurriculumUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Curriculum"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a curriculum
+      tags:
+        - Curricula
+  /curriculum-standards:
+    get:
+      description: List curriculum-standards with pagination, search (unit, notes), sorting (unit, position, created_at, updated_at), and filters (curriculum_id, standard_id, unit).
+      operationId: list-curriculum-standards
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyCurriculumStandard"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List curriculum-standards
+      tags:
+        - Curriculum Standards
+    post:
+      operationId: create-curriculum-standard
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurriculumStandardCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurriculumStandard"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a curriculum-standard
+      tags:
+        - Curriculum Standards
+  /curriculum-standards/{id}:
+    delete:
+      operationId: delete-curriculum-standard
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a curriculum-standard
+      tags:
+        - Curriculum Standards
+    get:
+      operationId: get-curriculum-standard
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurriculumStandard"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a curriculum-standard
+      tags:
+        - Curriculum Standards
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-curriculum-standard
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurriculumStandardUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurriculumStandard"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a curriculum-standard
+      tags:
+        - Curriculum Standards
+  /educators:
+    get:
+      description: List educators with pagination, search (email, name), sorting (email, name, role, created_at, updated_at), and filters (role).
+      operationId: list-educators
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyEducator"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List educators
+      tags:
+        - Educators
+    post:
+      operationId: create-educator
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducatorCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Educator"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a educator
+      tags:
+        - Educators
+  /educators/{id}:
+    delete:
+      operationId: delete-educator
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a educator
+      tags:
+        - Educators
+    get:
+      operationId: get-educator
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Educator"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a educator
+      tags:
+        - Educators
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-educator
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducatorUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Educator"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a educator
+      tags:
+        - Educators
+  /enrollments:
+    get:
+      description: List enrollments with pagination, search (), sorting (status, started_on, ended_on, created_at, updated_at), and filters (student_id, curriculum_id, status).
+      operationId: list-enrollments
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyEnrollment"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List enrollments
+      tags:
+        - Enrollments
+    post:
+      operationId: create-enrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Enrollment"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a enrollment
+      tags:
+        - Enrollments
+  /enrollments/{id}:
+    delete:
+      operationId: delete-enrollment
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a enrollment
+      tags:
+        - Enrollments
+    get:
+      operationId: get-enrollment
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Enrollment"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a enrollment
+      tags:
+        - Enrollments
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-enrollment
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Enrollment"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a enrollment
+      tags:
+        - Enrollments
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Health check
+      tags:
+        - System
+  /item-responses:
+    get:
+      description: List item-responses with pagination, search (feedback), sorting (is_correct, points_awarded, created_at, updated_at), and filters (attempt_id, item_id, is_correct).
+      operationId: list-item-responses
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyItemResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List item-responses
+      tags:
+        - Item Responses
+    post:
+      operationId: create-item-response
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemResponseCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemResponse"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a item-response
+      tags:
+        - Item Responses
+  /item-responses/{id}:
+    delete:
+      operationId: delete-item-response
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a item-response
+      tags:
+        - Item Responses
+    get:
+      operationId: get-item-response
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a item-response
+      tags:
+        - Item Responses
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-item-response
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemResponseUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a item-response
+      tags:
+        - Item Responses
+  /mastery-evidence:
+    get:
+      description: List mastery-evidences with pagination, search (context, source_ref), sorting (kind, occurred_on, created_at, updated_at), and filters (mastery_record_id, kind).
+      operationId: list-mastery-evidences
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyMasteryEvidence"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List mastery-evidences
+      tags:
+        - Mastery Evidences
+    post:
+      operationId: create-mastery-evidence
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MasteryEvidenceCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryEvidence"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a mastery-evidence
+      tags:
+        - Mastery Evidences
+  /mastery-evidence/{id}:
+    delete:
+      operationId: delete-mastery-evidence
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a mastery-evidence
+      tags:
+        - Mastery Evidences
+    get:
+      operationId: get-mastery-evidence
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryEvidence"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a mastery-evidence
+      tags:
+        - Mastery Evidences
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-mastery-evidence
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MasteryEvidenceUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryEvidence"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a mastery-evidence
+      tags:
+        - Mastery Evidences
+  /mastery-records:
+    get:
+      description: List mastery-records with pagination, search (), sorting (status, confidence, last_assessed_at, next_reinforcement_at, created_at, updated_at), and filters (student_id, standard_id, status).
+      operationId: list-mastery-records
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyMasteryRecord"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List mastery-records
+      tags:
+        - Mastery Records
+    post:
+      operationId: create-mastery-record
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MasteryRecordCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryRecord"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a mastery-record
+      tags:
+        - Mastery Records
+  /mastery-records/{id}:
+    delete:
+      operationId: delete-mastery-record
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a mastery-record
+      tags:
+        - Mastery Records
+    get:
+      operationId: get-mastery-record
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryRecord"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a mastery-record
+      tags:
+        - Mastery Records
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-mastery-record
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MasteryRecordUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryRecord"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a mastery-record
+      tags:
+        - Mastery Records
+  /standards:
+    get:
+      description: List standards with pagination, search (code, description, domain, cluster), sorting (code, source, grade_level, domain, created_at, updated_at), and filters (source, subject_id, parent_id, grade_level, domain, tcap_weight).
+      operationId: list-standards
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyStandard"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List standards
+      tags:
+        - Standards
+    post:
+      operationId: create-standard
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Standard"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a standard
+      tags:
+        - Standards
+  /standards/{id}:
+    delete:
+      operationId: delete-standard
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a standard
+      tags:
+        - Standards
+    get:
+      operationId: get-standard
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Standard"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a standard
+      tags:
+        - Standards
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-standard
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StandardUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Standard"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a standard
+      tags:
+        - Standards
+  /students:
+    get:
+      description: List students with pagination, search (first_name, last_name, notes), sorting (first_name, last_name, grade_level, birthdate, created_at, updated_at), and filters (grade_level).
+      operationId: list-students
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyStudent"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List students
+      tags:
+        - Students
+    post:
+      operationId: create-student
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudentCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Student"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a student
+      tags:
+        - Students
+  /students/{id}:
+    delete:
+      operationId: delete-student
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a student
+      tags:
+        - Students
+    get:
+      operationId: get-student
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Student"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a student
+      tags:
+        - Students
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-student
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudentUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Student"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a student
+      tags:
+        - Students
+  /subjects:
+    get:
+      description: List subjects with pagination, search (code, name, description), sorting (code, name, created_at, updated_at), and filters (code).
+      operationId: list-subjects
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodySubject"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List subjects
+      tags:
+        - Subjects
+    post:
+      operationId: create-subject
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubjectCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subject"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a subject
+      tags:
+        - Subjects
+  /subjects/{id}:
+    delete:
+      operationId: delete-subject
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a subject
+      tags:
+        - Subjects
+    get:
+      operationId: get-subject
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subject"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a subject
+      tags:
+        - Subjects
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-subject
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubjectUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subject"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a subject
+      tags:
+        - Subjects
+servers:
+  - url: /api/v1

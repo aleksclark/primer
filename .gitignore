@@ -1,1 +1,24 @@
+# Go
+server/coverage.out
+server/primer-server
+server/openapi-gen
+server/migrate
+
+# Node
+web/node_modules/
+web/dist/
+
+# Embedded SPA bundle (placeholder index.html stays tracked; `make bundle`
+# replaces it locally, the Dockerfile replaces it in CI)
+server/internal/spa/dist/*
+!server/internal/spa/dist/index.html
+
+# Generated artifacts (regenerate with `make client`)
+# openapi.yaml and schema.d.ts are checked in for reproducible builds
+
+# NixOS
 workstation/result
+
+# Editor / OS
+.DS_Store
+*.swp

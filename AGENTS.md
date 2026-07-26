@@ -104,6 +104,44 @@ go run ./cmd/primer/
 go test ./...
 ```
 
+## LMS Server (`server/`) and Admin SPA (`web/`)
+
+The LMS backend is a Go HTTP API (Huma v2 + chi + pgx/PostgreSQL) that manages
+students, curricula, standards, mastery tracking, and assessments. The admin
+SPA is a Vite + React + Tailwind (shadcn-style) app with a generated TypeScript
+client.
+
+```bash
+make build     # build server binaries
+make test      # full test suite (integration tests use a PostgreSQL testcontainer)
+make cover     # coverage with 85% minimum gate
+make openapi   # regenerate web/openapi.yaml from API type signatures
+make client    # regenerate the TS client (openapi-typescript)
+make web       # build the SPA (regenerates client first)
+make dev-db    # start a local PostgreSQL in docker
+make migrate   # apply migrations (goose, embedded in the binary)
+```
+
+Key architecture points:
+
+- **OpenAPI from code**: Huma generates the OpenAPI 3.1 spec from Go handler
+  type signatures (`server/cmd/openapi-gen`). The TS client is generated from
+  that spec at build time (`npm run generate:client`).
+- **Generic CRUD+list**: every resource gets list/get/create/update/delete via
+  `api.RegisterCRUD` with pagination, free-text search (`q`), whitelisted
+  sorting (`sort`/`dir`), and exact-match filters (`filter=col:value`) built in
+  (`server/internal/repo/list.go`, `server/internal/api/crud.go`).
+- **Integration testing**: tests run against a real PostgreSQL testcontainer;
+  each test gets a transaction (rolled back on cleanup) wrapped in per-statement
+  savepoints so expected constraint violations don't abort it
+  (`server/internal/testutil/`). FactoryBot-style factories live in
+  `server/internal/testutil/factory/`.
+- **Schema**: educators, students, subjects, standards (hierarchical,
+  multi-source, prerequisite graph), curricula (multiple approaches),
+  curriculum_standards (sequencing), enrollments, mastery_records + evidence,
+  assessments (6 kinds), items, options, attempts, item_responses. Migrations
+  in `server/internal/db/migrations/`.
+
 ## Key Design Decisions
 
 | Decision | Choice | Rationale |
