@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
@@ -29,8 +30,49 @@ func columnList(cols []string) string {
 	return strings.Join(cols, ", ")
 }
 
+// columnsFromType returns db tag names from exported fields of T.
+// Nested anonymous structs are flattened. Fields tagged `db:"-"` or without
+// a db tag are skipped.
+func columnsFromType[T any]() []string {
+	var walk func(t reflect.Type) []string
+	walk = func(t reflect.Type) []string {
+		if t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+		if t.Kind() != reflect.Struct {
+			return nil
+		}
+		var cols []string
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			if f.Anonymous {
+				cols = append(cols, walk(f.Type)...)
+				continue
+			}
+			tag := f.Tag.Get("db")
+			if tag == "" || tag == "-" {
+				continue
+			}
+			name, _, _ := strings.Cut(tag, ",")
+			if name != "" && name != "-" {
+				cols = append(cols, name)
+			}
+		}
+		return cols
+	}
+	return walk(reflect.TypeFor[T]())
+}
+
 // NewResource builds a repository for the given list configuration.
+// When cfg.Columns is empty, column names are derived from T's db tags so the
+// domain struct remains the single source of truth for selected columns.
 func NewResource[T any](cfg ListConfig) *Resource[T] {
+	if len(cfg.Columns) == 0 {
+		cfg.Columns = columnsFromType[T]()
+	}
 	return &Resource[T]{cfg: cfg}
 }
 

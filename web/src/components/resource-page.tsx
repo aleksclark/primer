@@ -18,7 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useList, mutate } from "@/hooks/use-list";
+import { mutate } from "@/api/client";
+import { useList } from "@/hooks/use-list";
 
 /** ColumnDef describes one column of a resource table. */
 export interface ColumnDef<T> {

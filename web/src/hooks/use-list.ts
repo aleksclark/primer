@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ListQuery, Page } from "@/api/client";
+import { apiError, type ListQuery, type Page } from "@/api/client";
 
 interface ListState<T> {
   data: Page<T> | null;
@@ -33,10 +33,7 @@ export function useList<T>(
     setState((s) => ({ ...s, loading: true }));
     fetch(`/api/v1${path}?${params}`, { signal: controller.signal })
       .then(async (res) => {
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.detail ?? `HTTP ${res.status}`);
-        }
+        if (!res.ok) throw await apiError(res);
         return res.json();
       })
       .then((data: Page<T>) => setState({ data, loading: false, error: null }))
@@ -49,23 +46,4 @@ export function useList<T>(
   }, [path, query.limit, query.offset, query.q, query.sort, query.dir, JSON.stringify(query.filter), tick]);
 
   return { ...state, refresh };
-}
-
-/** mutate performs a JSON write request against the API. */
-export async function mutate(
-  method: "POST" | "PATCH" | "DELETE",
-  path: string,
-  body?: unknown,
-): Promise<unknown> {
-  const res = await fetch(`/api/v1${path}`, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error(detail.detail ?? `HTTP ${res.status}`);
-  }
-  if (res.status === 204) return null;
-  return res.json();
 }

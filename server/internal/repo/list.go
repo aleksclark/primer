@@ -2,6 +2,7 @@ package repo
 
 import (
 	"fmt"
+	"slices"
 
 	sq "github.com/Masterminds/squirrel"
 )
@@ -77,22 +78,12 @@ type ListConfig struct {
 
 // sortable reports whether col is an allowed sort column.
 func (c ListConfig) sortable(col string) bool {
-	for _, s := range c.SortableColumns {
-		if s == col {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.SortableColumns, col)
 }
 
 // filterable reports whether col is an allowed filter column.
 func (c ListConfig) filterable(col string) bool {
-	for _, s := range c.FilterableColumns {
-		if s == col {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.FilterableColumns, col)
 }
 
 // buildSelect constructs the data + count queries for a list request.

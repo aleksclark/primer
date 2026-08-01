@@ -166,3 +166,4 @@ See `agent_docs/` for comprehensive documentation on each aspect of the system:
 - **[Assessment](agent_docs/assessment.md)** — Mastery tracking, TCAP prep, portfolio
 - **[TV Channel](agent_docs/tv-channel.md)** — Virtual linear broadcast system
 - **[Tools](agent_docs/tools.md)** — External tool integration (Onshape, spreadsheets, etc.)
+- **[Code improvements](agent_docs/code-improvements.md)** — DRY / SoC / naming backlog for the LMS stack
