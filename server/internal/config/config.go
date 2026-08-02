@@ -18,6 +18,10 @@ type Config struct {
 	Env string `envconfig:"ENV" default:"development"`
 	// CORSOrigins is the list of allowed CORS origins for the admin SPA.
 	CORSOrigins []string `envconfig:"CORS_ORIGINS" default:"http://localhost:5173"`
+	// ServiceToken authenticates other Primer services pushing data into the
+	// LMS — today, the TV server reporting instructional time. Empty leaves
+	// the ingest open, which is only safe for local development.
+	ServiceToken string `envconfig:"SERVICE_TOKEN"`
 }
 
 // Load reads configuration from the environment.

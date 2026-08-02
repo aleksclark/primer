@@ -44,7 +44,16 @@ func run() error {
 	}
 	defer pool.Close()
 
-	_, handler := api.New(pool, api.Options{CORSOrigins: cfg.CORSOrigins})
+	if cfg.ServiceToken == "" {
+		// Worth shouting about: without a token anyone who can reach the port
+		// can inflate the student's instructional hours.
+		slog.Warn("service token is not set; the instruction log ingest is unauthenticated")
+	}
+
+	_, handler := api.New(pool, api.Options{
+		CORSOrigins:  cfg.CORSOrigins,
+		ServiceToken: cfg.ServiceToken,
+	})
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", handler))

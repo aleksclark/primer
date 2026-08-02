@@ -96,3 +96,24 @@ func TestErrBadRequest(t *testing.T) {
 	err := ErrBadRequest{Msg: "bad column"}
 	assert.Equal(t, "bad column", err.Error())
 }
+
+func TestColumnsFromType(t *testing.T) {
+	t.Parallel()
+
+	type sample struct {
+		ID         string `db:"id"`
+		Name       string `db:"name"`
+		Skipped    string `db:"-"`
+		NoTag      string
+		unexported string `db:"hidden"`
+	}
+
+	cols := columnsFromType[sample]()
+	assert.Equal(t, []string{"id", "name"}, cols)
+
+	// Domain entities used by resources must yield a non-empty column list.
+	assert.Contains(t, Educators.Config().Columns, "email")
+	assert.Contains(t, Students.Config().Columns, "first_name")
+	assert.Contains(t, Standards.Config().Columns, "tcap_weight")
+	assert.NotContains(t, Educators.Config().Columns, "")
+}

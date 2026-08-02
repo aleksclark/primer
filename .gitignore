@@ -1,20 +1,32 @@
 # Go
 server/coverage.out
 server/primer-server
+server/tv-server
 server/openapi-gen
 server/migrate
 
 # Node
 web/node_modules/
 web/dist/
+tv-web/node_modules/
+tv-web/dist/
 
-# Embedded SPA bundle (placeholder index.html stays tracked; `make bundle`
-# replaces it locally, the Dockerfile replaces it in CI)
+# Embedded SPA bundles (placeholder index.html stays tracked; `make bundle` and
+# `make tv-bundle` replace them locally, the Dockerfile replaces them in CI)
 server/internal/spa/dist/*
 !server/internal/spa/dist/index.html
+server/internal/tv/spa/dist/*
+!server/internal/tv/spa/dist/index.html
 
 # Generated artifacts (regenerate with `make client`)
 # openapi.yaml and schema.d.ts are checked in for reproducible builds
+
+# Android
+android/build/
+android/*/build/
+android/.gradle/
+android/.kotlin/
+android/local.properties
 
 # NixOS
 workstation/result

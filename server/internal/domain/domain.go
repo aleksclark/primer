@@ -119,6 +119,40 @@ type MasteryEvidence struct {
 	UpdatedAt       time.Time `json:"updatedAt" db:"updated_at"`
 }
 
+// Instruction log sources. Machine producers carry a stable SourceRef so a
+// retry cannot count the same event twice; hand-entered rows leave it empty.
+const (
+	InstructionSourceTV     = "tv"
+	InstructionSourceManual = "manual"
+)
+
+// Instruction log classes. Only educational and mixed viewing is instructional
+// time; pure entertainment is not logged here at all.
+const (
+	InstructionClassEducational = "educational"
+	InstructionClassMixed       = "mixed"
+)
+
+// InstructionLog is instructional time earned outside the LMS proper — today,
+// educational viewing pushed here by the TV server. Subject tags and standard
+// codes travel with the log so the hours land under the right subject and can
+// later be joined to mastery evidence by standard code.
+type InstructionLog struct {
+	ID             string    `json:"id" db:"id" format:"uuid"`
+	Source         string    `json:"source" db:"source" enum:"tv,manual"`
+	SourceRef      string    `json:"sourceRef" db:"source_ref" doc:"The producer's stable identifier for the event; empty for hand-entered rows."`
+	StudentID      *string   `json:"studentId,omitempty" db:"student_id" format:"uuid"`
+	MediaTitle     string    `json:"mediaTitle" db:"media_title"`
+	Class          string    `json:"class" db:"class" enum:"educational,mixed"`
+	SubjectTags    []string  `json:"subjectTags" db:"subject_tags"`
+	StandardCodes  []string  `json:"standardCodes" db:"standard_codes"`
+	WatchedSeconds int       `json:"watchedSeconds" db:"watched_seconds"`
+	OccurredOn     time.Time `json:"occurredOn" db:"occurred_on"`
+	Notes          string    `json:"notes" db:"notes"`
+	CreatedAt      time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt      time.Time `json:"updatedAt" db:"updated_at"`
+}
+
 // Assessment is a definition of an assessment of any supported kind.
 type Assessment struct {
 	ID           string         `json:"id" db:"id" format:"uuid"`

@@ -69,13 +69,64 @@ type updateInput[U any] struct {
 // deleteOutput is an empty 204 response.
 type deleteOutput struct{}
 
+// crudConfig records which of the standard operations to register and how
+// they are guarded.
+type crudConfig struct {
+	skipCreate bool
+	skipUpdate bool
+	skipDelete bool
+	middleware huma.Middlewares
+	security   []map[string][]string
+	errors     []int
+}
+
+// CRUDOption opts a resource out of part of the standard operation set, or
+// wraps its operations in authentication.
+type CRUDOption func(*crudConfig)
+
+// Guard applies middleware to every generated operation and documents the
+// security scheme it enforces, so an authenticated resource does not have to
+// hand-roll its endpoints.
+func Guard(middleware func(huma.Context, func(huma.Context)), scheme string) CRUDOption {
+	return func(c *crudConfig) {
+		c.middleware = append(c.middleware, middleware)
+		if scheme != "" {
+			c.security = append(c.security, map[string][]string{scheme: {}})
+		}
+		c.errors = append(c.errors, http.StatusUnauthorized)
+	}
+}
+
+// apply stamps the configured guard onto an operation.
+func (c crudConfig) apply(op huma.Operation) huma.Operation {
+	op.Middlewares = append(op.Middlewares, c.middleware...)
+	op.Security = append(op.Security, c.security...)
+	op.Errors = append(op.Errors, c.errors...)
+	return op
+}
+
+// SkipCreate omits the create endpoint, for resources whose creation needs a
+// bespoke handler or that are read-only.
+func SkipCreate() CRUDOption { return func(c *crudConfig) { c.skipCreate = true } }
+
+// SkipUpdate omits the update endpoint.
+func SkipUpdate() CRUDOption { return func(c *crudConfig) { c.skipUpdate = true } }
+
+// SkipDelete omits the delete endpoint.
+func SkipDelete() CRUDOption { return func(c *crudConfig) { c.skipDelete = true } }
+
 // RegisterCRUD registers the standard list/get/create/update/delete
 // operations for a resource. T is the entity, C the create body, and U the
-// partial-update body (all fields must be pointers).
-func RegisterCRUD[T, C, U any](api huma.API, q repo.Querier, res *repo.Resource[T], singular, plural, path string) {
+// partial-update body (all fields must be pointers). Options omit individual
+// operations for resources that are read-only or need a bespoke handler.
+func RegisterCRUD[T, C, U any](api huma.API, q repo.Querier, res *repo.Resource[T], singular, plural, path string, opts ...CRUDOption) {
 	tag := titleCase(plural)
+	var cfg crudConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 
-	huma.Register(api, huma.Operation{
+	huma.Register(api, cfg.apply(huma.Operation{
 		OperationID: "list-" + plural,
 		Method:      http.MethodGet,
 		Path:        path,
@@ -86,8 +137,8 @@ func RegisterCRUD[T, C, U any](api huma.API, q repo.Querier, res *repo.Resource[
 			strings.Join(res.Config().SortableColumns, ", "),
 			strings.Join(res.Config().FilterableColumns, ", ")),
 		Tags: []string{tag},
-	}, func(ctx context.Context, in *ListInput) (*listOutput[T], error) {
-		filters, err := parseFilters(in.Filter)
+	}), func(ctx context.Context, in *ListInput) (*listOutput[T], error) {
+		filters, err := ParseFilters(in.Filter)
 		if err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
@@ -100,7 +151,7 @@ func RegisterCRUD[T, C, U any](api huma.API, q repo.Querier, res *repo.Resource[
 			Filters: filters,
 		})
 		if err != nil {
-			return nil, mapError(err)
+			return nil, MapError(err)
 		}
 		if page.Items == nil {
 			page.Items = []T{}
@@ -113,63 +164,69 @@ func RegisterCRUD[T, C, U any](api huma.API, q repo.Querier, res *repo.Resource[
 		}}, nil
 	})
 
-	huma.Register(api, huma.Operation{
+	huma.Register(api, cfg.apply(huma.Operation{
 		OperationID: "get-" + singular,
 		Method:      http.MethodGet,
 		Path:        path + "/{id}",
 		Summary:     "Get a " + singular,
 		Tags:        []string{tag},
-	}, func(ctx context.Context, in *getInput) (*itemOutput[T], error) {
+	}), func(ctx context.Context, in *getInput) (*itemOutput[T], error) {
 		item, err := res.Get(ctx, q, in.ID)
 		if err != nil {
-			return nil, mapError(err)
+			return nil, MapError(err)
 		}
 		return &itemOutput[T]{Body: *item}, nil
 	})
 
-	huma.Register(api, huma.Operation{
-		OperationID:   "create-" + singular,
-		Method:        http.MethodPost,
-		Path:          path,
-		Summary:       "Create a " + singular,
-		Tags:          []string{tag},
-		DefaultStatus: http.StatusCreated,
-	}, func(ctx context.Context, in *createInput[C]) (*itemOutput[T], error) {
-		item, err := res.Create(ctx, q, structToValues(in.Body))
-		if err != nil {
-			return nil, mapError(err)
-		}
-		return &itemOutput[T]{Body: *item}, nil
-	})
+	if !cfg.skipCreate {
+		huma.Register(api, cfg.apply(huma.Operation{
+			OperationID:   "create-" + singular,
+			Method:        http.MethodPost,
+			Path:          path,
+			Summary:       "Create a " + singular,
+			Tags:          []string{tag},
+			DefaultStatus: http.StatusCreated,
+		}), func(ctx context.Context, in *createInput[C]) (*itemOutput[T], error) {
+			item, err := res.Create(ctx, q, structToValues(in.Body))
+			if err != nil {
+				return nil, MapError(err)
+			}
+			return &itemOutput[T]{Body: *item}, nil
+		})
+	}
 
-	huma.Register(api, huma.Operation{
-		OperationID: "update-" + singular,
-		Method:      http.MethodPatch,
-		Path:        path + "/{id}",
-		Summary:     "Update a " + singular,
-		Description: "Partial update: only provided fields are changed.",
-		Tags:        []string{tag},
-	}, func(ctx context.Context, in *updateInput[U]) (*itemOutput[T], error) {
-		item, err := res.Update(ctx, q, in.ID, structToValues(in.Body))
-		if err != nil {
-			return nil, mapError(err)
-		}
-		return &itemOutput[T]{Body: *item}, nil
-	})
+	if !cfg.skipUpdate {
+		huma.Register(api, cfg.apply(huma.Operation{
+			OperationID: "update-" + singular,
+			Method:      http.MethodPatch,
+			Path:        path + "/{id}",
+			Summary:     "Update a " + singular,
+			Description: "Partial update: only provided fields are changed.",
+			Tags:        []string{tag},
+		}), func(ctx context.Context, in *updateInput[U]) (*itemOutput[T], error) {
+			item, err := res.Update(ctx, q, in.ID, structToValues(in.Body))
+			if err != nil {
+				return nil, MapError(err)
+			}
+			return &itemOutput[T]{Body: *item}, nil
+		})
+	}
 
-	huma.Register(api, huma.Operation{
-		OperationID:   "delete-" + singular,
-		Method:        http.MethodDelete,
-		Path:          path + "/{id}",
-		Summary:       "Delete a " + singular,
-		Tags:          []string{tag},
-		DefaultStatus: http.StatusNoContent,
-	}, func(ctx context.Context, in *deleteInput) (*deleteOutput, error) {
-		if err := res.Delete(ctx, q, in.ID); err != nil {
-			return nil, mapError(err)
-		}
-		return &deleteOutput{}, nil
-	})
+	if !cfg.skipDelete {
+		huma.Register(api, cfg.apply(huma.Operation{
+			OperationID:   "delete-" + singular,
+			Method:        http.MethodDelete,
+			Path:          path + "/{id}",
+			Summary:       "Delete a " + singular,
+			Tags:          []string{tag},
+			DefaultStatus: http.StatusNoContent,
+		}), func(ctx context.Context, in *deleteInput) (*deleteOutput, error) {
+			if err := res.Delete(ctx, q, in.ID); err != nil {
+				return nil, MapError(err)
+			}
+			return &deleteOutput{}, nil
+		})
+	}
 }
 
 // titleCase converts "assessment-items" to "Assessment Items" for tags.
@@ -183,8 +240,8 @@ func titleCase(s string) string {
 	return strings.Join(words, " ")
 }
 
-// parseFilters converts ["col:value", ...] into a filter map.
-func parseFilters(raw []string) (map[string]any, error) {
+// ParseFilters converts ["col:value", ...] into a filter map.
+func ParseFilters(raw []string) (map[string]any, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -226,8 +283,8 @@ func structToValues(v any) map[string]any {
 	return out
 }
 
-// mapError translates repository and database errors into HTTP errors.
-func mapError(err error) error {
+// MapError translates repository and database errors into HTTP errors.
+func MapError(err error) error {
 	if errors.Is(err, repo.ErrNotFound) {
 		return huma.Error404NotFound("resource not found")
 	}

@@ -1,0 +1,55 @@
+name: go
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "server/**"
+      - ".github/workflows/go.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/go.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: Check formatting
+        working-directory: server
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # Integration tests start a PostgreSQL testcontainer against the runner's
+      # own Docker daemon.
+      - name: Test with coverage gate
+        run: make cover
+
+      - name: Check the generated OpenAPI specs are current
+        run: |
+          make openapi openapi-tv
+          if ! git diff --quiet -- web/openapi.yaml tv-web/openapi.yaml; then
+            echo "The OpenAPI specs are stale. Run 'make openapi openapi-tv' and commit the result."
+            git diff -- web/openapi.yaml tv-web/openapi.yaml
+            exit 1
+          fi

@@ -365,6 +365,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/instruction-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List instruction-logs
+         * @description List instruction-logs with pagination, search (media_title, notes, source_ref), sorting (occurred_on, watched_seconds, media_title, source, class, created_at, updated_at), and filters (source, class, student_id, occurred_on).
+         */
+        get: operations["list-instruction-logs"];
+        put?: never;
+        /** Create a instruction-log */
+        post: operations["create-instruction-log"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/instruction-logs/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest instructional time from a service
+         * @description Records a finished viewing as instructional time. Idempotent on (source, sourceRef): a retry answers 200 with the existing log and created=false, so a producer whose own bookkeeping failed can safely try again. Entertainment viewing is not instructional time and is refused.
+         */
+        post: operations["ingest-instruction-log"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/instruction-logs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a instruction-log */
+        get: operations["get-instruction-log"];
+        put?: never;
+        post?: never;
+        /** Delete a instruction-log */
+        delete: operations["delete-instruction-log"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a instruction-log
+         * @description Partial update: only provided fields are changed.
+         */
+        patch: operations["update-instruction-log"];
+        trace?: never;
+    };
     "/item-responses": {
         parameters: {
             query?: never;
@@ -1154,6 +1217,123 @@ export interface components {
             /** @example ok */
             status: string;
         };
+        InstructionLog: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/InstructionLog.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            class: "educational" | "mixed";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            mediaTitle: string;
+            notes: string;
+            /** Format: date-time */
+            occurredOn: string;
+            /** @enum {string} */
+            source: "tv" | "manual";
+            /** @description The producer's stable identifier for the event; empty for hand-entered rows. */
+            sourceRef: string;
+            standardCodes: string[] | null;
+            /** Format: uuid */
+            studentId?: string;
+            subjectTags: string[] | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int64 */
+            watchedSeconds: number;
+        };
+        InstructionLogCreate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/InstructionLogCreate.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            class: "educational" | "mixed";
+            mediaTitle: string;
+            notes?: string;
+            /** Format: date-time */
+            occurredOn?: string;
+            /** @enum {string} */
+            source?: "tv" | "manual";
+            standardCodes?: string[];
+            /** Format: uuid */
+            studentId?: string;
+            subjectTags?: string[];
+            /** Format: int64 */
+            watchedSeconds: number;
+        };
+        InstructionLogIngest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/InstructionLogIngest.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Only educational and mixed viewing is instructional time; entertainment is refused.
+             * @enum {string}
+             */
+            class: "educational" | "mixed";
+            mediaTitle: string;
+            notes?: string;
+            /**
+             * @description Calendar day the viewing happened, YYYY-MM-DD, in the producer's own timezone.
+             * @example 2031-04-15
+             */
+            occurredOn: string;
+            /**
+             * @description Producing service.
+             * @default tv
+             * @enum {string}
+             */
+            source: "tv" | "manual";
+            /** @description The producer's stable identifier for this event — the TV server sends its playback session ID. Re-posting the same reference returns the log already recorded instead of counting the time twice. */
+            sourceRef: string;
+            standardCodes?: string[] | null;
+            /** Format: uuid */
+            studentId?: string;
+            subjectTags?: string[] | null;
+            /** Format: int64 */
+            watchedSeconds: number;
+        };
+        InstructionLogIngestResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/InstructionLogIngestResult.json
+             */
+            readonly $schema?: string;
+            /** @description False when this source reference had already been ingested, in which case the existing log is returned unchanged. */
+            created: boolean;
+            log: components["schemas"]["InstructionLog"];
+        };
+        InstructionLogUpdate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/InstructionLogUpdate.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            class?: "educational" | "mixed";
+            mediaTitle?: string;
+            notes?: string;
+            /** Format: date-time */
+            occurredOn?: string;
+            standardCodes?: string[];
+            /** Format: uuid */
+            studentId?: string;
+            subjectTags?: string[];
+            /** Format: int64 */
+            watchedSeconds?: number;
+        };
         ItemResponse: {
             /**
              * Format: uri
@@ -1473,6 +1653,24 @@ export interface components {
              */
             readonly $schema?: string;
             items: components["schemas"]["Enrollment"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
+        PageBodyInstructionLog: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyInstructionLog.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["InstructionLog"][] | null;
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -3170,6 +3368,239 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-instruction-logs": {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description Rows to skip. */
+                offset?: number;
+                /** @description Free-text search across the resource's searchable columns. */
+                q?: string;
+                /** @description Column to sort by (whitelisted per resource). */
+                sort?: string;
+                /** @description Sort direction. */
+                dir?: "asc" | "desc";
+                /** @description Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable. */
+                filter?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyInstructionLog"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-instruction-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstructionLogCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstructionLog"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "ingest-instruction-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstructionLogIngest"];
+            };
+        };
+        responses: {
+            /** @description Already ingested. The existing log is returned unchanged and no time was added. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstructionLogIngestResult"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstructionLogIngestResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-instruction-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstructionLog"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-instruction-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-instruction-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstructionLogUpdate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstructionLog"];
                 };
             };
             /** @description Error */

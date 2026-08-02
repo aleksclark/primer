@@ -1,24 +1,20 @@
 import type { components } from "@/api/schema";
-import { ResourcePage, type ColumnDef, type FieldDef } from "@/components/resource-page";
+import { ResourcePage } from "@/components/resource-page";
 import { Badge } from "@/components/ui/badge";
+import {
+  badgeCol,
+  codeCol,
+  createdCol,
+  dateCol,
+  durationCol,
+  gradeCol,
+  idCol,
+  shortIdCol,
+  tagsCol,
+  textCol,
+} from "@/lib/columns";
 
 type Schemas = components["schemas"];
-
-const shortId = (id?: string) => (id ? id.slice(0, 8) : "");
-const shortDate = (v?: string | null) => (v ? new Date(v).toLocaleDateString() : "");
-
-const idCol = <T extends { id: string }>(): ColumnDef<T> => ({
-  key: "id",
-  header: "ID",
-  render: (row) => <code className="text-xs text-muted-foreground">{shortId(row.id)}</code>,
-});
-
-const createdCol = <T extends { createdAt: string }>(): ColumnDef<T> => ({
-  key: "created_at",
-  header: "Created",
-  sortable: true,
-  render: (row) => shortDate(row.createdAt),
-});
 
 export function StudentsPage() {
   type Row = Schemas["Student"];
@@ -28,10 +24,10 @@ export function StudentsPage() {
       path="/students"
       columns={[
         idCol<Row>(),
-        { key: "first_name", header: "First name", sortable: true, render: (r) => r.firstName },
-        { key: "last_name", header: "Last name", sortable: true, render: (r) => r.lastName },
-        { key: "grade_level", header: "Grade", sortable: true, render: (r) => r.gradeLevel ?? "" },
-        { key: "notes", header: "Notes", render: (r) => r.notes },
+        textCol<Row>("first_name", "First name", (r) => r.firstName, { sortable: true }),
+        textCol<Row>("last_name", "Last name", (r) => r.lastName, { sortable: true }),
+        gradeCol<Row>(),
+        textCol<Row>("notes", "Notes", (r) => r.notes),
         createdCol<Row>(),
       ]}
       fields={[
@@ -52,9 +48,9 @@ export function EducatorsPage() {
       path="/educators"
       columns={[
         idCol<Row>(),
-        { key: "name", header: "Name", sortable: true, render: (r) => r.name },
-        { key: "email", header: "Email", sortable: true, render: (r) => r.email },
-        { key: "role", header: "Role", sortable: true, render: (r) => <Badge variant="secondary">{r.role}</Badge> },
+        textCol<Row>("name", "Name", (r) => r.name, { sortable: true }),
+        textCol<Row>("email", "Email", (r) => r.email, { sortable: true }),
+        badgeCol<Row>("role", "Role", (r) => r.role, { sortable: true }),
         createdCol<Row>(),
       ]}
       fields={[
@@ -74,9 +70,9 @@ export function SubjectsPage() {
       path="/subjects"
       columns={[
         idCol<Row>(),
-        { key: "code", header: "Code", sortable: true, render: (r) => <code>{r.code}</code> },
-        { key: "name", header: "Name", sortable: true, render: (r) => r.name },
-        { key: "description", header: "Description", render: (r) => r.description },
+        codeCol<Row>("code", "Code", (r) => r.code, { sortable: true }),
+        textCol<Row>("name", "Name", (r) => r.name, { sortable: true }),
+        textCol<Row>("description", "Description", (r) => r.description),
         createdCol<Row>(),
       ]}
       fields={[
@@ -95,12 +91,12 @@ export function StandardsPage() {
       title="Standards"
       path="/standards"
       columns={[
-        { key: "code", header: "Code", sortable: true, render: (r) => <code>{r.code}</code> },
-        { key: "source", header: "Source", sortable: true, render: (r) => <Badge variant="outline">{r.source}</Badge> },
-        { key: "grade_level", header: "Grade", sortable: true, render: (r) => r.gradeLevel ?? "" },
-        { key: "domain", header: "Domain", sortable: true, render: (r) => r.domain },
-        { key: "description", header: "Description", render: (r) => r.description },
-        { key: "tcapWeight", header: "TCAP", render: (r) => r.tcapWeight },
+        codeCol<Row>("code", "Code", (r) => r.code, { sortable: true }),
+        badgeCol<Row>("source", "Source", (r) => r.source, { sortable: true, variant: "outline" }),
+        gradeCol<Row>(),
+        textCol<Row>("domain", "Domain", (r) => r.domain, { sortable: true }),
+        textCol<Row>("description", "Description", (r) => r.description),
+        textCol<Row>("tcap_weight", "TCAP", (r) => r.tcapWeight),
       ]}
       fields={[
         { key: "code", label: "Code", required: true },
@@ -125,10 +121,10 @@ export function CurriculaPage() {
       path="/curricula"
       columns={[
         idCol<Row>(),
-        { key: "name", header: "Name", sortable: true, render: (r) => r.name },
-        { key: "approach", header: "Approach", sortable: true, render: (r) => <Badge variant="secondary">{r.approach}</Badge> },
-        { key: "grade_level", header: "Grade", sortable: true, render: (r) => r.gradeLevel ?? "" },
-        { key: "description", header: "Description", render: (r) => r.description },
+        textCol<Row>("name", "Name", (r) => r.name, { sortable: true }),
+        badgeCol<Row>("approach", "Approach", (r) => r.approach, { sortable: true }),
+        gradeCol<Row>(),
+        textCol<Row>("description", "Description", (r) => r.description),
         createdCol<Row>(),
       ]}
       fields={[
@@ -155,10 +151,10 @@ export function CurriculumStandardsPage() {
       path="/curriculum-standards"
       columns={[
         idCol<Row>(),
-        { key: "curriculumId", header: "Curriculum", render: (r) => shortId(r.curriculumId) },
-        { key: "standardId", header: "Standard", render: (r) => shortId(r.standardId) },
-        { key: "unit", header: "Unit", sortable: true, render: (r) => r.unit },
-        { key: "position", header: "Position", sortable: true, render: (r) => r.position },
+        shortIdCol<Row>("curriculum_id", "Curriculum", (r) => r.curriculumId),
+        shortIdCol<Row>("standard_id", "Standard", (r) => r.standardId),
+        textCol<Row>("unit", "Unit", (r) => r.unit, { sortable: true }),
+        textCol<Row>("position", "Position", (r) => r.position, { sortable: true }),
       ]}
       fields={[
         { key: "curriculumId", label: "Curriculum ID", required: true, createOnly: true },
@@ -179,11 +175,11 @@ export function EnrollmentsPage() {
       path="/enrollments"
       columns={[
         idCol<Row>(),
-        { key: "studentId", header: "Student", render: (r) => shortId(r.studentId) },
-        { key: "curriculumId", header: "Curriculum", render: (r) => shortId(r.curriculumId) },
-        { key: "status", header: "Status", sortable: true, render: (r) => <Badge variant="secondary">{r.status}</Badge> },
-        { key: "started_on", header: "Started", sortable: true, render: (r) => shortDate(r.startedOn) },
-        { key: "ended_on", header: "Ended", sortable: true, render: (r) => shortDate(r.endedOn) },
+        shortIdCol<Row>("student_id", "Student", (r) => r.studentId),
+        shortIdCol<Row>("curriculum_id", "Curriculum", (r) => r.curriculumId),
+        badgeCol<Row>("status", "Status", (r) => r.status, { sortable: true }),
+        dateCol<Row>("started_on", "Started", (r) => r.startedOn, { sortable: true }),
+        dateCol<Row>("ended_on", "Ended", (r) => r.endedOn, { sortable: true }),
       ]}
       fields={[
         { key: "studentId", label: "Student ID", required: true, createOnly: true },
@@ -202,21 +198,18 @@ export function MasteryRecordsPage() {
       path="/mastery-records"
       columns={[
         idCol<Row>(),
-        { key: "studentId", header: "Student", render: (r) => shortId(r.studentId) },
-        { key: "standardId", header: "Standard", render: (r) => shortId(r.standardId) },
-        { key: "status", header: "Status", sortable: true, render: (r) => <Badge variant="secondary">{r.status}</Badge> },
+        shortIdCol<Row>("student_id", "Student", (r) => r.studentId),
+        shortIdCol<Row>("standard_id", "Standard", (r) => r.standardId),
+        badgeCol<Row>("status", "Status", (r) => r.status, { sortable: true }),
         {
           key: "confidence",
           header: "Confidence",
           sortable: true,
           render: (r) => `${Math.round(r.confidence * 100)}%`,
         },
-        {
-          key: "next_reinforcement_at",
-          header: "Next reinforcement",
+        dateCol<Row>("next_reinforcement_at", "Next reinforcement", (r) => r.nextReinforcementAt, {
           sortable: true,
-          render: (r) => shortDate(r.nextReinforcementAt),
-        },
+        }),
       ]}
       fields={[
         { key: "studentId", label: "Student ID", required: true, createOnly: true },
@@ -241,10 +234,10 @@ export function MasteryEvidencePage() {
       path="/mastery-evidence"
       columns={[
         idCol<Row>(),
-        { key: "masteryRecordId", header: "Record", render: (r) => shortId(r.masteryRecordId) },
-        { key: "kind", header: "Kind", sortable: true, render: (r) => <Badge variant="outline">{r.kind}</Badge> },
-        { key: "occurred_on", header: "Date", sortable: true, render: (r) => shortDate(r.occurredOn) },
-        { key: "context", header: "Context", render: (r) => r.context },
+        shortIdCol<Row>("mastery_record_id", "Record", (r) => r.masteryRecordId),
+        badgeCol<Row>("kind", "Kind", (r) => r.kind, { sortable: true, variant: "outline" }),
+        dateCol<Row>("occurred_on", "Date", (r) => r.occurredOn, { sortable: true }),
+        textCol<Row>("context", "Context", (r) => r.context),
       ]}
       fields={[
         { key: "masteryRecordId", label: "Mastery record ID", required: true, createOnly: true },
@@ -264,9 +257,9 @@ export function AssessmentsPage() {
       path="/assessments"
       columns={[
         idCol<Row>(),
-        { key: "title", header: "Title", sortable: true, render: (r) => r.title },
-        { key: "kind", header: "Kind", sortable: true, render: (r) => <Badge variant="secondary">{r.kind}</Badge> },
-        { key: "grade_level", header: "Grade", sortable: true, render: (r) => r.gradeLevel ?? "" },
+        textCol<Row>("title", "Title", (r) => r.title, { sortable: true }),
+        badgeCol<Row>("kind", "Kind", (r) => r.kind, { sortable: true }),
+        gradeCol<Row>(),
         createdCol<Row>(),
       ]}
       fields={[
@@ -295,12 +288,12 @@ export function AssessmentItemsPage() {
       path="/assessment-items"
       columns={[
         idCol<Row>(),
-        { key: "assessmentId", header: "Assessment", render: (r) => shortId(r.assessmentId) },
-        { key: "position", header: "#", sortable: true, render: (r) => r.position },
-        { key: "item_type", header: "Type", sortable: true, render: (r) => <Badge variant="outline">{r.itemType}</Badge> },
-        { key: "difficulty", header: "Difficulty", sortable: true, render: (r) => r.difficulty },
-        { key: "stem", header: "Stem", render: (r) => r.stem },
-        { key: "points", header: "Points", sortable: true, render: (r) => r.points },
+        shortIdCol<Row>("assessment_id", "Assessment", (r) => r.assessmentId),
+        textCol<Row>("position", "#", (r) => r.position, { sortable: true }),
+        badgeCol<Row>("item_type", "Type", (r) => r.itemType, { sortable: true, variant: "outline" }),
+        textCol<Row>("difficulty", "Difficulty", (r) => r.difficulty, { sortable: true }),
+        textCol<Row>("stem", "Stem", (r) => r.stem),
+        textCol<Row>("points", "Points", (r) => r.points, { sortable: true }),
       ]}
       fields={[
         { key: "assessmentId", label: "Assessment ID", required: true, createOnly: true },
@@ -330,9 +323,9 @@ export function AssessmentItemOptionsPage() {
       path="/assessment-item-options"
       columns={[
         idCol<Row>(),
-        { key: "itemId", header: "Item", render: (r) => shortId(r.itemId) },
-        { key: "position", header: "#", sortable: true, render: (r) => r.position },
-        { key: "text", header: "Text", render: (r) => r.text },
+        shortIdCol<Row>("item_id", "Item", (r) => r.itemId),
+        textCol<Row>("position", "#", (r) => r.position, { sortable: true }),
+        textCol<Row>("text", "Text", (r) => r.text),
         {
           key: "correct",
           header: "Correct",
@@ -359,16 +352,16 @@ export function AssessmentAttemptsPage() {
       path="/assessment-attempts"
       columns={[
         idCol<Row>(),
-        { key: "assessmentId", header: "Assessment", render: (r) => shortId(r.assessmentId) },
-        { key: "studentId", header: "Student", render: (r) => shortId(r.studentId) },
-        { key: "status", header: "Status", sortable: true, render: (r) => <Badge variant="secondary">{r.status}</Badge> },
+        shortIdCol<Row>("assessment_id", "Assessment", (r) => r.assessmentId),
+        shortIdCol<Row>("student_id", "Student", (r) => r.studentId),
+        badgeCol<Row>("status", "Status", (r) => r.status, { sortable: true }),
         {
           key: "score",
           header: "Score",
           sortable: true,
           render: (r) => (r.score != null ? `${r.score}${r.maxScore != null ? ` / ${r.maxScore}` : ""}` : ""),
         },
-        { key: "started_at", header: "Started", sortable: true, render: (r) => shortDate(r.startedAt) },
+        dateCol<Row>("started_at", "Started", (r) => r.startedAt, { sortable: true }),
       ]}
       fields={[
         { key: "assessmentId", label: "Assessment ID", required: true, createOnly: true },
@@ -389,8 +382,8 @@ export function ItemResponsesPage() {
       path="/item-responses"
       columns={[
         idCol<Row>(),
-        { key: "attemptId", header: "Attempt", render: (r) => shortId(r.attemptId) },
-        { key: "itemId", header: "Item", render: (r) => shortId(r.itemId) },
+        shortIdCol<Row>("attempt_id", "Attempt", (r) => r.attemptId),
+        shortIdCol<Row>("item_id", "Item", (r) => r.itemId),
         {
           key: "is_correct",
           header: "Correct",
@@ -398,8 +391,8 @@ export function ItemResponsesPage() {
           render: (r) =>
             r.isCorrect == null ? "" : r.isCorrect ? <Badge>yes</Badge> : <Badge variant="destructive">no</Badge>,
         },
-        { key: "points_awarded", header: "Points", sortable: true, render: (r) => r.pointsAwarded ?? "" },
-        { key: "feedback", header: "Feedback", render: (r) => r.feedback },
+        textCol<Row>("points_awarded", "Points", (r) => r.pointsAwarded ?? "", { sortable: true }),
+        textCol<Row>("feedback", "Feedback", (r) => r.feedback),
       ]}
       fields={[
         { key: "attemptId", label: "Attempt ID", required: true, createOnly: true },
@@ -412,4 +405,32 @@ export function ItemResponsesPage() {
   );
 }
 
-export const fieldDefsSanity: FieldDef[] = [];
+export function InstructionLogsPage() {
+  type Row = Schemas["InstructionLog"];
+  return (
+    <ResourcePage<Row>
+      title="Instruction Logs"
+      path="/instruction-logs"
+      columns={[
+        dateCol<Row>("occurred_on", "Day", (r) => r.occurredOn, { sortable: true }),
+        textCol<Row>("media_title", "Title", (r) => r.mediaTitle, { sortable: true }),
+        badgeCol<Row>("source", "Source", (r) => r.source, { sortable: true, variant: "outline" }),
+        badgeCol<Row>("class", "Class", (r) => r.class, { sortable: true }),
+        durationCol<Row>("watched_seconds", "Time", (r) => r.watchedSeconds, { sortable: true }),
+        tagsCol<Row>("subjectTags", "Subjects", (r) => r.subjectTags),
+        tagsCol<Row>("standardCodes", "Standards", (r) => r.standardCodes),
+      ]}
+      fields={[
+        { key: "mediaTitle", label: "Title", required: true },
+        { key: "class", label: "Class", type: "select", options: ["educational", "mixed"], required: true },
+        { key: "watchedSeconds", label: "Watched (seconds)", type: "number", required: true },
+        { key: "occurredOn", label: "Day", type: "date" },
+        { key: "subjectTags", label: "Subject tags (comma separated)", type: "tags" },
+        { key: "standardCodes", label: "Standard codes (comma separated)", type: "tags" },
+        { key: "studentId", label: "Student ID" },
+        { key: "notes", label: "Notes" },
+      ]}
+      defaultSort="occurred_on"
+    />
+  );
+}

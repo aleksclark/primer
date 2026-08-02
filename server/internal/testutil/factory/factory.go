@@ -1,48 +1,32 @@
-// Package factory provides FactoryBot-style test data builders. Each factory
-// inserts a row through the repo layer with sensible defaults, accepting
-// override maps for per-test customization. Associations are created
-// automatically unless the relevant foreign key is provided.
+// Package factory provides FactoryBot-style test data builders for the LMS
+// schema. Each factory inserts a row through the repo layer with sensible
+// defaults, accepting override maps for per-test customization. Associations
+// are created automatically unless the relevant foreign key is provided.
 package factory
 
 import (
-	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aleksclark/primer/server/internal/domain"
 	"github.com/aleksclark/primer/server/internal/repo"
+	"github.com/aleksclark/primer/server/internal/testutil/build"
 )
 
-var seq atomic.Int64
-
-// n returns a process-unique sequence number for generating distinct values.
-func n() int64 { return seq.Add(1) }
-
 // Override is a column->value map merged over factory defaults.
-type Override map[string]any
+type Override = build.Override
 
-func merge(defaults map[string]any, overrides []Override) map[string]any {
-	out := make(map[string]any, len(defaults))
-	for k, v := range defaults {
-		out[k] = v
-	}
-	for _, o := range overrides {
-		for k, v := range o {
-			out[k] = v
-		}
-	}
-	return out
-}
+var (
+	n        = build.N
+	merge    = build.Merge
+	ensureFK = build.EnsureFK
+)
 
+// create inserts a row through the shared factory helper.
 func create[T any](t *testing.T, q repo.Querier, res *repo.Resource[T], values map[string]any) *T {
 	t.Helper()
-	item, err := res.Create(context.Background(), q, values)
-	if err != nil {
-		t.Fatalf("factory create %T: %v", *new(T), err)
-	}
-	return item
+	return build.Create(t, q, res, values)
 }
 
 // Educator creates an educator.
@@ -78,17 +62,14 @@ func Subject(t *testing.T, q repo.Querier, overrides ...Override) *domain.Subjec
 // Standard creates a standard, creating a subject unless subject_id is given.
 func Standard(t *testing.T, q repo.Querier, overrides ...Override) *domain.Standard {
 	i := n()
-	defaults := map[string]any{
+	merged := merge(map[string]any{
 		"source":      "custom",
 		"code":        fmt.Sprintf("STD.%d", i),
 		"grade_level": 6,
 		"domain":      "test-domain",
 		"description": fmt.Sprintf("Standard %d description", i),
-	}
-	merged := merge(defaults, overrides)
-	if _, ok := merged["subject_id"]; !ok {
-		merged["subject_id"] = Subject(t, q).ID
-	}
+	}, overrides)
+	ensureFK(merged, "subject_id", func() string { return Subject(t, q).ID })
 	return create(t, q, repo.Standards, merged)
 }
 
@@ -109,12 +90,8 @@ func CurriculumStandard(t *testing.T, q repo.Querier, overrides ...Override) *do
 		"unit":     "Unit 1",
 		"position": int(n()),
 	}, overrides)
-	if _, ok := merged["curriculum_id"]; !ok {
-		merged["curriculum_id"] = Curriculum(t, q).ID
-	}
-	if _, ok := merged["standard_id"]; !ok {
-		merged["standard_id"] = Standard(t, q).ID
-	}
+	ensureFK(merged, "curriculum_id", func() string { return Curriculum(t, q).ID })
+	ensureFK(merged, "standard_id", func() string { return Standard(t, q).ID })
 	return create(t, q, repo.CurriculumStandards, merged)
 }
 
@@ -124,12 +101,8 @@ func Enrollment(t *testing.T, q repo.Querier, overrides ...Override) *domain.Enr
 	merged := merge(map[string]any{
 		"status": "active",
 	}, overrides)
-	if _, ok := merged["student_id"]; !ok {
-		merged["student_id"] = Student(t, q).ID
-	}
-	if _, ok := merged["curriculum_id"]; !ok {
-		merged["curriculum_id"] = Curriculum(t, q).ID
-	}
+	ensureFK(merged, "student_id", func() string { return Student(t, q).ID })
+	ensureFK(merged, "curriculum_id", func() string { return Curriculum(t, q).ID })
 	return create(t, q, repo.Enrollments, merged)
 }
 
@@ -141,12 +114,8 @@ func MasteryRecord(t *testing.T, q repo.Querier, overrides ...Override) *domain.
 		"confidence": 0.5,
 		"decay_rate": 0.02,
 	}, overrides)
-	if _, ok := merged["student_id"]; !ok {
-		merged["student_id"] = Student(t, q).ID
-	}
-	if _, ok := merged["standard_id"]; !ok {
-		merged["standard_id"] = Standard(t, q).ID
-	}
+	ensureFK(merged, "student_id", func() string { return Student(t, q).ID })
+	ensureFK(merged, "standard_id", func() string { return Standard(t, q).ID })
 	return create(t, q, repo.MasteryRecords, merged)
 }
 
@@ -158,10 +127,23 @@ func MasteryEvidence(t *testing.T, q repo.Querier, overrides ...Override) *domai
 		"occurred_on": time.Now().UTC().Truncate(24 * time.Hour),
 		"context":     "Solved 5/5 practice problems",
 	}, overrides)
-	if _, ok := merged["mastery_record_id"]; !ok {
-		merged["mastery_record_id"] = MasteryRecord(t, q).ID
-	}
+	ensureFK(merged, "mastery_record_id", func() string { return MasteryRecord(t, q).ID })
 	return create(t, q, repo.MasteryEvidences, merged)
+}
+
+// InstructionLog records instructional time from an external producer.
+func InstructionLog(t *testing.T, q repo.Querier, overrides ...Override) *domain.InstructionLog {
+	i := n()
+	return create(t, q, repo.InstructionLogs, merge(map[string]any{
+		"source":          domain.InstructionSourceTV,
+		"source_ref":      fmt.Sprintf("session-%d", i),
+		"media_title":     fmt.Sprintf("Documentary %d", i),
+		"class":           domain.InstructionClassEducational,
+		"subject_tags":    []string{"science"},
+		"standard_codes":  []string{fmt.Sprintf("TN.SCI.%d", i)},
+		"watched_seconds": 1800,
+		"occurred_on":     time.Now().UTC().Truncate(24 * time.Hour),
+	}, overrides))
 }
 
 // Assessment creates an assessment.
@@ -184,9 +166,7 @@ func AssessmentItem(t *testing.T, q repo.Querier, overrides ...Override) *domain
 		"stem":       fmt.Sprintf("Question %d?", i),
 		"points":     1.0,
 	}, overrides)
-	if _, ok := merged["assessment_id"]; !ok {
-		merged["assessment_id"] = Assessment(t, q).ID
-	}
+	ensureFK(merged, "assessment_id", func() string { return Assessment(t, q).ID })
 	return create(t, q, repo.AssessmentItems, merged)
 }
 
@@ -199,9 +179,7 @@ func AssessmentItemOption(t *testing.T, q repo.Querier, overrides ...Override) *
 		"text":     fmt.Sprintf("Option %d", i),
 		"correct":  false,
 	}, overrides)
-	if _, ok := merged["item_id"]; !ok {
-		merged["item_id"] = AssessmentItem(t, q).ID
-	}
+	ensureFK(merged, "item_id", func() string { return AssessmentItem(t, q).ID })
 	return create(t, q, repo.AssessmentItemOptions, merged)
 }
 
@@ -211,12 +189,8 @@ func AssessmentAttempt(t *testing.T, q repo.Querier, overrides ...Override) *dom
 	merged := merge(map[string]any{
 		"status": "in_progress",
 	}, overrides)
-	if _, ok := merged["assessment_id"]; !ok {
-		merged["assessment_id"] = Assessment(t, q).ID
-	}
-	if _, ok := merged["student_id"]; !ok {
-		merged["student_id"] = Student(t, q).ID
-	}
+	ensureFK(merged, "assessment_id", func() string { return Assessment(t, q).ID })
+	ensureFK(merged, "student_id", func() string { return Student(t, q).ID })
 	return create(t, q, repo.AssessmentAttempts, merged)
 }
 

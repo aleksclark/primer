@@ -953,6 +953,246 @@ components:
       required:
         - status
       type: object
+    InstructionLog:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/InstructionLog.json
+          format: uri
+          readOnly: true
+          type: string
+        class:
+          enum:
+            - educational
+            - mixed
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        mediaTitle:
+          type: string
+        notes:
+          type: string
+        occurredOn:
+          format: date-time
+          type: string
+        source:
+          enum:
+            - tv
+            - manual
+          type: string
+        sourceRef:
+          description: The producer's stable identifier for the event; empty for hand-entered rows.
+          type: string
+        standardCodes:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        studentId:
+          format: uuid
+          type: string
+        subjectTags:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        updatedAt:
+          format: date-time
+          type: string
+        watchedSeconds:
+          format: int64
+          type: integer
+      required:
+        - id
+        - source
+        - sourceRef
+        - mediaTitle
+        - class
+        - subjectTags
+        - standardCodes
+        - watchedSeconds
+        - occurredOn
+        - notes
+        - createdAt
+        - updatedAt
+      type: object
+    InstructionLogCreate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/InstructionLogCreate.json
+          format: uri
+          readOnly: true
+          type: string
+        class:
+          enum:
+            - educational
+            - mixed
+          type: string
+        mediaTitle:
+          minLength: 1
+          type: string
+        notes:
+          type: string
+        occurredOn:
+          format: date-time
+          type: string
+        source:
+          enum:
+            - tv
+            - manual
+          type: string
+        standardCodes:
+          items:
+            type: string
+          type: array
+        studentId:
+          format: uuid
+          type: string
+        subjectTags:
+          items:
+            type: string
+          type: array
+        watchedSeconds:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+        - mediaTitle
+        - class
+        - watchedSeconds
+      type: object
+    InstructionLogIngest:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/InstructionLogIngest.json
+          format: uri
+          readOnly: true
+          type: string
+        class:
+          description: Only educational and mixed viewing is instructional time; entertainment is refused.
+          enum:
+            - educational
+            - mixed
+          type: string
+        mediaTitle:
+          minLength: 1
+          type: string
+        notes:
+          type: string
+        occurredOn:
+          description: Calendar day the viewing happened, YYYY-MM-DD, in the producer's own timezone.
+          examples:
+            - "2031-04-15"
+          pattern: ^\d{4}-\d{2}-\d{2}$
+          type: string
+        source:
+          default: tv
+          description: Producing service.
+          enum:
+            - tv
+            - manual
+          type: string
+        sourceRef:
+          description: The producer's stable identifier for this event — the TV server sends its playback session ID. Re-posting the same reference returns the log already recorded instead of counting the time twice.
+          minLength: 1
+          type: string
+        standardCodes:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        studentId:
+          format: uuid
+          type: string
+        subjectTags:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        watchedSeconds:
+          format: int64
+          minimum: 1
+          type: integer
+      required:
+        - sourceRef
+        - mediaTitle
+        - class
+        - watchedSeconds
+        - occurredOn
+      type: object
+    InstructionLogIngestResult:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/InstructionLogIngestResult.json
+          format: uri
+          readOnly: true
+          type: string
+        created:
+          description: False when this source reference had already been ingested, in which case the existing log is returned unchanged.
+          type: boolean
+        log:
+          $ref: "#/components/schemas/InstructionLog"
+      required:
+        - log
+        - created
+      type: object
+    InstructionLogUpdate:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/InstructionLogUpdate.json
+          format: uri
+          readOnly: true
+          type: string
+        class:
+          enum:
+            - educational
+            - mixed
+          type: string
+        mediaTitle:
+          type: string
+        notes:
+          type: string
+        occurredOn:
+          format: date-time
+          type: string
+        standardCodes:
+          items:
+            type: string
+          type: array
+        studentId:
+          format: uuid
+          type: string
+        subjectTags:
+          items:
+            type: string
+          type: array
+        watchedSeconds:
+          format: int64
+          minimum: 0
+          type: integer
+      type: object
     ItemResponse:
       additionalProperties: false
       properties:
@@ -1549,6 +1789,38 @@ components:
         - limit
         - offset
       type: object
+    PageBodyInstructionLog:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyInstructionLog.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/InstructionLog"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
     PageBodyItemResponse:
       additionalProperties: false
       properties:
@@ -2055,6 +2327,12 @@ components:
         name:
           type: string
       type: object
+  securitySchemes:
+    serviceToken:
+      description: Shared service token, presented by other Primer services (today, the TV server) when pushing data in.
+      in: header
+      name: X-Service-Token
+      type: apiKey
 info:
   description: "LMS backend for the Primer AI tutoring system: students, curricula, standards, mastery tracking, and assessments."
   title: Primer LMS API
@@ -3576,6 +3854,239 @@ paths:
       summary: Health check
       tags:
         - System
+  /instruction-logs:
+    get:
+      description: List instruction-logs with pagination, search (media_title, notes, source_ref), sorting (occurred_on, watched_seconds, media_title, source, class, created_at, updated_at), and filters (source, class, student_id, occurred_on).
+      operationId: list-instruction-logs
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyInstructionLog"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List instruction-logs
+      tags:
+        - Instruction Logs
+    post:
+      operationId: create-instruction-log
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstructionLogCreate"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructionLog"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Create a instruction-log
+      tags:
+        - Instruction Logs
+  /instruction-logs/ingest:
+    post:
+      description: "Records a finished viewing as instructional time. Idempotent on (source, sourceRef): a retry answers 200 with the existing log and created=false, so a producer whose own bookkeeping failed can safely try again. Entertainment viewing is not instructional time and is refused."
+      operationId: ingest-instruction-log
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstructionLogIngest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructionLogIngestResult"
+          description: Already ingested. The existing log is returned unchanged and no time was added.
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructionLogIngestResult"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - serviceToken: []
+      summary: Ingest instructional time from a service
+      tags:
+        - Instruction Logs
+  /instruction-logs/{id}:
+    delete:
+      operationId: delete-instruction-log
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a instruction-log
+      tags:
+        - Instruction Logs
+    get:
+      operationId: get-instruction-log
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructionLog"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a instruction-log
+      tags:
+        - Instruction Logs
+    patch:
+      description: "Partial update: only provided fields are changed."
+      operationId: update-instruction-log
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstructionLogUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructionLog"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a instruction-log
+      tags:
+        - Instruction Logs
   /item-responses:
     get:
       description: List item-responses with pagination, search (feedback), sorting (is_correct, points_awarded, created_at, updated_at), and filters (attempt_id, item_id, is_correct).

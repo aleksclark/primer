@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes, Navigate } from "react-router-dom";
 import {
   BookOpen,
+  Clapperboard,
   ClipboardCheck,
   ClipboardList,
   GraduationCap,
@@ -24,6 +25,7 @@ import {
   CurriculumStandardsPage,
   EducatorsPage,
   EnrollmentsPage,
+  InstructionLogsPage,
   ItemResponsesPage,
   MasteryEvidencePage,
   MasteryRecordsPage,
@@ -55,6 +57,12 @@ const nav = [
     links: [
       { to: "/mastery-records", label: "Mastery Records", icon: TrendingUp, page: <MasteryRecordsPage /> },
       { to: "/mastery-evidence", label: "Evidence", icon: ClipboardCheck, page: <MasteryEvidencePage /> },
+    ],
+  },
+  {
+    section: "Instruction",
+    links: [
+      { to: "/instruction-logs", label: "Instruction Logs", icon: Clapperboard, page: <InstructionLogsPage /> },
     ],
   },
   {

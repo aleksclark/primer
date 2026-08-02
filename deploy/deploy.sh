@@ -21,6 +21,9 @@ fi
 : "${NOMAD_ADDR:?set NOMAD_ADDR in deploy/.env or the environment}"
 : "${NOMAD_TOKEN:?set NOMAD_TOKEN in deploy/.env or the environment}"
 : "${DATABASE_URL:?set DATABASE_URL in deploy/.env or the environment}"
+# Optional: without it the instruction log ingest accepts unauthenticated
+# callers, which the server warns about at startup.
+SERVICE_TOKEN="${SERVICE_TOKEN:-}"
 IMAGE_REPO="${IMAGE_REPO:-ghcr.io/aleksclark/primer}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 BUILD="${BUILD:-ci}"
@@ -51,8 +54,8 @@ fi
 echo "==> Rendering job spec"
 JOB_FILE="$(mktemp /tmp/primer.nomad.XXXXXX.hcl)"
 trap 'rm -f "$JOB_FILE"' EXIT
-IMAGE_TAG="$IMAGE_TAG" DATABASE_URL="$DATABASE_URL" \
-  envsubst '${IMAGE_TAG} ${DATABASE_URL}' \
+IMAGE_TAG="$IMAGE_TAG" DATABASE_URL="$DATABASE_URL" SERVICE_TOKEN="$SERVICE_TOKEN" \
+  envsubst '${IMAGE_TAG} ${DATABASE_URL} ${SERVICE_TOKEN}' \
   < deploy/primer.nomad.hcl.tmpl > "$JOB_FILE"
 
 echo "==> Submitting job to ${NOMAD_ADDR}"

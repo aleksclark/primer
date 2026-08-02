@@ -86,7 +86,7 @@ func TestStudentListPaginationSearchSortFilter(t *testing.T) {
 	t.Parallel()
 	h, tx := testutil.API(t)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		factory.Student(t, tx, factory.Override{
 			"first_name":  fmt.Sprintf("Zeta%02d", i),
 			"grade_level": 6,
