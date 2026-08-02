@@ -188,4 +188,3 @@ func (r *Resource[T]) one(ctx context.Context, q Querier, sqlStr string, args []
 	}
 	return &item, nil
 }
-

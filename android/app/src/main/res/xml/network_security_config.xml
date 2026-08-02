@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The TV server and Jellyfin both live on the home LAN and are reached over
+  plain HTTP by address. Cleartext is permitted only for private address space
+  and .local names, so a misconfigured public URL still fails closed.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">local</domain>
+        <domain includeSubdomains="true">lan</domain>
+        <domain includeSubdomains="true">home</domain>
+        <domain includeSubdomains="true">internal</domain>
+        <domain includeSubdomains="true">fleet.clark.team</domain>
+        <domain includeSubdomains="true">clark.team</domain>
+    </domain-config>
+</network-security-config>

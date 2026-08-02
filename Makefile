@@ -1,10 +1,12 @@
-# Primer LMS — build, test, and codegen entry points.
+# Primer LMS + TV — build, test, and codegen entry points.
 
 COVER_MIN := 85
 
-.PHONY: all build test cover openapi client web bundle docker deploy dev-db migrate lint
+.PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
+	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
+	tv-client tv-web tv-bundle
 
-all: build openapi client
+all: build openapi openapi-tv client tv-client
 
 ## Build the server binaries.
 build:
@@ -25,9 +27,13 @@ cover:
 		echo "OK: coverage $$total% >= $(COVER_MIN)%"; \
 	fi
 
-## Generate the OpenAPI spec from API type signatures.
+## Generate the LMS OpenAPI spec from API type signatures.
 openapi:
-	cd server && go run ./cmd/openapi-gen -out ../web/openapi.yaml
+	cd server && go run ./cmd/openapi-gen -service lms -out ../web/openapi.yaml
+
+## Generate the TV OpenAPI spec from API type signatures.
+openapi-tv:
+	cd server && go run ./cmd/openapi-gen -service tv -out ../tv-web/openapi.yaml
 
 ## Generate the TypeScript client from the OpenAPI spec (build-time codegen).
 client: openapi
@@ -47,6 +53,10 @@ bundle: web
 docker:
 	docker build -t primer-lms .
 
+## Build the TV server deployment image (TV admin SPA bundled in).
+docker-tv:
+	docker build -f Dockerfile.tv -t primer-tv .
+
 ## Build, push, and deploy to the Nomad fleet (primer.fleet.clark.team).
 ## Requires deploy/.env — see deploy/.env.example.
 deploy:
@@ -58,9 +68,43 @@ dev-db:
 		-e POSTGRES_USER=primer -e POSTGRES_PASSWORD=primer -e POSTGRES_DB=primer \
 		postgres:17-alpine
 
-## Apply migrations to the dev database.
+## Create the TV database inside the local PostgreSQL.
+dev-db-tv:
+	docker exec primer-pg createdb -U primer primer_tv
+
+## Apply LMS migrations to the dev database.
 migrate:
-	cd server && go run ./cmd/migrate up
+	cd server && go run ./cmd/migrate -service lms up
+
+## Apply TV migrations to the TV dev database.
+migrate-tv:
+	cd server && go run ./cmd/migrate -service tv up
+
+## Build just the TV server binary.
+tv-build:
+	cd server && go build ./cmd/tv-server
+
+## Run the TV server test suite.
+tv-test:
+	cd server && go test ./internal/tv/... -count=1
+
+## Run the TV server locally.
+tv-server:
+	cd server && go run ./cmd/tv-server
+
+## Generate the TV TypeScript client from the TV OpenAPI spec.
+tv-client: openapi-tv
+	cd tv-web && npm run generate:client
+
+## Build the TV admin SPA (regenerates the client first).
+tv-web: tv-client
+	cd tv-web && npm run build
+
+## Copy the built TV SPA into the server for an embedded local build.
+tv-bundle: tv-web
+	rm -rf server/internal/tv/spa/dist
+	cp -r tv-web/dist server/internal/tv/spa/dist
+	cd server && go build ./cmd/tv-server
 
 ## Vet the Go code.
 lint:

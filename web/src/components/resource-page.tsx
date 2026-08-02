@@ -33,7 +33,7 @@ export interface ColumnDef<T> {
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox";
+  type?: "text" | "number" | "select" | "checkbox" | "date" | "tags";
   options?: string[];
   required?: boolean;
   createOnly?: boolean;
@@ -95,6 +95,19 @@ export function ResourcePage<T extends { id: string }>({
         continue;
       }
       if (raw == null || raw === "") continue;
+      if (field.type === "date") {
+        // The API models calendar days as instants, so a date-only input is
+        // sent as its UTC midnight rather than through the browser's zone.
+        body[field.key] = `${String(raw)}T00:00:00Z`;
+        continue;
+      }
+      if (field.type === "tags") {
+        body[field.key] = String(raw)
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
+        continue;
+      }
       body[field.key] = field.type === "number" ? Number(raw) : raw;
     }
     try {
@@ -295,8 +308,8 @@ export function ResourcePage<T extends { id: string }>({
                       <Input
                         id={field.key}
                         name={field.key}
-                        type={field.type === "number" ? "number" : "text"}
-                        defaultValue={existing != null ? String(existing) : ""}
+                        type={inputType(field.type)}
+                        defaultValue={defaultInputValue(field, existing)}
                         required={field.required && !editing}
                       />
                     )}
@@ -312,4 +325,27 @@ export function ResourcePage<T extends { id: string }>({
       </Dialog>
     </div>
   );
+}
+
+/** inputType maps a field type onto the HTML input type that edits it. */
+function inputType(type: FieldDef["type"]): string {
+  switch (type) {
+    case "number":
+      return "number";
+    case "date":
+      return "date";
+    default:
+      return "text";
+  }
+}
+
+/**
+ * defaultInputValue renders an existing value for its editor: dates are
+ * trimmed to the day the input expects, tag lists to a comma-separated line.
+ */
+function defaultInputValue(field: FieldDef, value: unknown): string {
+  if (value == null) return "";
+  if (field.type === "date") return String(value).slice(0, 10);
+  if (field.type === "tags") return Array.isArray(value) ? value.join(", ") : String(value);
+  return String(value);
 }

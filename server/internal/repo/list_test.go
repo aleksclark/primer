@@ -101,10 +101,10 @@ func TestColumnsFromType(t *testing.T) {
 	t.Parallel()
 
 	type sample struct {
-		ID        string `db:"id"`
-		Name      string `db:"name"`
-		Skipped   string `db:"-"`
-		NoTag     string
+		ID         string `db:"id"`
+		Name       string `db:"name"`
+		Skipped    string `db:"-"`
+		NoTag      string
 		unexported string `db:"hidden"`
 	}
 

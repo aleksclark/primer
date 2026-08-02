@@ -15,14 +15,20 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-// Handler serves the embedded SPA. Requests for files that exist are served
-// directly; everything else falls back to index.html so client-side routes
-// resolve on hard refresh.
+// Handler serves the embedded LMS SPA.
 func Handler() http.Handler {
 	dist, err := fs.Sub(distFS, "dist")
 	if err != nil {
 		panic(err) // embed is static; failure here is a build error
 	}
+	return HandlerFS(dist)
+}
+
+// HandlerFS serves an SPA bundle from any filesystem. Requests for files that
+// exist are served directly; everything else falls back to index.html so
+// client-side routes resolve on hard refresh. Exported so the TV server can
+// serve its own bundle without duplicating the fallback logic.
+func HandlerFS(dist fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(dist))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

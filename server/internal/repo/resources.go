@@ -76,6 +76,16 @@ var MasteryEvidences = NewResource[domain.MasteryEvidence](ListConfig{
 	FilterableColumns: []string{"mastery_record_id", "kind"},
 })
 
+// InstructionLogs is the instruction log repository. Instructional time
+// arrives from outside the LMS (today, the TV server), so the log is searched
+// by title and filtered by source and subject.
+var InstructionLogs = NewResource[domain.InstructionLog](ListConfig{
+	Table:             "instruction_logs",
+	SearchColumns:     []string{"media_title", "notes", "source_ref"},
+	SortableColumns:   []string{"occurred_on", "watched_seconds", "media_title", "source", "class", "created_at", "updated_at"},
+	FilterableColumns: []string{"source", "class", "student_id", "occurred_on"},
+})
+
 // Assessments is the assessment repository.
 var Assessments = NewResource[domain.Assessment](ListConfig{
 	Table:             "assessments",

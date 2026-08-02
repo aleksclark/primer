@@ -38,11 +38,12 @@ job "primer" {
       }
 
       env {
-        PORT         = "${NOMAD_PORT_http}"
-        HOST         = "0.0.0.0"
-        ENV          = "production"
-        DATABASE_URL = "${DATABASE_URL}"
-        CORS_ORIGINS = "https://primer.fleet.clark.team,https://primer.clark.team"
+        PORT          = "${NOMAD_PORT_http}"
+        HOST          = "0.0.0.0"
+        ENV           = "production"
+        DATABASE_URL  = "${DATABASE_URL}"
+        CORS_ORIGINS  = "https://primer.fleet.clark.team,https://primer.clark.team"
+        SERVICE_TOKEN = "${SERVICE_TOKEN}"
       }
 
       resources {

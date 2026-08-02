@@ -31,3 +31,14 @@ func TestLoadInvalid(t *testing.T) {
 	_, err := Load()
 	assert.Error(t, err)
 }
+
+func TestServiceTokenDefaultsToOpen(t *testing.T) {
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.ServiceToken, "no token by default; deployments must set one")
+
+	t.Setenv("SERVICE_TOKEN", "s3cret")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, "s3cret", cfg.ServiceToken)
+}

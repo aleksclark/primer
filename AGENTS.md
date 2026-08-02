@@ -139,8 +139,70 @@ Key architecture points:
 - **Schema**: educators, students, subjects, standards (hierarchical,
   multi-source, prerequisite graph), curricula (multiple approaches),
   curriculum_standards (sequencing), enrollments, mastery_records + evidence,
-  assessments (6 kinds), items, options, attempts, item_responses. Migrations
-  in `server/internal/db/migrations/`.
+  assessments (6 kinds), items, options, attempts, item_responses,
+  instruction_logs (instructional time reported from outside the LMS).
+  Migrations in `server/internal/db/migrations/`.
+
+## TV Server (`server/cmd/tv-server`) and TV Admin SPA (`tv-web/`)
+
+The virtual TV channel runs as a second binary against a **separate PostgreSQL
+database**, reusing the same Huma/chi/pgx stack, the same generic CRUD and list
+machinery (`internal/repo`, `internal/api`), and the same testcontainer harness.
+See [the implementation plan](agent_docs/plans/video-as-instruction.md) for the
+full design.
+
+```bash
+make tv-build    # build the TV server binary
+make tv-test     # TV test suite
+make openapi-tv  # regenerate tv-web/openapi.yaml
+make tv-client   # regenerate the TV TS client
+make tv-web      # build the TV admin SPA
+make dev-db-tv   # create the TV database in the local PostgreSQL
+make migrate-tv  # apply TV migrations
+```
+
+Configuration is read from the environment with a `TV_` prefix
+(`server/internal/tv/config`) so both binaries can run side by side.
+
+### Service boundary and credentials
+
+The two services never share a database. They talk over HTTP, and each
+direction carries its own shared secret, so a credential that leaks in one
+direction cannot be replayed in the other:
+
+| Direction | Credential | Header | Purpose |
+|-----------|-----------|--------|---------|
+| TV → LMS | `SERVICE_TOKEN` (on the LMS) as `TV_PRIMER_SERVICE_TOKEN` (on the TV server) | `X-Service-Token` | Push finished educational viewings to `POST /instruction-logs/ingest` |
+| LMS → TV | `TV_ADMIN_API_KEY` | `X-Admin-Key` | Read the grid, place availability windows, programme slots — the same key the TV admin SPA uses |
+| Device → TV | Per-device token from `POST /devices/pair` | `Authorization: Bearer` | Catalog, `/now`, play grants, heartbeats |
+
+Every shared-secret guard is **inert when its secret is unset**
+(`api.SharedSecretGuard`). That keeps OpenAPI generation and a bare local
+checkout working without ceremony; both binaries log a warning at startup when a
+secret is missing, so an unguarded deployment is loud rather than silent.
+
+### Instructional time
+
+Watching a tagged programme becomes instructional time in the LMS:
+
+- The TV reporter (`server/internal/tv/primer`) polls for finished
+  `playback_sessions` of `educational`/`mixed` media items that have no
+  `primer_reports` row, posts each to the LMS ingest, and records the LMS's log
+  ID in that ledger. Configured by `TV_PRIMER_BASE_URL`,
+  `TV_PRIMER_SERVICE_TOKEN`, `TV_PRIMER_REPORT_INTERVAL`,
+  `TV_PRIMER_REPORT_BATCH_SIZE`, `TV_PRIMER_TIMEOUT`; with no base URL set the
+  reporter is not started at all.
+- **Entertainment is never instructional time.** The LMS refuses it (enum plus a
+  table `CHECK`) because the definition belongs to the system of record; the TV
+  reporter also excludes it from its candidate query so those sessions never
+  enter the backlog.
+- **Reporting is at-least-once and idempotent on both sides**: the TV ledger is
+  unique per playback session, and the LMS ingest is unique on
+  `(source, source_ref)`. Retrying is always safe; an LMS that is down leaves
+  sessions queued rather than losing them.
+- The parent sees the result in two places: **Instruction Logs** in the LMS SPA
+  (what was counted, by day and subject) and **Primer Reports** in the TV SPA
+  (what was exported, with a manual "report now" pass).
 
 ## Key Design Decisions
 
@@ -167,3 +229,4 @@ See `agent_docs/` for comprehensive documentation on each aspect of the system:
 - **[TV Channel](agent_docs/tv-channel.md)** — Virtual linear broadcast system
 - **[Tools](agent_docs/tools.md)** — External tool integration (Onshape, spreadsheets, etc.)
 - **[Code improvements](agent_docs/code-improvements.md)** — DRY / SoC / naming backlog for the LMS stack
+- **[Video as instruction](agent_docs/plans/video-as-instruction.md)** — TV server, Android client, and Primer integration plan

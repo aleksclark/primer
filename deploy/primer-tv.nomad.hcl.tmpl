@@ -1,0 +1,76 @@
+job "primer-tv" {
+  datacenters = ["home"]
+  type        = "service"
+
+  group "primer-tv" {
+    count = 1
+
+    network {
+      port "http" {}
+    }
+
+    # The published APK lives outside the image so a new build can be dropped
+    # in without a redeploy, and so a binary never enters the git history.
+    volume "releases" {
+      type      = "host"
+      source    = "primer-tv-releases"
+      read_only = true
+    }
+
+    service {
+      name     = "primer-tv"
+      port     = "http"
+      provider = "nomad"
+
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.primer-tv.rule=Host(`tv.fleet.clark.team`) || Host(`tv.clark.team`)",
+        "traefik.http.routers.primer-tv.entrypoints=websecure",
+        "traefik.http.routers.primer-tv.tls.certresolver=letsencrypt",
+      ]
+
+      check {
+        type     = "http"
+        path     = "/api/v1/health"
+        interval = "30s"
+        timeout  = "5s"
+      }
+    }
+
+    task "primer-tv" {
+      driver = "docker"
+
+      config {
+        image = "ghcr.io/aleksclark/primer-tv:${IMAGE_TAG}"
+        ports = ["http"]
+      }
+
+      volume_mount {
+        volume      = "releases"
+        destination = "/releases"
+        read_only   = true
+      }
+
+      env {
+        TV_PORT                 = "${NOMAD_PORT_http}"
+        TV_HOST                 = "0.0.0.0"
+        TV_ENV                  = "production"
+        TV_DATABASE_URL         = "${TV_DATABASE_URL}"
+        TV_CORS_ORIGINS         = "https://tv.fleet.clark.team,https://tv.clark.team"
+        TV_JELLYFIN_BASE_URL    = "${TV_JELLYFIN_BASE_URL}"
+        TV_JELLYFIN_API_KEY     = "${TV_JELLYFIN_API_KEY}"
+        TV_JELLYFIN_USER_ID     = "${TV_JELLYFIN_USER_ID}"
+        TV_ADMIN_API_KEY        = "${TV_ADMIN_API_KEY}"
+        TV_CHANNEL_TIMEZONE     = "America/Chicago"
+        TV_PRIMER_BASE_URL      = "${TV_PRIMER_BASE_URL}"
+        TV_PRIMER_SERVICE_TOKEN = "${TV_PRIMER_SERVICE_TOKEN}"
+        TV_RELEASE_DIR          = "/releases"
+      }
+
+      resources {
+        cpu    = 300
+        memory = 256
+      }
+    }
+  }
+}

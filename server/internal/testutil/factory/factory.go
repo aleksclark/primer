@@ -1,54 +1,32 @@
-// Package factory provides FactoryBot-style test data builders. Each factory
-// inserts a row through the repo layer with sensible defaults, accepting
-// override maps for per-test customization. Associations are created
-// automatically unless the relevant foreign key is provided.
+// Package factory provides FactoryBot-style test data builders for the LMS
+// schema. Each factory inserts a row through the repo layer with sensible
+// defaults, accepting override maps for per-test customization. Associations
+// are created automatically unless the relevant foreign key is provided.
 package factory
 
 import (
-	"context"
 	"fmt"
-	"maps"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aleksclark/primer/server/internal/domain"
 	"github.com/aleksclark/primer/server/internal/repo"
+	"github.com/aleksclark/primer/server/internal/testutil/build"
 )
 
-var seq atomic.Int64
-
-// n returns a process-unique sequence number for generating distinct values.
-func n() int64 { return seq.Add(1) }
-
 // Override is a column->value map merged over factory defaults.
-type Override map[string]any
+type Override = build.Override
 
-func merge(defaults map[string]any, overrides []Override) map[string]any {
-	out := maps.Clone(defaults)
-	if out == nil {
-		out = make(map[string]any)
-	}
-	for _, o := range overrides {
-		maps.Copy(out, o)
-	}
-	return out
-}
+var (
+	n        = build.N
+	merge    = build.Merge
+	ensureFK = build.EnsureFK
+)
 
+// create inserts a row through the shared factory helper.
 func create[T any](t *testing.T, q repo.Querier, res *repo.Resource[T], values map[string]any) *T {
 	t.Helper()
-	item, err := res.Create(context.Background(), q, values)
-	if err != nil {
-		t.Fatalf("factory create %T: %v", *new(T), err)
-	}
-	return item
-}
-
-// ensureFK sets column to create() when the caller did not supply it.
-func ensureFK(merged map[string]any, column string, create func() string) {
-	if _, ok := merged[column]; !ok {
-		merged[column] = create()
-	}
+	return build.Create(t, q, res, values)
 }
 
 // Educator creates an educator.
@@ -151,6 +129,21 @@ func MasteryEvidence(t *testing.T, q repo.Querier, overrides ...Override) *domai
 	}, overrides)
 	ensureFK(merged, "mastery_record_id", func() string { return MasteryRecord(t, q).ID })
 	return create(t, q, repo.MasteryEvidences, merged)
+}
+
+// InstructionLog records instructional time from an external producer.
+func InstructionLog(t *testing.T, q repo.Querier, overrides ...Override) *domain.InstructionLog {
+	i := n()
+	return create(t, q, repo.InstructionLogs, merge(map[string]any{
+		"source":          domain.InstructionSourceTV,
+		"source_ref":      fmt.Sprintf("session-%d", i),
+		"media_title":     fmt.Sprintf("Documentary %d", i),
+		"class":           domain.InstructionClassEducational,
+		"subject_tags":    []string{"science"},
+		"standard_codes":  []string{fmt.Sprintf("TN.SCI.%d", i)},
+		"watched_seconds": 1800,
+		"occurred_on":     time.Now().UTC().Truncate(24 * time.Hour),
+	}, overrides))
 }
 
 // Assessment creates an assessment.

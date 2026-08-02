@@ -69,22 +69,22 @@ func TestCORSMiddleware(t *testing.T) {
 func TestParseFilters(t *testing.T) {
 	t.Parallel()
 
-	got, err := parseFilters([]string{"status:active", "grade:6"})
+	got, err := ParseFilters([]string{"status:active", "grade:6"})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"status": "active", "grade": "6"}, got)
 
 	// Value containing a colon is preserved
-	got, err = parseFilters([]string{"note:a:b"})
+	got, err = ParseFilters([]string{"note:a:b"})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"note": "a:b"}, got)
 
-	_, err = parseFilters([]string{"nocolon"})
+	_, err = ParseFilters([]string{"nocolon"})
 	assert.Error(t, err)
 
-	_, err = parseFilters([]string{":empty"})
+	_, err = ParseFilters([]string{":empty"})
 	assert.Error(t, err)
 
-	got, err = parseFilters(nil)
+	got, err = ParseFilters(nil)
 	require.NoError(t, err)
 	assert.Nil(t, got)
 }
@@ -118,13 +118,13 @@ func TestMapError(t *testing.T) {
 	t.Parallel()
 
 	// Not found
-	err := mapError(repo.ErrNotFound)
+	err := MapError(repo.ErrNotFound)
 	var statusErr huma.StatusError
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.StatusNotFound, statusErr.GetStatus())
 
 	// Bad request from repo validation
-	err = mapError(repo.ErrBadRequest{Msg: "bad"})
+	err = MapError(repo.ErrBadRequest{Msg: "bad"})
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.StatusBadRequest, statusErr.GetStatus())
 
@@ -136,16 +136,65 @@ func TestMapError(t *testing.T) {
 		"22P02": http.StatusBadRequest,
 	}
 	for code, want := range cases {
-		err = mapError(&pgconn.PgError{Code: code})
+		err = MapError(&pgconn.PgError{Code: code})
 		require.ErrorAs(t, err, &statusErr, "code %s", code)
 		assert.Equal(t, want, statusErr.GetStatus(), "code %s", code)
 	}
 
 	// Unknown errors pass through
 	sentinel := errors.New("boom")
-	assert.Equal(t, sentinel, mapError(sentinel))
+	assert.Equal(t, sentinel, MapError(sentinel))
 
 	// Unknown pg codes pass through
 	pgErr := &pgconn.PgError{Code: "42P01"}
-	assert.Equal(t, error(pgErr), mapError(pgErr))
+	assert.Equal(t, error(pgErr), MapError(pgErr))
+}
+
+func TestGuardStampsMiddlewareSecurityAndErrors(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	middleware := func(ctx huma.Context, next func(huma.Context)) {
+		called = true
+		next(ctx)
+	}
+
+	var cfg crudConfig
+	Guard(middleware, "someScheme")(&cfg)
+
+	op := cfg.apply(huma.Operation{OperationID: "list-things"})
+	require.Len(t, op.Middlewares, 1, "the guard runs before the handler")
+	assert.Equal(t, []map[string][]string{{"someScheme": {}}}, op.Security,
+		"the scheme is documented on the operation")
+	assert.Contains(t, op.Errors, http.StatusUnauthorized,
+		"a guarded operation can reject the caller")
+
+	// The recorded middleware is the one supplied.
+	op.Middlewares[0](nil, func(huma.Context) {})
+	assert.True(t, called)
+}
+
+func TestGuardWithoutASchemeStillAppliesMiddleware(t *testing.T) {
+	t.Parallel()
+
+	var cfg crudConfig
+	Guard(func(ctx huma.Context, next func(huma.Context)) { next(ctx) }, "")(&cfg)
+
+	op := cfg.apply(huma.Operation{})
+	assert.Len(t, op.Middlewares, 1)
+	assert.Empty(t, op.Security, "an unnamed scheme documents nothing")
+}
+
+func TestCRUDConfigWithoutGuardIsUnchanged(t *testing.T) {
+	t.Parallel()
+
+	// Resources that opt into no guard must register exactly as before.
+	var cfg crudConfig
+	SkipCreate()(&cfg)
+
+	op := cfg.apply(huma.Operation{OperationID: "get-thing"})
+	assert.Empty(t, op.Middlewares)
+	assert.Empty(t, op.Security)
+	assert.Empty(t, op.Errors)
+	assert.True(t, cfg.skipCreate)
 }

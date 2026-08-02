@@ -105,3 +105,52 @@ export function dateCol<T>(
 export function gradeCol<T extends { gradeLevel?: number | null }>(): ColumnDef<T> {
   return textCol<T>("grade_level", "Grade", (r) => r.gradeLevel ?? "", { sortable: true });
 }
+
+/** String-array column rendered as a row of chips. */
+export function tagsCol<T>(
+  key: string,
+  header: string,
+  get: (row: T) => string[] | null | undefined,
+): ColumnDef<T> {
+  return {
+    key,
+    header,
+    render: (row) => {
+      const tags = get(row) ?? [];
+      if (tags.length === 0) return "";
+      return (
+        <div className="flex flex-wrap gap-1">
+          {tags.map((tag) => (
+            <Badge key={tag} variant="outline">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+      );
+    },
+  };
+}
+
+/**
+ * Duration column rendering seconds as hours and minutes. Instructional time
+ * is read in hours, so raw seconds would make the parent do the arithmetic.
+ */
+export function durationCol<T>(
+  key: string,
+  header: string,
+  get: (row: T) => number | null | undefined,
+  opts?: { sortable?: boolean; sortKey?: string },
+): ColumnDef<T> {
+  return {
+    key: opts?.sortKey ?? key,
+    header,
+    sortable: opts?.sortable,
+    render: (row) => {
+      const seconds = get(row);
+      if (seconds == null) return "";
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.round((seconds % 3600) / 60);
+      return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    },
+  };
+}

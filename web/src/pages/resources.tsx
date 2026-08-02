@@ -6,9 +6,11 @@ import {
   codeCol,
   createdCol,
   dateCol,
+  durationCol,
   gradeCol,
   idCol,
   shortIdCol,
+  tagsCol,
   textCol,
 } from "@/lib/columns";
 
@@ -399,6 +401,36 @@ export function ItemResponsesPage() {
         { key: "pointsAwarded", label: "Points awarded", type: "number" },
         { key: "feedback", label: "Feedback" },
       ]}
+    />
+  );
+}
+
+export function InstructionLogsPage() {
+  type Row = Schemas["InstructionLog"];
+  return (
+    <ResourcePage<Row>
+      title="Instruction Logs"
+      path="/instruction-logs"
+      columns={[
+        dateCol<Row>("occurred_on", "Day", (r) => r.occurredOn, { sortable: true }),
+        textCol<Row>("media_title", "Title", (r) => r.mediaTitle, { sortable: true }),
+        badgeCol<Row>("source", "Source", (r) => r.source, { sortable: true, variant: "outline" }),
+        badgeCol<Row>("class", "Class", (r) => r.class, { sortable: true }),
+        durationCol<Row>("watched_seconds", "Time", (r) => r.watchedSeconds, { sortable: true }),
+        tagsCol<Row>("subjectTags", "Subjects", (r) => r.subjectTags),
+        tagsCol<Row>("standardCodes", "Standards", (r) => r.standardCodes),
+      ]}
+      fields={[
+        { key: "mediaTitle", label: "Title", required: true },
+        { key: "class", label: "Class", type: "select", options: ["educational", "mixed"], required: true },
+        { key: "watchedSeconds", label: "Watched (seconds)", type: "number", required: true },
+        { key: "occurredOn", label: "Day", type: "date" },
+        { key: "subjectTags", label: "Subject tags (comma separated)", type: "tags" },
+        { key: "standardCodes", label: "Standard codes (comma separated)", type: "tags" },
+        { key: "studentId", label: "Student ID" },
+        { key: "notes", label: "Notes" },
+      ]}
+      defaultSort="occurred_on"
     />
   );
 }

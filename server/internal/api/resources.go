@@ -274,7 +274,7 @@ type ItemResponseUpdate struct {
 }
 
 // registerAll wires every resource's CRUD endpoints into the API.
-func registerAll(h huma.API, q repo.Querier) {
+func registerAll(h huma.API, q repo.Querier, opts Options) {
 	RegisterCRUD[domain.Educator, EducatorCreate, EducatorUpdate](h, q, repo.Educators, "educator", "educators", "/educators")
 	RegisterCRUD[domain.Student, StudentCreate, StudentUpdate](h, q, repo.Students, "student", "students", "/students")
 	RegisterCRUD[domain.Subject, SubjectCreate, SubjectUpdate](h, q, repo.Subjects, "subject", "subjects", "/subjects")
@@ -289,4 +289,5 @@ func registerAll(h huma.API, q repo.Querier) {
 	RegisterCRUD[domain.AssessmentItemOption, AssessmentItemOptionCreate, AssessmentItemOptionUpdate](h, q, repo.AssessmentItemOptions, "assessment-item-option", "assessment-item-options", "/assessment-item-options")
 	RegisterCRUD[domain.AssessmentAttempt, AssessmentAttemptCreate, AssessmentAttemptUpdate](h, q, repo.AssessmentAttempts, "assessment-attempt", "assessment-attempts", "/assessment-attempts")
 	RegisterCRUD[domain.ItemResponse, ItemResponseCreate, ItemResponseUpdate](h, q, repo.ItemResponses, "item-response", "item-responses", "/item-responses")
+	registerInstructionLogs(h, q, opts)
 }
