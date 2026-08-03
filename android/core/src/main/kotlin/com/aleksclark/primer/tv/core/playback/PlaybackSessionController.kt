@@ -187,8 +187,10 @@ class PlaybackSessionController(
             is ApiResult.Err -> _state.value = PlaybackState.Failed(
                 error = result.error,
                 // A refusal or a missing token will not be fixed by asking again;
-                // a network blip will.
-                recoverable = result.error is ApiError.Network || result.error is ApiError.Unexpected,
+                // a network blip, 5xx, or temporary media-source outage will.
+                recoverable = result.error is ApiError.Network ||
+                    result.error is ApiError.Unexpected ||
+                    result.error is ApiError.Unavailable,
             )
         }
     }

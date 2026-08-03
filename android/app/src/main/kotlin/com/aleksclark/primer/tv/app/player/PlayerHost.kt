@@ -19,9 +19,12 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import com.aleksclark.primer.tv.app.ui.player.PlaybackChromeOverlay
 import com.aleksclark.primer.tv.core.domain.PlaybackControls
 import com.aleksclark.primer.tv.core.playback.BroadcastSeek
 import com.aleksclark.primer.tv.core.playback.PlaybackSessionController
+import com.aleksclark.primer.tv.core.presentation.PlaybackOverlayModel
+import com.aleksclark.primer.tv.core.presentation.PlaybackOverlayPolicy
 import okhttp3.OkHttpClient
 
 /**
@@ -30,6 +33,10 @@ import okhttp3.OkHttpClient
  * Playback is deliberately direct-play only: no transcoding is requested of
  * Jellyfin, because the RK3318 box cannot keep up with a server-side transcode
  * and the admin UI already refuses to offer incompatible items.
+ *
+ * Transport chrome visibility follows [PlaybackControls] / [PlaybackOverlayModel].
+ * Pause and seek are enforced by [PolicyPlayer] (command withdrawal), not by
+ * merely hiding Compose buttons.
  */
 @Composable
 fun PlayerHost(
@@ -42,6 +49,7 @@ fun PlayerHost(
     onResumed: () -> Unit,
     modifier: Modifier = Modifier,
     broadcastSeek: BroadcastSeek? = null,
+    overlay: PlaybackOverlayModel = PlaybackOverlayPolicy.forControls(controls),
 ) {
     val context = LocalContext.current
 
@@ -118,15 +126,31 @@ fun PlayerHost(
                     // The programmed channel offers no transport at all, so the
                     // controller is not merely emptied but never shown: an
                     // overlay with nothing in it still steals D-pad focus.
-                    useController = controls.showTransportControls
+                    // Entertainment keeps the controller for pause + progress;
+                    // Media3 disables seek when seek commands are withdrawn.
+                    useController = overlay.showTransportControls && controls.showTransportControls
+                    controllerShowTimeoutMs = if (controls.followsBroadcast) 0 else 3_000
                     setShowNextButton(false)
                     setShowPreviousButton(false)
+                    // Fast-forward / rewind buttons only when seek is allowed.
+                    // Even if Media3 still draws a scrub bar, PolicyPlayer
+                    // refuses seek commands for entertainment / programmed.
+                    setShowFastForwardButton(controls.seekAllowed && overlay.seekInteractive)
+                    setShowRewindButton(controls.seekAllowed && overlay.seekInteractive)
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
                     )
                 }
             },
+            update = { view ->
+                view.player = player
+                view.useController = overlay.showTransportControls && controls.showTransportControls
+                view.setShowFastForwardButton(controls.seekAllowed && overlay.seekInteractive)
+                view.setShowRewindButton(controls.seekAllowed && overlay.seekInteractive)
+            },
         )
+
+        PlaybackChromeOverlay(overlay = overlay)
     }
 }

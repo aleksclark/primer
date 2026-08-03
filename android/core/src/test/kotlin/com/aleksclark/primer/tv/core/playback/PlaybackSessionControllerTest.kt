@@ -173,6 +173,23 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun `a temporary media source outage while requesting a grant is recoverable`() = runTest {
+        server.enqueue(json(problemJson(503, "The media source is unavailable."), code = 503))
+        val controller = PlaybackSessionController(
+            repository = repositoryFor(server),
+            grantStore = FakeGrantStore(),
+            scope = this,
+            clock = { T0 },
+        )
+
+        controller.start("media-1", MediaClass.EDUCATIONAL, runtimeSeconds = 1_800)
+
+        val failed = controller.state.value as PlaybackState.Failed
+        assertTrue(failed.error is ApiError.Unavailable)
+        assertTrue(failed.recoverable)
+    }
+
+    @Test
     fun `heartbeats fire on the interval and report accumulated watch time`() = runTest {
         server.enqueue(json(grantJson(), code = 201))
         server.enqueue(json(sessionJson(watchedSeconds = 30, maxPositionSeconds = 30)))

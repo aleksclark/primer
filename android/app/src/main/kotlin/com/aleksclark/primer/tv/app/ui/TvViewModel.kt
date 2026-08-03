@@ -10,6 +10,7 @@ import com.aleksclark.primer.tv.core.data.ApiError
 import com.aleksclark.primer.tv.core.data.ApiResult
 import com.aleksclark.primer.tv.core.data.DeviceSettings
 import com.aleksclark.primer.tv.core.data.TvRepository
+import com.aleksclark.primer.tv.core.domain.Catalog
 import com.aleksclark.primer.tv.core.domain.CatalogPresenter
 import com.aleksclark.primer.tv.core.domain.MediaClass
 import com.aleksclark.primer.tv.core.domain.PlaybackControls
@@ -21,8 +22,16 @@ import com.aleksclark.primer.tv.core.playback.BroadcastSeek
 import com.aleksclark.primer.tv.core.playback.BroadcastSync
 import com.aleksclark.primer.tv.core.playback.PlaybackSessionController
 import com.aleksclark.primer.tv.core.playback.PlaybackState
+import com.aleksclark.primer.tv.core.presentation.HeroAction
+import com.aleksclark.primer.tv.core.presentation.HeroModel
+import com.aleksclark.primer.tv.core.presentation.HomePresenter
+import com.aleksclark.primer.tv.core.presentation.HomeUiState
+import com.aleksclark.primer.tv.core.presentation.PairingPresenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +63,9 @@ class TvViewModel(
     private val _channel = MutableStateFlow(ChannelUiState())
     val channel: StateFlow<ChannelUiState> = _channel.asStateFlow()
 
+    private val _home = MutableStateFlow(HomeUiState(loading = true, hero = HeroModel.Loading))
+    val home: StateFlow<HomeUiState> = _home.asStateFlow()
+
     private val _epg = MutableStateFlow(EpgUiState())
     val epg: StateFlow<EpgUiState> = _epg.asStateFlow()
 
@@ -70,6 +82,9 @@ class TvViewModel(
      */
     private val _consumedMediaItemIds = MutableStateFlow<Set<String>>(emptySet())
 
+    /** Last successful channel snapshot used by Home when the Channel screen is idle. */
+    private var homeChannelNow = _channel.value.now
+
     private var controller: PlaybackSessionController? = null
     private var playbackMirror: Job? = null
     private var seekMirror: Job? = null
@@ -79,6 +94,14 @@ class TvViewModel(
 
     private val _update = MutableStateFlow<UpdateState>(UpdateState.UpToDate)
     val update: StateFlow<UpdateState> = _update.asStateFlow()
+
+    /**
+     * Short-lived non-blocking feedback (update checks, soft refresh notes).
+     * Cleared automatically; never replaces a whole screen.
+     */
+    private val _statusMessage = MutableStateFlow<StatusMessage?>(null)
+    val statusMessage: StateFlow<StatusMessage?> = _statusMessage.asStateFlow()
+    private var statusJob: Job? = null
 
     /**
      * Corrections the programmed player must apply to stay level with the
@@ -93,6 +116,19 @@ class TvViewModel(
 
     /** The programme being watched, when tuned to the channel. */
     private var tunedProgramme: Programme? = null
+
+    /**
+     * Last play request so a recoverable grant failure can retry without the
+     * student re-navigating. Cleared when the session ends successfully or the
+     * failure is permanent.
+     */
+    private var lastPlayRequest: PlayRequest? = null
+
+    /**
+     * Top-level screen that opened the current detail page so back restores
+     * Channel/Guide/Settings origin instead of always dumping to Home.
+     */
+    private var detailOrigin: Destination = Destination.CATALOG
 
     /**
      * The repository for the currently configured server, or null when unpaired.
@@ -119,7 +155,10 @@ class TvViewModel(
     fun onCodeChanged(value: String) {
         // Codes are drawn from an uppercase alphabet and compared case-
         // sensitively on the server, so force uppercase as the parent types.
-        _pairing.value = _pairing.value.copy(codeInput = value.uppercase(), error = null)
+        _pairing.value = _pairing.value.copy(
+            codeInput = PairingPresenter.normalizeCode(value),
+            error = null,
+        )
     }
 
     fun submitPairing() {
@@ -132,11 +171,12 @@ class TvViewModel(
             return
         }
 
-        _pairing.value = state.copy(submitting = true, error = null)
+        val code = PairingPresenter.normalizeCode(state.codeInput)
+        _pairing.value = state.copy(submitting = true, error = null, codeInput = code)
         scope.launch {
             container.settingsStore.setBaseUrl(baseUrl)
             activeBaseUrl = baseUrl
-            when (val result = container.repositoryFor(baseUrl).pair(state.codeInput.uppercase())) {
+            when (val result = container.repositoryFor(baseUrl).pair(code)) {
                 is ApiResult.Ok -> {
                     val pairing = result.value
                     Log.i(TAG, "pair ok device=${pairing.device.id} tokenLen=${pairing.token.length}")
@@ -152,14 +192,19 @@ class TvViewModel(
                     container.noteToken(pairing.token)
                     _pairing.value = PairingUiState(baseUrlInput = baseUrl)
                     _destination.value = Destination.CATALOG
-                    refreshCatalog()
+                    refreshHome()
                 }
                 is ApiResult.Err -> {
                     Log.w(TAG, "pair failed: ${result.error}")
+                    val message = PairingPresenter.failureMessage(result.error.message).value
+                    // Stay on the pairing card with the server address intact so
+                    // the parent only retypes the code.
                     _pairing.value = _pairing.value.copy(
                         submitting = false,
-                        error = result.error.message,
+                        error = message,
+                        baseUrlInput = _pairing.value.baseUrlInput.ifBlank { baseUrl },
                     )
+                    _destination.value = Destination.PAIRING
                 }
             }
         }
@@ -167,41 +212,186 @@ class TvViewModel(
 
     fun unpair() {
         scope.launch {
+            // Keep the server address on the form so re-pairing is one field.
+            val retainedUrl = retainedServerUrl()
             container.settingsStore.clearPairing()
             container.noteToken(null)
             activeBaseUrl = null
             container.grantStore.clear()
             _catalog.value = CatalogUiState()
+            _home.value = HomeUiState(loading = false, hero = HeroModel.Empty())
+            homeChannelNow = null
             _consumedMediaItemIds.value = emptySet()
+            _pairing.value = PairingUiState(baseUrlInput = retainedUrl)
             _destination.value = Destination.PAIRING
         }
     }
 
-    // ---- catalog -------------------------------------------------------
+    // ---- home / catalog ------------------------------------------------
 
+    /**
+     * Reloads Home inputs (catalog + on-now). Preserves existing content while
+     * refreshing so scroll/focus are not destroyed.
+     */
+    fun refreshHome() {
+        val repository = repository()
+        if (repository == null) {
+            Log.w(TAG, "refreshHome skipped: no repository (baseUrl=${activeBaseUrl ?: settings.value.baseUrl})")
+            return
+        }
+        _home.value = HomePresenter.beginRefresh(_home.value)
+        val hadCatalog = _catalog.value.view != null
+        _catalog.value = _catalog.value.copy(
+            loading = !hadCatalog,
+            error = if (hadCatalog) _catalog.value.error else null,
+        )
+        scope.launch {
+            coroutineScope {
+                val catalogDeferred = async { repository.catalog() }
+                val nowDeferred = async { repository.now() }
+                val catalogResult = catalogDeferred.await()
+                val nowResult = nowDeferred.await()
+
+                var catalogError: String? = null
+                var nextCatalog: Catalog? = _catalog.value.catalog
+                var nextView = _catalog.value.view
+
+                when (catalogResult) {
+                    is ApiResult.Ok -> {
+                        Log.i(TAG, "catalog ok items=${catalogResult.value.entries.size}")
+                        // Keep in-session Watched marks for titles still listed;
+                        // only drop marks the server has already removed.
+                        val retainedConsumed = retainConsumedStillListed(
+                            consumed = _consumedMediaItemIds.value,
+                            catalog = catalogResult.value,
+                        )
+                        _consumedMediaItemIds.value = retainedConsumed
+                        nextCatalog = catalogResult.value
+                        nextView = CatalogPresenter.present(catalogResult.value, retainedConsumed)
+                        _catalog.value = CatalogUiState(
+                            loading = false,
+                            view = nextView,
+                            catalog = nextCatalog,
+                        )
+                    }
+                    is ApiResult.Err -> {
+                        Log.w(TAG, "catalog failed: ${catalogResult.error}")
+                        handleUnauthenticated(catalogResult.error)
+                        catalogError = catalogResult.error.message
+                        if (hadCatalog) {
+                            _catalog.value = _catalog.value.copy(loading = false)
+                        } else {
+                            _catalog.value = CatalogUiState(loading = false, error = catalogError)
+                        }
+                    }
+                }
+
+                when (nowResult) {
+                    is ApiResult.Ok -> {
+                        homeChannelNow = nowResult.value
+                        // Keep Channel screen in sync when it already has state or is visible.
+                        if (_destination.value == Destination.CHANNEL || _channel.value.now != null) {
+                            _channel.value = ChannelUiState(loading = false, now = nowResult.value)
+                        } else {
+                            _channel.value = _channel.value.copy(loading = false, now = nowResult.value)
+                        }
+                    }
+                    is ApiResult.Err -> {
+                        handleUnauthenticated(nowResult.error)
+                        // Channel failure alone should not wipe Home content.
+                        if (_channel.value.now == null) {
+                            _channel.value = ChannelUiState(loading = false, error = nowResult.error.message)
+                        } else {
+                            _channel.value = _channel.value.copy(loading = false)
+                        }
+                        if (catalogError == null && nextView == null) {
+                            catalogError = nowResult.error.message
+                        }
+                    }
+                }
+
+                recomputeHome(
+                    catalog = nextCatalog,
+                    channelNow = homeChannelNow,
+                    loading = false,
+                    refreshing = false,
+                    error = catalogError,
+                )
+            }
+        }
+    }
+
+    /** Catalog-only refresh used after on-demand playback finishes. */
     fun refreshCatalog() {
         val repository = repository()
         if (repository == null) {
             Log.w(TAG, "refreshCatalog skipped: no repository (baseUrl=${activeBaseUrl ?: settings.value.baseUrl})")
             return
         }
-        _catalog.value = _catalog.value.copy(loading = true, error = null)
+        val hadContent = _catalog.value.view != null
+        _catalog.value = _catalog.value.copy(loading = !hadContent, error = if (hadContent) null else _catalog.value.error)
+        if (hadContent) {
+            _home.value = HomePresenter.beginRefresh(_home.value)
+        }
         scope.launch {
             when (val result = repository.catalog()) {
                 is ApiResult.Ok -> {
                     Log.i(TAG, "catalog ok items=${result.value.entries.size}")
+                    val retainedConsumed = retainConsumedStillListed(
+                        consumed = _consumedMediaItemIds.value,
+                        catalog = result.value,
+                    )
+                    _consumedMediaItemIds.value = retainedConsumed
+                    val view = CatalogPresenter.present(result.value, retainedConsumed)
                     _catalog.value = CatalogUiState(
                         loading = false,
-                        view = CatalogPresenter.present(result.value, _consumedMediaItemIds.value),
+                        view = view,
+                        catalog = result.value,
+                    )
+                    recomputeHome(
+                        catalog = result.value,
+                        channelNow = homeChannelNow,
+                        loading = false,
+                        refreshing = false,
+                        error = null,
                     )
                 }
                 is ApiResult.Err -> {
                     Log.w(TAG, "catalog failed: ${result.error}")
                     handleUnauthenticated(result.error)
-                    _catalog.value = CatalogUiState(loading = false, error = result.error.message)
+                    if (hadContent) {
+                        _catalog.value = _catalog.value.copy(loading = false)
+                        _home.value = HomePresenter.applyRefreshFailure(_home.value, result.error.message)
+                    } else {
+                        _catalog.value = CatalogUiState(loading = false, error = result.error.message)
+                        recomputeHome(
+                            catalog = null,
+                            channelNow = homeChannelNow,
+                            loading = false,
+                            refreshing = false,
+                            error = result.error.message,
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun recomputeHome(
+        catalog: Catalog? = _catalog.value.catalog,
+        channelNow: com.aleksclark.primer.tv.core.domain.ChannelNow? = homeChannelNow,
+        loading: Boolean = false,
+        refreshing: Boolean = false,
+        error: String? = null,
+    ) {
+        _home.value = HomePresenter.present(
+            catalog = catalog,
+            channelNow = channelNow,
+            consumedMediaItemIds = _consumedMediaItemIds.value,
+            loading = loading,
+            refreshing = refreshing,
+            error = error,
+        )
     }
 
     // ---- channel -------------------------------------------------------
@@ -209,13 +399,32 @@ class TvViewModel(
     /** Reloads what is on the channel now, from the server's clock. */
     fun refreshChannel() {
         val repository = repository() ?: return
+        // Keep any prior on-now snapshot visible while reloading so a failed
+        // refresh cannot flash the screen empty or drop Watch Live.
         _channel.value = _channel.value.copy(loading = true, error = null)
         scope.launch {
             when (val result = repository.now()) {
-                is ApiResult.Ok -> _channel.value = ChannelUiState(loading = false, now = result.value)
+                is ApiResult.Ok -> {
+                    homeChannelNow = result.value
+                    _channel.value = ChannelUiState(loading = false, now = result.value)
+                    // Keep Home hero aligned with live state when channel refreshes.
+                    if (_catalog.value.catalog != null || _home.value.hasContent) {
+                        recomputeHome(
+                            catalog = _catalog.value.catalog,
+                            channelNow = result.value,
+                            loading = false,
+                            refreshing = false,
+                            error = _home.value.error?.value,
+                        )
+                    }
+                }
                 is ApiResult.Err -> {
                     handleUnauthenticated(result.error)
-                    _channel.value = ChannelUiState(loading = false, error = result.error.message)
+                    // Preserve prior on-now content; surface a non-blocking error.
+                    _channel.value = _channel.value.copy(
+                        loading = false,
+                        error = result.error.message,
+                    )
                 }
             }
         }
@@ -224,6 +433,7 @@ class TvViewModel(
     /** Loads today's grid for the EPG screen. */
     fun refreshEpg() {
         val repository = repository() ?: return
+        // Keep the last loaded day mounted across refresh failures.
         _epg.value = _epg.value.copy(loading = true, error = null)
         scope.launch {
             // No day is passed: the client does not know the channel's timezone,
@@ -232,9 +442,58 @@ class TvViewModel(
                 is ApiResult.Ok -> _epg.value = EpgUiState(loading = false, day = result.value)
                 is ApiResult.Err -> {
                     handleUnauthenticated(result.error)
-                    _epg.value = EpgUiState(loading = false, error = result.error.message)
+                    _epg.value = _epg.value.copy(
+                        loading = false,
+                        error = result.error.message,
+                    )
                 }
             }
+        }
+    }
+
+    /** Opens Home (catalog) as a top-level destination. */
+    fun openHome() {
+        _destination.value = Destination.CATALOG
+        if (_catalog.value.view == null && !_catalog.value.loading) {
+            refreshHome()
+        }
+    }
+
+    /** Primary action on the Home hero. */
+    fun playHero() {
+        when (val hero = _home.value.hero) {
+            is HeroModel.Live -> {
+                // Prefer joining live immediately from Home when we already have
+                // a tunable on-air snapshot; otherwise open the Channel screen.
+                val programme = homeChannelNow?.onAir
+                    ?.takeIf { it.scheduleEntryId == hero.scheduleEntryId && it.directPlayOk }
+                if (programme != null) {
+                    _channel.value = ChannelUiState(loading = false, now = homeChannelNow)
+                    startPlayback(
+                        mediaItemId = programme.mediaItemId,
+                        mediaClass = programme.mediaClass,
+                        runtimeSeconds = programme.runtimeSeconds,
+                        mode = PlaybackMode.PROGRAMMED,
+                        scheduleEntryId = programme.scheduleEntryId,
+                        programme = programme,
+                    )
+                } else {
+                    openChannel()
+                }
+            }
+            is HeroModel.Featured -> when (hero.primaryAction) {
+                HeroAction.PLAY -> {
+                    if (hero.card.playable) {
+                        openDetail(hero.mediaItemId)
+                        play(hero.mediaItemId)
+                    } else {
+                        openDetail(hero.mediaItemId)
+                    }
+                }
+                HeroAction.VIEW_DETAILS -> openDetail(hero.mediaItemId)
+                else -> openDetail(hero.mediaItemId)
+            }
+            else -> Unit
         }
     }
 
@@ -256,7 +515,10 @@ class TvViewModel(
      * a stale EPG cell cannot ask to play something that has since gone off air.
      */
     fun tuneIn() {
-        val programme = _channel.value.onAir ?: return
+        // Only join when the box can actually decode the airing title. The UI
+        // disables Watch Live for non-direct-play, but guard here too so a stale
+        // event cannot request a programmed grant that will fail at the player.
+        val programme = _channel.value.onAir?.takeIf { it.directPlayOk } ?: return
         startPlayback(
             mediaItemId = programme.mediaItemId,
             mediaClass = programme.mediaClass,
@@ -291,16 +553,43 @@ class TvViewModel(
      * Returns to pairing when the device's token is no longer accepted. The
      * token was revoked or the server was rebuilt; there is nothing to show and
      * re-pairing is the only way out.
+     *
+     * Credentials are cleared at most once per bounce so concurrent 401s from
+     * catalog + channel do not thrash storage or wipe the inline message.
      */
     private suspend fun handleUnauthenticated(error: ApiError) {
         if (error !is ApiError.Unauthenticated) return
+        if (_destination.value == Destination.PAIRING && settings.value.token.isNullOrBlank()) {
+            // Already bounced; keep the retained URL and existing explanation.
+            return
+        }
+        val retainedUrl = retainedServerUrl()
         container.settingsStore.clearPairing()
         container.noteToken(null)
         activeBaseUrl = null
+        _pairing.value = PairingUiState(
+            baseUrlInput = retainedUrl,
+            error = error.message?.takeIf { it.isNotBlank() }
+                ?: "This device must be paired again.",
+        )
         _destination.value = Destination.PAIRING
     }
 
+    /** Server address kept across unpair / token-revoke for the pairing form. */
+    private fun retainedServerUrl(): String =
+        activeBaseUrl?.takeIf { it.isNotBlank() }
+            ?: settings.value.baseUrl?.takeIf { it.isNotBlank() }
+            ?: _pairing.value.baseUrlInput
+
     fun openDetail(mediaItemId: String) {
+        detailOrigin = when (val current = _destination.value) {
+            Destination.CATALOG,
+            Destination.CHANNEL,
+            Destination.EPG,
+            Destination.SETTINGS,
+            -> current
+            Destination.DETAIL, Destination.PLAYER, Destination.PAIRING -> detailOrigin
+        }
         _selectedMediaItemId.value = mediaItemId
         _destination.value = Destination.DETAIL
     }
@@ -316,10 +605,25 @@ class TvViewModel(
     fun checkForUpdate() {
         val updater = container.updater ?: return
         val repository = repository() ?: return
+        // Non-blocking: navigation stays free while the check runs.
         scope.launch {
             when (val result = repository.appRelease()) {
-                is ApiResult.Ok -> _update.value = updater.stateFor(result.value)
-                is ApiResult.Err -> _update.value = UpdateState.UpToDate
+                is ApiResult.Ok -> {
+                    val next = updater.stateFor(result.value)
+                    _update.value = next
+                    when (next) {
+                        is UpdateState.Available -> showStatus(
+                            "Version ${next.release.versionCode} is available.",
+                        )
+                        UpdateState.UpToDate -> showStatus("This device is up to date.")
+                        else -> Unit
+                    }
+                }
+                is ApiResult.Err -> {
+                    // Unreachable / empty publish is not an error for the box.
+                    _update.value = UpdateState.UpToDate
+                    showStatus("This device is up to date.")
+                }
             }
         }
     }
@@ -331,8 +635,27 @@ class TvViewModel(
         val baseUrl = settings.value.baseUrl ?: return
         _update.value = UpdateState.Downloading
         scope.launch {
-            _update.value = updater.download(baseUrl, available.release, settings.value.token)
+            val next = updater.download(baseUrl, available.release, settings.value.token)
+            _update.value = next
+            if (next is UpdateState.Failed) {
+                showStatus(next.message, isError = true)
+            }
         }
+    }
+
+    /** Publishes a short-lived banner and clears it without blocking navigation. */
+    fun showStatus(message: String, isError: Boolean = false, holdMs: Long = 3_500L) {
+        statusJob?.cancel()
+        _statusMessage.value = StatusMessage(text = message, isError = isError)
+        statusJob = scope.launch {
+            delay(holdMs)
+            _statusMessage.value = null
+        }
+    }
+
+    fun dismissStatus() {
+        statusJob?.cancel()
+        _statusMessage.value = null
     }
 
     fun openSettings() {
@@ -343,7 +666,13 @@ class TvViewModel(
         _destination.value = Destination.PAIRING
     }
 
-    /** Handles a back gesture. Returns false when the shell should exit. */
+    /**
+     * Handles a back gesture. Returns false when the shell should exit.
+     *
+     * Top-level destinations (Home/Channel/Guide/Settings) treat non-Home as a
+     * peer switch: back returns to Home rather than walking a nested stack.
+     * Details restore [detailOrigin]; the player exits through [stopPlayback].
+     */
     fun back(): Boolean = when (_destination.value) {
         Destination.CATALOG -> false
         Destination.PAIRING -> if (settings.value.isPaired) {
@@ -352,12 +681,12 @@ class TvViewModel(
         } else {
             false
         }
-        Destination.DETAIL, Destination.SETTINGS, Destination.CHANNEL -> {
-            _destination.value = Destination.CATALOG
+        Destination.DETAIL -> {
+            _destination.value = detailOrigin
             true
         }
-        Destination.EPG -> {
-            _destination.value = Destination.CHANNEL
+        Destination.SETTINGS, Destination.CHANNEL, Destination.EPG -> {
+            _destination.value = Destination.CATALOG
             true
         }
         // Back is the whole of the programmed player's transport: it exits.
@@ -372,6 +701,10 @@ class TvViewModel(
     /** Plays an on-demand catalog item. */
     fun play(mediaItemId: String) {
         val card = _catalog.value.card(mediaItemId) ?: return
+        // Consumed entertainment must not request another grant this session.
+        // Guard both playable and alreadyWatched so a stale card cannot slip
+        // through if presentation and domain drift.
+        if (!card.playable || card.alreadyWatched) return
         startPlayback(
             mediaItemId = mediaItemId,
             mediaClass = card.entry.mediaClass,
@@ -393,6 +726,15 @@ class TvViewModel(
         programme: Programme? = null,
     ) {
         val repository = repository() ?: return
+
+        lastPlayRequest = PlayRequest(
+            mediaItemId = mediaItemId,
+            mediaClass = mediaClass,
+            runtimeSeconds = runtimeSeconds,
+            mode = mode,
+            scheduleEntryId = scheduleEntryId,
+            programme = programme,
+        )
 
         val session = PlaybackSessionController(
             repository = repository,
@@ -433,6 +775,37 @@ class TvViewModel(
         }
     }
 
+    /**
+     * Retries the last play attempt after a recoverable failure (network blip).
+     * Permanent refusals and watched entertainment are not retried.
+     */
+    fun retryPlayback() {
+        val request = lastPlayRequest ?: return
+        if (request.mode == PlaybackMode.ON_DEMAND) {
+            val card = _catalog.value.card(request.mediaItemId)
+            if (card != null && (!card.playable || card.alreadyWatched)) return
+        }
+        // Drop the failed controller first so its collectors cannot overwrite
+        // the retry's state, and so we do not leave a second heartbeat alive.
+        val failed = controller
+        controller = null
+        playbackMirror?.cancel()
+        playbackMirror = null
+        seekMirror?.cancel()
+        seekMirror = null
+        if (failed != null) {
+            scope.launch { runCatching { failed.finish(completed = false) } }
+        }
+        startPlayback(
+            mediaItemId = request.mediaItemId,
+            mediaClass = request.mediaClass,
+            runtimeSeconds = request.runtimeSeconds,
+            mode = request.mode,
+            scheduleEntryId = request.scheduleEntryId,
+            programme = request.programme,
+        )
+    }
+
     /** Starts heartbeating against the live player. */
     fun attachPlayer(probe: PlaybackSessionController.PlayerProbe) {
         controller?.attachPlayer(probe)
@@ -465,6 +838,7 @@ class TvViewModel(
         seekMirror = null
         playbackMode = PlaybackMode.ON_DEMAND
         tunedProgramme = null
+        lastPlayRequest = null
         _broadcastSeek.value = null
         _destination.value = when {
             // Leaving the channel returns to the channel, not to a catalog
@@ -489,18 +863,49 @@ class TvViewModel(
         }
     }
 
+    /** Snapshot of one play attempt, used only for recoverable retries. */
+    private data class PlayRequest(
+        val mediaItemId: String,
+        val mediaClass: MediaClass,
+        val runtimeSeconds: Int,
+        val mode: PlaybackMode,
+        val scheduleEntryId: String?,
+        val programme: Programme?,
+    )
+
     private fun markConsumed(mediaItemId: String) {
         _consumedMediaItemIds.value = _consumedMediaItemIds.value + mediaItemId
-        val view = _catalog.value.view ?: return
-        _catalog.value = _catalog.value.copy(
-            view = CatalogPresenter.present(
-                com.aleksclark.primer.tv.core.domain.Catalog(
+        val catalog = _catalog.value.catalog
+            ?: _catalog.value.view?.let { view ->
+                Catalog(
                     entries = view.cards.map { it.entry },
                     serverTime = view.serverTime,
-                ),
-                _consumedMediaItemIds.value,
-            ),
+                )
+            }
+            ?: return
+        val view = CatalogPresenter.present(catalog, _consumedMediaItemIds.value)
+        _catalog.value = _catalog.value.copy(view = view, catalog = catalog)
+        recomputeHome(
+            catalog = catalog,
+            channelNow = homeChannelNow,
+            loading = false,
+            refreshing = false,
+            error = _home.value.error?.value,
         )
+    }
+
+    /**
+     * Session Watched marks stay until the server stops listing the title.
+     * Clearing them on every refresh would re-enable Play for entertainment
+     * the student already finished during this app session.
+     */
+    private fun retainConsumedStillListed(
+        consumed: Set<String>,
+        catalog: Catalog,
+    ): Set<String> {
+        if (consumed.isEmpty()) return emptySet()
+        val listed = catalog.entries.mapTo(mutableSetOf()) { it.mediaItemId }
+        return consumed.intersect(listed)
     }
 
     /** What the player being shown is allowed to do. */

@@ -58,6 +58,16 @@ class PolicyPlayer(
         super.seekTo(mediaItemIndex, positionMs)
     }
 
+    override fun seekToDefaultPosition() {
+        if (!controls.seekAllowed) return
+        super.seekToDefaultPosition()
+    }
+
+    override fun seekToDefaultPosition(mediaItemIndex: Int) {
+        if (!controls.seekAllowed) return
+        super.seekToDefaultPosition(mediaItemIndex)
+    }
+
     override fun seekForward() {
         if (!controls.seekAllowed) return
         super.seekForward()
@@ -78,17 +88,48 @@ class PolicyPlayer(
         super.seekToPrevious()
     }
 
+    override fun seekToNextMediaItem() {
+        if (!controls.seekAllowed) return
+        super.seekToNextMediaItem()
+    }
+
+    override fun seekToPreviousMediaItem() {
+        if (!controls.seekAllowed) return
+        super.seekToPreviousMediaItem()
+    }
+
+    @Deprecated("Deprecated in Media3")
+    override fun seekToNextWindow() {
+        if (!controls.seekAllowed) return
+        @Suppress("DEPRECATION")
+        super.seekToNextWindow()
+    }
+
+    @Deprecated("Deprecated in Media3")
+    override fun seekToPreviousWindow() {
+        if (!controls.seekAllowed) return
+        @Suppress("DEPRECATION")
+        super.seekToPreviousWindow()
+    }
+
     private fun blocks(command: Int): Boolean = blocked.any { it == command }
 
     private companion object {
+        /**
+         * Every Media3 seek command. Withdrawing only a subset leaves D-pad /
+         * media-session / controller paths that can still scrub entertainment
+         * or programmed playback.
+         */
         val SEEK_COMMANDS = intArrayOf(
+            Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
             Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-            Player.COMMAND_SEEK_BACK,
-            Player.COMMAND_SEEK_FORWARD,
-            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
             Player.COMMAND_SEEK_TO_PREVIOUS,
             Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+            Player.COMMAND_SEEK_BACK,
+            Player.COMMAND_SEEK_FORWARD,
         )
     }
 }
