@@ -9,14 +9,6 @@ job "primer-tv" {
       port "http" {}
     }
 
-    # The published APK lives outside the image so a new build can be dropped
-    # in without a redeploy, and so a binary never enters the git history.
-    volume "releases" {
-      type      = "host"
-      source    = "primer-tv-releases"
-      read_only = true
-    }
-
     service {
       name     = "primer-tv"
       port     = "http"
@@ -45,12 +37,6 @@ job "primer-tv" {
         ports = ["http"]
       }
 
-      volume_mount {
-        volume      = "releases"
-        destination = "/releases"
-        read_only   = true
-      }
-
       env {
         TV_PORT                 = "${NOMAD_PORT_http}"
         TV_HOST                 = "0.0.0.0"
@@ -64,7 +50,6 @@ job "primer-tv" {
         TV_CHANNEL_TIMEZONE     = "America/Chicago"
         TV_PRIMER_BASE_URL      = "${TV_PRIMER_BASE_URL}"
         TV_PRIMER_SERVICE_TOKEN = "${TV_PRIMER_SERVICE_TOKEN}"
-        TV_RELEASE_DIR          = "/releases"
       }
 
       resources {

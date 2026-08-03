@@ -12,6 +12,16 @@ permissions:
 jobs:
   build-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: primer
+            file: Dockerfile
+            image: primer
+          - name: primer-tv
+            file: Dockerfile.tv
+            image: primer-tv
     steps:
       - uses: actions/checkout@v4
 
@@ -29,13 +39,14 @@ jobs:
         id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build and push ${{ matrix.name }}
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.file }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/primer:${{ steps.sha.outputs.short }}
-            ghcr.io/${{ github.repository_owner }}/primer:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.sha.outputs.short }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
