@@ -48,9 +48,23 @@ class AppContainer(
     var updater: AppUpdater? = null
         private set
 
+    /**
+     * Updates the token the interceptor will send on the next request.
+     *
+     * Must be called in the same coroutine that writes the pairing, *before*
+     * any authenticated call: DataStore's Flow delivery is asynchronous, and
+     * a catalog refresh that races it arrives with no Authorization header,
+     * gets a 401, and kicks the student straight back to pairing.
+     */
+    fun noteToken(token: String?) {
+        cachedToken = token
+    }
+
     /** Begins mirroring the persisted token. Called once at application start. */
     fun start(scope: CoroutineScope) {
         scope.launch {
+            // Seed from storage before any UI-driven request can race the Flow.
+            cachedToken = settingsStore.current().token
             settingsStore.settings.collect { cachedToken = it.token }
         }
     }

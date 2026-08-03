@@ -129,6 +129,10 @@ class TvViewModel(
                         deviceName = pairing.device.name,
                         deviceKind = pairing.device.kind,
                     )
+                    // Interceptor reads a cache, not DataStore. Publish the
+                    // token before any authenticated call or the first catalog
+                    // request races the Flow and comes back 401.
+                    container.noteToken(pairing.token)
                     _pairing.value = PairingUiState(baseUrlInput = baseUrl)
                     _destination.value = Destination.CATALOG
                     refreshCatalog()
@@ -144,6 +148,7 @@ class TvViewModel(
     fun unpair() {
         scope.launch {
             container.settingsStore.clearPairing()
+            container.noteToken(null)
             container.grantStore.clear()
             _catalog.value = CatalogUiState()
             _consumedMediaItemIds.value = emptySet()
@@ -261,6 +266,7 @@ class TvViewModel(
     private suspend fun handleUnauthenticated(error: ApiError) {
         if (error !is ApiError.Unauthenticated) return
         container.settingsStore.clearPairing()
+        container.noteToken(null)
         _destination.value = Destination.PAIRING
     }
 
