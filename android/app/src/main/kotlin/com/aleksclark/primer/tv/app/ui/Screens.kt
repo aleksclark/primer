@@ -97,6 +97,11 @@ fun PairingScreen(
             label = { Text("Pairing code") },
             singleLine = true,
             enabled = !state.submitting,
+            // Codes are uppercase-only; keep the software keyboard there too.
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters,
+                autoCorrectEnabled = false,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
 

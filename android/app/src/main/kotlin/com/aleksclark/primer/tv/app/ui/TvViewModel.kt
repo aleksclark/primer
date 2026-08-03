@@ -1,5 +1,6 @@
 package com.aleksclark.primer.tv.app.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -93,9 +94,21 @@ class TvViewModel(
     /** The programme being watched, when tuned to the channel. */
     private var tunedProgramme: Programme? = null
 
-    /** The repository for the currently configured server, or null when unpaired. */
-    private fun repository(): TvRepository? =
-        settings.value.baseUrl?.takeIf { it.isNotBlank() }?.let(container::repositoryFor)
+    /**
+     * The repository for the currently configured server, or null when unpaired.
+     *
+     * Prefer the URL just written during pairing over [settings]: that StateFlow
+     * is fed by DataStore and can lag a write by a tick, which would make the
+     * first post-pair catalog call look unauthenticated and bounce the UI.
+     */
+    private var activeBaseUrl: String? = null
+
+    private fun repository(): TvRepository? {
+        val baseUrl = activeBaseUrl
+            ?: settings.value.baseUrl?.takeIf { it.isNotBlank() }
+            ?: return null
+        return container.repositoryFor(baseUrl)
+    }
 
     // ---- pairing -------------------------------------------------------
 
@@ -104,7 +117,9 @@ class TvViewModel(
     }
 
     fun onCodeChanged(value: String) {
-        _pairing.value = _pairing.value.copy(codeInput = value, error = null)
+        // Codes are drawn from an uppercase alphabet and compared case-
+        // sensitively on the server, so force uppercase as the parent types.
+        _pairing.value = _pairing.value.copy(codeInput = value.uppercase(), error = null)
     }
 
     fun submitPairing() {
@@ -120,9 +135,11 @@ class TvViewModel(
         _pairing.value = state.copy(submitting = true, error = null)
         scope.launch {
             container.settingsStore.setBaseUrl(baseUrl)
-            when (val result = container.repositoryFor(baseUrl).pair(state.codeInput)) {
+            activeBaseUrl = baseUrl
+            when (val result = container.repositoryFor(baseUrl).pair(state.codeInput.uppercase())) {
                 is ApiResult.Ok -> {
                     val pairing = result.value
+                    Log.i(TAG, "pair ok device=${pairing.device.id} tokenLen=${pairing.token.length}")
                     container.settingsStore.savePairing(
                         token = pairing.token,
                         deviceId = pairing.device.id,
@@ -137,10 +154,13 @@ class TvViewModel(
                     _destination.value = Destination.CATALOG
                     refreshCatalog()
                 }
-                is ApiResult.Err -> _pairing.value = _pairing.value.copy(
-                    submitting = false,
-                    error = result.error.message,
-                )
+                is ApiResult.Err -> {
+                    Log.w(TAG, "pair failed: ${result.error}")
+                    _pairing.value = _pairing.value.copy(
+                        submitting = false,
+                        error = result.error.message,
+                    )
+                }
             }
         }
     }
@@ -149,6 +169,7 @@ class TvViewModel(
         scope.launch {
             container.settingsStore.clearPairing()
             container.noteToken(null)
+            activeBaseUrl = null
             container.grantStore.clear()
             _catalog.value = CatalogUiState()
             _consumedMediaItemIds.value = emptySet()
@@ -159,15 +180,23 @@ class TvViewModel(
     // ---- catalog -------------------------------------------------------
 
     fun refreshCatalog() {
-        val repository = repository() ?: return
+        val repository = repository()
+        if (repository == null) {
+            Log.w(TAG, "refreshCatalog skipped: no repository (baseUrl=${activeBaseUrl ?: settings.value.baseUrl})")
+            return
+        }
         _catalog.value = _catalog.value.copy(loading = true, error = null)
         scope.launch {
             when (val result = repository.catalog()) {
-                is ApiResult.Ok -> _catalog.value = CatalogUiState(
-                    loading = false,
-                    view = CatalogPresenter.present(result.value, _consumedMediaItemIds.value),
-                )
+                is ApiResult.Ok -> {
+                    Log.i(TAG, "catalog ok items=${result.value.entries.size}")
+                    _catalog.value = CatalogUiState(
+                        loading = false,
+                        view = CatalogPresenter.present(result.value, _consumedMediaItemIds.value),
+                    )
+                }
                 is ApiResult.Err -> {
+                    Log.w(TAG, "catalog failed: ${result.error}")
                     handleUnauthenticated(result.error)
                     _catalog.value = CatalogUiState(loading = false, error = result.error.message)
                 }
@@ -267,6 +296,7 @@ class TvViewModel(
         if (error !is ApiError.Unauthenticated) return
         container.settingsStore.clearPairing()
         container.noteToken(null)
+        activeBaseUrl = null
         _destination.value = Destination.PAIRING
     }
 
@@ -489,6 +519,9 @@ class TvViewModel(
 
     /** Chooses the first destination once persisted settings are known. */
     fun onSettingsLoaded(settings: DeviceSettings) {
+        if (settings.baseUrl?.isNotBlank() == true) {
+            activeBaseUrl = settings.baseUrl
+        }
         if (!settings.isPaired && _destination.value != Destination.PAIRING) {
             _destination.value = Destination.PAIRING
             _pairing.value = _pairing.value.copy(baseUrlInput = settings.baseUrl.orEmpty())
@@ -498,5 +531,9 @@ class TvViewModel(
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = TvViewModel(container) as T
+    }
+
+    private companion object {
+        const val TAG = "PrimerTV"
     }
 }

@@ -101,9 +101,11 @@ func deviceColumns() string { return strings.Join(Devices.Config().Columns, ", "
 // DeviceByPairingCode finds an unpaired device offering the given code. An
 // expired or already-claimed code does not match.
 func DeviceByPairingCode(ctx context.Context, q repo.Querier, code string, at time.Time) (*domain.Device, error) {
+	// Codes are generated uppercase; compare case-insensitively so a D-pad
+	// that slips into lowercase still pairs.
 	sqlStr := fmt.Sprintf(`
 SELECT %s FROM devices
-WHERE pairing_code = $1
+WHERE upper(pairing_code) = upper($1)
   AND pairing_code <> ''
   AND revoked_at IS NULL
   AND (pairing_expires_at IS NULL OR pairing_expires_at > $2)
@@ -133,7 +135,7 @@ UPDATE devices SET
     paired_at = $3,
     last_seen_at = $3,
     updated_at = now()
-WHERE pairing_code = $1
+WHERE upper(pairing_code) = upper($1)
   AND pairing_code <> ''
   AND revoked_at IS NULL
   AND (pairing_expires_at IS NULL OR pairing_expires_at > $3)
