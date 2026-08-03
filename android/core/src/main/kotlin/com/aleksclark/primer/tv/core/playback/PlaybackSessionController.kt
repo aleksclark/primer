@@ -68,6 +68,11 @@ sealed interface PlaybackState {
         val grant: PlayGrant,
         val controls: PlaybackControls,
         val resumePositionSeconds: Int,
+        /**
+         * Furthest playhead position reached for this item (on-demand seek
+         * ceiling). Updated as the student watches further.
+         */
+        val furthestPositionSeconds: Int = 0,
         val playConsumed: Boolean = false,
     ) : PlaybackState
 
@@ -176,19 +181,33 @@ class PlaybackSessionController(
                 val grant = result.value
                 activeGrant = grant
                 redeemed = false
-                accumulator.restore(watchedSeconds = 0, maxPositionSeconds = grant.startOffsetSeconds)
+                val furthest = when (mode) {
+                    PlaybackMode.ON_DEMAND -> maxOf(
+                        grant.furthestPositionSeconds,
+                        grant.startOffsetSeconds,
+                    )
+                    PlaybackMode.PROGRAMMED -> grant.startOffsetSeconds
+                }
+                accumulator.restore(watchedSeconds = 0, maxPositionSeconds = furthest)
                 persist()
                 _state.value = PlaybackState.Playable(
                     grant = grant,
                     controls = controls,
-                    resumePositionSeconds = grant.startOffsetSeconds,
+                    resumePositionSeconds = when (mode) {
+                        // Server already applied resume-30s; trust its offset.
+                        PlaybackMode.ON_DEMAND -> grant.startOffsetSeconds
+                        PlaybackMode.PROGRAMMED -> grant.startOffsetSeconds
+                    },
+                    furthestPositionSeconds = furthest,
                 )
             }
             is ApiResult.Err -> _state.value = PlaybackState.Failed(
                 error = result.error,
                 // A refusal or a missing token will not be fixed by asking again;
-                // a network blip will.
-                recoverable = result.error is ApiError.Network || result.error is ApiError.Unexpected,
+                // a network blip, 5xx, or temporary media-source outage will.
+                recoverable = result.error is ApiError.Network ||
+                    result.error is ApiError.Unexpected ||
+                    result.error is ApiError.Unavailable,
             )
         }
     }
@@ -198,14 +217,24 @@ class PlaybackSessionController(
         val grant = stored.toGrant(serverTime = clock())
         activeGrant = grant
         redeemed = stored.redeemed
+        val furthest = maxOf(
+            stored.furthestPositionSeconds,
+            stored.positionSeconds,
+            grant.furthestPositionSeconds,
+        )
         accumulator.restore(
             watchedSeconds = stored.watchedSeconds,
-            maxPositionSeconds = stored.positionSeconds,
+            maxPositionSeconds = furthest,
         )
         _state.value = PlaybackState.Playable(
             grant = grant,
             controls = controls,
-            resumePositionSeconds = maxOf(stored.positionSeconds, grant.startOffsetSeconds),
+            // Local resume applies the same -30s rule as a fresh grant.
+            resumePositionSeconds = when (mode) {
+                PlaybackMode.ON_DEMAND -> PlaybackPolicy.resumePositionSeconds(furthest)
+                PlaybackMode.PROGRAMMED -> maxOf(stored.positionSeconds, grant.startOffsetSeconds)
+            },
+            furthestPositionSeconds = furthest,
         )
     }
 
@@ -306,11 +335,26 @@ class PlaybackSessionController(
             is ApiResult.Ok -> {
                 redeemed = true
                 _lastProgress.value = result.value
+                // Server watermark can only rise; fold it into the local ceiling.
+                if (result.value.maxPositionSeconds > accumulator.maxPositionSeconds) {
+                    accumulator.restore(
+                        watchedSeconds = accumulator.watchedSeconds,
+                        maxPositionSeconds = result.value.maxPositionSeconds,
+                    )
+                }
                 persist()
-                if (result.value.playConsumed) {
-                    val current = _state.value
-                    if (current is PlaybackState.Playable) {
-                        _state.value = current.copy(playConsumed = true)
+                val current = _state.value
+                if (current is PlaybackState.Playable) {
+                    val nextFurthest = maxOf(
+                        current.furthestPositionSeconds,
+                        accumulator.maxPositionSeconds,
+                        result.value.maxPositionSeconds,
+                    )
+                    if (result.value.playConsumed || nextFurthest != current.furthestPositionSeconds) {
+                        _state.value = current.copy(
+                            playConsumed = current.playConsumed || result.value.playConsumed,
+                            furthestPositionSeconds = nextFurthest,
+                        )
                     }
                 }
             }
@@ -388,6 +432,29 @@ class PlaybackSessionController(
     val playConsumed: Boolean
         get() = _lastProgress.value?.playConsumed == true
 
+    /**
+     * Records the live playhead into the furthest-position watermark without
+     * waiting for the next heartbeat. Called by the player layer so seek limits
+     * tighten as the student watches.
+     */
+    fun notePosition(positionMillis: Long) {
+        if (mode != PlaybackMode.ON_DEMAND) return
+        accumulator.sample(
+            positionMillis = positionMillis.coerceAtLeast(0L),
+            isPlaying = false,
+            elapsedRealtimeMillis = elapsedRealtime(),
+        )
+        val current = _state.value
+        if (current is PlaybackState.Playable &&
+            accumulator.maxPositionSeconds > current.furthestPositionSeconds
+        ) {
+            _state.value = current.copy(furthestPositionSeconds = accumulator.maxPositionSeconds)
+        }
+    }
+
+    /** Current on-demand seek ceiling in whole seconds. */
+    fun furthestPositionSeconds(): Int = accumulator.maxPositionSeconds
+
     private suspend fun persist() {
         val grant = activeGrant ?: return
         grantStore.save(
@@ -396,6 +463,7 @@ class PlaybackSessionController(
                 positionSeconds = accumulator.maxPositionSeconds,
                 watchedSeconds = accumulator.watchedSeconds,
                 redeemed = redeemed,
+                furthestPositionSeconds = accumulator.maxPositionSeconds,
             ),
         )
     }

@@ -173,6 +173,23 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun `a temporary media source outage while requesting a grant is recoverable`() = runTest {
+        server.enqueue(json(problemJson(503, "The media source is unavailable."), code = 503))
+        val controller = PlaybackSessionController(
+            repository = repositoryFor(server),
+            grantStore = FakeGrantStore(),
+            scope = this,
+            clock = { T0 },
+        )
+
+        controller.start("media-1", MediaClass.EDUCATIONAL, runtimeSeconds = 1_800)
+
+        val failed = controller.state.value as PlaybackState.Failed
+        assertTrue(failed.error is ApiError.Unavailable)
+        assertTrue(failed.recoverable)
+    }
+
+    @Test
     fun `heartbeats fire on the interval and report accumulated watch time`() = runTest {
         server.enqueue(json(grantJson(), code = 201))
         server.enqueue(json(sessionJson(watchedSeconds = 30, maxPositionSeconds = 30)))
@@ -386,8 +403,9 @@ class PlaybackSessionControllerTest {
 
         val state = controller.state.value as PlaybackState.Playable
         assertEquals("grant-resume", state.grant.grantId)
-        // Playback picks up where it stopped rather than restarting the film.
-        assertEquals(900, state.resumePositionSeconds)
+        // Resume starts 30s before the furthest mark so the student hears context.
+        assertEquals(870, state.resumePositionSeconds)
+        assertEquals(900, state.furthestPositionSeconds)
 
         controller.finish(completed = true)
 
@@ -395,6 +413,28 @@ class PlaybackSessionControllerTest {
         val sent = Json.parseToJsonElement(nextRequest().body.readUtf8()) as JsonObject
         assertEquals("880", sent["watchedSeconds"]?.jsonPrimitive?.content)
         assertEquals("900", sent["positionSeconds"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `notePosition raises the on-demand furthest watermark`() = runTest {
+        server.enqueue(json(grantJson(furthestPositionSeconds = 100, startOffsetSeconds = 70), code = 201))
+
+        val controller = PlaybackSessionController(
+            repository = repositoryFor(server),
+            grantStore = FakeGrantStore(),
+            scope = this,
+            clock = { T0 },
+        )
+        controller.start("media-1", MediaClass.EDUCATIONAL, runtimeSeconds = 3_600)
+
+        val before = controller.state.value as PlaybackState.Playable
+        assertEquals(100, before.furthestPositionSeconds)
+        assertEquals(70, before.resumePositionSeconds)
+
+        controller.notePosition(250_000L)
+        val after = controller.state.value as PlaybackState.Playable
+        assertEquals(250, after.furthestPositionSeconds)
+        assertEquals(250, controller.furthestPositionSeconds())
     }
 
     @Test

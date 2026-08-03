@@ -178,6 +178,40 @@ type PrimerReport struct {
 // credits still burns an entertainment play.
 const CompletionThreshold = 0.8
 
+// ResumeRewindSeconds is how far before the furthest on-demand position a
+// fresh grant starts playback, so the student hears a beat of context.
+const ResumeRewindSeconds = 30
+
+// SeekRewindLimitSeconds is how far behind the furthest on-demand position the
+// client may allow seeking. Forward seeks past the watermark are refused.
+const SeekRewindLimitSeconds = 5 * 60
+
+// ResumePositionSeconds is where on-demand playback should start given the
+// furthest position reached for an item. Zero furthest means a fresh start.
+func ResumePositionSeconds(furthestPositionSeconds int) int {
+	if furthestPositionSeconds <= 0 {
+		return 0
+	}
+	resume := furthestPositionSeconds - ResumeRewindSeconds
+	if resume < 0 {
+		return 0
+	}
+	return resume
+}
+
+// SeekFloorSeconds is the earliest on-demand position the student may scrub to
+// given the furthest watermark. The ceiling is the watermark itself.
+func SeekFloorSeconds(furthestPositionSeconds int) int {
+	if furthestPositionSeconds <= 0 {
+		return 0
+	}
+	floor := furthestPositionSeconds - SeekRewindLimitSeconds
+	if floor < 0 {
+		return 0
+	}
+	return floor
+}
+
 // SessionCompletesPlay reports whether a session has progressed far enough to
 // consume the item's play. Runtime of zero means the item's duration is
 // unknown, in which case only an explicit completion counts.

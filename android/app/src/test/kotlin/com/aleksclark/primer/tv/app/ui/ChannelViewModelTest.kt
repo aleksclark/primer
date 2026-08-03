@@ -178,16 +178,110 @@ class ChannelViewModelTest {
     }
 
     @Test
-    fun `back walks the epg to the channel and the channel to the catalog`() {
+    fun `back from guide and channel returns home as peer top-level destinations`() {
         server.dispatcher = channelDispatcher()
         val viewModel = pairedViewModel()
 
         viewModel.openEpg()
         assertTrue(viewModel.back())
-        assertEquals(Destination.CHANNEL, viewModel.destination.value)
+        assertEquals(Destination.CATALOG, viewModel.destination.value)
 
+        viewModel.openChannel()
         assertTrue(viewModel.back())
         assertEquals(Destination.CATALOG, viewModel.destination.value)
+    }
+
+    @Test
+    fun `detail opened from the channel restores the channel on back`() {
+        server.dispatcher = channelDispatcher()
+        val viewModel = pairedViewModel()
+
+        viewModel.openChannel()
+        viewModel.openDetail("media-from-channel")
+        assertEquals(Destination.DETAIL, viewModel.destination.value)
+
+        assertTrue(viewModel.back())
+        assertEquals(Destination.CHANNEL, viewModel.destination.value)
+    }
+
+    @Test
+    fun `a failed channel refresh keeps the prior on-now snapshot`() {
+        server.dispatcher = object : Dispatcher() {
+            var nowCalls = 0
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/api/v1/now") -> {
+                        nowCalls += 1
+                        if (nowCalls == 1) json(nowBody(offsetSeconds = 600))
+                        else json(problem(503, "upstream down"), code = 503)
+                    }
+                    else -> json(sessionBody())
+                }
+            }
+        }
+
+        val viewModel = pairedViewModel()
+        viewModel.openChannel()
+        awaitUntil("the channel to load") { viewModel.channel.value.now != null }
+        assertEquals("Inertia", viewModel.channel.value.onAir?.title)
+
+        viewModel.refreshChannel()
+        awaitUntil("the refresh error to surface") {
+            viewModel.channel.value.error != null && !viewModel.channel.value.loading
+        }
+
+        assertNotNull("prior on-now must survive a failed refresh", viewModel.channel.value.now)
+        assertEquals("Inertia", viewModel.channel.value.onAir?.title)
+        assertTrue(viewModel.channel.value.tunable)
+        assertEquals("upstream down", viewModel.channel.value.error)
+    }
+
+    @Test
+    fun `a failed guide refresh keeps the prior day schedule`() {
+        server.dispatcher = object : Dispatcher() {
+            var scheduleCalls = 0
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/api/v1/schedule") -> {
+                        scheduleCalls += 1
+                        if (scheduleCalls == 1) json(scheduleBody())
+                        else json(problem(503, "grid unavailable"), code = 503)
+                    }
+                    else -> json(sessionBody())
+                }
+            }
+        }
+
+        val viewModel = pairedViewModel()
+        viewModel.openEpg()
+        awaitUntil("the grid to load") { viewModel.epg.value.day != null }
+        assertEquals(listOf("Inertia", "Gravity"), viewModel.epg.value.day?.programmes?.map { it.title })
+
+        viewModel.refreshEpg()
+        awaitUntil("the refresh error to surface") {
+            viewModel.epg.value.error != null && !viewModel.epg.value.loading
+        }
+
+        assertNotNull("prior schedule must survive a failed refresh", viewModel.epg.value.day)
+        assertEquals(listOf("Inertia", "Gravity"), viewModel.epg.value.day?.programmes?.map { it.title })
+        assertEquals("grid unavailable", viewModel.epg.value.error)
+    }
+
+    @Test
+    fun `tuning in is a no-op when the airing title cannot direct-play`() {
+        server.enqueue(json(nowBody(directPlayOk = false)))
+
+        val viewModel = pairedViewModel()
+        viewModel.openChannel()
+        awaitUntil("the channel to load") { viewModel.channel.value.now != null }
+        assertFalse(viewModel.channel.value.tunable)
+
+        viewModel.tuneIn()
+
+        assertEquals(Destination.CHANNEL, viewModel.destination.value)
+        assertTrue(viewModel.playback.value is PlaybackState.Idle)
     }
 
     @Test
@@ -327,6 +421,16 @@ class ChannelViewModelTest {
       },
       "playConsumed": false,
       "serverTime": "2025-03-01T12:01:00Z"
+    }
+    """.trimIndent()
+
+    /** Minimal RFC 7807 problem body matching what the repository parses. */
+    private fun problem(status: Int, detail: String): String = """
+    {
+      "type": "about:blank",
+      "title": "Error",
+      "status": $status,
+      "detail": "$detail"
     }
     """.trimIndent()
 

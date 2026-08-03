@@ -46,12 +46,13 @@ type CatalogResponse struct {
 
 // GrantResponse authorizes one playback.
 type GrantResponse struct {
-	GrantID            string    `json:"grantId" format:"uuid"`
-	StreamURL          string    `json:"streamUrl"`
-	StartOffsetSeconds int       `json:"startOffsetSeconds"`
-	Mode               string    `json:"mode" enum:"on_demand,programmed"`
-	ExpiresAt          time.Time `json:"expiresAt"`
-	ServerTime         time.Time `json:"serverTime"`
+	GrantID              string    `json:"grantId" format:"uuid"`
+	StreamURL            string    `json:"streamUrl"`
+	StartOffsetSeconds   int       `json:"startOffsetSeconds" doc:"Where the player should start. On demand this is resume-30s from the furthest position; programmed is the broadcast offset."`
+	FurthestPositionSeconds int    `json:"furthestPositionSeconds" doc:"Furthest playhead position this device has reached on the item. On-demand seek ceiling; zero when fresh."`
+	Mode                 string    `json:"mode" enum:"on_demand,programmed"`
+	ExpiresAt            time.Time `json:"expiresAt"`
+	ServerTime           time.Time `json:"serverTime"`
 }
 
 // HeartbeatRequest reports playback progress.
@@ -217,7 +218,8 @@ func (s *Server) createGrant(ctx context.Context, in *grantInput) (*grantOutput,
 		if err != nil {
 			return nil, err
 		}
-		return &grantOutput{Body: grantResponse(grant, now)}, nil
+		// Programmed playback has no on-demand seek window; furthest is unused.
+		return &grantOutput{Body: grantResponse(grant, 0, now)}, nil
 	}
 
 	entry, err := tvrepo.CatalogEntryFor(ctx, s.q, in.ID, now)
@@ -231,6 +233,12 @@ func (s *Server) createGrant(ctx context.Context, in *grantInput) (*grantOutput,
 		return nil, huma.Error403Forbidden("item is not direct-play compatible")
 	}
 
+	furthest, err := tvrepo.MaxPositionForDeviceMedia(ctx, s.q, dev.ID, entry.MediaItem.ID)
+	if err != nil {
+		return nil, baseapi.MapError(err)
+	}
+	resumeAt := domain.ResumePositionSeconds(furthest)
+
 	expiresAt := now.Add(s.grantTTL)
 	grant, err := tvrepo.PlayGrants.Create(ctx, s.q, map[string]any{
 		"media_item_id":          entry.MediaItem.ID,
@@ -238,7 +246,7 @@ func (s *Server) createGrant(ctx context.Context, in *grantInput) (*grantOutput,
 		"availability_window_id": entry.AvailabilityWindowID,
 		"mode":                   domain.ModeOnDemand,
 		"stream_url":             s.jellyfin.StreamURL(entry.JellyfinItemID),
-		"start_offset_seconds":   0,
+		"start_offset_seconds":   resumeAt,
 		"issued_at":              now,
 		"expires_at":             expiresAt,
 	})
@@ -246,18 +254,19 @@ func (s *Server) createGrant(ctx context.Context, in *grantInput) (*grantOutput,
 		return nil, baseapi.MapError(err)
 	}
 
-	return &grantOutput{Body: grantResponse(grant, now)}, nil
+	return &grantOutput{Body: grantResponse(grant, furthest, now)}, nil
 }
 
 // grantResponse renders an issued grant for the client.
-func grantResponse(grant *domain.PlayGrant, now time.Time) GrantResponse {
+func grantResponse(grant *domain.PlayGrant, furthestPositionSeconds int, now time.Time) GrantResponse {
 	return GrantResponse{
-		GrantID:            grant.ID,
-		StreamURL:          grant.StreamURL,
-		StartOffsetSeconds: grant.StartOffsetSeconds,
-		Mode:               grant.Mode,
-		ExpiresAt:          grant.ExpiresAt,
-		ServerTime:         now,
+		GrantID:                 grant.ID,
+		StreamURL:               grant.StreamURL,
+		StartOffsetSeconds:      grant.StartOffsetSeconds,
+		FurthestPositionSeconds: furthestPositionSeconds,
+		Mode:                    grant.Mode,
+		ExpiresAt:               grant.ExpiresAt,
+		ServerTime:              now,
 	}
 }
 

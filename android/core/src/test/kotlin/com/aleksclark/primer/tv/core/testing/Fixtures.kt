@@ -72,12 +72,14 @@ fun grantJson(
     grantId: String = "33333333-3333-3333-3333-333333333333",
     streamUrl: String = "http://jellyfin.local/Videos/jf-1/stream?static=true&api_key=k",
     startOffsetSeconds: Int = 0,
+    furthestPositionSeconds: Int = 0,
     expiresAt: String = "2025-03-01T12:05:00Z",
 ): String = """
 {
   "grantId": "$grantId",
   "streamUrl": "$streamUrl",
   "startOffsetSeconds": $startOffsetSeconds,
+  "furthestPositionSeconds": $furthestPositionSeconds,
   "mode": "on_demand",
   "expiresAt": "$expiresAt",
   "serverTime": "2025-03-01T12:00:00Z"

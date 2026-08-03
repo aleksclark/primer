@@ -83,6 +83,14 @@ class TvViewModelTest {
     }
 
     @Test
+    fun `pairing code is normalized to uppercase as the parent types`() {
+        val viewModel = viewModel(container())
+
+        viewModel.onCodeChanged("a3c9xy")
+        assertEquals("A3C9XY", viewModel.pairing.value.codeInput)
+    }
+
+    @Test
     fun `an unparseable server address is reported without a request`() {
         val viewModel = viewModel(container())
 
@@ -101,9 +109,14 @@ class TvViewModelTest {
                 """{"token":"secret","device":{"id":"d1","name":"Playroom","kind":"tv_box","createdAt":"2025-02-01T00:00:00Z","updatedAt":"2025-02-01T00:00:00Z"}}""",
             ),
         )
+        // refreshHome fetches catalog and /now concurrently.
         server.enqueue(
             MockResponse().setResponseCode(200)
                 .setBody("""{"items":[],"serverTime":"2025-03-01T12:00:00Z"}"""),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""{"offsetSeconds":0,"startOffsetSeconds":0,"nextStartsInSeconds":0,"serverTime":"2025-03-01T12:00:00Z"}"""),
         )
 
         val settings = FakeSettingsStore()
@@ -117,6 +130,14 @@ class TvViewModelTest {
         assertEquals("secret", runBlocking { settings.current().token })
         assertEquals(Destination.CATALOG, viewModel.destination.value)
         assertNull(viewModel.pairing.value.error)
+
+        // Home must remain after the first authenticated catalog refresh settles.
+        awaitUntil("home refresh to settle") { !viewModel.home.value.loading && !viewModel.home.value.refreshing }
+        assertEquals(
+            "successful pairing must stay on Home after the first catalog refresh",
+            Destination.CATALOG,
+            viewModel.destination.value,
+        )
     }
 
     @Test
@@ -128,6 +149,7 @@ class TvViewModelTest {
         )
 
         val viewModel = viewModel(container())
+        viewModel.openPairing()
 
         viewModel.onBaseUrlChanged(baseUrl())
         viewModel.onCodeChanged("ABCD")
@@ -136,6 +158,9 @@ class TvViewModelTest {
         awaitUntil("the refusal to surface") { viewModel.pairing.value.error != null }
         assertEquals("pairing code already used", viewModel.pairing.value.error)
         assertFalse(viewModel.pairing.value.submitting)
+        // Server address must survive a failed attempt (parent retypes only the code).
+        assertTrue(viewModel.pairing.value.baseUrlInput.isNotBlank())
+        assertEquals(Destination.PAIRING, viewModel.destination.value)
     }
 
     @Test
@@ -156,6 +181,23 @@ class TvViewModelTest {
 
         awaitUntil("the dead token to be dropped") { runBlocking { settings.current().token } == null }
         assertEquals(Destination.PAIRING, viewModel.destination.value)
+        assertEquals(
+            "the server address is retained for re-pairing",
+            baseUrl(),
+            viewModel.pairing.value.baseUrlInput,
+        )
+        assertNotNull(viewModel.pairing.value.error)
+        assertTrue(
+            "revocation must explain that the device needs pairing again",
+            viewModel.pairing.value.error!!.contains("paired", ignoreCase = true) ||
+                viewModel.pairing.value.error!!.contains("revoked", ignoreCase = true) ||
+                viewModel.pairing.value.error!!.contains("device", ignoreCase = true),
+        )
+        assertEquals(
+            "token clear keeps the server address in settings",
+            baseUrl(),
+            runBlocking { settings.current().baseUrl },
+        )
     }
 
     @Test
@@ -171,6 +213,11 @@ class TvViewModelTest {
             "the server address is kept so re-pairing does not need retyping",
             baseUrl(),
             runBlocking { settings.current().baseUrl },
+        )
+        assertEquals(
+            "the pairing form is prefilled with the retained server address",
+            baseUrl(),
+            viewModel.pairing.value.baseUrlInput,
         )
     }
 
@@ -274,6 +321,177 @@ class TvViewModelTest {
         assertEquals("Inertia", viewModel.playingTitle())
         // Educational study material may be re-watched, so seeking is offered.
         assertTrue(viewModel.playbackControls().seekAllowed)
+    }
+
+    @Test
+    fun `watched entertainment cannot initiate a new grant`() {
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/api/v1/catalog") -> MockResponse().setResponseCode(200).setBody(
+                        """{"items":[${catalogItem(FILM_ID, "Apollo 13", "entertainment")}],"serverTime":"2025-03-01T12:00:00Z"}""",
+                    )
+                    path.startsWith("/api/v1/now") -> MockResponse().setResponseCode(200).setBody(
+                        """{"offsetSeconds":0,"startOffsetSeconds":0,"nextStartsInSeconds":0,"serverTime":"2025-03-01T12:00:00Z"}""",
+                    )
+                    path.endsWith("/grant") || path.contains("/grant?") -> MockResponse()
+                        .setResponseCode(201)
+                        .setBody(
+                            """
+                            {
+                              "grantId": "99999999-9999-9999-9999-999999999999",
+                              "streamUrl": "http://jellyfin.local/Videos/jf-1/stream?static=true",
+                              "startOffsetSeconds": 0,
+                              "mode": "on_demand",
+                              "expiresAt": "2099-01-01T00:00:00Z",
+                              "serverTime": "2025-03-01T12:00:00Z"
+                            }
+                            """.trimIndent(),
+                        )
+                    else -> MockResponse().setResponseCode(200).setBody(
+                        """
+                        {
+                          "session": {
+                            "id": "44444444-4444-4444-4444-444444444444",
+                            "grantId": "99999999-9999-9999-9999-999999999999",
+                            "mediaItemId": "$FILM_ID",
+                            "deviceId": "55555555-5555-5555-5555-555555555555",
+                            "startedAt": "2025-03-01T12:00:00Z",
+                            "watchedSeconds": 5000,
+                            "maxPositionSeconds": 5000,
+                            "completed": true,
+                            "createdAt": "2025-03-01T12:00:00Z",
+                            "updatedAt": "2025-03-01T12:40:00Z"
+                          },
+                          "playConsumed": true,
+                          "serverTime": "2025-03-01T12:40:00Z"
+                        }
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+
+        val (container, _) = pairedContainer()
+        val viewModel = viewModel(container)
+        awaitUntil("settings to load") { viewModel.settings.value.isPaired }
+        viewModel.refreshCatalog()
+        awaitUntil("the catalog to load") { viewModel.catalog.value.view != null }
+
+        val beforePlay = server.requestCount
+        viewModel.openDetail(FILM_ID)
+        viewModel.play(FILM_ID)
+        awaitUntil("playback to start") {
+            viewModel.playback.value is com.aleksclark.primer.tv.core.playback.PlaybackState.Playable
+        }
+        assertTrue("first play must request a grant", server.requestCount > beforePlay)
+
+        viewModel.stopPlayback(completed = true)
+        awaitUntil("card marked watched") {
+            viewModel.catalog.value.card(FILM_ID)?.alreadyWatched == true
+        }
+
+        val watched = viewModel.catalog.value.card(FILM_ID)!!
+        assertFalse(watched.playable)
+        val detail = com.aleksclark.primer.tv.core.presentation.DetailPresenter.present(watched)
+        assertEquals(
+            com.aleksclark.primer.tv.core.presentation.DetailPrimaryAction.WATCHED,
+            detail.primaryAction,
+        )
+        assertFalse(detail.primaryEnabled)
+
+        val afterWatch = server.requestCount
+        viewModel.play(FILM_ID)
+        // Guard must not issue another grant request.
+        runBlocking { delay(200) }
+        assertEquals(
+            "watched entertainment must not request another grant",
+            afterWatch,
+            server.requestCount,
+        )
+        assertTrue(
+            viewModel.playback.value is com.aleksclark.primer.tv.core.playback.PlaybackState.Idle ||
+                viewModel.destination.value != Destination.PLAYER,
+        )
+    }
+
+    @Test
+    fun `recoverable grant failure can retry without leaving the player`() {
+        var grantAttempts = 0
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/api/v1/catalog") -> MockResponse().setResponseCode(200).setBody(
+                        """{"items":[${catalogItem(DOC_ID, "Inertia", "educational")}],"serverTime":"2025-03-01T12:00:00Z"}""",
+                    )
+                    path.startsWith("/api/v1/now") -> MockResponse().setResponseCode(200).setBody(
+                        """{"offsetSeconds":0,"startOffsetSeconds":0,"nextStartsInSeconds":0,"serverTime":"2025-03-01T12:00:00Z"}""",
+                    )
+                    path.endsWith("/grant") || path.contains("/grant?") -> {
+                        grantAttempts += 1
+                        if (grantAttempts == 1) {
+                            MockResponse().setResponseCode(503).setBody("""{"error":"upstream down"}""")
+                        } else {
+                            MockResponse().setResponseCode(201).setBody(
+                                """
+                                {
+                                  "grantId": "99999999-9999-9999-9999-999999999999",
+                                  "streamUrl": "http://jellyfin.local/Videos/jf-1/stream?static=true",
+                                  "startOffsetSeconds": 0,
+                                  "mode": "on_demand",
+                                  "expiresAt": "2099-01-01T00:00:00Z",
+                                  "serverTime": "2025-03-01T12:00:00Z"
+                                }
+                                """.trimIndent(),
+                            )
+                        }
+                    }
+                    else -> MockResponse().setResponseCode(200).setBody(
+                        """
+                        {
+                          "session": {
+                            "id": "44444444-4444-4444-4444-444444444444",
+                            "grantId": "99999999-9999-9999-9999-999999999999",
+                            "mediaItemId": "$DOC_ID",
+                            "deviceId": "55555555-5555-5555-5555-555555555555",
+                            "startedAt": "2025-03-01T12:00:00Z",
+                            "watchedSeconds": 0,
+                            "maxPositionSeconds": 0,
+                            "completed": false,
+                            "createdAt": "2025-03-01T12:00:00Z",
+                            "updatedAt": "2025-03-01T12:00:00Z"
+                          },
+                          "playConsumed": false,
+                          "serverTime": "2025-03-01T12:00:00Z"
+                        }
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+
+        val (container, _) = pairedContainer()
+        val viewModel = viewModel(container)
+        awaitUntil("settings to load") { viewModel.settings.value.isPaired }
+        viewModel.refreshCatalog()
+        awaitUntil("the catalog to load") { viewModel.catalog.value.view != null }
+
+        viewModel.play(DOC_ID)
+        awaitUntil("grant failure to surface") {
+            viewModel.playback.value is com.aleksclark.primer.tv.core.playback.PlaybackState.Failed
+        }
+        val failed = viewModel.playback.value as com.aleksclark.primer.tv.core.playback.PlaybackState.Failed
+        assertTrue("network/unexpected failures must be retryable", failed.recoverable)
+        assertEquals(Destination.PLAYER, viewModel.destination.value)
+
+        viewModel.retryPlayback()
+        awaitUntil("retry to become playable") {
+            viewModel.playback.value is com.aleksclark.primer.tv.core.playback.PlaybackState.Playable
+        }
+        assertEquals(2, grantAttempts)
+        assertEquals(Destination.PLAYER, viewModel.destination.value)
     }
 
     @Test

@@ -236,12 +236,13 @@ func TestGrantIssuanceAndWatchOnceLockout(t *testing.T) {
 	resp := h.Post("/media/"+item.ID+"/grant", authHeader(token), objMap{})
 	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
 	grant := decode[struct {
-		GrantID            string    `json:"grantId"`
-		StreamURL          string    `json:"streamUrl"`
-		StartOffsetSeconds int       `json:"startOffsetSeconds"`
-		Mode               string    `json:"mode"`
-		ExpiresAt          time.Time `json:"expiresAt"`
-		ServerTime         time.Time `json:"serverTime"`
+		GrantID                 string    `json:"grantId"`
+		StreamURL               string    `json:"streamUrl"`
+		StartOffsetSeconds      int       `json:"startOffsetSeconds"`
+		FurthestPositionSeconds int       `json:"furthestPositionSeconds"`
+		Mode                    string    `json:"mode"`
+		ExpiresAt               time.Time `json:"expiresAt"`
+		ServerTime              time.Time `json:"serverTime"`
 	}](t, resp.Body.Bytes())
 
 	require.NotEmpty(t, grant.GrantID)
@@ -249,6 +250,7 @@ func TestGrantIssuanceAndWatchOnceLockout(t *testing.T) {
 	assert.Contains(t, grant.StreamURL, "static=true", "grants must be direct-play")
 	assert.Equal(t, domain.ModeOnDemand, grant.Mode)
 	assert.Equal(t, 0, grant.StartOffsetSeconds)
+	assert.Equal(t, 0, grant.FurthestPositionSeconds)
 	assert.True(t, grant.ExpiresAt.After(grant.ServerTime), "grants are short-lived but not already expired")
 
 	// Heartbeat partway through.
@@ -335,6 +337,41 @@ func TestStoppingEarlyKeepsThePlay(t *testing.T) {
 	assert.False(t, decode[sessionBody](t, done.Body.Bytes()).PlayConsumed,
 		"abandoning early leaves the play available")
 	assert.True(t, catalogContains(t, h, token, item.ID))
+}
+
+func TestOnDemandGrantResumesThirtySecondsBeforeFurthest(t *testing.T) {
+	t.Parallel()
+	h, q, _ := tvtestutil.API(t)
+	dev, token := factory.PairedDevice(t, q)
+
+	item := factory.MediaItem(t, q, factory.Override{
+		"class":           domain.ClassEducational,
+		"runtime_seconds": 3600,
+	})
+	factory.AvailabilityWindow(t, q, factory.Override{"media_item_id": item.ID})
+
+	// Seed a prior session that reached 900s on this device/item.
+	priorGrant := factory.PlayGrant(t, q, factory.Override{
+		"media_item_id": item.ID,
+		"device_id":     dev.ID,
+	})
+	factory.PlaybackSession(t, q, factory.Override{
+		"grant_id":             priorGrant.ID,
+		"media_item_id":        item.ID,
+		"device_id":            dev.ID,
+		"max_position_seconds": 900,
+		"watched_seconds":      880,
+		"completed":            false,
+	})
+
+	resp := h.Post("/media/"+item.ID+"/grant", authHeader(token), objMap{})
+	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
+	grant := decode[struct {
+		StartOffsetSeconds      int `json:"startOffsetSeconds"`
+		FurthestPositionSeconds int `json:"furthestPositionSeconds"`
+	}](t, resp.Body.Bytes())
+	assert.Equal(t, 900, grant.FurthestPositionSeconds)
+	assert.Equal(t, 870, grant.StartOffsetSeconds, "resume is furthest minus 30s")
 }
 
 func TestEducationalItemsAreReplayable(t *testing.T) {

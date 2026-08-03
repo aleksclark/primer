@@ -64,6 +64,11 @@ data class PlayGrant(
     val mediaItemId: String,
     val streamUrl: String,
     val startOffsetSeconds: Int,
+    /**
+     * Furthest playhead position this device has reached on the item. On-demand
+     * seek ceiling and resume seed; zero for a fresh title or programmed grants.
+     */
+    val furthestPositionSeconds: Int = 0,
     val mode: String,
     val expiresAt: Instant,
     val serverTime: Instant,

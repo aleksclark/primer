@@ -145,6 +145,7 @@ data class GrantResponseDto(
     val grantId: String,
     val streamUrl: String,
     val startOffsetSeconds: Int,
+    val furthestPositionSeconds: Int = 0,
     val mode: String,
     val expiresAt: ApiInstant,
     val serverTime: ApiInstant,

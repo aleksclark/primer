@@ -101,9 +101,11 @@ func deviceColumns() string { return strings.Join(Devices.Config().Columns, ", "
 // DeviceByPairingCode finds an unpaired device offering the given code. An
 // expired or already-claimed code does not match.
 func DeviceByPairingCode(ctx context.Context, q repo.Querier, code string, at time.Time) (*domain.Device, error) {
+	// Codes are generated uppercase; compare case-insensitively so a D-pad
+	// that slips into lowercase still pairs.
 	sqlStr := fmt.Sprintf(`
 SELECT %s FROM devices
-WHERE pairing_code = $1
+WHERE upper(pairing_code) = upper($1)
   AND pairing_code <> ''
   AND revoked_at IS NULL
   AND (pairing_expires_at IS NULL OR pairing_expires_at > $2)
@@ -133,7 +135,7 @@ UPDATE devices SET
     paired_at = $3,
     last_seen_at = $3,
     updated_at = now()
-WHERE pairing_code = $1
+WHERE upper(pairing_code) = upper($1)
   AND pairing_code <> ''
   AND revoked_at IS NULL
   AND (pairing_expires_at IS NULL OR pairing_expires_at > $3)
@@ -227,6 +229,21 @@ func SessionForGrant(ctx context.Context, q repo.Querier, grantID string) (*doma
 		return nil, fmt.Errorf("scan session: %w", err)
 	}
 	return &session, nil
+}
+
+// MaxPositionForDeviceMedia is the furthest playhead position this device has
+// reached on an item across every prior session. Zero means never watched.
+// Used to seed on-demand resume offsets and the seek ceiling.
+func MaxPositionForDeviceMedia(ctx context.Context, q repo.Querier, deviceID, mediaItemID string) (int, error) {
+	var maxPos int
+	err := q.QueryRow(ctx, `
+SELECT COALESCE(MAX(max_position_seconds), 0)::int
+FROM playback_sessions
+WHERE device_id = $1 AND media_item_id = $2`, deviceID, mediaItemID).Scan(&maxPos)
+	if err != nil {
+		return 0, fmt.Errorf("max position for device media: %w", err)
+	}
+	return maxPos, nil
 }
 
 // RecordHeartbeat advances a session's watch counters, creating the session on

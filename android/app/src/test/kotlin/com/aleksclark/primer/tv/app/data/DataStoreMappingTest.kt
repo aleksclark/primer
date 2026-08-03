@@ -87,5 +87,27 @@ class DataStoreMappingTest {
         assertEquals(300, grant.positionSeconds)
         assertEquals(280, grant.watchedSeconds)
         assertTrue(grant.redeemed)
+        // Missing furthest key falls back to position so older stores still resume.
+        assertEquals(300, grant.furthestPositionSeconds)
+    }
+
+    @Test
+    fun `a stored grant keeps an explicit furthest watermark`() {
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("grant_id") to "grant-1",
+            stringPreferencesKey("media_item_id") to "item-1",
+            stringPreferencesKey("stream_url") to "http://jellyfin.local/stream",
+            intPreferencesKey("start_offset_seconds") to 0,
+            stringPreferencesKey("mode") to "on_demand",
+            longPreferencesKey("expires_at_epoch_seconds") to 1_740_000_000L,
+            intPreferencesKey("position_seconds") to 250,
+            intPreferencesKey("watched_seconds") to 240,
+            booleanPreferencesKey("redeemed") to true,
+            intPreferencesKey("furthest_position_seconds") to 900,
+        )
+
+        val grant = DataStoreGrantStore.toGrant(prefs)!!
+        assertEquals(900, grant.furthestPositionSeconds)
+        assertEquals(250, grant.positionSeconds)
     }
 }

@@ -102,6 +102,7 @@ class DataStoreGrantStore(private val store: DataStore<Preferences>) : GrantStor
             it[KEY_POSITION] = grant.positionSeconds
             it[KEY_WATCHED] = grant.watchedSeconds
             it[KEY_REDEEMED] = grant.redeemed
+            it[KEY_FURTHEST] = grant.furthestPositionSeconds
         }
     }
 
@@ -119,12 +120,14 @@ class DataStoreGrantStore(private val store: DataStore<Preferences>) : GrantStor
         private val KEY_POSITION = intPreferencesKey("position_seconds")
         private val KEY_WATCHED = intPreferencesKey("watched_seconds")
         private val KEY_REDEEMED = booleanPreferencesKey("redeemed")
+        private val KEY_FURTHEST = intPreferencesKey("furthest_position_seconds")
 
         /** Exposed for tests, which drive a temp-directory DataStore. */
         fun toGrant(prefs: Preferences): StoredGrant? {
             val grantId = prefs[KEY_GRANT_ID] ?: return null
             val mediaItemId = prefs[KEY_MEDIA_ITEM_ID] ?: return null
             val streamUrl = prefs[KEY_STREAM_URL] ?: return null
+            val position = prefs[KEY_POSITION] ?: 0
             return StoredGrant(
                 grantId = grantId,
                 mediaItemId = mediaItemId,
@@ -132,9 +135,10 @@ class DataStoreGrantStore(private val store: DataStore<Preferences>) : GrantStor
                 startOffsetSeconds = prefs[KEY_START_OFFSET] ?: 0,
                 mode = prefs[KEY_MODE] ?: "on_demand",
                 expiresAtEpochSeconds = prefs[KEY_EXPIRES_AT] ?: 0L,
-                positionSeconds = prefs[KEY_POSITION] ?: 0,
+                positionSeconds = position,
                 watchedSeconds = prefs[KEY_WATCHED] ?: 0,
                 redeemed = prefs[KEY_REDEEMED] ?: false,
+                furthestPositionSeconds = prefs[KEY_FURTHEST] ?: position,
             )
         }
     }
