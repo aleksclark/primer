@@ -1,0 +1,276 @@
+# Desired-state content library for the Primer TV channel.
+# Authored from agent_docs/content_library/; converged by content-ingest.
+# Provider IDs are filled by `content-ingest apply` (resolve stage) or by hand.
+#
+# kind: movie | series | youtube_channel | youtube_playlist | manual
+# class: educational | mixed | entertainment
+
+items:
+  # ── Priority acquisition (see content_library/README.md) ──────────────────
+
+  - id: living-planet
+    title: "The Living Planet"
+    year: 1984
+    kind: series
+    class: educational
+    subject_tags: [science, life-science, ecosystems]
+    standard_codes: [TN.SCI.6.LS2.1]
+    priority: 1
+
+  - id: engineering-an-empire
+    title: "Engineering an Empire"
+    year: 2005
+    kind: series
+    class: educational
+    subject_tags: [history, engineering, social-studies]
+    priority: 2
+
+  - id: woodwrights-shop
+    title: "The Woodwright's Shop"
+    kind: series
+    class: mixed
+    subject_tags: [practical, woodworking, measurement]
+    priority: 3
+
+  - id: good-eats
+    title: "Good Eats"
+    year: 1999
+    kind: series
+    class: mixed
+    subject_tags: [practical, cooking, food-science]
+    priority: 4
+
+  - id: victorian-farm
+    title: "Victorian Farm"
+    year: 2009
+    kind: series
+    class: mixed
+    subject_tags: [history, practical, homesteading]
+    priority: 5
+
+  - id: cosmos-sagan
+    title: "Cosmos: A Personal Voyage"
+    year: 1980
+    kind: series
+    class: educational
+    subject_tags: [science, earth-space, astronomy, history-of-science]
+    priority: 6
+
+  - id: secret-life-of-machines
+    title: "The Secret Life of Machines"
+    year: 1988
+    kind: series
+    class: educational
+    subject_tags: [science, physical-science, engineering]
+    priority: 7
+
+  - id: bernstein-ypc
+    title: "Leonard Bernstein Young People's Concerts"
+    kind: manual
+    class: educational
+    subject_tags: [music, arts]
+    notes: "Kultur DVD set — rip when convenient"
+    priority: 8
+
+  - id: hornblower
+    title: "Hornblower"
+    year: 1998
+    kind: series
+    class: entertainment
+    subject_tags: [history, literature]
+    priority: 9
+
+  # ── Science documentaries ─────────────────────────────────────────────────
+
+  - id: life-on-earth
+    title: "Life on Earth"
+    year: 1979
+    kind: series
+    class: educational
+    subject_tags: [science, life-science]
+    priority: 10
+
+  - id: trials-of-life
+    title: "The Trials of Life"
+    year: 1990
+    kind: series
+    class: educational
+    subject_tags: [science, life-science]
+    priority: 11
+
+  - id: private-life-of-plants
+    title: "The Private Life of Plants"
+    year: 1995
+    kind: series
+    class: educational
+    subject_tags: [science, life-science, botany]
+    priority: 12
+
+  - id: life-of-birds
+    title: "The Life of Birds"
+    year: 1998
+    kind: series
+    class: educational
+    subject_tags: [science, life-science]
+    priority: 13
+
+  - id: blue-planet
+    title: "The Blue Planet"
+    year: 2001
+    kind: series
+    class: educational
+    subject_tags: [science, life-science, marine]
+    priority: 14
+
+  - id: blue-planet-ii
+    title: "Blue Planet II"
+    year: 2017
+    kind: series
+    class: educational
+    subject_tags: [science, life-science, marine]
+    exclude_episodes: [S01E07]
+    notes: "Ep 7 Our Blue Planet is advocacy — skip"
+    priority: 15
+
+  - id: planet-earth
+    title: "Planet Earth"
+    year: 2006
+    kind: series
+    class: educational
+    subject_tags: [science, life-science, geography]
+    priority: 16
+
+  - id: earth-power-of-the-planet
+    title: "Earth: The Power of the Planet"
+    year: 2007
+    kind: series
+    class: educational
+    subject_tags: [science, earth-space, geology]
+    priority: 17
+
+  - id: the-planets-cox
+    title: "The Planets"
+    year: 2019
+    kind: series
+    class: educational
+    subject_tags: [science, earth-space, astronomy]
+    notes: "BBC Brian Cox series"
+    priority: 18
+
+  - id: mythbusters
+    title: "MythBusters"
+    year: 2003
+    kind: series
+    class: mixed
+    subject_tags: [science, physical-science, scientific-method]
+    notes: "Skip adult-myth episodes when known; add to exclude_episodes"
+    priority: 20
+
+  # ── YouTube channels (yt-dlp) ─────────────────────────────────────────────
+
+  - id: paul-sellers
+    title: "Paul Sellers"
+    kind: youtube_channel
+    url: https://www.youtube.com/@PaulSellersWoodwork
+    class: mixed
+    subject_tags: [practical, woodworking, measurement]
+    priority: 30
+
+  - id: essential-craftsman
+    title: "Essential Craftsman"
+    kind: youtube_channel
+    url: https://www.youtube.com/@EssentialCraftsman
+    class: mixed
+    subject_tags: [practical, construction, measurement]
+    priority: 31
+
+  - id: justin-rhodes
+    title: "Justin Rhodes"
+    kind: youtube_channel
+    url: https://www.youtube.com/@justinrhodes
+    class: mixed
+    subject_tags: [practical, homesteading, agriculture]
+    priority: 32
+
+  - id: townsends
+    title: "Townsends"
+    kind: youtube_channel
+    url: https://www.youtube.com/@townsends
+    class: mixed
+    subject_tags: [practical, cooking, history]
+    priority: 33
+
+  - id: primitive-technology
+    title: "Primitive Technology"
+    kind: youtube_channel
+    url: https://www.youtube.com/@primitivetechnology9550
+    class: mixed
+    subject_tags: [practical, engineering]
+    priority: 34
+
+  - id: mechanical-universe
+    title: "The Mechanical Universe"
+    kind: youtube_playlist
+    url: https://www.youtube.com/playlist?list=PL8_xPU5epJddRABXqJ5h5G0dk-XGtA5cZ
+    class: educational
+    subject_tags: [science, physical-science, physics]
+    notes: "Caltech official; cherry-pick mechanics/waves"
+    priority: 35
+
+  - id: secret-life-of-components
+    title: "The Secret Life of Components"
+    kind: youtube_channel
+    url: https://www.youtube.com/@timhunkin1
+    class: educational
+    subject_tags: [science, physical-science, practical]
+    priority: 36
+
+  # ── Classic films (entertainment, watch-once) ─────────────────────────────
+
+  - id: adventures-of-robin-hood
+    title: "The Adventures of Robin Hood"
+    year: 1938
+    kind: movie
+    class: entertainment
+    subject_tags: [film, literature]
+    priority: 50
+
+  - id: the-great-escape
+    title: "The Great Escape"
+    year: 1963
+    kind: movie
+    class: entertainment
+    subject_tags: [film, history]
+    priority: 51
+
+  - id: shane
+    title: "Shane"
+    year: 1953
+    kind: movie
+    class: entertainment
+    subject_tags: [film]
+    priority: 52
+
+  - id: the-general-1926
+    title: "The General"
+    year: 1926
+    kind: movie
+    class: entertainment
+    subject_tags: [film, history]
+    priority: 53
+
+  - id: the-court-jester
+    title: "The Court Jester"
+    year: 1955
+    kind: movie
+    class: entertainment
+    subject_tags: [film]
+    priority: 54
+
+  - id: ben-hur
+    title: "Ben-Hur"
+    year: 1959
+    kind: movie
+    class: entertainment
+    subject_tags: [film, history]
+    priority: 55

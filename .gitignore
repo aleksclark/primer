@@ -4,6 +4,12 @@ server/primer-server
 server/tv-server
 server/openapi-gen
 server/migrate
+server/content-ingest
+bin/
+
+# content-ingest working artifacts (manifest + review stay tracked)
+curriculum/ingest-reports/
+curriculum/ytdlp-archive.txt
 
 # Node
 web/node_modules/

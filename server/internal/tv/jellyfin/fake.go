@@ -24,12 +24,17 @@ type Fake struct {
 	ImageContentType string
 	// Err, when set, is returned by every method.
 	Err error
+	// Scanning, when true, makes ScanRunning return true.
+	Scanning bool
+	// RefreshCalls counts RefreshLibrary invocations.
+	RefreshCalls int
 
 	// BrowseCalls counts Browse invocations.
 	BrowseCalls int
 }
 
 var _ Client = (*Fake)(nil)
+var _ LibraryAdmin = (*Fake)(nil)
 
 // NewFake builds a fake client seeded with the given items.
 func NewFake(items ...Item) *Fake {
@@ -61,6 +66,12 @@ func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
 		if p.SearchTerm != "" && !strings.Contains(strings.ToLower(it.Name), strings.ToLower(p.SearchTerm)) {
 			continue
 		}
+		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
+			continue
+		}
+		if p.AnyProviderIDEquals != "" && !providerMatch(it, p.AnyProviderIDEquals) {
+			continue
+		}
 		out = append(out, it)
 	}
 	if p.StartIndex > 0 {
@@ -73,6 +84,51 @@ func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
 		out = out[:p.Limit]
 	}
 	return out, nil
+}
+
+// providerMatch checks Jellyfin's AnyProviderIdEquals "Key=Value|…" form.
+func providerMatch(it Item, expr string) bool {
+	for _, part := range strings.Split(expr, "|") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			// Bare value: match any provider id equal to it.
+			for _, v := range it.ProviderIds {
+				if v == part {
+					return true
+				}
+			}
+			continue
+		}
+		if it.ProviderID(key) == val {
+			return true
+		}
+	}
+	return false
+}
+
+// RefreshLibrary records a refresh call.
+func (f *Fake) RefreshLibrary(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	f.RefreshCalls++
+	return nil
+}
+
+// ScanRunning reports the configured scanning flag.
+func (f *Fake) ScanRunning(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return false, f.Err
+	}
+	return f.Scanning, nil
 }
 
 // Item returns the seeded item with the given ID.

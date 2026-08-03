@@ -37,6 +37,17 @@ type Item struct {
 	VideoCodec string
 	AudioCodec string
 	ImageTag   string
+	// Path is the on-disk path when Jellyfin returns it (used by content-ingest
+	// to match yt-dlp downloads by path prefix).
+	Path string
+	// ProviderIds holds external catalog ids (Tmdb, Tvdb, Imdb, …).
+	ProviderIds map[string]string
+	// IndexNumber is the episode number within a season (episodes only).
+	IndexNumber int
+	// ParentIndexNumber is the season number (episodes only).
+	ParentIndexNumber int
+	// SeriesName is the parent series title (episodes only).
+	SeriesName string
 }
 
 // RuntimeSeconds returns the item's duration in whole seconds.
@@ -52,6 +63,16 @@ type BrowseParams struct {
 	Limit int
 	// StartIndex is the offset for paging.
 	StartIndex int
+	// AnyProviderIDEquals filters by a provider id value (e.g. TMDB/TVDB).
+	// Format is "Key=Value" pairs joined by "|", matching Jellyfin's query.
+	AnyProviderIDEquals string
+	// PathContains restricts results to items whose Path contains this string.
+	// Applied client-side after fetch when the server does not filter natively.
+	PathContains string
+	// IncludeProviderIDs requests ProviderIds on each item.
+	IncludeProviderIDs bool
+	// IncludePath requests Path on each item.
+	IncludePath bool
 }
 
 // Client is the Jellyfin behaviour the TV server depends on. It is an
@@ -70,6 +91,15 @@ type Client interface {
 	// FetchImage retrieves artwork bytes so the TV server can proxy artwork
 	// without handing Jellyfin credentials to the client.
 	FetchImage(ctx context.Context, itemID, imageType, tag string) (data []byte, contentType string, err error)
+}
+
+// LibraryAdmin extends Client with library-scan operations used by content-ingest.
+type LibraryAdmin interface {
+	Client
+	// RefreshLibrary triggers a full library scan.
+	RefreshLibrary(ctx context.Context) error
+	// ScanRunning reports whether a library scan is in progress.
+	ScanRunning(ctx context.Context) (bool, error)
 }
 
 // Options configures an HTTP client.
@@ -125,15 +155,20 @@ type itemsResponse struct {
 
 // itemDTO mirrors the Jellyfin BaseItemDto fields the TV server reads.
 type itemDTO struct {
-	ID           string            `json:"Id"`
-	Name         string            `json:"Name"`
-	SortName     string            `json:"SortName"`
-	Overview     string            `json:"Overview"`
-	Type         string            `json:"Type"`
-	RunTimeTicks int64             `json:"RunTimeTicks"`
-	Container    string            `json:"Container"`
-	ImageTags    map[string]string `json:"ImageTags"`
-	MediaStreams []struct {
+	ID                string            `json:"Id"`
+	Name              string            `json:"Name"`
+	SortName          string            `json:"SortName"`
+	Overview          string            `json:"Overview"`
+	Type              string            `json:"Type"`
+	RunTimeTicks      int64             `json:"RunTimeTicks"`
+	Container         string            `json:"Container"`
+	Path              string            `json:"Path"`
+	ProviderIds       map[string]string `json:"ProviderIds"`
+	IndexNumber       int               `json:"IndexNumber"`
+	ParentIndexNumber int               `json:"ParentIndexNumber"`
+	SeriesName        string            `json:"SeriesName"`
+	ImageTags         map[string]string `json:"ImageTags"`
+	MediaStreams      []struct {
 		Type  string `json:"Type"`
 		Codec string `json:"Codec"`
 	} `json:"MediaStreams"`
@@ -141,14 +176,19 @@ type itemDTO struct {
 
 func (d itemDTO) toItem() Item {
 	item := Item{
-		ID:        d.ID,
-		Name:      d.Name,
-		SortName:  d.SortName,
-		Overview:  d.Overview,
-		Type:      d.Type,
-		Runtime:   time.Duration(d.RunTimeTicks) * tickDuration,
-		Container: d.Container,
-		ImageTag:  d.ImageTags["Primary"],
+		ID:                d.ID,
+		Name:              d.Name,
+		SortName:          d.SortName,
+		Overview:          d.Overview,
+		Type:              d.Type,
+		Runtime:           time.Duration(d.RunTimeTicks) * tickDuration,
+		Container:         d.Container,
+		Path:              d.Path,
+		ProviderIds:       d.ProviderIds,
+		IndexNumber:       d.IndexNumber,
+		ParentIndexNumber: d.ParentIndexNumber,
+		SeriesName:        d.SeriesName,
+		ImageTag:          d.ImageTags["Primary"],
 	}
 	for _, s := range d.MediaStreams {
 		switch s.Type {
@@ -165,17 +205,51 @@ func (d itemDTO) toItem() Item {
 	return item
 }
 
+// EpisodeKey returns the SxxEyy key for an episode item, or "" if not an episode.
+func (i Item) EpisodeKey() string {
+	if i.Type != "Episode" || i.ParentIndexNumber == 0 && i.IndexNumber == 0 {
+		return ""
+	}
+	return fmt.Sprintf("S%02dE%02d", i.ParentIndexNumber, i.IndexNumber)
+}
+
+// ProviderID returns a provider value by key (case-insensitive), or "".
+func (i Item) ProviderID(key string) string {
+	if i.ProviderIds == nil {
+		return ""
+	}
+	if v, ok := i.ProviderIds[key]; ok {
+		return v
+	}
+	for k, v := range i.ProviderIds {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return ""
+}
+
 // Browse lists library items available for import.
 func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error) {
 	q := url.Values{}
 	q.Set("Recursive", "true")
 	q.Set("IncludeItemTypes", "Movie,Episode,Video")
-	q.Set("Fields", "Overview,MediaStreams,SortName,Container")
+	fields := []string{"Overview", "MediaStreams", "SortName", "Container"}
+	if p.IncludeProviderIDs || p.AnyProviderIDEquals != "" {
+		fields = append(fields, "ProviderIds")
+	}
+	if p.IncludePath || p.PathContains != "" {
+		fields = append(fields, "Path")
+	}
+	q.Set("Fields", strings.Join(fields, ","))
 	if p.ParentID != "" {
 		q.Set("ParentId", p.ParentID)
 	}
 	if p.SearchTerm != "" {
 		q.Set("SearchTerm", p.SearchTerm)
+	}
+	if p.AnyProviderIDEquals != "" {
+		q.Set("AnyProviderIdEquals", p.AnyProviderIDEquals)
 	}
 	if p.Limit > 0 {
 		q.Set("Limit", strconv.Itoa(p.Limit))
@@ -193,9 +267,40 @@ func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error)
 	}
 	items := make([]Item, 0, len(resp.Items))
 	for _, d := range resp.Items {
-		items = append(items, d.toItem())
+		it := d.toItem()
+		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
+			continue
+		}
+		items = append(items, it)
 	}
 	return items, nil
+}
+
+// RefreshLibrary triggers a full Jellyfin library scan.
+func (c *HTTPClient) RefreshLibrary(ctx context.Context) error {
+	return c.post(ctx, "/Library/Refresh", nil, nil)
+}
+
+// ScanRunning reports whether any scheduled task named like a library scan is running.
+func (c *HTTPClient) ScanRunning(ctx context.Context) (bool, error) {
+	var tasks []struct {
+		Name  string `json:"Name"`
+		State string `json:"State"`
+		Key   string `json:"Key"`
+	}
+	if err := c.get(ctx, "/ScheduledTasks", nil, &tasks); err != nil {
+		return false, err
+	}
+	for _, t := range tasks {
+		if !strings.EqualFold(t.State, "Running") {
+			continue
+		}
+		name := strings.ToLower(t.Name + " " + t.Key)
+		if strings.Contains(name, "scan") || strings.Contains(name, "library") || strings.Contains(name, "refresh") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Item fetches metadata for a single item.
@@ -286,11 +391,19 @@ func (c *HTTPClient) authorize(req *http.Request) {
 }
 
 func (c *HTTPClient) get(ctx context.Context, path string, query url.Values, out any) error {
+	return c.do(ctx, http.MethodGet, path, query, out)
+}
+
+func (c *HTTPClient) post(ctx context.Context, path string, query url.Values, out any) error {
+	return c.do(ctx, http.MethodPost, path, query, out)
+}
+
+func (c *HTTPClient) do(ctx context.Context, method, path string, query url.Values, out any) error {
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, nil)
 	if err != nil {
 		return fmt.Errorf("jellyfin: build request: %w", err)
 	}
@@ -309,7 +422,15 @@ func (c *HTTPClient) get(ctx context.Context, path string, query url.Values, out
 	if resp.StatusCode >= http.StatusBadRequest {
 		return fmt.Errorf("jellyfin: request %s: unexpected status %d", path, resp.StatusCode)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	// Some POST endpoints return an empty body on 204/200.
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(out); err != nil {
+		if err == io.EOF {
+			return nil
+		}
 		return fmt.Errorf("jellyfin: decode %s: %w", path, err)
 	}
 	return nil
