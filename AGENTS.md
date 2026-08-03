@@ -164,6 +164,22 @@ make migrate-tv  # apply TV migrations
 Configuration is read from the environment with a `TV_` prefix
 (`server/internal/tv/config`) so both binaries can run side by side.
 
+## Content ingest (`server/cmd/content-ingest`)
+
+Manifest-driven reconciler that converges Radarr/Sonarr/yt-dlp, Jellyfin, and the
+TV server toward `curriculum/content-manifest.yaml`. No LLM in the loop; ambiguous
+title matches land in `curriculum/content-review.yaml` for a human pick. See
+[content-ingest plan](agent_docs/plans/content-ingest.md).
+
+```bash
+make ingest-build
+make ingest-plan    # diff + review candidates + report
+make ingest-apply   # resolve → acquire → sync → import → report
+```
+
+Config uses the `INGEST_` env prefix. Scheduling stays out of scope — this tool
+stops at classified `media_items` in the TV server.
+
 ### Service boundary and credentials
 
 The two services never share a database. They talk over HTTP, and each
