@@ -104,9 +104,25 @@ func TestFake(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	class := "educational"
-	_, err = f.UpdateMediaItem(context.Background(), items[0].ID, tvclient.MediaItemUpdate{Class: &class})
+	title := "T2"
+	overview := "o"
+	tags := []string{"a"}
+	codes := []string{"c"}
+	_, err = f.UpdateMediaItem(context.Background(), items[0].ID, tvclient.MediaItemUpdate{
+		Class: &class, Title: &title, Overview: &overview, SubjectTags: &tags, StandardCodes: &codes,
+	})
 	require.NoError(t, err)
 	_, err = f.SyncJellyfin(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.SyncCalls)
+
+	_, err = f.CreateMediaItem(context.Background(), tvclient.MediaItemCreate{
+		JellyfinItemID: "jf", Title: "dup", Class: "mixed",
+	})
+	assert.Error(t, err)
+	_, err = f.UpdateMediaItem(context.Background(), "missing", tvclient.MediaItemUpdate{})
+	assert.Error(t, err)
+
+	idx := tvclient.ByJellyfinID(items)
+	assert.Contains(t, idx, "jf")
 }

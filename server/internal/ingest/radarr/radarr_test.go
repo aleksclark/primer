@@ -97,4 +97,54 @@ func TestFake(t *testing.T) {
 	lib, err := f.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, lib, 1)
+
+	// Existing tag short-circuit + duplicate add error.
+	tag2, err := f.EnsureTag(context.Background(), "primer")
+	require.NoError(t, err)
+	assert.Equal(t, tag, tag2)
+	_, err = f.Add(context.Background(), hits[0], 1, "/m", nil)
+	assert.Error(t, err)
+	_, err = f.Add(context.Background(), radarr.Movie{Title: "x"}, 1, "/m", nil)
+	assert.Error(t, err)
+}
+
+func TestListAndAddValidation(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/movie", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode([]radarr.Movie{{ID: 3, Title: "Held", TmdbID: 1, HasFile: true}})
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`nope`))
+	})
+	mux.HandleFunc("/api/v3/tag", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode([]radarr.Tag{{ID: 2, Label: "primer"}})
+			return
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	client, err := radarr.New(radarr.Options{BaseURL: srv.URL + "/", APIKey: "k", HTTPClient: srv.Client()})
+	require.NoError(t, err)
+
+	lib, err := client.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, lib, 1)
+	assert.True(t, lib[0].HasFile)
+
+	tag, err := client.EnsureTag(context.Background(), "primer")
+	require.NoError(t, err)
+	assert.Equal(t, 2, tag)
+
+	_, err = client.Add(context.Background(), radarr.Movie{Title: "x"}, 1, "/m", nil)
+	assert.Error(t, err, "tmdb required")
+	_, err = client.Add(context.Background(), radarr.Movie{Title: "x", TmdbID: 1}, 0, "/m", nil)
+	assert.Error(t, err, "quality required")
+	_, err = client.Add(context.Background(), radarr.Movie{Title: "x", TmdbID: 1}, 1, "", nil)
+	assert.Error(t, err, "root required")
+	_, err = client.Add(context.Background(), radarr.Movie{Title: "x", TmdbID: 1}, 1, "/m", nil)
+	assert.Error(t, err, "server refused")
 }

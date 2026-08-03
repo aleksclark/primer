@@ -109,4 +109,59 @@ func TestFake(t *testing.T) {
 	f.EpisodeMap[added.ID] = []sonarr.Episode{{ID: 5, SeriesID: added.ID, SeasonNumber: 1, EpisodeNumber: 1, Monitored: true}}
 	require.NoError(t, f.SetEpisodeMonitored(context.Background(), 5, false))
 	assert.Contains(t, f.Unmonitor, 5)
+	lib, err := f.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, lib, 1)
+	_, err = f.Add(context.Background(), hits[0], 1, "/tv", nil)
+	assert.Error(t, err)
+	_, err = f.Add(context.Background(), sonarr.Series{Title: "no id"}, 1, "/tv", nil)
+	assert.Error(t, err)
+	assert.Error(t, f.SetEpisodeMonitored(context.Background(), 999, false))
+}
+
+func TestListAndAddValidation(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/series", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode([]sonarr.Series{{
+				ID: 7, Title: "Held", TvdbID: 1,
+				Statistics: &sonarr.Statistics{EpisodeCount: 10, EpisodeFileCount: 3},
+			}})
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	})
+	mux.HandleFunc("/api/v3/tag", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode([]sonarr.Tag{})
+			return
+		}
+		var body sonarr.Tag
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		body.ID = 4
+		_ = json.NewEncoder(w).Encode(body)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	client, err := sonarr.New(sonarr.Options{BaseURL: srv.URL + "/", APIKey: "k", HTTPClient: srv.Client()})
+	require.NoError(t, err)
+
+	lib, err := client.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, lib, 1)
+	assert.Equal(t, 3, lib[0].Statistics.EpisodeFileCount)
+
+	tag, err := client.EnsureTag(context.Background(), "primer")
+	require.NoError(t, err)
+	assert.Equal(t, 4, tag)
+
+	_, err = client.Add(context.Background(), sonarr.Series{Title: "x"}, 1, "/tv", nil)
+	assert.Error(t, err)
+	_, err = client.Add(context.Background(), sonarr.Series{Title: "x", TvdbID: 1}, 0, "/tv", nil)
+	assert.Error(t, err)
+	_, err = client.Add(context.Background(), sonarr.Series{Title: "x", TvdbID: 1}, 1, "", nil)
+	assert.Error(t, err)
+	_, err = client.Add(context.Background(), sonarr.Series{Title: "x", TvdbID: 1}, 1, "/tv", nil)
+	assert.Error(t, err)
 }

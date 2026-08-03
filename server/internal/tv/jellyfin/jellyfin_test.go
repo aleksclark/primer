@@ -332,4 +332,114 @@ func TestFakeClientSurfacesConfiguredError(t *testing.T) {
 	assert.ErrorIs(t, err, assert.AnError)
 	_, _, err = fake.FetchImage(context.Background(), "a", "Primary", "")
 	assert.ErrorIs(t, err, assert.AnError)
+	assert.ErrorIs(t, fake.RefreshLibrary(context.Background()), assert.AnError)
+	_, err = fake.ScanRunning(context.Background())
+	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestRefreshAndScanRunning(t *testing.T) {
+	t.Parallel()
+	var refreshHits int
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/Refresh":
+			assert.Equal(t, http.MethodPost, r.Method)
+			refreshHits++
+			w.WriteHeader(http.StatusNoContent)
+		case "/ScheduledTasks":
+			_, _ = w.Write([]byte(`[
+				{"Name":"Scan Media Library","Key":"RefreshLibrary","State":"Running"},
+				{"Name":"Other","Key":"x","State":"Idle"}
+			]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	require.NoError(t, client.RefreshLibrary(context.Background()))
+	assert.Equal(t, 1, refreshHits)
+	running, err := client.ScanRunning(context.Background())
+	require.NoError(t, err)
+	assert.True(t, running)
+}
+
+func TestScanRunningIdle(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"Name":"Cleanup","Key":"clean","State":"Idle"}]`))
+	}))
+	running, err := client.ScanRunning(context.Background())
+	require.NoError(t, err)
+	assert.False(t, running)
+}
+
+func TestBrowseProviderAndPath(t *testing.T) {
+	t.Parallel()
+	var gotQuery url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = w.Write([]byte(`{
+			"Items": [
+				{
+					"Id": "ep1", "Name": "Ep1", "Type": "Episode",
+					"Path": "/media/Shows/paul-sellers/Season 01/x.mkv",
+					"ProviderIds": {"Tmdb": "603", "Tvdb": "79165"},
+					"IndexNumber": 1, "ParentIndexNumber": 1, "SeriesName": "Paul Sellers",
+					"RunTimeTicks": 100000000
+				},
+				{
+					"Id": "other", "Name": "Other", "Type": "Movie",
+					"Path": "/media/Movies/Other.mkv",
+					"ProviderIds": {"Tmdb": "1"}
+				}
+			]
+		}`))
+	}))
+
+	items, err := client.Browse(context.Background(), jellyfin.BrowseParams{
+		AnyProviderIDEquals: "Tmdb=603",
+		PathContains:        "paul-sellers",
+		IncludeProviderIDs:  true,
+		IncludePath:         true,
+		Limit:               20,
+	})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "ep1", items[0].ID)
+	assert.Equal(t, "S01E01", items[0].EpisodeKey())
+	assert.Equal(t, "603", items[0].ProviderID("tmdb"))
+	assert.Equal(t, "Tmdb=603", gotQuery.Get("AnyProviderIdEquals"))
+	assert.Contains(t, gotQuery.Get("Fields"), "ProviderIds")
+	assert.Contains(t, gotQuery.Get("Fields"), "Path")
+}
+
+func TestFakeBrowseProviderPathAndAdmin(t *testing.T) {
+	t.Parallel()
+	fake := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "a", Name: "A", Path: "/media/Shows/slug/x.mkv",
+			ProviderIds: map[string]string{"Tmdb": "9"}, Type: "Episode",
+			ParentIndexNumber: 1, IndexNumber: 2,
+		},
+		jellyfin.Item{ID: "b", Name: "B", Path: "/other", ProviderIds: map[string]string{"Tvdb": "1"}},
+	)
+	byPath, err := fake.Browse(context.Background(), jellyfin.BrowseParams{PathContains: "Shows/slug"})
+	require.NoError(t, err)
+	require.Len(t, byPath, 1)
+
+	byProv, err := fake.Browse(context.Background(), jellyfin.BrowseParams{AnyProviderIDEquals: "Tmdb=9"})
+	require.NoError(t, err)
+	require.Len(t, byProv, 1)
+
+	byBare, err := fake.Browse(context.Background(), jellyfin.BrowseParams{AnyProviderIDEquals: "9"})
+	require.NoError(t, err)
+	require.Len(t, byBare, 1)
+
+	require.NoError(t, fake.RefreshLibrary(context.Background()))
+	assert.Equal(t, 1, fake.RefreshCalls)
+	fake.Scanning = true
+	running, err := fake.ScanRunning(context.Background())
+	require.NoError(t, err)
+	assert.True(t, running)
+	assert.Equal(t, "S01E02", byPath[0].EpisodeKey())
+	assert.Equal(t, "", jellyfin.Item{Type: "Movie"}.EpisodeKey())
 }

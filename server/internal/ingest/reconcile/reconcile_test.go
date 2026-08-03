@@ -211,9 +211,97 @@ func TestReportGoldenShape(t *testing.T) {
 	r.Resolved = []string{"matrix → tmdb=603"}
 	r.ManualQueue = []string{"bernstein-ypc — Leonard Bernstein"}
 	r.ReviewQueued = []string{"ambiguous (2 hits)"}
+	r.Errors = []string{"boom"}
 	md := r.Markdown()
 	assert.Contains(t, md, "# content-ingest plan")
 	assert.Contains(t, md, "## Manual rip queue")
 	assert.Contains(t, md, "bernstein-ypc")
 	assert.Contains(t, md, "| Resolved | 1 |")
+	assert.Contains(t, md, "## Errors")
+}
+
+func TestAcquireNewSeriesAndSync(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	sf := sonarr.NewFake()
+	sf.LookupResults = []sonarr.Series{{
+		Title: "The Living Planet", Year: 1984, TvdbID: 79165, TitleSlug: "lp",
+	}}
+	jf := jellyfin.NewFake()
+	tv := tvclient.NewFake()
+
+	eng := reconcile.New(reconcile.Deps{
+		Sonarr: sf, Jellyfin: jf, TV: tv,
+		SonarrQualityProfileID: 1, SonarrRootFolder: "/tv",
+		ReportDir: filepath.Join(dir, "reports"),
+		SyncWait:  5 * time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "living-planet", Title: "The Living Planet", Year: 1984,
+		Kind: manifest.KindSeries, Provider: manifest.Provider{TVDB: 79165},
+		Class: manifest.ClassEducational, ExcludeEpisodes: []string{"S01E07"},
+	}}}
+
+	// Seed episodes so unmonitor runs after add.
+	// Add happens inside Run; hook episodes via post-add by pre-seeding empty map
+	// and relying on unmonitor no-op when empty — then set and re-run.
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{})
+	require.NoError(t, err)
+	require.Len(t, sf.AddCalls, 1)
+	assert.True(t, res.Report.JellyfinRefreshed)
+	assert.True(t, res.Report.TVSynced)
+	assert.Equal(t, 1, jf.RefreshCalls)
+	assert.Equal(t, 1, tv.SyncCalls)
+
+	// Second pass: series held, exclude unmonitor.
+	require.Len(t, sf.Library, 1)
+	sf.EpisodeMap[sf.Library[0].ID] = []sonarr.Episode{
+		{ID: 7, SeriesID: sf.Library[0].ID, SeasonNumber: 1, EpisodeNumber: 7, Monitored: true},
+		{ID: 1, SeriesID: sf.Library[0].ID, SeasonNumber: 1, EpisodeNumber: 1, Monitored: true},
+	}
+	sf.Library[0].Statistics = &sonarr.Statistics{EpisodeCount: 12, EpisodeFileCount: 2}
+	res, err = eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{SkipSync: true})
+	require.NoError(t, err)
+	assert.Contains(t, sf.Unmonitor, 7)
+	assert.Contains(t, strings.Join(res.Report.AwaitingDownload, "\n"), "living-planet")
+}
+
+func TestResolveNoHitsAndMovieAlreadyHeld(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rf := radarr.NewFake()
+	rf.LookupResults = nil // no hits
+	rf.Library = []radarr.Movie{{ID: 1, Title: "The Matrix", TmdbID: 603, HasFile: false}}
+
+	eng := reconcile.New(reconcile.Deps{
+		Radarr:                 rf,
+		RadarrQualityProfileID: 1, RadarrRootFolder: "/m",
+		ManifestPath: filepath.Join(dir, "m.yaml"),
+		ReviewPath:   filepath.Join(dir, "r.yaml"),
+		ReportDir:    filepath.Join(dir, "reports"),
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{
+		{ID: "ghost", Title: "Ghost Show", Year: 1901, Kind: manifest.KindMovie, Class: manifest.ClassEntertainment},
+		{ID: "matrix", Title: "The Matrix", Year: 1999, Kind: manifest.KindMovie,
+			Provider: manifest.Provider{TMDB: 603}, Class: manifest.ClassEntertainment},
+	}}
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{SkipSync: true, SkipImport: true})
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(res.Report.ReviewQueued, "\n"), "ghost")
+	assert.Contains(t, strings.Join(res.Report.AlreadyHeld, "\n"), "matrix")
+	assert.Contains(t, strings.Join(res.Report.AwaitingDownload, "\n"), "matrix")
+	_, err = os.Stat(filepath.Join(dir, "r.yaml"))
+	require.NoError(t, err)
+}
+
+func TestSkipImportWhenUnconfigured(t *testing.T) {
+	t.Parallel()
+	eng := reconcile.New(reconcile.Deps{ReportDir: t.TempDir()})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "x", Title: "X", Kind: manifest.KindManual, Class: manifest.ClassMixed,
+	}}}
+	res, err := eng.Run(context.Background(), m, nil, reconcile.Options{DryRun: true})
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(res.Report.ManualQueue, "\n"), "x")
 }
