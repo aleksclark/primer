@@ -297,6 +297,8 @@ private fun PlayerRoute(
                 onResumed = viewModel::resyncBroadcast,
                 broadcastSeek = broadcastSeek,
                 overlay = overlay,
+                furthestPositionSeconds = state.furthestPositionSeconds,
+                onPositionSampled = viewModel::notePlaybackPosition,
             )
         }
     }

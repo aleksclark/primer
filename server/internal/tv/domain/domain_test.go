@@ -77,3 +77,19 @@ func TestSessionCompletesPlay(t *testing.T) {
 		})
 	}
 }
+
+func TestResumePositionSeconds(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, 0, domain.ResumePositionSeconds(0))
+	assert.Equal(t, 0, domain.ResumePositionSeconds(20))
+	assert.Equal(t, 0, domain.ResumePositionSeconds(30))
+	assert.Equal(t, 870, domain.ResumePositionSeconds(900))
+}
+
+func TestSeekFloorSeconds(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, 0, domain.SeekFloorSeconds(0))
+	assert.Equal(t, 0, domain.SeekFloorSeconds(120))
+	assert.Equal(t, 0, domain.SeekFloorSeconds(300))
+	assert.Equal(t, 600, domain.SeekFloorSeconds(900))
+}

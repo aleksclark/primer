@@ -812,6 +812,14 @@ class TvViewModel(
     }
 
     /**
+     * Raises the on-demand furthest-position watermark from a live playhead
+     * sample so seek limits tighten without waiting for the next heartbeat.
+     */
+    fun notePlaybackPosition(positionMillis: Long) {
+        controller?.notePosition(positionMillis)
+    }
+
+    /**
      * Stops heartbeating without closing the session, for the app going to the
      * background. The grant stays persisted so playback can resume.
      */

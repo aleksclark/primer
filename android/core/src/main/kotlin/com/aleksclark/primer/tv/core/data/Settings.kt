@@ -50,12 +50,15 @@ data class StoredGrant(
     val positionSeconds: Int,
     val watchedSeconds: Int,
     val redeemed: Boolean,
+    /** Furthest position known when the grant was last persisted. */
+    val furthestPositionSeconds: Int = 0,
 ) {
     fun toGrant(serverTime: Instant): PlayGrant = PlayGrant(
         grantId = grantId,
         mediaItemId = mediaItemId,
         streamUrl = streamUrl,
         startOffsetSeconds = startOffsetSeconds,
+        furthestPositionSeconds = maxOf(furthestPositionSeconds, positionSeconds),
         mode = mode,
         expiresAt = Instant.ofEpochSecond(expiresAtEpochSeconds),
         serverTime = serverTime,
@@ -73,7 +76,13 @@ data class StoredGrant(
         redeemed || now.isBefore(Instant.ofEpochSecond(expiresAtEpochSeconds))
 
     companion object {
-        fun of(grant: PlayGrant, positionSeconds: Int, watchedSeconds: Int, redeemed: Boolean) = StoredGrant(
+        fun of(
+            grant: PlayGrant,
+            positionSeconds: Int,
+            watchedSeconds: Int,
+            redeemed: Boolean,
+            furthestPositionSeconds: Int = maxOf(grant.furthestPositionSeconds, positionSeconds),
+        ) = StoredGrant(
             grantId = grant.grantId,
             mediaItemId = grant.mediaItemId,
             streamUrl = grant.streamUrl,
@@ -83,6 +92,7 @@ data class StoredGrant(
             positionSeconds = positionSeconds,
             watchedSeconds = watchedSeconds,
             redeemed = redeemed,
+            furthestPositionSeconds = furthestPositionSeconds,
         )
     }
 }

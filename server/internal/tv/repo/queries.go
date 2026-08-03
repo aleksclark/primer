@@ -231,6 +231,21 @@ func SessionForGrant(ctx context.Context, q repo.Querier, grantID string) (*doma
 	return &session, nil
 }
 
+// MaxPositionForDeviceMedia is the furthest playhead position this device has
+// reached on an item across every prior session. Zero means never watched.
+// Used to seed on-demand resume offsets and the seek ceiling.
+func MaxPositionForDeviceMedia(ctx context.Context, q repo.Querier, deviceID, mediaItemID string) (int, error) {
+	var maxPos int
+	err := q.QueryRow(ctx, `
+SELECT COALESCE(MAX(max_position_seconds), 0)::int
+FROM playback_sessions
+WHERE device_id = $1 AND media_item_id = $2`, deviceID, mediaItemID).Scan(&maxPos)
+	if err != nil {
+		return 0, fmt.Errorf("max position for device media: %w", err)
+	}
+	return maxPos, nil
+}
+
 // RecordHeartbeat advances a session's watch counters, creating the session on
 // the first heartbeat. Positions only ever move forward so a client that
 // rewinds or reconnects cannot lower its recorded progress.

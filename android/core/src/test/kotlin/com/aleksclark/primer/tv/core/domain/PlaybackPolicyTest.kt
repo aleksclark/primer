@@ -83,6 +83,53 @@ class PlaybackPolicyTest {
         assertTrue(WatchOnce.shouldWarnBeforePlay(MediaClass.ENTERTAINMENT, PlaybackMode.ON_DEMAND))
         assertFalse(WatchOnce.shouldWarnBeforePlay(MediaClass.EDUCATIONAL, PlaybackMode.ON_DEMAND))
     }
+
+    @Test
+    fun `on-demand resume starts 30 seconds before the furthest position`() {
+        assertEquals(0, PlaybackPolicy.resumePositionSeconds(0))
+        assertEquals(0, PlaybackPolicy.resumePositionSeconds(20))
+        assertEquals(0, PlaybackPolicy.resumePositionSeconds(30))
+        assertEquals(870, PlaybackPolicy.resumePositionSeconds(900))
+    }
+
+    @Test
+    fun `on-demand seek window is five minutes behind the furthest mark`() {
+        assertEquals(0..0, PlaybackPolicy.seekWindowSeconds(0))
+        assertEquals(0..120, PlaybackPolicy.seekWindowSeconds(120))
+        assertEquals(0..300, PlaybackPolicy.seekWindowSeconds(300))
+        assertEquals(600..900, PlaybackPolicy.seekWindowSeconds(900))
+    }
+
+    @Test
+    fun `on-demand seeks past the furthest mark are clamped back`() {
+        // 15 minutes furthest; 5-minute rewind floor at 600s.
+        val furthestMs = 900_000L
+        assertEquals(
+            900_000L,
+            PlaybackPolicy.clampSeekPositionMs(1_200_000L, furthestMs),
+        )
+        assertEquals(
+            600_000L,
+            PlaybackPolicy.clampSeekPositionMs(0L, furthestMs),
+        )
+        assertEquals(
+            750_000L,
+            PlaybackPolicy.clampSeekPositionMs(750_000L, furthestMs),
+        )
+    }
+
+    @Test
+    fun `on-demand seek clamp respects a known duration`() {
+        // Watermark past EOF should still not land past duration.
+        assertEquals(
+            100_000L,
+            PlaybackPolicy.clampSeekPositionMs(
+                requestedMs = 200_000L,
+                furthestPositionMs = 500_000L,
+                durationMs = 100_000L,
+            ),
+        )
+    }
 }
 
 class ProgrammeTest {

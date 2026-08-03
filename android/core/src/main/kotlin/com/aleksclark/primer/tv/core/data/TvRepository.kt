@@ -271,6 +271,7 @@ class TvRepository(private val api: TvApi) {
             mediaItemId = mediaItemId,
             streamUrl = dto.streamUrl,
             startOffsetSeconds = dto.startOffsetSeconds,
+            furthestPositionSeconds = dto.furthestPositionSeconds.coerceAtLeast(0),
             mode = dto.mode,
             expiresAt = dto.expiresAt,
             serverTime = dto.serverTime,

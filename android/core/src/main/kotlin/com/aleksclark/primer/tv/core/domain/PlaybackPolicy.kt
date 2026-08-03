@@ -84,6 +84,20 @@ object PlaybackPolicy {
     const val MAX_BROADCAST_DRIFT_SECONDS = 10
 
     /**
+     * On-demand only: how far behind the furthest played position the student
+     * may rewind. Forward seeks past that watermark are refused so a scrub bar
+     * cannot skip unwatched material.
+     */
+    const val SEEK_REWIND_LIMIT_SECONDS = 5 * 60
+
+    /**
+     * On-demand only: when resuming a partially watched title, start this many
+     * seconds before the furthest position so the student hears a beat of
+     * context rather than landing mid-sentence.
+     */
+    const val RESUME_REWIND_SECONDS = 30
+
+    /**
      * The position playback should be moved to, given the offset the server
      * last reported and where the local playhead has got to.
      *
@@ -99,6 +113,50 @@ object PlaybackPolicy {
     ): Int? {
         val drift = serverOffsetSeconds - playheadSeconds
         return if (drift > maxDriftSeconds) serverOffsetSeconds else null
+    }
+
+    /**
+     * Where on-demand playback should start given the furthest position reached
+     * across prior sessions for this item. Zero furthest means a fresh start.
+     *
+     * Programmed grants never call this: their offset is the broadcast clock.
+     */
+    fun resumePositionSeconds(furthestPositionSeconds: Int): Int {
+        val furthest = furthestPositionSeconds.coerceAtLeast(0)
+        if (furthest <= 0) return 0
+        return (furthest - RESUME_REWIND_SECONDS).coerceAtLeast(0)
+    }
+
+    /**
+     * Inclusive seek window for on-demand playback, in whole seconds.
+     *
+     * The ceiling is the furthest position ever reached (the student cannot
+     * scrub into unwatched territory). The floor is five minutes behind that
+     * watermark, floored at zero.
+     */
+    fun seekWindowSeconds(furthestPositionSeconds: Int): IntRange {
+        val furthest = furthestPositionSeconds.coerceAtLeast(0)
+        val floor = (furthest - SEEK_REWIND_LIMIT_SECONDS).coerceAtLeast(0)
+        return floor..furthest
+    }
+
+    /**
+     * Clamps a requested on-demand seek to the allowed window. [durationMs],
+     * when known and positive, caps the ceiling so a scrub cannot land past EOF.
+     */
+    fun clampSeekPositionMs(
+        requestedMs: Long,
+        furthestPositionMs: Long,
+        durationMs: Long? = null,
+    ): Long {
+        val furthest = furthestPositionMs.coerceAtLeast(0L)
+        var floor = (furthest - SEEK_REWIND_LIMIT_SECONDS * 1000L).coerceAtLeast(0L)
+        var ceiling = furthest
+        if (durationMs != null && durationMs > 0L) {
+            ceiling = minOf(ceiling, durationMs)
+            floor = minOf(floor, ceiling)
+        }
+        return requestedMs.coerceIn(floor, ceiling)
     }
 }
 

@@ -3,6 +3,7 @@ package com.aleksclark.primer.tv.app.player
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import com.aleksclark.primer.tv.core.domain.PlaybackControls
+import com.aleksclark.primer.tv.core.domain.PlaybackPolicy
 
 /**
  * A player that enforces a [PlaybackControls] policy.
@@ -18,10 +19,19 @@ import com.aleksclark.primer.tv.core.domain.PlaybackControls
  * viewing without watching it. Both seeking *and* pausing are withheld from the
  * programmed channel: a pause that resumed where it left off would leave the
  * student behind the broadcast, watching a scene the server says already aired.
+ *
+ * When seeking is allowed (on-demand educational/mixed), every seek is clamped
+ * to the furthest-played watermark window: no further forward than that mark,
+ * and no further back than five minutes behind it.
  */
 class PolicyPlayer(
     player: Player,
     private val controls: PlaybackControls,
+    /**
+     * Live furthest playhead for on-demand seek clamping. Returns milliseconds.
+     * Ignored when [controls.seekAllowed] is false.
+     */
+    private val furthestPositionMs: () -> Long = { 0L },
 ) : ForwardingPlayer(player) {
 
     /** The commands this policy withdraws. */
@@ -50,12 +60,12 @@ class PolicyPlayer(
 
     override fun seekTo(positionMs: Long) {
         if (!controls.seekAllowed) return
-        super.seekTo(positionMs)
+        super.seekTo(clamp(positionMs))
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
         if (!controls.seekAllowed) return
-        super.seekTo(mediaItemIndex, positionMs)
+        super.seekTo(mediaItemIndex, clamp(positionMs))
     }
 
     override fun seekToDefaultPosition() {
@@ -70,12 +80,14 @@ class PolicyPlayer(
 
     override fun seekForward() {
         if (!controls.seekAllowed) return
-        super.seekForward()
+        val target = currentPosition + seekForwardIncrement
+        super.seekTo(clamp(target))
     }
 
     override fun seekBack() {
         if (!controls.seekAllowed) return
-        super.seekBack()
+        val target = currentPosition - seekBackIncrement
+        super.seekTo(clamp(target))
     }
 
     override fun seekToNext() {
@@ -110,6 +122,15 @@ class PolicyPlayer(
         if (!controls.seekAllowed) return
         @Suppress("DEPRECATION")
         super.seekToPreviousWindow()
+    }
+
+    private fun clamp(requestedMs: Long): Long {
+        val duration = duration.takeIf { it > 0L }
+        return PlaybackPolicy.clampSeekPositionMs(
+            requestedMs = requestedMs,
+            furthestPositionMs = furthestPositionMs().coerceAtLeast(0L),
+            durationMs = duration,
+        )
     }
 
     private fun blocks(command: Int): Boolean = blocked.any { it == command }
