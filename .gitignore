@@ -36,9 +36,12 @@ android/local.properties
 
 # NixOS
 workstation/result
+core
+core.*
 
 # Deployment secrets
 deploy/.env
+.env
 
 # Editor / OS
 .DS_Store

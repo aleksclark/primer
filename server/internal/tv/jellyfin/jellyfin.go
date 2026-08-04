@@ -48,6 +48,10 @@ type Item struct {
 	ParentIndexNumber int
 	// SeriesName is the parent series title (episodes only).
 	SeriesName string
+	// SeriesID is the Jellyfin id of the parent series (episodes only).
+	SeriesID string
+	// ParentID is the immediate parent folder/season/series id when present.
+	ParentID string
 }
 
 // RuntimeSeconds returns the item's duration in whole seconds.
@@ -57,14 +61,21 @@ func (i Item) RuntimeSeconds() int { return int(i.Runtime.Seconds()) }
 type BrowseParams struct {
 	// ParentID restricts results to one library folder or collection.
 	ParentID string
+	// SeriesID restricts results to episodes of one series.
+	SeriesID string
 	// SearchTerm filters by title.
 	SearchTerm string
+	// IncludeItemTypes overrides the default Movie,Episode,Video set
+	// (comma-separated Jellyfin types, e.g. "Series" or "Movie").
+	IncludeItemTypes string
 	// Limit caps the number of returned items.
 	Limit int
 	// StartIndex is the offset for paging.
 	StartIndex int
 	// AnyProviderIDEquals filters by a provider id value (e.g. TMDB/TVDB).
-	// Format is "Key=Value" pairs joined by "|", matching Jellyfin's query.
+	// Format is "Key=Value" pairs joined by "|". Always enforced client-side
+	// after the response; the Jellyfin query param is a hint only and is not
+	// trusted (some builds ignore it and return unfiltered library pages).
 	AnyProviderIDEquals string
 	// PathContains restricts results to items whose Path contains this string.
 	// Applied client-side after fetch when the server does not filter natively.
@@ -167,6 +178,8 @@ type itemDTO struct {
 	IndexNumber       int               `json:"IndexNumber"`
 	ParentIndexNumber int               `json:"ParentIndexNumber"`
 	SeriesName        string            `json:"SeriesName"`
+	SeriesID          string            `json:"SeriesId"`
+	ParentID          string            `json:"ParentId"`
 	ImageTags         map[string]string `json:"ImageTags"`
 	MediaStreams      []struct {
 		Type  string `json:"Type"`
@@ -188,6 +201,8 @@ func (d itemDTO) toItem() Item {
 		IndexNumber:       d.IndexNumber,
 		ParentIndexNumber: d.ParentIndexNumber,
 		SeriesName:        d.SeriesName,
+		SeriesID:          d.SeriesID,
+		ParentID:          d.ParentID,
 		ImageTag:          d.ImageTags["Primary"],
 	}
 	for _, s := range d.MediaStreams {
@@ -233,7 +248,12 @@ func (i Item) ProviderID(key string) string {
 func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error) {
 	q := url.Values{}
 	q.Set("Recursive", "true")
-	q.Set("IncludeItemTypes", "Movie,Episode,Video")
+	types := p.IncludeItemTypes
+	if types == "" {
+		types = "Movie,Episode,Video"
+	}
+	q.Set("IncludeItemTypes", types)
+	// Always pull ProviderIds when filtering by them; Path when path-matching.
 	fields := []string{"Overview", "MediaStreams", "SortName", "Container"}
 	if p.IncludeProviderIDs || p.AnyProviderIDEquals != "" {
 		fields = append(fields, "ProviderIds")
@@ -245,10 +265,14 @@ func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error)
 	if p.ParentID != "" {
 		q.Set("ParentId", p.ParentID)
 	}
+	if p.SeriesID != "" {
+		q.Set("SeriesId", p.SeriesID)
+	}
 	if p.SearchTerm != "" {
 		q.Set("SearchTerm", p.SearchTerm)
 	}
 	if p.AnyProviderIDEquals != "" {
+		// Hint only — response is always re-filtered client-side below.
 		q.Set("AnyProviderIdEquals", p.AnyProviderIDEquals)
 	}
 	if p.Limit > 0 {
@@ -271,9 +295,41 @@ func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error)
 		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
 			continue
 		}
+		if p.AnyProviderIDEquals != "" && !ProviderMatch(it, p.AnyProviderIDEquals) {
+			// Jellyfin's AnyProviderIdEquals is not reliable across versions;
+			// never accept an item that does not actually carry the id.
+			continue
+		}
 		items = append(items, it)
 	}
 	return items, nil
+}
+
+// ProviderMatch checks the "Key=Value|…" form against an item's ProviderIds.
+// Bare values (no '=') match any provider id equal to the value. Exported so
+// the reconciler can re-check after multi-page scans.
+func ProviderMatch(it Item, expr string) bool {
+	matched := false
+	for _, part := range strings.Split(expr, "|") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		matched = true
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			for _, v := range it.ProviderIds {
+				if v == part {
+					return true
+				}
+			}
+			continue
+		}
+		if it.ProviderID(strings.TrimSpace(key)) == strings.TrimSpace(val) {
+			return true
+		}
+	}
+	return !matched
 }
 
 // RefreshLibrary triggers a full Jellyfin library scan.

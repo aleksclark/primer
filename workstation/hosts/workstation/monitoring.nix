@@ -88,8 +88,8 @@
 
   # Persist monitoring directory
   systemd.tmpfiles.rules = [
-    "d /persist/monitoring 0700 root root -"
-    "d /persist/monitoring/screenshots 0700 root root -"
-    "d /persist/monitoring/windows 0700 root root -"
+    "d /persist/monitoring 0750 student students -"
+    "d /persist/monitoring/screenshots 0750 student students -"
+    "d /persist/monitoring/windows 0750 student students -"
   ];
 }
