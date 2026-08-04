@@ -290,4 +290,7 @@ func registerAll(h huma.API, q repo.Querier, opts Options) {
 	RegisterCRUD[domain.AssessmentAttempt, AssessmentAttemptCreate, AssessmentAttemptUpdate](h, q, repo.AssessmentAttempts, "assessment-attempt", "assessment-attempts", "/assessment-attempts")
 	RegisterCRUD[domain.ItemResponse, ItemResponseCreate, ItemResponseUpdate](h, q, repo.ItemResponses, "item-response", "item-responses", "/item-responses")
 	registerInstructionLogs(h, q, opts)
+	registerParentAuth(h, q)
+	registerParentLearning(h, q)
+	registerStudentAPI(h, q)
 }

@@ -1,5 +1,107 @@
 components:
   schemas:
+    ActivityContent:
+      additionalProperties: false
+      properties:
+        artifacts:
+          $ref: "#/components/schemas/ArtifactPolicy"
+        checks:
+          items:
+            $ref: "#/components/schemas/Check"
+          type:
+            - array
+            - "null"
+        hints:
+          items:
+            $ref: "#/components/schemas/Hint"
+          type:
+            - array
+            - "null"
+        instructions:
+          type: string
+        objective:
+          type: string
+        progression:
+          $ref: "#/components/schemas/ProgressionPolicy"
+        tasks:
+          items:
+            $ref: "#/components/schemas/Task"
+          type:
+            - array
+            - "null"
+        terminal:
+          $ref: "#/components/schemas/TerminalContent"
+        tutor:
+          $ref: "#/components/schemas/TutorContext"
+        typing:
+          $ref: "#/components/schemas/TypingContent"
+      required:
+        - objective
+        - instructions
+        - tasks
+        - checks
+      type: object
+    ArtifactMeta:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/ArtifactMeta.json
+          format: uri
+          readOnly: true
+          type: string
+        artifactId:
+          type: string
+        byteSize:
+          format: int64
+          type: integer
+        createdAt:
+          format: date-time
+          type: string
+        filename:
+          type: string
+        mediaType:
+          type: string
+        schemaVersion:
+          type: string
+        sha256:
+          type: string
+      required:
+        - schemaVersion
+        - artifactId
+        - filename
+        - mediaType
+        - byteSize
+        - sha256
+        - createdAt
+      type: object
+    ArtifactPolicy:
+      additionalProperties: false
+      properties:
+        allowedTypes:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        enabled:
+          type: boolean
+        maxBytesEach:
+          format: int64
+          type: integer
+        maxBytesTotal:
+          format: int64
+          type: integer
+        maxFiles:
+          format: int64
+          type: integer
+        retainDays:
+          format: int64
+          type: integer
+      required:
+        - enabled
+      type: object
     Assessment:
       additionalProperties: false
       properties:
@@ -494,6 +596,204 @@ components:
         title:
           type: string
       type: object
+    Check:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        optional:
+          type: boolean
+        params:
+          additionalProperties: {}
+          type: object
+      required:
+        - id
+        - kind
+        - params
+      type: object
+    CheckTree:
+      additionalProperties: false
+      properties:
+        all:
+          items:
+            $ref: "#/components/schemas/CheckTree"
+          type:
+            - array
+            - "null"
+        any:
+          items:
+            $ref: "#/components/schemas/CheckTree"
+          type:
+            - array
+            - "null"
+        checkId:
+          type: string
+        optional:
+          type: boolean
+      type: object
+    CompletionRequest:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CompletionRequest.json
+          format: uri
+          readOnly: true
+          type: string
+        artifactDigests:
+          additionalProperties:
+            type: string
+          type: object
+        artifactIds:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        clientTime:
+          format: date-time
+          type: string
+        completionId:
+          type: string
+        observations:
+          items:
+            $ref: "#/components/schemas/Observation"
+          type:
+            - array
+            - "null"
+        requestDigest:
+          type: string
+        schemaVersion:
+          type: string
+        summary:
+          type: string
+      required:
+        - schemaVersion
+        - completionId
+        - requestDigest
+        - observations
+        - clientTime
+      type: object
+    CompletionResult:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CompletionResult.json
+          format: uri
+          readOnly: true
+          type: string
+        accepted:
+          type: boolean
+        completionId:
+          type: string
+        evidenceIds:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        masterySnapshot:
+          items:
+            $ref: "#/components/schemas/MasteryTransition"
+          type:
+            - array
+            - "null"
+        message:
+          type: string
+        observations:
+          items:
+            $ref: "#/components/schemas/Observation"
+          type:
+            - array
+            - "null"
+        requestDigest:
+          type: string
+        schemaVersion:
+          type: string
+      required:
+        - schemaVersion
+        - completionId
+        - accepted
+        - requestDigest
+        - observations
+      type: object
+    CreateActivityInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CreateActivityInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        kind:
+          enum:
+            - terminal
+            - typing
+          type: string
+        slug:
+          minLength: 1
+          type: string
+        subjectId:
+          format: uuid
+          type: string
+        summary:
+          type: string
+        title:
+          minLength: 1
+          type: string
+      required:
+        - slug
+        - title
+        - kind
+      type: object
+    CreateAssignmentInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CreateAssignmentInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        activityRevisionId:
+          format: uuid
+          type: string
+        priority:
+          format: int64
+          type: integer
+        reason:
+          type: string
+        studentId:
+          format: uuid
+          type: string
+      required:
+        - studentId
+        - activityRevisionId
+      type: object
+    CreatePairingCodeInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/CreatePairingCodeInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        studentId:
+          format: uuid
+          type: string
+      required:
+        - studentId
+      type: object
     Curriculum:
       additionalProperties: false
       properties:
@@ -936,6 +1236,37 @@ components:
           format: uri
           type: string
       type: object
+    EventsAck:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/EventsAck.json
+          format: uri
+          readOnly: true
+          type: string
+        acknowledgedSequence:
+          format: int64
+          type: integer
+      required:
+        - acknowledgedSequence
+      type: object
+    FixtureEntry:
+      additionalProperties: false
+      properties:
+        content:
+          type: string
+        mode:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+      required:
+        - path
+        - type
+      type: object
     HealthOutputBody:
       additionalProperties: false
       properties:
@@ -952,6 +1283,21 @@ components:
           type: string
       required:
         - status
+      type: object
+    Hint:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        level:
+          format: int64
+          type: integer
+        text:
+          type: string
+      required:
+        - id
+        - level
+        - text
       type: object
     InstructionLog:
       additionalProperties: false
@@ -1289,6 +1635,251 @@ components:
           additionalProperties: {}
           type: object
       type: object
+    LearningActivity:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/LearningActivity.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        kind:
+          enum:
+            - terminal
+            - typing
+          type: string
+        slug:
+          type: string
+        status:
+          enum:
+            - draft
+            - published
+            - retired
+          type: string
+        subjectId:
+          format: uuid
+          type: string
+        summary:
+          type: string
+        title:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - slug
+        - title
+        - summary
+        - kind
+        - status
+        - createdAt
+        - updatedAt
+      type: object
+    LearningActivityRevision:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/LearningActivityRevision.json
+          format: uri
+          readOnly: true
+          type: string
+        activityId:
+          format: uuid
+          type: string
+        content:
+          additionalProperties: {}
+          type: object
+        contentSha256:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        publishedAt:
+          format: date-time
+          type: string
+        revision:
+          format: int64
+          type: integer
+        schemaVersion:
+          type: string
+      required:
+        - id
+        - activityId
+        - revision
+        - schemaVersion
+        - content
+        - contentSha256
+        - createdAt
+      type: object
+    LearningSession:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/LearningSession.json
+          format: uri
+          readOnly: true
+          type: string
+        activityRevisionId:
+          format: uuid
+          type: string
+        assignmentId:
+          format: uuid
+          type: string
+        clientSessionId:
+          type: string
+        completedAt:
+          format: date-time
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        deviceId:
+          format: uuid
+          type: string
+        durationSeconds:
+          format: int64
+          type: integer
+        id:
+          format: uuid
+          type: string
+        lastEventAt:
+          format: date-time
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        state:
+          enum:
+            - started
+            - paused
+            - completed
+            - abandoned
+          type: string
+        studentId:
+          format: uuid
+          type: string
+        summary:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - assignmentId
+        - studentId
+        - deviceId
+        - clientSessionId
+        - activityRevisionId
+        - state
+        - startedAt
+        - durationSeconds
+        - summary
+        - createdAt
+        - updatedAt
+      type: object
+    LearningSessionArtifact:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/LearningSessionArtifact.json
+          format: uri
+          readOnly: true
+          type: string
+        artifactId:
+          format: uuid
+          type: string
+        byteSize:
+          format: int64
+          type: integer
+        createdAt:
+          format: date-time
+          type: string
+        filename:
+          type: string
+        id:
+          format: uuid
+          type: string
+        mediaType:
+          type: string
+        sessionId:
+          format: uuid
+          type: string
+        sha256:
+          type: string
+        storagePath:
+          type: string
+      required:
+        - id
+        - sessionId
+        - artifactId
+        - filename
+        - mediaType
+        - byteSize
+        - sha256
+        - createdAt
+      type: object
+    LoginRequest:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/LoginRequest.json
+          format: uri
+          readOnly: true
+          type: string
+        email:
+          format: email
+          minLength: 3
+          type: string
+        password:
+          minLength: 1
+          type: string
+      required:
+        - email
+        - password
+      type: object
+    LoginResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/LoginResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        educator:
+          $ref: "#/components/schemas/Educator"
+        expiresAt:
+          format: date-time
+          type: string
+        token:
+          description: Opaque session token; present as Authorization Bearer.
+          type: string
+      required:
+        - token
+        - educator
+        - expiresAt
+      type: object
     MasteryEvidence:
       additionalProperties: false
       properties:
@@ -1532,6 +2123,53 @@ components:
             - approaching
             - mastered
           type: string
+      type: object
+    MasteryTransition:
+      additionalProperties: false
+      properties:
+        confidence:
+          format: double
+          type: number
+        fromStatus:
+          type: string
+        reason:
+          type: string
+        standardCode:
+          type: string
+        toStatus:
+          type: string
+      required:
+        - standardCode
+        - fromStatus
+        - toStatus
+      type: object
+    Observation:
+      additionalProperties: false
+      properties:
+        checkId:
+          type: string
+        details:
+          additionalProperties: {}
+          type: object
+        kind:
+          type: string
+        message:
+          type: string
+        observedAt:
+          format: date-time
+          type: string
+        optional:
+          type: boolean
+        passed:
+          type: boolean
+        schemaVersion:
+          type: string
+      required:
+        - schemaVersion
+        - checkId
+        - kind
+        - passed
+        - observedAt
       type: object
     PageBodyAssessment:
       additionalProperties: false
@@ -1853,6 +2491,70 @@ components:
         - limit
         - offset
       type: object
+    PageBodyLearningActivity:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyLearningActivity.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/LearningActivity"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
+    PageBodyLearningActivityRevision:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyLearningActivityRevision.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/LearningActivityRevision"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
     PageBodyMasteryEvidence:
       additionalProperties: false
       properties:
@@ -1981,6 +2683,38 @@ components:
         - limit
         - offset
       type: object
+    PageBodyStudentAssignment:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyStudentAssignment.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/StudentAssignment"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
     PageBodySubject:
       additionalProperties: false
       properties:
@@ -2012,6 +2746,161 @@ components:
         - totalCount
         - limit
         - offset
+      type: object
+    PairStudentDeviceInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PairStudentDeviceInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        code:
+          minLength: 4
+          type: string
+        deviceName:
+          type: string
+      required:
+        - code
+      type: object
+    PairStudentDeviceResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PairStudentDeviceResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        device:
+          $ref: "#/components/schemas/StudentDevice"
+        deviceId:
+          format: uuid
+          type: string
+        student:
+          $ref: "#/components/schemas/Student"
+        token:
+          type: string
+      required:
+        - deviceId
+        - token
+        - student
+        - device
+      type: object
+    PairingCodeResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PairingCodeResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        code:
+          description: One-time pairing code; shown only once.
+          type: string
+        expiresAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        studentId:
+          format: uuid
+          type: string
+      required:
+        - id
+        - code
+        - studentId
+        - expiresAt
+      type: object
+    PostEventsInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PostEventsInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        events:
+          items:
+            $ref: "#/components/schemas/SessionEvent"
+          type:
+            - array
+            - "null"
+      required:
+        - events
+      type: object
+    ProgressionPolicy:
+      additionalProperties: false
+      properties:
+        allowReset:
+          type: boolean
+        maxAttempts:
+          format: int64
+          type: integer
+        requireInOrder:
+          type: boolean
+        resumeFromTask:
+          type: boolean
+      required:
+        - allowReset
+        - resumeFromTask
+        - requireInOrder
+      type: object
+    PublishRevisionInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PublishRevisionInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        content:
+          $ref: "#/components/schemas/ActivityContent"
+        schemaVersion:
+          type: string
+        standards:
+          items:
+            $ref: "#/components/schemas/StandardRef"
+          type:
+            - array
+            - "null"
+      required:
+        - content
+      type: object
+    SessionEvent:
+      additionalProperties: false
+      properties:
+        clientTime:
+          format: date-time
+          type: string
+        eventId:
+          type: string
+        payload:
+          additionalProperties: {}
+          type: object
+        schemaVersion:
+          type: string
+        sequence:
+          format: int64
+          type: integer
+        type:
+          type: string
+      required:
+        - schemaVersion
+        - eventId
+        - type
+        - sequence
+        - clientTime
       type: object
     Standard:
       additionalProperties: false
@@ -2118,6 +3007,20 @@ components:
         - source
         - code
       type: object
+    StandardRef:
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        role:
+          type: string
+        weight:
+          format: double
+          type: number
+      required:
+        - code
+        - role
+      type: object
     StandardUpdate:
       additionalProperties: false
       properties:
@@ -2161,6 +3064,26 @@ components:
             - high
           type: string
       type: object
+    StartSessionInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StartSessionInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        assignmentId:
+          format: uuid
+          type: string
+        clientSessionId:
+          minLength: 1
+          type: string
+      required:
+        - clientSessionId
+        - assignmentId
+      type: object
     Student:
       additionalProperties: false
       properties:
@@ -2200,6 +3123,69 @@ components:
         - createdAt
         - updatedAt
       type: object
+    StudentAssignment:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StudentAssignment.json
+          format: uri
+          readOnly: true
+          type: string
+        activityRevisionId:
+          format: uuid
+          type: string
+        assignedBy:
+          format: uuid
+          type: string
+        availableAt:
+          format: date-time
+          type: string
+        constraints:
+          additionalProperties: {}
+          type: object
+        createdAt:
+          format: date-time
+          type: string
+        dueAt:
+          format: date-time
+          type: string
+        enrollmentId:
+          format: uuid
+          type: string
+        id:
+          format: uuid
+          type: string
+        priority:
+          format: int64
+          type: integer
+        reason:
+          type: string
+        state:
+          enum:
+            - available
+            - in_progress
+            - completed
+            - cancelled
+          type: string
+        studentId:
+          format: uuid
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - studentId
+        - activityRevisionId
+        - state
+        - priority
+        - availableAt
+        - reason
+        - createdAt
+        - updatedAt
+      type: object
     StudentCreate:
       additionalProperties: false
       properties:
@@ -2230,6 +3216,65 @@ components:
         - firstName
         - lastName
       type: object
+    StudentDevice:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StudentDevice.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        lastSeenAt:
+          format: date-time
+          type: string
+        name:
+          type: string
+        revokedAt:
+          format: date-time
+          type: string
+        studentId:
+          format: uuid
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - studentId
+        - name
+        - createdAt
+        - updatedAt
+      type: object
+    StudentProfile:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StudentProfile.json
+          format: uri
+          readOnly: true
+          type: string
+        deviceId:
+          format: uuid
+          type: string
+        deviceName:
+          type: string
+        student:
+          $ref: "#/components/schemas/Student"
+      required:
+        - student
+        - deviceId
+        - deviceName
+      type: object
     StudentUpdate:
       additionalProperties: false
       properties:
@@ -2254,6 +3299,41 @@ components:
           type: string
         notes:
           type: string
+      type: object
+    StudentWorkItem:
+      additionalProperties: false
+      properties:
+        activity:
+          $ref: "#/components/schemas/LearningActivity"
+        assignment:
+          $ref: "#/components/schemas/StudentAssignment"
+        revision:
+          $ref: "#/components/schemas/LearningActivityRevision"
+      required:
+        - assignment
+        - revision
+        - activity
+      type: object
+    StudentWorkResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/StudentWorkResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        cursor:
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/StudentWorkItem"
+          type:
+            - array
+            - "null"
+      required:
+        - items
       type: object
     Subject:
       additionalProperties: false
@@ -2327,12 +3407,129 @@ components:
         name:
           type: string
       type: object
+    Task:
+      additionalProperties: false
+      properties:
+        completion:
+          $ref: "#/components/schemas/CheckTree"
+        hintIds:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        id:
+          type: string
+        instructions:
+          type: string
+        optional:
+          type: boolean
+        prerequisites:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        title:
+          type: string
+      required:
+        - id
+        - title
+        - instructions
+        - completion
+      type: object
+    TerminalContent:
+      additionalProperties: false
+      properties:
+        fixtures:
+          items:
+            $ref: "#/components/schemas/FixtureEntry"
+          type:
+            - array
+            - "null"
+        initialCwd:
+          type: string
+        runtimeProfile:
+          type: string
+        shell:
+          type: string
+      required:
+        - runtimeProfile
+        - fixtures
+      type: object
+    TutorContext:
+      additionalProperties: false
+      properties:
+        constraints:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        goalSummary:
+          type: string
+        misconceptions:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    TypingContent:
+      additionalProperties: false
+      properties:
+        ordering:
+          type: string
+        promptSetId:
+          type: string
+        prompts:
+          items:
+            $ref: "#/components/schemas/TypingPrompt"
+          type:
+            - array
+            - "null"
+        successAccuracy:
+          format: double
+          type: number
+        successWpm:
+          format: double
+          type: number
+        timeLimitSec:
+          format: int64
+          type: integer
+      required:
+        - promptSetId
+        - prompts
+      type: object
+    TypingPrompt:
+      additionalProperties: false
+      properties:
+        category:
+          type: string
+        id:
+          type: string
+        text:
+          type: string
+      required:
+        - id
+        - text
+      type: object
   securitySchemes:
+    parentSession:
+      bearerFormat: opaque
+      description: Parent/admin session token from POST /auth/login.
+      scheme: bearer
+      type: http
     serviceToken:
       description: Shared service token, presented by other Primer services (today, the TV server) when pushing data in.
       in: header
       name: X-Service-Token
       type: apiKey
+    studentDeviceToken:
+      bearerFormat: opaque
+      description: Student device token from POST /student-devices/pair. Also accepted via X-Device-Token.
+      scheme: bearer
+      type: http
 info:
   description: "LMS backend for the Primer AI tutoring system: students, curricula, standards, mastery tracking, and assessments."
   title: Primer LMS API
@@ -3087,6 +4284,89 @@ paths:
       summary: Update a assessment
       tags:
         - Assessments
+  /assignments:
+    post:
+      operationId: create-assignment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAssignmentInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentAssignment"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Assign activity revision to student
+      tags:
+        - Assignments
+  /auth/login:
+    post:
+      description: Authenticate an educator with email and password. Returns a session token for parent-guarded routes.
+      operationId: parent-login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Parent login
+      tags:
+        - Auth
   /curricula:
     get:
       description: List curricula with pagination, search (name, description), sorting (name, approach, grade_level, created_at, updated_at), and filters (approach, grade_level).
@@ -4274,6 +5554,246 @@ paths:
       summary: Update a item-response
       tags:
         - Item Responses
+  /learning-activities:
+    get:
+      operationId: list-learning-activities
+      parameters:
+        - description: Page size.
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 25
+            description: Page size.
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+        - description: Rows to skip.
+          explode: false
+          in: query
+          name: offset
+          schema:
+            default: 0
+            description: Rows to skip.
+            format: int64
+            minimum: 0
+            type: integer
+        - description: Free-text search across the resource's searchable columns.
+          explode: false
+          in: query
+          name: q
+          schema:
+            description: Free-text search across the resource's searchable columns.
+            type: string
+        - description: Column to sort by (whitelisted per resource).
+          explode: false
+          in: query
+          name: sort
+          schema:
+            description: Column to sort by (whitelisted per resource).
+            type: string
+        - description: Sort direction.
+          explode: false
+          in: query
+          name: dir
+          schema:
+            default: asc
+            description: Sort direction.
+            enum:
+              - asc
+              - desc
+            type: string
+        - description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+          explode: true
+          in: query
+          name: filter
+          schema:
+            description: Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable.
+            items:
+              type: string
+            type:
+              - array
+              - "null"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyLearningActivity"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: List learning activities
+      tags:
+        - Learning Activities
+    post:
+      operationId: create-learning-activity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateActivityInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LearningActivity"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Create draft learning activity
+      tags:
+        - Learning Activities
+  /learning-activities/{id}/revisions:
+    get:
+      operationId: list-activity-revisions
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyLearningActivityRevision"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: List activity revisions
+      tags:
+        - Learning Activities
+    post:
+      operationId: publish-activity-revision
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRevisionInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LearningActivityRevision"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Publish immutable activity revision
+      tags:
+        - Learning Activities
   /mastery-evidence:
     get:
       description: List mastery-evidences with pagination, search (context, source_ref), sorting (kind, occurred_on, created_at, updated_at), and filters (mastery_record_id, kind).
@@ -4648,6 +6168,52 @@ paths:
       summary: Update a mastery-record
       tags:
         - Mastery Records
+  /pairing-codes:
+    post:
+      description: "Issues a short-lived one-time pairing code for a student. Single-family: any parent/admin may manage all students."
+      operationId: create-pairing-code
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePairingCodeInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCodeResponse"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Create student device pairing code
+      tags:
+        - Devices
   /standards:
     get:
       description: List standards with pagination, search (code, description, domain, cluster), sorting (code, source, grade_level, domain, created_at, updated_at), and filters (source, subject_id, parent_id, grade_level, domain, tcap_weight).
@@ -4835,6 +6401,346 @@ paths:
       summary: Update a standard
       tags:
         - Standards
+  /student-devices/pair:
+    post:
+      description: Exchange a parent-issued pairing code for a device token. The token is returned once.
+      operationId: pair-student-device
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairStudentDeviceInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairStudentDeviceResponse"
+          description: Created
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Pair a student device
+      tags:
+        - Student
+  /student-devices/{id}/revoke:
+    post:
+      operationId: revoke-student-device
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentDevice"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Revoke a student device
+      tags:
+        - Devices
+  /student/profile:
+    get:
+      operationId: get-student-profile
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentProfile"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Student profile for the paired device
+      tags:
+        - Student
+  /student/sessions:
+    post:
+      operationId: start-student-session
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LearningSession"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Start or resume a learning session
+      tags:
+        - Student
+  /student/sessions/{id}/artifacts:
+    post:
+      operationId: post-session-artifact
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactMeta"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LearningSessionArtifact"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Register session artifact metadata
+      tags:
+        - Student
+  /student/sessions/{id}/complete:
+    post:
+      operationId: complete-student-session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletionRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompletionResult"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Complete a session (idempotent)
+      tags:
+        - Student
+  /student/sessions/{id}/events:
+    post:
+      operationId: post-session-events
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostEventsInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventsAck"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Ingest idempotent session event batch
+      tags:
+        - Student
+  /student/work:
+    get:
+      operationId: get-student-work
+      parameters:
+        - description: Cursor from a previous work response.
+          explode: false
+          in: query
+          name: after
+          schema:
+            description: Cursor from a previous work response.
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentWorkResponse"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Work queue for the paired student
+      tags:
+        - Student
   /students:
     get:
       description: List students with pagination, search (first_name, last_name, notes), sorting (first_name, last_name, grade_level, birthdate, created_at, updated_at), and filters (grade_level).
@@ -5022,6 +6928,54 @@ paths:
       summary: Update a student
       tags:
         - Students
+  /students/{id}/assignments:
+    get:
+      operationId: list-student-assignments
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyStudentAssignment"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: List assignments for a student
+      tags:
+        - Assignments
   /subjects:
     get:
       description: List subjects with pagination, search (code, name, description), sorting (code, name, created_at, updated_at), and filters (code).

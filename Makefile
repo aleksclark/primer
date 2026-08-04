@@ -11,7 +11,7 @@ COVER_MIN := 85
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
-	activity-validate
+	activity-validate activity-publish
 
 all: build openapi openapi-tv client tv-client
 
@@ -140,3 +140,8 @@ ingest-apply: ingest-build
 ## Validate curriculum/activities against student-client contracts (offline, no DB).
 activity-validate:
 	cd server && go run ./cmd/activity-validate -dir ../curriculum/activities
+
+## Publish curriculum standards + activity revisions into the LMS database.
+## Requires DATABASE_URL (see server/internal/config).
+activity-publish:
+	cd server && go run ./cmd/activity-publish -activities ../curriculum/activities -standards ../curriculum/standards
