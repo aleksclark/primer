@@ -139,3 +139,32 @@ RETURNING id, student_id, name, token_hash, last_seen_at, revoked_at, created_at
 	}
 	return &dev, nil
 }
+
+// ListStudentDevices returns all devices for the household (single-family),
+// optionally filtered by student. Includes revoked devices for parent diagnostics.
+func ListStudentDevices(ctx context.Context, q Querier, studentID string) ([]domain.StudentDevice, error) {
+	const allSQL = `
+SELECT id, student_id, name, token_hash, last_seen_at, revoked_at, created_at, updated_at
+FROM student_devices
+ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`
+	const byStudentSQL = `
+SELECT id, student_id, name, token_hash, last_seen_at, revoked_at, created_at, updated_at
+FROM student_devices
+WHERE student_id = $1
+ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`
+	var rows pgx.Rows
+	var err error
+	if studentID == "" {
+		rows, err = q.Query(ctx, allSQL)
+	} else {
+		rows, err = q.Query(ctx, byStudentSQL, studentID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list student devices: %w", err)
+	}
+	items, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[domain.StudentDevice])
+	if err != nil {
+		return nil, fmt.Errorf("scan student devices: %w", err)
+	}
+	return items, nil
+}

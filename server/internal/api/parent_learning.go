@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/aleksclark/primer/server/internal/domain"
+	"github.com/aleksclark/primer/server/internal/overseer"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
@@ -208,6 +209,27 @@ func registerParentLearning(h huma.API, q repo.Querier) {
 		}}, nil
 	})
 
+	// Device list (parent diagnostics)
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "list-student-devices",
+		Method:      http.MethodGet,
+		Path:        "/student-devices",
+		Summary:     "List student devices",
+		Description: "Household device diagnostics: name, lastSeenAt, revokedAt. Single-family: all devices.",
+		Tags:        []string{"Devices"},
+	}), func(ctx context.Context, in *listStudentDevicesInput) (*listOutput[domain.StudentDevice], error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		items, err := repo.ListStudentDevices(ctx, q, in.StudentID)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &listOutput[domain.StudentDevice]{Body: PageBody[domain.StudentDevice]{
+			Items: items, TotalCount: len(items), Limit: len(items), Offset: 0,
+		}}, nil
+	})
+
 	// Device revoke
 	huma.Register(h, parentOp(h, q, huma.Operation{
 		OperationID: "revoke-student-device",
@@ -224,6 +246,52 @@ func registerParentLearning(h huma.API, q repo.Querier) {
 			return nil, MapError(err)
 		}
 		return &itemOutput[domain.StudentDevice]{Body: *dev}, nil
+	})
+
+	// Overseer: assign next activity
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID:   "assign-next-activity",
+		Method:        http.MethodPost,
+		Path:          "/students/{id}/assign-next",
+		Summary:       "Assign next activity for a student",
+		Description:   "Overseer helper: prefers reinforcement-due mastery, else next unassigned published curriculum activity. Optional slug forces a specific activity.",
+		Tags:          []string{"Assignments"},
+		DefaultStatus: http.StatusCreated,
+	}), func(ctx context.Context, in *assignNextInput) (*assignNextOutput, error) {
+		ed, err := parentEducator(ctx)
+		if err != nil {
+			return nil, err
+		}
+		by := ed.ID
+		opts := overseer.Options{
+			Slug:       in.Body.Slug,
+			AssignedBy: &by,
+			Priority:   0,
+			Reason:     "",
+		}
+		if in.Body.Priority != nil {
+			opts.Priority = *in.Body.Priority
+		}
+		if in.Body.Reason != nil {
+			opts.Reason = *in.Body.Reason
+		}
+		if in.Body.PreferReinforcement != nil {
+			opts.PreferReinforcement = in.Body.PreferReinforcement
+		}
+		res, err := overseer.AssignNext(ctx, q, in.ID, opts)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		status := http.StatusCreated
+		if !res.Created {
+			status = http.StatusOK
+		}
+		_ = status // huma DefaultStatus is Created; clients accept 200/201
+		return &assignNextOutput{Body: AssignNextResponse{
+			Assignment: *res.Assignment,
+			Reason:     res.Reason,
+			Created:    res.Created,
+		}}, nil
 	})
 }
 
@@ -271,4 +339,29 @@ type createAssignmentInput struct {
 		Priority           *int    `json:"priority,omitempty"`
 		Reason             *string `json:"reason,omitempty"`
 	}
+}
+
+type listStudentDevicesInput struct {
+	StudentID string `query:"studentId,omitempty" doc:"Optional student UUID filter; empty lists all household devices."`
+}
+
+type assignNextInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		Slug                string  `json:"slug,omitempty" doc:"Force assign latest published revision of this activity slug."`
+		PreferReinforcement *bool   `json:"preferReinforcement,omitempty" doc:"Default true when slug is empty."`
+		Priority            *int    `json:"priority,omitempty"`
+		Reason              *string `json:"reason,omitempty"`
+	}
+}
+
+// AssignNextResponse is the overseer assign-next result.
+type AssignNextResponse struct {
+	Assignment domain.StudentAssignment `json:"assignment"`
+	Reason     string                   `json:"reason"`
+	Created    bool                     `json:"created"`
+}
+
+type assignNextOutput struct {
+	Body AssignNextResponse
 }

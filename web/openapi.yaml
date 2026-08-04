@@ -596,6 +596,49 @@ components:
         title:
           type: string
       type: object
+    AssignNextInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssignNextInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        preferReinforcement:
+          description: Default true when slug is empty.
+          type: boolean
+        priority:
+          format: int64
+          type: integer
+        reason:
+          type: string
+        slug:
+          description: Force assign latest published revision of this activity slug.
+          type: string
+      type: object
+    AssignNextResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/AssignNextResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        assignment:
+          $ref: "#/components/schemas/StudentAssignment"
+        created:
+          type: boolean
+        reason:
+          type: string
+      required:
+        - assignment
+        - reason
+        - created
+      type: object
     Check:
       additionalProperties: false
       properties:
@@ -2715,6 +2758,38 @@ components:
         - limit
         - offset
       type: object
+    PageBodyStudentDevice:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/PageBodyStudentDevice.json
+          format: uri
+          readOnly: true
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/StudentDevice"
+          type:
+            - array
+            - "null"
+        limit:
+          format: int64
+          type: integer
+        offset:
+          format: int64
+          type: integer
+        totalCount:
+          description: Total rows matching the query, ignoring pagination.
+          format: int64
+          type: integer
+      required:
+        - items
+        - totalCount
+        - limit
+        - offset
+      type: object
     PageBodySubject:
       additionalProperties: false
       properties:
@@ -3474,6 +3549,36 @@ components:
           type:
             - array
             - "null"
+      type: object
+    TutorMessageInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/TutorMessageInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        message:
+          type: string
+      required:
+        - message
+      type: object
+    TutorMessageResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/TutorMessageResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        reply:
+          type: string
+      required:
+        - reply
       type: object
     TypingContent:
       additionalProperties: false
@@ -6401,6 +6506,54 @@ paths:
       summary: Update a standard
       tags:
         - Standards
+  /student-devices:
+    get:
+      description: "Household device diagnostics: name, lastSeenAt, revokedAt. Single-family: all devices."
+      operationId: list-student-devices
+      parameters:
+        - description: Optional student UUID filter; empty lists all household devices.
+          explode: false
+          in: query
+          name: studentId
+          schema:
+            description: Optional student UUID filter; empty lists all household devices.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageBodyStudentDevice"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: List student devices
+      tags:
+        - Devices
   /student-devices/pair:
     post:
       description: Exchange a parent-issued pairing code for a device token. The token is returned once.
@@ -6691,6 +6844,52 @@ paths:
       summary: Ingest idempotent session event batch
       tags:
         - Student
+  /student/sessions/{id}/tutor/messages:
+    post:
+      operationId: post-session-tutor-message
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TutorMessageInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TutorMessageResponse"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - studentDeviceToken: []
+      summary: Send a tutor chat message (stub coaching)
+      tags:
+        - Student
   /student/work:
     get:
       operationId: get-student-work
@@ -6928,6 +7127,59 @@ paths:
       summary: Update a student
       tags:
         - Students
+  /students/{id}/assign-next:
+    post:
+      description: "Overseer helper: prefers reinforcement-due mastery, else next unassigned published curriculum activity. Optional slug forces a specific activity."
+      operationId: assign-next-activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignNextInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignNextResponse"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Assign next activity for a student
+      tags:
+        - Assignments
   /students/{id}/assignments:
     get:
       operationId: list-student-assignments

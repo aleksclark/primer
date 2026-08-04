@@ -105,6 +105,7 @@ nix build .#installer-iso
 On boot, the student auto-logs in and gets:
 - Sway tiling compositor (Super+Return = new terminal)
 - Ghostty terminal emulator
+- `primer` / `primer-student` learning client
 - That's it. No browser, no file manager, no other GUI apps.
 
 ### Key bindings (Super = Mod key)
@@ -115,6 +116,59 @@ On boot, the student auto-logs in and gets:
 - `Super+Shift+q` — Close window
 - `Super+f` — Fullscreen
 - `Super+r` — Resize mode
+
+## primer-student
+
+The learning client is installed by `hosts/workstation/primer-student.nix`.
+
+### Pair flow
+
+1. Parent creates a pairing code via the Primer LMS API:
+   `POST /api/v1/pairing-codes` with parent session auth and `{"studentId":"…"}`.
+2. On the workstation, run `primer` (or `primer-student`) in Ghostty.
+3. Enter the pairing code when prompted. The device token is stored in
+   `/var/lib/primer-student/state.db` (persisted across reboots).
+4. The client syncs the work queue from
+   `https://primer.fleet.clark.team/api/v1` (override with
+   `services.primer-student.baseUrl` in Nix).
+
+`Super+Return` still opens Ghostty only; start learning with the `primer`
+command inside a terminal.
+
+### Health check
+
+After deploy, `deploy.sh` runs:
+
+```bash
+ssh root@primer.local primer-student-health
+```
+
+Checks: binary present, state directory writable, bubblewrap available.
+
+### Threat model (Phase 5)
+
+The TUI runs as `student` and holds the device token in the SQLite cache.
+A full root-owned broker that keeps credentials off the student account is
+deferred. Bubblewrap is installed for terminal activity sandboxes.
+
+### Packaging note
+
+The Nix module installs bubblewrap, `primer` / `primer-student` launchers,
+state dir persistence, and `primer-student-health`. The Go binary is **not**
+built by the flake until `vendorHash` is pinned (keeps `deploy.sh` / flake
+check working offline).
+
+Install a binary today:
+
+```bash
+make student-deploy HOST=root@primer.local
+# places bin at /var/lib/primer-student/bin/primer-student
+```
+
+When ready to nix-build the client, set `vendorHash` in
+`packages/primer-student.nix` (start from `lib.fakeHash`, build once, paste
+the `got:` hash), then overlay it in `flake.nix` and set
+`services.primer-student.package = pkgs.primer-student`.
 
 ## Disk Layout
 
@@ -133,6 +187,7 @@ On boot, the student auto-logs in and gets:
 
 - `/persist/home/student/projects` — Student's actual work
 - `/persist/monitoring/` — Activity screenshots, window tracking, audit logs
+- `/var/lib/primer-student` — Device token cache, workspaces, offline outbox
 - `/etc/ssh/` host keys, `/etc/machine-id`
 - NixOS state (`/var/lib/nixos`, `/var/lib/systemd`)
 - Student's `.bash_history`
@@ -143,9 +198,10 @@ Everything else is wiped. Browser cache, temp files, accidental config changes �
 
 - [ ] Set student password (currently placeholder hash in users.nix)
 - [ ] Add network filtering (AdGuard Home in whitelist mode)
-- [ ] Add typing metrics daemon
 - [ ] Add break enforcement (screen lock after 45 min continuous use)
 - [ ] Wire monitoring into Primer tutor API
 - [ ] Restrict printer services to the actual management subnet and remove root/device-wide permissions
 - [ ] Add CI evaluation and boot tests for the workstation flake
 - [ ] Add encrypted storage if physical disk theft is in scope
+- [ ] Recompute `primer-student` vendorHash and enable full broker split
+- [ ] Optional: auto-launch `primer` in Ghostty after pair is stable

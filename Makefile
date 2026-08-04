@@ -149,3 +149,11 @@ activity-publish:
 ## Build the interactive student workstation TUI.
 student-build:
 	cd server && go build -o ../bin/primer-student ./cmd/primer-student
+
+## Copy a locally built primer-student binary onto the workstation prebuilt path.
+## Usage: make student-deploy HOST=root@primer.local
+HOST ?= root@primer.local
+student-deploy: student-build
+	ssh "$(HOST)" 'mkdir -p /var/lib/primer-student/bin && chown student:students /var/lib/primer-student /var/lib/primer-student/bin'
+	scp bin/primer-student "$(HOST):/var/lib/primer-student/bin/primer-student"
+	ssh "$(HOST)" 'chown student:students /var/lib/primer-student/bin/primer-student && chmod 755 /var/lib/primer-student/bin/primer-student && primer-student-health'

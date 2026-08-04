@@ -32,6 +32,7 @@ ssh "$host" "'$system/bin/switch-to-configuration' test"
 ssh "$host" "systemd-run --unit='$rollback_unit' --on-active=5m '$old_system/bin/switch-to-configuration' switch"
 ssh "$host" "'$system/bin/switch-to-configuration' switch"
 ssh "$host" 'systemctl is-active sshd >/dev/null && test "$(readlink -f /run/current-system)" = '"'"$system"'"''
+ssh "$host" 'primer-student-health'
 ssh "$host" "systemctl stop '$rollback_unit.timer'; systemctl reset-failed '$rollback_unit.service' 2>/dev/null || true; rm -rf '$remote_cache'"
 
 printf 'Deployment confirmed on %s: %s\n' "$host" "$system"
