@@ -47,9 +47,11 @@ job "primer-tv" {
         TV_JELLYFIN_API_KEY     = "${TV_JELLYFIN_API_KEY}"
         TV_JELLYFIN_USER_ID     = "${TV_JELLYFIN_USER_ID}"
         TV_ADMIN_API_KEY        = "${TV_ADMIN_API_KEY}"
-        TV_CHANNEL_TIMEZONE     = "America/Chicago"
-        TV_PRIMER_BASE_URL      = "${TV_PRIMER_BASE_URL}"
-        TV_PRIMER_SERVICE_TOKEN = "${TV_PRIMER_SERVICE_TOKEN}"
+        TV_CHANNEL_TIMEZONE            = "America/Chicago"
+        TV_PRIMER_BASE_URL             = "${TV_PRIMER_BASE_URL}"
+        TV_PRIMER_SERVICE_TOKEN        = "${TV_PRIMER_SERVICE_TOKEN}"
+        TV_MANIFEST_FAIL_MAX_ATTEMPTS  = "${TV_MANIFEST_FAIL_MAX_ATTEMPTS}"
+        TV_MANIFEST_FAIL_MAX_DAYS      = "${TV_MANIFEST_FAIL_MAX_DAYS}"
       }
 
       resources {

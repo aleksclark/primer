@@ -32,6 +32,12 @@ type Report struct {
 	SkippedExcluded   []string
 	NotInJellyfin     []string
 
+	// Manifest catalog tracking (TV server content_manifest_entries).
+	ManifestSynced   string
+	AttemptsRecorded []string
+	MarkedPresent    []string
+	FailedQueue      []string
+
 	Errors []string
 }
 
@@ -60,11 +66,15 @@ func (r *Report) Markdown() string {
 	section(&b, "Already in library / archive", r.AlreadyHeld)
 	section(&b, "Awaiting download", r.AwaitingDownload)
 	section(&b, "Manual rip queue", r.ManualQueue)
+	section(&b, "Failed (human intervention)", r.FailedQueue)
 
 	fmt.Fprintf(&b, "## Sync\n\n")
+	fmt.Fprintf(&b, "- TV content-manifest catalog: %s\n", dash(r.ManifestSynced))
 	fmt.Fprintf(&b, "- Jellyfin library refresh: %s\n", yn(r.JellyfinRefreshed))
 	fmt.Fprintf(&b, "- TV server metadata sync: %s\n\n", yn(r.TVSynced))
 
+	section(&b, "Acquisition attempts recorded", r.AttemptsRecorded)
+	section(&b, "Marked present in TV catalog", r.MarkedPresent)
 	section(&b, "Imported into TV server", r.Imported)
 	section(&b, "Updated classification", r.Updated)
 	section(&b, "Skipped (excluded episodes)", r.SkippedExcluded)
@@ -80,9 +90,11 @@ func (r *Report) Markdown() string {
 	fmt.Fprintf(&b, "| Review queue | %d |\n", len(r.ReviewQueued))
 	fmt.Fprintf(&b, "| Acquired | %d |\n", len(r.AcquiredMovies)+len(r.AcquiredSeries)+len(r.AcquiredYouTube))
 	fmt.Fprintf(&b, "| Awaiting download | %d |\n", len(r.AwaitingDownload))
+	fmt.Fprintf(&b, "| Marked present | %d |\n", len(r.MarkedPresent))
 	fmt.Fprintf(&b, "| Imported | %d |\n", len(r.Imported))
 	fmt.Fprintf(&b, "| Updated | %d |\n", len(r.Updated))
 	fmt.Fprintf(&b, "| Manual rip queue | %d |\n", len(r.ManualQueue))
+	fmt.Fprintf(&b, "| Failed (human) | %d |\n", len(r.FailedQueue))
 	fmt.Fprintf(&b, "| Errors | %d |\n", len(r.Errors))
 	return b.String()
 }
@@ -104,6 +116,13 @@ func yn(v bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "no"
+	}
+	return s
 }
 
 // WriteMarkdown writes the report under dir as ingest-YYYYMMDD-HHMMSS.md.

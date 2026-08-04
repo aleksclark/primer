@@ -8,9 +8,10 @@
 # (requires a docker login to ghcr.io with write:packages).
 #
 # What gets deployed:
-#   SERVICE=all   (default) both primer and primer-tv
-#   SERVICE=lms   LMS only
-#   SERVICE=tv    TV channel only
+#   SERVICE=all    (default) primer + primer-tv + content-ingest
+#   SERVICE=lms    LMS only
+#   SERVICE=tv     TV channel only
+#   SERVICE=ingest content-ingest periodic batch only
 #
 # Configuration comes from deploy/.env (see deploy/.env.example).
 set -euo pipefail
@@ -31,16 +32,19 @@ IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 BUILD="${BUILD:-ci}"
 LMS_IMAGE_REPO="${IMAGE_REPO:-ghcr.io/aleksclark/primer}"
 TV_IMAGE_REPO="${TV_IMAGE_REPO:-ghcr.io/aleksclark/primer-tv}"
+INGEST_IMAGE_REPO="${INGEST_IMAGE_REPO:-ghcr.io/aleksclark/content-ingest}"
 export NOMAD_ADDR NOMAD_TOKEN
 
 need_lms=false
 need_tv=false
+need_ingest=false
 case "$SERVICE" in
-  all) need_lms=true; need_tv=true ;;
-  lms) need_lms=true ;;
-  tv)  need_tv=true ;;
+  all)    need_lms=true; need_tv=true; need_ingest=true ;;
+  lms)    need_lms=true ;;
+  tv)     need_tv=true ;;
+  ingest) need_ingest=true ;;
   *)
-    echo "error: SERVICE must be all, lms, or tv (got $SERVICE)" >&2
+    echo "error: SERVICE must be all, lms, tv, or ingest (got $SERVICE)" >&2
     exit 1
     ;;
 esac
@@ -57,6 +61,25 @@ if $need_tv; then
   TV_JELLYFIN_USER_ID="${TV_JELLYFIN_USER_ID:-}"
   TV_PRIMER_BASE_URL="${TV_PRIMER_BASE_URL:-https://primer.fleet.clark.team}"
   TV_PRIMER_SERVICE_TOKEN="${TV_PRIMER_SERVICE_TOKEN:-${SERVICE_TOKEN:-}}"
+  TV_MANIFEST_FAIL_MAX_ATTEMPTS="${TV_MANIFEST_FAIL_MAX_ATTEMPTS:-10}"
+  TV_MANIFEST_FAIL_MAX_DAYS="${TV_MANIFEST_FAIL_MAX_DAYS:-14}"
+fi
+if $need_ingest; then
+  : "${INGEST_TV_BASE_URL:?set INGEST_TV_BASE_URL in deploy/.env or the environment}"
+  : "${INGEST_TV_ADMIN_KEY:?set INGEST_TV_ADMIN_KEY in deploy/.env or the environment}"
+  INGEST_RADARR_BASE_URL="${INGEST_RADARR_BASE_URL:-}"
+  INGEST_RADARR_API_KEY="${INGEST_RADARR_API_KEY:-}"
+  INGEST_RADARR_ROOT_FOLDER="${INGEST_RADARR_ROOT_FOLDER:-/data/media/movies}"
+  INGEST_RADARR_QUALITY_PROFILE_ID="${INGEST_RADARR_QUALITY_PROFILE_ID:-}"
+  INGEST_SONARR_BASE_URL="${INGEST_SONARR_BASE_URL:-}"
+  INGEST_SONARR_API_KEY="${INGEST_SONARR_API_KEY:-}"
+  INGEST_SONARR_ROOT_FOLDER="${INGEST_SONARR_ROOT_FOLDER:-/data/media/tv}"
+  INGEST_SONARR_QUALITY_PROFILE_ID="${INGEST_SONARR_QUALITY_PROFILE_ID:-}"
+  INGEST_JELLYFIN_BASE_URL="${INGEST_JELLYFIN_BASE_URL:-${TV_JELLYFIN_BASE_URL:-}}"
+  INGEST_JELLYFIN_API_KEY="${INGEST_JELLYFIN_API_KEY:-${TV_JELLYFIN_API_KEY:-}}"
+  INGEST_JELLYFIN_USER_ID="${INGEST_JELLYFIN_USER_ID:-${TV_JELLYFIN_USER_ID:-}}"
+  INGEST_YTDLP_OUTPUT_DIR="${INGEST_YTDLP_OUTPUT_DIR:-/data/media}"
+  INGEST_YTDLP_ARCHIVE_PATH="${INGEST_YTDLP_ARCHIVE_PATH:-/data/media/ytdlp-archive.txt}"
 fi
 # Optional on the LMS side too.
 SERVICE_TOKEN="${SERVICE_TOKEN:-}"
@@ -73,6 +96,12 @@ if [[ "$BUILD" == "local" ]]; then
     docker build -f Dockerfile.tv -t "${TV_IMAGE_REPO}:${IMAGE_TAG}" -t "${TV_IMAGE_REPO}:latest" .
     docker push "${TV_IMAGE_REPO}:${IMAGE_TAG}"
     docker push "${TV_IMAGE_REPO}:latest"
+  fi
+  if $need_ingest; then
+    echo "==> Building ${INGEST_IMAGE_REPO}:${IMAGE_TAG} locally"
+    docker build -f Dockerfile.ingest -t "${INGEST_IMAGE_REPO}:${IMAGE_TAG}" -t "${INGEST_IMAGE_REPO}:latest" .
+    docker push "${INGEST_IMAGE_REPO}:${IMAGE_TAG}"
+    docker push "${INGEST_IMAGE_REPO}:latest"
   fi
 else
   if [[ -n "$(git status --porcelain)" ]]; then
@@ -118,11 +147,41 @@ if $need_tv; then
   TV_ADMIN_API_KEY="$TV_ADMIN_API_KEY" \
   TV_PRIMER_BASE_URL="$TV_PRIMER_BASE_URL" \
   TV_PRIMER_SERVICE_TOKEN="$TV_PRIMER_SERVICE_TOKEN" \
-    envsubst '${IMAGE_TAG} ${TV_DATABASE_URL} ${TV_JELLYFIN_BASE_URL} ${TV_JELLYFIN_API_KEY} ${TV_JELLYFIN_USER_ID} ${TV_ADMIN_API_KEY} ${TV_PRIMER_BASE_URL} ${TV_PRIMER_SERVICE_TOKEN}' \
+  TV_MANIFEST_FAIL_MAX_ATTEMPTS="$TV_MANIFEST_FAIL_MAX_ATTEMPTS" \
+  TV_MANIFEST_FAIL_MAX_DAYS="$TV_MANIFEST_FAIL_MAX_DAYS" \
+    envsubst '${IMAGE_TAG} ${TV_DATABASE_URL} ${TV_JELLYFIN_BASE_URL} ${TV_JELLYFIN_API_KEY} ${TV_JELLYFIN_USER_ID} ${TV_ADMIN_API_KEY} ${TV_PRIMER_BASE_URL} ${TV_PRIMER_SERVICE_TOKEN} ${TV_MANIFEST_FAIL_MAX_ATTEMPTS} ${TV_MANIFEST_FAIL_MAX_DAYS}' \
     < deploy/primer-tv.nomad.hcl.tmpl > "$JOB_FILE"
 
   echo "==> Submitting primer-tv to ${NOMAD_ADDR}"
   nomad job run "$JOB_FILE"
   nomad job status primer-tv | sed -n '/^Latest Deployment/,/^$/p' || true
   echo "==> TV:  https://tv.fleet.clark.team"
+fi
+
+if $need_ingest; then
+  echo "==> Rendering content-ingest job spec"
+  JOB_FILE="$TMPDIR_DEPLOY/content-ingest.nomad.hcl"
+  IMAGE_TAG="$IMAGE_TAG" \
+  INGEST_RADARR_BASE_URL="$INGEST_RADARR_BASE_URL" \
+  INGEST_RADARR_API_KEY="$INGEST_RADARR_API_KEY" \
+  INGEST_RADARR_ROOT_FOLDER="$INGEST_RADARR_ROOT_FOLDER" \
+  INGEST_RADARR_QUALITY_PROFILE_ID="$INGEST_RADARR_QUALITY_PROFILE_ID" \
+  INGEST_SONARR_BASE_URL="$INGEST_SONARR_BASE_URL" \
+  INGEST_SONARR_API_KEY="$INGEST_SONARR_API_KEY" \
+  INGEST_SONARR_ROOT_FOLDER="$INGEST_SONARR_ROOT_FOLDER" \
+  INGEST_SONARR_QUALITY_PROFILE_ID="$INGEST_SONARR_QUALITY_PROFILE_ID" \
+  INGEST_JELLYFIN_BASE_URL="$INGEST_JELLYFIN_BASE_URL" \
+  INGEST_JELLYFIN_API_KEY="$INGEST_JELLYFIN_API_KEY" \
+  INGEST_JELLYFIN_USER_ID="$INGEST_JELLYFIN_USER_ID" \
+  INGEST_TV_BASE_URL="$INGEST_TV_BASE_URL" \
+  INGEST_TV_ADMIN_KEY="$INGEST_TV_ADMIN_KEY" \
+  INGEST_YTDLP_OUTPUT_DIR="$INGEST_YTDLP_OUTPUT_DIR" \
+  INGEST_YTDLP_ARCHIVE_PATH="$INGEST_YTDLP_ARCHIVE_PATH" \
+    envsubst '${IMAGE_TAG} ${INGEST_RADARR_BASE_URL} ${INGEST_RADARR_API_KEY} ${INGEST_RADARR_ROOT_FOLDER} ${INGEST_RADARR_QUALITY_PROFILE_ID} ${INGEST_SONARR_BASE_URL} ${INGEST_SONARR_API_KEY} ${INGEST_SONARR_ROOT_FOLDER} ${INGEST_SONARR_QUALITY_PROFILE_ID} ${INGEST_JELLYFIN_BASE_URL} ${INGEST_JELLYFIN_API_KEY} ${INGEST_JELLYFIN_USER_ID} ${INGEST_TV_BASE_URL} ${INGEST_TV_ADMIN_KEY} ${INGEST_YTDLP_OUTPUT_DIR} ${INGEST_YTDLP_ARCHIVE_PATH}' \
+    < deploy/content-ingest.nomad.hcl.tmpl > "$JOB_FILE"
+
+  echo "==> Submitting content-ingest to ${NOMAD_ADDR}"
+  nomad job run "$JOB_FILE"
+  nomad job status content-ingest || true
+  echo "==> content-ingest: periodic batch every 6h"
 fi

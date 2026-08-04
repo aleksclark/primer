@@ -23,12 +23,13 @@ func TestCRUDAndSync(t *testing.T) {
 	t.Parallel()
 	var items []tvclient.MediaItem
 	mux := http.NewServeMux()
+	var manifest []tvclient.ManifestEntry
 	mux.HandleFunc("/media-items", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "adminkey", r.Header.Get(tvclient.AdminKeyHeader))
 		switch r.Method {
 		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items": items, "total": len(items),
+				"items": items, "totalCount": len(items),
 			})
 		case http.MethodPost:
 			var in tvclient.MediaItemCreate
@@ -53,6 +54,39 @@ func TestCRUDAndSync(t *testing.T) {
 	mux.HandleFunc("/jellyfin/sync", func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		_ = json.NewEncoder(w).Encode(tvclient.SyncResult{Checked: 1, Updated: 0})
+	})
+	mux.HandleFunc("/content-manifest/sync", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		var body struct {
+			Items []tvclient.ManifestDesired `json:"items"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		for _, in := range body.Items {
+			manifest = append(manifest, tvclient.ManifestEntry{
+				ID: "me-1", Slug: in.Slug, Title: in.Title, Status: "missing",
+			})
+		}
+		_ = json.NewEncoder(w).Encode(tvclient.ManifestSyncResult{
+			Created: len(body.Items), Total: len(body.Items),
+		})
+	})
+	mux.HandleFunc("/content-manifest-entries", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": manifest, "totalCount": len(manifest),
+		})
+	})
+	mux.HandleFunc("/content-manifest-entries/matrix/attempt", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		_ = json.NewEncoder(w).Encode(tvclient.ManifestEntry{
+			Slug: "matrix", Status: "missing", AttemptCount: 1,
+		})
+	})
+	mux.HandleFunc("/content-manifest-entries/matrix/present", func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		_ = json.NewEncoder(w).Encode(tvclient.ManifestEntry{
+			Slug: "matrix", Status: "present", AttemptCount: 1,
+		})
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -81,6 +115,24 @@ func TestCRUDAndSync(t *testing.T) {
 	sync, err := client.SyncJellyfin(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, sync.Checked)
+
+	ms, err := client.SyncManifest(context.Background(), []tvclient.ManifestDesired{{
+		Slug: "matrix", Title: "The Matrix", Kind: "movie", Class: "entertainment",
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, ms.Created)
+
+	entries, err := client.ListManifestEntries(context.Background())
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	attempted, err := client.RecordManifestAttempt(context.Background(), "matrix", "waiting")
+	require.NoError(t, err)
+	assert.Equal(t, 1, attempted.AttemptCount)
+
+	present, err := client.MarkManifestPresent(context.Background(), "matrix")
+	require.NoError(t, err)
+	assert.Equal(t, "present", present.Status)
 }
 
 func TestClassificationChanged(t *testing.T) {
