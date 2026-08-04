@@ -42,3 +42,19 @@ func TestServiceTokenDefaultsToOpen(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "s3cret", cfg.ServiceToken)
 }
+
+func TestTutorConfigDefaults(t *testing.T) {
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "fake", cfg.TutorProvider)
+	assert.True(t, cfg.TutorEnabled)
+
+	t.Setenv("TUTOR_PROVIDER", "bedrock")
+	t.Setenv("TUTOR_ENABLED", "false")
+	t.Setenv("TUTOR_BEDROCK_URL", "https://example.invalid/invoke")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, "bedrock", cfg.TutorProvider)
+	assert.False(t, cfg.TutorEnabled)
+	assert.Equal(t, "https://example.invalid/invoke", cfg.TutorBedrockURL)
+}

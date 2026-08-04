@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/mastery"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
+	"github.com/aleksclark/primer/server/internal/tutor"
 )
 
 // deviceTokenSecurityScheme names the student device bearer scheme.
@@ -69,7 +71,7 @@ func studentOp(h huma.API, q repo.Querier, op huma.Operation) huma.Operation {
 	return op
 }
 
-func registerStudentAPI(h huma.API, q repo.Querier) {
+func registerStudentAPI(h huma.API, q repo.Querier, opts Options) {
 	// Pair (unauthenticated)
 	huma.Register(h, huma.Operation{
 		OperationID:   "pair-student-device",
@@ -249,13 +251,14 @@ func registerStudentAPI(h huma.API, q repo.Querier) {
 		return &completeSessionOutput{Body: result}, nil
 	})
 
-	// Minimal Phase 3 tutor stub: static coaching from activity hints/tasks.
-	// Real LLM coaching lands later; this keeps the TUI path wired.
+	// Server-owned tutor: policy-constrained coaching from session + activity revision.
+	// Client message is untrusted user content only; activity body is never taken from client.
 	huma.Register(h, studentOp(h, q, huma.Operation{
 		OperationID:   "post-session-tutor-message",
 		Method:        http.MethodPost,
 		Path:          "/student/sessions/{id}/tutor/messages",
-		Summary:       "Send a tutor chat message (stub coaching)",
+		Summary:       "Send a tutor chat message",
+		Description:   "Returns brief discovery-oriented coaching. Falls back to activity hints when the provider fails. Does not mutate mastery.",
 		Tags:          []string{"Student"},
 		DefaultStatus: http.StatusOK,
 	}), func(ctx context.Context, in *tutorMessageInput) (*tutorMessageOutput, error) {
@@ -270,8 +273,17 @@ func registerStudentAPI(h huma.API, q repo.Querier) {
 		if sess.StudentID != dev.StudentID {
 			return nil, huma.Error404NotFound("session not found")
 		}
-		reply := stubTutorReply(ctx, q, sess)
-		return &tutorMessageOutput{Body: TutorMessageResponse{Reply: reply}}, nil
+
+		reply, meta, err := coachSession(ctx, q, opts, sess, in.Body.Message)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &tutorMessageOutput{Body: TutorMessageResponse{
+			Reply:       reply,
+			Provider:    meta.Provider,
+			Fallback:    meta.Fallback,
+			RateLimited: meta.RateLimited,
+		}}, nil
 	})
 }
 
@@ -364,36 +376,135 @@ type tutorMessageInput struct {
 	}
 }
 
-// TutorMessageResponse is a short coaching reply (Phase 3 stub).
+// TutorMessageResponse is a short coaching reply.
 type TutorMessageResponse struct {
-	Reply string `json:"reply"`
+	Reply       string `json:"reply"`
+	Provider    string `json:"provider,omitempty"`
+	Fallback    bool   `json:"fallback,omitempty"`
+	RateLimited bool   `json:"rateLimited,omitempty"`
 }
 
 type tutorMessageOutput struct {
 	Body TutorMessageResponse
 }
 
-func stubTutorReply(ctx context.Context, q repo.Querier, sess *domain.LearningSession) string {
-	// Prefer the first hint from the activity revision content when available.
-	asg, err := repo.StudentAssignments.Get(ctx, q, sess.AssignmentID)
+type tutorReplyMeta struct {
+	Provider    string
+	Fallback    bool
+	RateLimited bool
+	Disabled    bool
+}
+
+// coachSession builds a server-side tutor.Request and records a tutor_message event.
+func coachSession(ctx context.Context, q repo.Querier, opts Options, sess *domain.LearningSession, studentMessage string) (string, tutorReplyMeta, error) {
+	now := time.Now().UTC()
+	content, slug, err := loadSessionActivity(ctx, q, sess)
 	if err != nil {
-		return "Try a short discovery command first, then move one directory at a time."
+		// Still return a safe fallback so the activity remains completable.
+		fb := tutor.DefaultFallback
+		_ = recordTutorEvent(ctx, q, sess.ID, studentMessage, fb, tutorReplyMeta{Provider: opts.TutorProviderName, Fallback: true}, now)
+		return fb, tutorReplyMeta{Provider: opts.TutorProviderName, Fallback: true}, nil
 	}
-	rev, err := repo.LearningActivityRevisions.Get(ctx, q, asg.ActivityRevisionID)
+
+	student, err := repo.Students.Get(ctx, q, sess.StudentID)
 	if err != nil {
-		return "Look around with pwd and ls before changing directories."
+		return "", tutorReplyMeta{}, err
+	}
+
+	prior, _ := repo.ListTutorReplyHints(ctx, q, sess.ID, 20)
+	svc := opts.Tutor
+	if svc == nil {
+		svc = tutor.NewFake()
+	}
+
+	// Deployment or per-student off switch → activity-local hint only.
+	enabled := opts.TutorEnabled
+	if ps, ok := svc.(*tutor.PolicyService); ok {
+		enabled = ps.Enabled()
+	}
+	if !enabled || studentTutorDisabled(student.Notes) {
+		fb := tutor.FallbackHint(content, prior, 0)
+		meta := tutorReplyMeta{Provider: opts.TutorProviderName, Fallback: true, Disabled: true}
+		_ = recordTutorEvent(ctx, q, sess.ID, studentMessage, fb, meta, now)
+		return fb, meta, nil
+	}
+
+	req := tutor.Request{
+		SessionID:      sess.ID,
+		StudentID:      sess.StudentID,
+		ActivitySlug:   slug,
+		Activity:       content,
+		StudentMessage: studentMessage,
+		PriorHints:     prior,
+		// CurrentTask / Observations intentionally omitted unless server derives them later.
+		// Never accept system prompt, standards, or mastery from the client body.
+	}
+
+	resp, err := svc.Coach(ctx, req)
+	if err != nil {
+		fb := tutor.FallbackHint(content, prior, 0)
+		meta := tutorReplyMeta{Provider: opts.TutorProviderName, Fallback: true}
+		_ = recordTutorEvent(ctx, q, sess.ID, studentMessage, fb, meta, now)
+		return fb, meta, nil
+	}
+	meta := tutorReplyMeta{
+		Provider:    resp.Provider,
+		Fallback:    resp.Fallback,
+		RateLimited: resp.RateLimited,
+		Disabled:    resp.Disabled,
+	}
+	if meta.Provider == "" {
+		meta.Provider = opts.TutorProviderName
+	}
+	_ = recordTutorEvent(ctx, q, sess.ID, studentMessage, resp.Reply, meta, now)
+	return resp.Reply, meta, nil
+}
+
+func loadSessionActivity(ctx context.Context, q repo.Querier, sess *domain.LearningSession) (contracts.ActivityContent, string, error) {
+	revID := sess.ActivityRevisionID
+	if revID == "" {
+		asg, err := repo.StudentAssignments.Get(ctx, q, sess.AssignmentID)
+		if err != nil {
+			return contracts.ActivityContent{}, "", err
+		}
+		revID = asg.ActivityRevisionID
+	}
+	rev, err := repo.GetRevision(ctx, q, revID)
+	if err != nil {
+		return contracts.ActivityContent{}, "", err
 	}
 	content, err := decodeRevisionContent(rev.Content)
 	if err != nil {
-		return "Explore the workspace with small commands. Prefer relative paths."
+		return contracts.ActivityContent{}, "", err
 	}
-	if len(content.Hints) > 0 && content.Hints[0].Text != "" {
-		return content.Hints[0].Text
+	slug := ""
+	if act, err := repo.LearningActivities.Get(ctx, q, rev.ActivityID); err == nil {
+		slug = act.Slug
 	}
-	if content.Objective != "" {
-		return content.Objective
+	return content, slug, nil
+}
+
+func recordTutorEvent(ctx context.Context, q repo.Querier, sessionID, studentMessage, reply string, meta tutorReplyMeta, now time.Time) error {
+	// Retention-friendly payload: short reply + flags; no provider credentials or raw PTY.
+	payload := map[string]any{
+		"reply":       reply,
+		"provider":    meta.Provider,
+		"fallback":    meta.Fallback,
+		"rateLimited": meta.RateLimited,
+		"disabled":    meta.Disabled,
+		"source":      "server",
 	}
-	return "Take one small step, then check what changed in the workspace."
+	// Bound stored student text; never treat it as system policy.
+	msg := tutor.SanitizeStudentMessage(studentMessage)
+	if msg != "" {
+		payload["studentMessage"] = msg
+	}
+	return repo.InsertServerSessionEvent(ctx, q, sessionID, contracts.EventTutorMessage, payload, now)
+}
+
+// studentTutorDisabled is the simple per-student off switch via notes marker.
+func studentTutorDisabled(notes string) bool {
+	return strings.Contains(strings.ToLower(notes), "tutor:off")
 }
 
 func decodeRevisionContent(m map[string]any) (contracts.ActivityContent, error) {

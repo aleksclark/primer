@@ -3575,10 +3575,41 @@ components:
           format: uri
           readOnly: true
           type: string
+        fallback:
+          type: boolean
+        provider:
+          type: string
+        rateLimited:
+          type: boolean
         reply:
           type: string
       required:
         - reply
+      type: object
+    TutorStatusResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - /api/v1/schemas/TutorStatusResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        enabled:
+          type: boolean
+        provider:
+          type: string
+        recentFailureCount:
+          format: int64
+          type: integer
+        studentNotesDisable:
+          description: True when student.notes contains tutor:off.
+          type: boolean
+      required:
+        - enabled
+        - provider
+        - recentFailureCount
       type: object
     TypingContent:
       additionalProperties: false
@@ -6846,6 +6877,7 @@ paths:
         - Student
   /student/sessions/{id}/tutor/messages:
     post:
+      description: Returns brief discovery-oriented coaching. Falls back to activity hints when the provider fails. Does not mutate mastery.
       operationId: post-session-tutor-message
       parameters:
         - in: path
@@ -6887,7 +6919,7 @@ paths:
           description: Internal Server Error
       security:
         - studentDeviceToken: []
-      summary: Send a tutor chat message (stub coaching)
+      summary: Send a tutor chat message
       tags:
         - Student
   /student/work:
@@ -7228,6 +7260,55 @@ paths:
       summary: List assignments for a student
       tags:
         - Assignments
+  /students/{id}/tutor-status:
+    get:
+      description: Reports whether tutoring is enabled, the configured provider, and recent failure count. Does not expose system prompts.
+      operationId: get-student-tutor-status
+      parameters:
+        - description: Entity ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Entity ID.
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TutorStatusResponse"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - parentSession: []
+      summary: Tutor diagnostics for a student
+      tags:
+        - Tutor
   /subjects:
     get:
       description: List subjects with pagination, search (code, name, description), sorting (code, name, created_at, updated_at), and filters (code).

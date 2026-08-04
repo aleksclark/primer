@@ -11,6 +11,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/overseer"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
+	"github.com/aleksclark/primer/server/internal/tutor"
 )
 
 func parentOp(h huma.API, q repo.Querier, op huma.Operation) huma.Operation {
@@ -20,7 +21,7 @@ func parentOp(h huma.API, q repo.Querier, op huma.Operation) huma.Operation {
 	return op
 }
 
-func registerParentLearning(h huma.API, q repo.Querier) {
+func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	// Pairing codes
 	huma.Register(h, parentOp(h, q, huma.Operation{
 		OperationID:   "create-pairing-code",
@@ -248,6 +249,48 @@ func registerParentLearning(h huma.API, q repo.Querier) {
 		return &itemOutput[domain.StudentDevice]{Body: *dev}, nil
 	})
 
+	// Parent-visible tutor diagnostics (provider choice, enablement, recent failures).
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "get-student-tutor-status",
+		Method:      http.MethodGet,
+		Path:        "/students/{id}/tutor-status",
+		Summary:     "Tutor diagnostics for a student",
+		Description: "Reports whether tutoring is enabled, the configured provider, and recent failure count. Does not expose system prompts.",
+		Tags:        []string{"Tutor"},
+	}), func(ctx context.Context, in *getInput) (*tutorStatusOutput, error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		student, err := repo.Students.Get(ctx, q, in.ID)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		enabled := opts.TutorEnabled
+		if studentTutorDisabled(student.Notes) {
+			enabled = false
+		}
+		provider := opts.TutorProviderName
+		if provider == "" {
+			provider = "fake"
+		}
+		failures := 0
+		if ps, ok := opts.Tutor.(*tutor.PolicyService); ok {
+			failures = ps.RecentFailureCount(student.ID)
+			if !ps.Enabled() {
+				enabled = false
+			}
+			if provider == "" {
+				provider = ps.ProviderName()
+			}
+		}
+		return &tutorStatusOutput{Body: TutorStatusResponse{
+			Enabled:             enabled,
+			Provider:            provider,
+			RecentFailureCount:  failures,
+			StudentNotesDisable: studentTutorDisabled(student.Notes),
+		}}, nil
+	})
+
 	// Overseer: assign next activity
 	huma.Register(h, parentOp(h, q, huma.Operation{
 		OperationID:   "assign-next-activity",
@@ -364,4 +407,16 @@ type AssignNextResponse struct {
 
 type assignNextOutput struct {
 	Body AssignNextResponse
+}
+
+// TutorStatusResponse is parent-visible tutor diagnostics.
+type TutorStatusResponse struct {
+	Enabled             bool   `json:"enabled"`
+	Provider            string `json:"provider"`
+	RecentFailureCount  int    `json:"recentFailureCount"`
+	StudentNotesDisable bool   `json:"studentNotesDisable,omitempty" doc:"True when student.notes contains tutor:off."`
+}
+
+type tutorStatusOutput struct {
+	Body TutorStatusResponse
 }

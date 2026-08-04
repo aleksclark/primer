@@ -22,6 +22,19 @@ type Config struct {
 	// LMS — today, the TV server reporting instructional time. Empty leaves
 	// the ingest open, which is only safe for local development.
 	ServiceToken string `envconfig:"SERVICE_TOKEN"`
+
+	// TutorProvider selects the coaching backend: fake (default) or bedrock.
+	// Bedrock requires TUTOR_BEDROCK_URL (or falls back to fake).
+	TutorProvider string `envconfig:"TUTOR_PROVIDER" default:"fake"`
+	// TutorEnabled gates student tutoring globally (default true).
+	// Per-student off switch: student.Notes containing "tutor:off".
+	TutorEnabled bool `envconfig:"TUTOR_ENABLED" default:"true"`
+	// TutorBedrockURL is an optional Bedrock Runtime invoke URL or signing proxy.
+	TutorBedrockURL string `envconfig:"TUTOR_BEDROCK_URL"`
+	// TutorBedrockAPIKey is an optional bearer token for a signing proxy.
+	TutorBedrockAPIKey string `envconfig:"TUTOR_BEDROCK_API_KEY"`
+	// TutorBedrockModel is recorded for diagnostics / proxy routing.
+	TutorBedrockModel string `envconfig:"TUTOR_BEDROCK_MODEL"`
 }
 
 // Load reads configuration from the environment.

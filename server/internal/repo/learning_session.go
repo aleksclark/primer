@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -355,4 +356,97 @@ func MarkSessionCompleted(ctx context.Context, q Querier, session *domain.Learni
 		return err
 	}
 	return nil
+}
+
+// ServerEventSequenceBase is the floor for server-originated session events
+// (tutor exchanges). Client sequences stay in the low range so contiguous
+// client acks are unaffected; uniqueness is still enforced per session.
+const ServerEventSequenceBase int64 = 1_000_000_000
+
+// InsertServerSessionEvent appends a server-origin event with an auto-allocated
+// high sequence number. Payload should already omit secrets and raw transcripts.
+func InsertServerSessionEvent(ctx context.Context, q Querier, sessionID, eventType string, payload map[string]any, now time.Time) error {
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	return WithTx(ctx, q, func(tx Querier) error {
+		var maxSeq *int64
+		if err := tx.QueryRow(ctx,
+			`SELECT MAX(sequence) FROM learning_session_events WHERE session_id = $1 AND sequence >= $2`,
+			sessionID, ServerEventSequenceBase).Scan(&maxSeq); err != nil {
+			return fmt.Errorf("max server sequence: %w", err)
+		}
+		seq := ServerEventSequenceBase
+		if maxSeq != nil {
+			seq = *maxSeq + 1
+		}
+		eventID := uuid.NewString()
+		const ins = `
+INSERT INTO learning_session_events
+    (session_id, event_id, sequence, event_type, client_time, received_at, schema_version, payload)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+		if _, err := tx.Exec(ctx, ins,
+			sessionID, eventID, seq, eventType, now, now, contracts.EventSchemaVersion, payload,
+		); err != nil {
+			return fmt.Errorf("insert server event: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE learning_sessions SET last_event_at = $2, updated_at = now() WHERE id = $1`,
+			sessionID, now); err != nil {
+			return fmt.Errorf("touch session: %w", err)
+		}
+		return nil
+	})
+}
+
+// ListTutorReplyHints returns prior tutor reply strings for a session (oldest first).
+func ListTutorReplyHints(ctx context.Context, q Querier, sessionID string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	const sqlStr = `
+SELECT payload
+FROM learning_session_events
+WHERE session_id = $1 AND event_type = $2
+ORDER BY sequence ASC
+LIMIT $3`
+	rows, err := q.Query(ctx, sqlStr, sessionID, contracts.EventTutorMessage, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list tutor events: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var payload map[string]any
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		if payload == nil {
+			continue
+		}
+		if reply, ok := payload["reply"].(string); ok && reply != "" {
+			out = append(out, reply)
+		}
+	}
+	return out, rows.Err()
+}
+
+// CountTutorEvents returns how many tutor_message events a session has.
+func CountTutorEvents(ctx context.Context, q Querier, sessionID string) (int, error) {
+	var n int
+	err := q.QueryRow(ctx,
+		`SELECT COUNT(*) FROM learning_session_events WHERE session_id = $1 AND event_type = $2`,
+		sessionID, contracts.EventTutorMessage).Scan(&n)
+	return n, err
+}
+
+// CountTutorEventsForStudent counts tutor_message events across a student's sessions.
+func CountTutorEventsForStudent(ctx context.Context, q Querier, studentID string) (int, error) {
+	var n int
+	err := q.QueryRow(ctx, `
+SELECT COUNT(*)
+FROM learning_session_events e
+JOIN learning_sessions s ON s.id = e.session_id
+WHERE s.student_id = $1 AND e.event_type = $2`, studentID, contracts.EventTutorMessage).Scan(&n)
+	return n, err
 }

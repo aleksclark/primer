@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/aleksclark/primer/server/internal/repo"
+	"github.com/aleksclark/primer/server/internal/tutor"
 )
 
 // Options configures API construction.
@@ -20,6 +21,12 @@ type Options struct {
 	// endpoints. Empty leaves them open, which suits spec generation and a
 	// bare local checkout but not a deployment.
 	ServiceToken string
+	// Tutor is the server-owned coaching service. Nil uses a default fake+policy stack.
+	Tutor tutor.Service
+	// TutorProviderName is exposed on parent diagnostics (e.g. "fake", "bedrock").
+	TutorProviderName string
+	// TutorEnabled is the deployment-wide gate (still subject to per-student off).
+	TutorEnabled bool
 }
 
 // New builds the Huma API and its HTTP handler. The Querier may be nil when
