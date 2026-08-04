@@ -14,6 +14,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+# SPA imports ../../design-system/generated/primer.css
+COPY design-system/generated/ /src/design-system/generated/
 COPY --from=spec /openapi.yaml ./openapi.yaml
 RUN npm run build
 

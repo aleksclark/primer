@@ -11,11 +11,11 @@ job "content-ingest" {
   group "content-ingest" {
     count = 1
 
-    # yt-dlp writes into the shared media library; mount the same volume
-    # Radarr/Sonarr/Jellyfin already use.
-    volume "media" {
+    # yt-dlp writes into the shared media library; same host volume Radarr/
+    # Sonarr/Jellyfin mount from MooseFS.
+    volume "moosefs-media" {
       type      = "host"
-      source    = "media"
+      source    = "moosefs-media"
       read_only = false
     }
 
@@ -28,8 +28,8 @@ job "content-ingest" {
       }
 
       volume_mount {
-        volume      = "media"
-        destination = "/data/media"
+        volume      = "moosefs-media"
+        destination = "/media"
         read_only   = false
       }
 
