@@ -58,15 +58,17 @@ type HealthRequest struct{}
 
 // HealthResponse is returned by Health.
 type HealthResponse struct {
-	OK           bool   `json:"ok"`
-	Version      string `json:"version"`
-	Paired       bool   `json:"paired"`
-	BaseURL      string `json:"baseUrl,omitempty"`
-	SandboxOK    bool   `json:"sandboxOk"`
-	AllowUnsandboxed bool `json:"allowUnsandboxed"`
-	PendingEvents int   `json:"pendingEvents"`
-	PendingCompletes int `json:"pendingCompletes"`
-	Message      string `json:"message,omitempty"`
+	OK               bool     `json:"ok"`
+	Version          string   `json:"version"`
+	Paired           bool     `json:"paired"`
+	BaseURL          string   `json:"baseUrl,omitempty"`
+	SandboxOK        bool     `json:"sandboxOk"`
+	AllowUnsandboxed bool     `json:"allowUnsandboxed"`
+	PendingEvents    int      `json:"pendingEvents"`
+	PendingCompletes int      `json:"pendingCompletes"`
+	Message          string   `json:"message,omitempty"`
+	SupportedKinds   []string `json:"supportedKinds,omitempty"`
+	RunnerVersion    string   `json:"runnerVersion,omitempty"`
 }
 
 // PairRequest carries the one-use pairing code from the TUI.
@@ -93,6 +95,12 @@ type ProfileResponse struct {
 	StudentID  string `json:"studentId,omitempty"`
 	FirstName  string `json:"firstName,omitempty"`
 	LastName   string `json:"lastName,omitempty"`
+	// SupportedKinds lists activity kinds this broker/client can run.
+	SupportedKinds []string `json:"supportedKinds,omitempty"`
+	// RunnerVersion is the durable runner state / capability version.
+	RunnerVersion string `json:"runnerVersion,omitempty"`
+	// AppVersion is the primer-student build version.
+	AppVersion string `json:"appVersion,omitempty"`
 }
 
 // SyncWorkResponse is the outcome of a pull/flush.

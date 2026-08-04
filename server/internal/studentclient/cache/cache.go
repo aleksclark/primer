@@ -120,6 +120,15 @@ CREATE TABLE IF NOT EXISTS artifacts_pending (
   acked             INTEGER NOT NULL DEFAULT 0,
   created_at        TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS runner_state (
+  client_session_id TEXT PRIMARY KEY NOT NULL,
+  kind              TEXT NOT NULL,
+  state_json        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_assignment_state
+  ON sessions(assignment_id, state, updated_at);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate cache schema: %w", err)
@@ -332,6 +341,92 @@ UPDATE sessions SET server_session_id = ?, updated_at = ? WHERE client_session_i
 	_, _ = s.db.ExecContext(ctx, `UPDATE artifacts_pending SET server_session_id = ? WHERE client_session_id = ? AND server_session_id = ''`,
 		serverSessionID, clientSessionID)
 	return nil
+}
+
+// FindOpenSessionByAssignment returns the most recently updated non-completed
+// session for an assignment, if any.
+func (s *Store) FindOpenSessionByAssignment(ctx context.Context, assignmentID string) (*Session, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT client_session_id, server_session_id, assignment_id, activity_revision_id,
+       state, last_acked_sequence, next_sequence, workspace_path, created_at, updated_at
+FROM sessions
+WHERE assignment_id = ?
+  AND state NOT IN ('completed', 'cancelled')
+ORDER BY updated_at DESC
+LIMIT 1`, assignmentID)
+	var sess Session
+	var created, updated string
+	err := row.Scan(
+		&sess.ClientSessionID, &sess.ServerSessionID, &sess.AssignmentID, &sess.ActivityRevisionID,
+		&sess.State, &sess.LastAckedSequence, &sess.NextSequence, &sess.WorkspacePath,
+		&created, &updated,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	sess.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	sess.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	return &sess, nil
+}
+
+// --- runner state ----------------------------------------------------------
+
+// RunnerState is durable activity-runner progress for one client session.
+type RunnerState struct {
+	ClientSessionID string
+	Kind            string
+	StateJSON       []byte
+	UpdatedAt       time.Time
+}
+
+// SaveRunnerState upserts encoded runner progress.
+func (s *Store) SaveRunnerState(ctx context.Context, clientSessionID, kind string, stateJSON []byte) error {
+	if clientSessionID == "" {
+		return fmt.Errorf("client session id required")
+	}
+	if kind == "" {
+		return fmt.Errorf("runner kind required")
+	}
+	if stateJSON == nil {
+		stateJSON = []byte("{}")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO runner_state(client_session_id, kind, state_json, updated_at) VALUES(?,?,?,?)
+ON CONFLICT(client_session_id) DO UPDATE SET
+  kind = excluded.kind,
+  state_json = excluded.state_json,
+  updated_at = excluded.updated_at`,
+		clientSessionID, kind, string(stateJSON), now)
+	return err
+}
+
+// GetRunnerState loads durable runner progress for a session.
+func (s *Store) GetRunnerState(ctx context.Context, clientSessionID string) (*RunnerState, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT client_session_id, kind, state_json, updated_at
+FROM runner_state WHERE client_session_id = ?`, clientSessionID)
+	var rs RunnerState
+	var raw, updated string
+	err := row.Scan(&rs.ClientSessionID, &rs.Kind, &raw, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	rs.StateJSON = []byte(raw)
+	rs.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	return &rs, nil
+}
+
+// DeleteRunnerState removes durable runner progress (after completion/cancel).
+func (s *Store) DeleteRunnerState(ctx context.Context, clientSessionID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM runner_state WHERE client_session_id = ?`, clientSessionID)
+	return err
 }
 
 // --- event outbox ----------------------------------------------------------

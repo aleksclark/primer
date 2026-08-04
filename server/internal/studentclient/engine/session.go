@@ -6,13 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	stdsync "sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
+	"github.com/aleksclark/primer/server/internal/studentclient/activities"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"
@@ -23,28 +23,10 @@ import (
 )
 
 // CheckStatus is one check row for the activity TUI.
-type CheckStatus struct {
-	ID       string `json:"id"`
-	Passed   bool   `json:"passed"`
-	Optional bool   `json:"optional"`
-	Message  string `json:"message,omitempty"`
-}
+type CheckStatus = activities.CheckStatus
 
 // TypingSnapshot is the typing-mode portion of a session view.
-type TypingSnapshot struct {
-	PromptID         string  `json:"promptId,omitempty"`
-	PromptText       string  `json:"promptText,omitempty"`
-	Input            string  `json:"input,omitempty"`
-	PromptIndex      int     `json:"promptIndex"`
-	TotalPrompts     int     `json:"totalPrompts"`
-	RemainingPrompts int     `json:"remainingPrompts"`
-	WPM              float64 `json:"wpm"`
-	Accuracy         float64 `json:"accuracy"`
-	CorrectChars     int     `json:"correctChars"`
-	IncorrectChars   int     `json:"incorrectChars"`
-	Done             bool    `json:"done"`
-	ThresholdsMet    bool    `json:"thresholdsMet"`
-}
+type TypingSnapshot = activities.TypingSnapshot
 
 // SessionSnapshot is a read-only view of an interactive activity session.
 type SessionSnapshot struct {
@@ -83,7 +65,9 @@ type SessionSnapshot struct {
 	HasTerminal bool `json:"hasTerminal,omitempty"`
 }
 
-// Session is an interactive terminal or typing activity session driven by the TUI.
+// Session is an interactive activity session driven by the TUI.
+// Kind-specific logic lives on activities.Runner; Session owns PTY, outbox,
+// completion, and durable runner_state persistence.
 type Session struct {
 	mu stdsync.Mutex
 
@@ -92,23 +76,14 @@ type Session struct {
 	content contracts.ActivityContent
 	digest  string
 	kind    string
+	runner  activities.Runner
 
 	clientSessionID string
 	serverSessionID string
 	workspace       string
-	cwd             string
 
-	lastShell *terminal.ShellState
-	typing    *typing.Session
-	pty       *ptyterm.Terminal
-	obs       []contracts.Observation
-	checks    []CheckStatus
+	pty *ptyterm.Terminal
 
-	commandsRun      int
-	requiredPassed   bool
-	checksPassed     int
-	lastOutput       string
-	lastError        string
 	message          string
 	completed        bool
 	completionQueued bool
@@ -116,15 +91,19 @@ type Session struct {
 	offline          bool
 	syncStatus       sync.Status
 	tutorHint        string
-	currentTaskIdx   int
 	// lastPTYInput tracks whether recent WriteTerminal ended with newline (idle poll).
 	lastPTYInputAt time.Time
 	pendingVerify  bool
+	// restored is true when this session resumed durable runner state (no re-emit of start events).
+	restored bool
 }
 
 // OpenSession loads work, prepares the activity runner (terminal fixtures or
 // typing session), starts a local (and optional server) session, and returns
 // an interactive Session for the TUI.
+//
+// If a non-completed session already exists for the assignment with durable
+// runner state, it is restored instead of starting fresh (no double-count events).
 func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session, error) {
 	if !e.opts.Offline && e.opts.Sync != nil {
 		res := e.SyncOnce(ctx)
@@ -150,76 +129,74 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 		return nil, err
 	}
 
-	kind := item.Activity.Kind
-	if kind == "" {
-		switch {
-		case content.Terminal != nil:
-			kind = contracts.KindTerminal
-		case content.Typing != nil:
-			kind = contracts.KindTyping
-		default:
-			return nil, fmt.Errorf("activity %s has no terminal or typing content", item.Activity.Slug)
+	kind, err := activities.ResolveKind(item.Activity.Kind, content)
+	if err != nil {
+		return nil, fmt.Errorf("activity %s: %w", item.Activity.Slug, err)
+	}
+	if !activities.Supports(kind) {
+		return nil, fmt.Errorf("%w: %q (supported: %v, runnerVersion=%s)",
+			activities.ErrUnsupportedKind, kind, activities.SupportedKinds(), activities.RunnerVersion)
+	}
+
+	// Prefer resuming an open session for this assignment.
+	if existing, err := e.opts.Store.FindOpenSessionByAssignment(ctx, item.Assignment.ID); err == nil && existing != nil {
+		if rs, rerr := e.opts.Store.GetRunnerState(ctx, existing.ClientSessionID); rerr == nil && rs != nil {
+			sess, rerr := e.resumeSession(ctx, item, content, kind, existing, rs)
+			if rerr == nil {
+				return sess, nil
+			}
+			// Fall through to fresh open if resume fails (corrupt state, missing ws, …).
+			e.status.LastError = "resume failed: " + rerr.Error()
 		}
 	}
 
-	var workspace string
-	var cwd string
-	var typingSess *typing.Session
+	return e.openFreshSession(ctx, item, content, kind)
+}
 
+func (e *Engine) openFreshSession(ctx context.Context, item *studentapi.WorkItem, content contracts.ActivityContent, kind string) (*Session, error) {
+	wsRoot := e.opts.WorkspaceRoot
+	var err error
+	if wsRoot == "" {
+		wsRoot, err = os.MkdirTemp("", "primer-ws-*")
+		if err != nil {
+			return nil, err
+		}
+	}
+	var workspace string
 	switch kind {
 	case contracts.KindTerminal:
-		if content.Terminal == nil {
-			return nil, fmt.Errorf("activity %s is kind terminal but has no terminal content", item.Activity.Slug)
+		if content.Terminal != nil {
+			e.activeRuntimeProfile = content.Terminal.RuntimeProfile
 		}
-		e.activeRuntimeProfile = content.Terminal.RuntimeProfile
 		if e.opts.RuntimeProfile != "" {
 			e.activeRuntimeProfile = e.opts.RuntimeProfile
 		}
-		wsRoot := e.opts.WorkspaceRoot
-		if wsRoot == "" {
-			wsRoot, err = os.MkdirTemp("", "primer-ws-*")
-			if err != nil {
-				return nil, err
-			}
-		}
 		workspace = filepath.Join(wsRoot, "exercise-"+item.Assignment.ID[:8])
-		if err := os.MkdirAll(workspace, 0o755); err != nil {
-			return nil, err
-		}
-		if err := terminal.Materialize(workspace, content.Terminal.Fixtures); err != nil {
-			return nil, fmt.Errorf("materialize fixtures: %w", err)
-		}
-		cwd = workspace
-		if content.Terminal.InitialCwd != "" {
-			joined, err := contracts.JoinUnder(workspace, content.Terminal.InitialCwd)
-			if err != nil {
-				return nil, err
-			}
-			cwd = joined
-		}
 	case contracts.KindTyping:
-		if content.Typing == nil {
-			return nil, fmt.Errorf("activity %s is kind typing but has no typing content", item.Activity.Slug)
-		}
-		typingSess, err = typing.NewSession(content.Typing, content.Checks)
-		if err != nil {
-			return nil, fmt.Errorf("typing session: %w", err)
-		}
-		// No sandbox workspace for typing; keep an empty marker path for cache.
-		wsRoot := e.opts.WorkspaceRoot
-		if wsRoot == "" {
-			wsRoot, err = os.MkdirTemp("", "primer-ws-*")
-			if err != nil {
-				return nil, err
-			}
-		}
 		workspace = filepath.Join(wsRoot, "typing-"+item.Assignment.ID[:8])
-		if err := os.MkdirAll(workspace, 0o755); err != nil {
-			return nil, err
-		}
-		cwd = workspace
 	default:
-		return nil, fmt.Errorf("unsupported activity kind %q", kind)
+		workspace = filepath.Join(wsRoot, "activity-"+item.Assignment.ID[:8])
+	}
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return nil, err
+	}
+
+	runner, err := activities.New(kind)
+	if err != nil {
+		return nil, err
+	}
+	openOpts := activities.OpenOpts{
+		Workspace:      workspace,
+		Content:        content,
+		Digest:         item.Revision.ContentSHA256,
+		RuntimeProfile: e.runtimeProfile(),
+		RunShell: func(ctx context.Context, ws, cwd, line string) (string, string, int, error) {
+			return e.runCommand(ctx, ws, cwd, ScriptedCommand{Argv: []string{line}, Shell: true})
+		},
+	}
+	if err := runner.Open(ctx, openOpts); err != nil {
+		_ = runner.Close()
+		return nil, err
 	}
 
 	clientSessionID := uuid.NewString()
@@ -248,6 +225,7 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 		}
 	}
 	if err := e.opts.Store.SaveSession(ctx, sessRow); err != nil {
+		_ = runner.Close()
 		return nil, err
 	}
 
@@ -257,11 +235,10 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 		content:         content,
 		digest:          item.Revision.ContentSHA256,
 		kind:            kind,
+		runner:          runner,
 		clientSessionID: clientSessionID,
 		serverSessionID: serverSessionID,
 		workspace:       workspace,
-		cwd:             cwd,
-		typing:          typingSess,
 		offline:         offline,
 		syncStatus:      sync.StatusIdle,
 	}
@@ -276,6 +253,7 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 		"revisionId":   item.Revision.ID,
 		"kind":         kind,
 	}); err != nil {
+		_ = runner.Close()
 		return nil, err
 	}
 
@@ -284,16 +262,16 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 			"taskId": task.ID,
 			"title":  task.Title,
 		}); err != nil {
+			_ = runner.Close()
 			return nil, err
 		}
 	}
 
 	// Start embedded PTY for terminal activities (interactive shell).
-	// Failures are non-fatal when AllowUnsandboxed is set so RunLine tests still work;
-	// production expects a live PTY and surfaces the error.
 	if kind == contracts.KindTerminal {
 		if err := s.startPTY(24, 80); err != nil {
 			if !e.opts.AllowUnsandboxed {
+				_ = runner.Close()
 				return nil, fmt.Errorf("start terminal pty: %w", err)
 			}
 			s.message = "pty unavailable; command box only: " + err.Error()
@@ -301,15 +279,111 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 	}
 
 	// Initial verify (fixtures alone may satisfy filesystem checks; typing starts incomplete).
-	s.reverify(ctx, nil)
+	_ = s.runner.Verify(ctx)
+	_ = s.persistRunnerState(ctx)
+	return s, nil
+}
+
+func (e *Engine) resumeSession(
+	ctx context.Context,
+	item *studentapi.WorkItem,
+	content contracts.ActivityContent,
+	kind string,
+	row *cache.Session,
+	rs *cache.RunnerState,
+) (*Session, error) {
+	if rs.Kind != "" && rs.Kind != kind {
+		return nil, fmt.Errorf("runner state kind %q does not match activity kind %q", rs.Kind, kind)
+	}
+	workspace := row.WorkspacePath
+	if workspace == "" {
+		return nil, fmt.Errorf("session %s has no workspace path", row.ClientSessionID)
+	}
+	if _, err := os.Stat(workspace); err != nil {
+		return nil, fmt.Errorf("workspace missing for resume: %w", err)
+	}
+
+	if kind == contracts.KindTerminal && content.Terminal != nil {
+		e.activeRuntimeProfile = content.Terminal.RuntimeProfile
+	}
+	if e.opts.RuntimeProfile != "" {
+		e.activeRuntimeProfile = e.opts.RuntimeProfile
+	}
+
+	runner, err := activities.New(kind)
+	if err != nil {
+		return nil, err
+	}
+	openOpts := activities.OpenOpts{
+		Workspace:       workspace,
+		Content:         content,
+		Digest:          item.Revision.ContentSHA256,
+		RuntimeProfile:  e.runtimeProfile(),
+		SkipMaterialize: true, // keep student filesystem mutations
+		RunShell: func(ctx context.Context, ws, cwd, line string) (string, string, int, error) {
+			return e.runCommand(ctx, ws, cwd, ScriptedCommand{Argv: []string{line}, Shell: true})
+		},
+	}
+	if err := runner.Open(ctx, openOpts); err != nil {
+		_ = runner.Close()
+		return nil, err
+	}
+	if err := runner.RestoreState(rs.StateJSON); err != nil {
+		_ = runner.Close()
+		return nil, err
+	}
+
+	// Mark session active again.
+	row.State = "started"
+	if err := e.opts.Store.SaveSession(ctx, *row); err != nil {
+		_ = runner.Close()
+		return nil, err
+	}
+
+	offline := e.opts.Offline
+	s := &Session{
+		eng:             e,
+		item:            *item,
+		content:         content,
+		digest:          item.Revision.ContentSHA256,
+		kind:            kind,
+		runner:          runner,
+		clientSessionID: row.ClientSessionID,
+		serverSessionID: row.ServerSessionID,
+		workspace:       workspace,
+		offline:         offline,
+		syncStatus:      sync.StatusIdle,
+		restored:        true,
+		message:         "resumed session",
+	}
+	if offline {
+		s.syncStatus = sync.StatusOffline
+	}
+
+	// Fresh PTY only — durable state does not include live shell.
+	if kind == contracts.KindTerminal {
+		if err := s.startPTY(24, 80); err != nil {
+			if !e.opts.AllowUnsandboxed {
+				_ = runner.Close()
+				return nil, fmt.Errorf("start terminal pty: %w", err)
+			}
+			s.message = "resumed; pty unavailable: " + err.Error()
+		}
+	}
+	// Re-verify without emitting past events.
+	_ = s.runner.Verify(ctx)
 	return s, nil
 }
 
 // startPTY launches an interactive shell in the session workspace.
-// Prefer sandbox.bwrap when available; otherwise plain sh/bash in the workspace Dir
-// (only when AllowUnsandboxed — PTY shell is the interface, not arbitrary host commands).
 func (s *Session) startPTY(rows, cols uint16) error {
-	cmd, err := s.eng.shellCommand(s.workspace, s.cwd)
+	cwd := s.workspace
+	if tr, ok := s.runner.(*activities.TerminalRunner); ok {
+		if c := tr.Cwd(); c != "" {
+			cwd = c
+		}
+	}
+	cmd, err := s.eng.shellCommand(s.workspace, cwd)
 	if err != nil {
 		return err
 	}
@@ -350,7 +424,6 @@ func (e *Engine) shellCommand(workspace, cwd string) (*exec.Cmd, error) {
 				return nil, perr
 			}
 		}
-		// Interactive shell inside bwrap.
 		name := shell
 		args := []string{"-i"}
 		if filepath.Base(shell) == "bash" {
@@ -360,14 +433,12 @@ func (e *Engine) shellCommand(workspace, cwd string) (*exec.Cmd, error) {
 		if err != nil {
 			return nil, err
 		}
-		// PTY manages stdio; clear any inherited pipes.
 		cmd.Stdin = nil
 		cmd.Stdout = nil
 		cmd.Stderr = nil
 		return cmd, nil
 	}
 
-	// Plain shell in workspace directory (tests without bwrap).
 	var cmd *exec.Cmd
 	if filepath.Base(shell) == "bash" {
 		cmd = exec.Command(shell, "--noprofile", "--norc", "-i")
@@ -392,19 +463,12 @@ func (s *Session) Snapshot() SessionSnapshot {
 }
 
 func (s *Session) snapshotLocked() SessionSnapshot {
-	checks := make([]CheckStatus, len(s.checks))
-	copy(checks, s.checks)
+	rs := s.runner.Snapshot()
 	tasks := make([]contracts.Task, len(s.content.Tasks))
 	copy(tasks, s.content.Tasks)
 	hints := make([]contracts.Hint, len(s.content.Hints))
 	copy(hints, s.content.Hints)
 
-	rel := "."
-	if s.workspace != "" && s.cwd != "" {
-		if r, err := filepath.Rel(s.workspace, s.cwd); err == nil {
-			rel = r
-		}
-	}
 	title := s.item.Activity.Title
 	if title == "" {
 		title = s.item.Activity.Slug
@@ -416,20 +480,20 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 		Kind:             s.kind,
 		ClientSessionID:  s.clientSessionID,
 		ServerSessionID:  s.serverSessionID,
-		Workspace:        s.workspace,
-		Cwd:              s.cwd,
-		RelCwd:           rel,
+		Workspace:        rs.Workspace,
+		Cwd:              rs.Cwd,
+		RelCwd:           rs.RelCwd,
 		Objective:        s.content.Objective,
 		Instructions:     s.content.Instructions,
 		Tasks:            tasks,
-		CurrentTaskIdx:   s.currentTaskIdx,
-		Checks:           checks,
-		RequiredPassed:   s.requiredPassed,
-		ChecksPassed:     s.checksPassed,
-		ChecksTotal:      len(s.checks),
-		CommandsRun:      s.commandsRun,
-		LastOutput:       s.lastOutput,
-		LastError:        s.lastError,
+		CurrentTaskIdx:   rs.CurrentTaskIdx,
+		Checks:           rs.Checks,
+		RequiredPassed:   rs.RequiredPassed,
+		ChecksPassed:     rs.ChecksPassed,
+		ChecksTotal:      rs.ChecksTotal,
+		CommandsRun:      rs.CommandsRun,
+		LastOutput:       rs.LastOutput,
+		LastError:        rs.LastError,
 		Message:          s.message,
 		Completed:        s.completed,
 		CompletionQueued: s.completionQueued,
@@ -438,24 +502,7 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 		Sync:             s.syncStatus,
 		Hints:            hints,
 		TutorHint:        s.tutorHint,
-	}
-	if s.typing != nil {
-		m := s.typing.Metrics()
-		id, text := s.typing.CurrentPrompt()
-		snap.Typing = &TypingSnapshot{
-			PromptID:         id,
-			PromptText:       text,
-			Input:            s.typing.CurrentInput(),
-			PromptIndex:      s.typing.PromptIndex(),
-			TotalPrompts:     m.TotalPrompts,
-			RemainingPrompts: s.typing.RemainingPrompts(),
-			WPM:              m.WPM,
-			Accuracy:         m.Accuracy,
-			CorrectChars:     m.CorrectChars,
-			IncorrectChars:   m.IncorrectChars,
-			Done:             m.Done,
-			ThresholdsMet:    m.ThresholdsMet,
-		}
+		Typing:           rs.Typing,
 	}
 	if s.pty != nil && s.pty.Alive() {
 		snap.HasTerminal = true
@@ -468,7 +515,6 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 }
 
 // WriteTerminal sends raw bytes to the live PTY (keystrokes).
-// After a newline, schedules a poll-based VerifyAll once the shell is idle.
 func (s *Session) WriteTerminal(ctx context.Context, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -486,10 +532,7 @@ func (s *Session) WriteTerminal(ctx context.Context, data []byte) error {
 	}
 	s.lastPTYInputAt = time.Now()
 	if len(data) > 0 && data[len(data)-1] == '\n' {
-		s.commandsRun++
 		s.pendingVerify = true
-		// Best-effort: re-verify filesystem checks after short idle.
-		// Full command observation capture is Phase 10 / DEBUG trap.
 		go s.idleVerify()
 	}
 	return nil
@@ -503,33 +546,32 @@ func (s *Session) idleVerify() {
 	if !s.pendingVerify || s.completed || s.pty == nil {
 		return
 	}
-	// If more input arrived recently, skip; another idleVerify will run.
 	if time.Since(s.lastPTYInputAt) < 350*time.Millisecond {
 		return
 	}
 	s.pendingVerify = false
-	// Build a lightweight shell state from screen content for stdout checks.
 	screen := s.pty.ScreenPlain()
-	rel, _ := filepath.Rel(s.workspace, s.cwd)
-	shell := &terminal.ShellState{
-		Cwd:        rel,
-		Executable: "pty-shell",
-		Args:       nil,
-		ExitCode:   0,
-		Stdout:     screen,
+	rel := "."
+	if tr, ok := s.runner.(*activities.TerminalRunner); ok {
+		if r, err := filepath.Rel(s.workspace, tr.Cwd()); err == nil {
+			rel = r
+		}
 	}
-	s.lastShell = shell
-	s.lastOutput = truncate(screen, 4000)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s.reverify(ctx, shell)
-	_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, map[string]any{
-		"executable": "pty-shell",
-		"args":       []string{},
-		"exitCode":   0,
-		"cwd":        rel,
-		"source":     "pty-idle",
+	_ = s.runner.HandleInput(ctx, activities.Input{
+		Type: activities.InputShellResult,
+		Shell: &activities.ShellResult{
+			Cwd:          rel,
+			Executable:   "pty-shell",
+			ExitCode:     0,
+			Stdout:       screen,
+			CountCommand: true,
+		},
 	})
+	// applyRunnerEvents records command_finished + checks once (no second enqueue).
+	s.applyRunnerEvents(ctx)
+	_ = s.persistRunnerState(ctx)
 }
 
 // TerminalScreen returns the current PTY scrollback (empty if no PTY).
@@ -569,13 +611,14 @@ func (s *Session) TypeRune(ctx context.Context, r rune) error {
 	if s.completed {
 		return fmt.Errorf("session already completed")
 	}
-	if s.kind != contracts.KindTyping || s.typing == nil {
+	if s.kind != contracts.KindTyping {
 		return fmt.Errorf("TypeRune is only valid for typing activities")
 	}
-	beforeIdx := s.typing.PromptIndex()
-	s.typing.TypeKey(r)
-	s.reverifyTyping(ctx, beforeIdx != s.typing.PromptIndex() || s.typing.Done())
-	return nil
+	if err := s.runner.HandleInput(ctx, activities.Input{Type: activities.InputKey, Rune: r}); err != nil {
+		return err
+	}
+	s.applyRunnerEvents(ctx)
+	return s.persistRunnerState(ctx)
 }
 
 // TypeBackspace removes the last typed character in a typing session.
@@ -585,12 +628,14 @@ func (s *Session) TypeBackspace(ctx context.Context) error {
 	if s.completed {
 		return fmt.Errorf("session already completed")
 	}
-	if s.kind != contracts.KindTyping || s.typing == nil {
+	if s.kind != contracts.KindTyping {
 		return fmt.Errorf("TypeBackspace is only valid for typing activities")
 	}
-	s.typing.Backspace()
-	s.reverifyTyping(ctx, false)
-	return nil
+	if err := s.runner.HandleInput(ctx, activities.Input{Type: activities.InputBackspace}); err != nil {
+		return err
+	}
+	s.applyRunnerEvents(ctx)
+	return s.persistRunnerState(ctx)
 }
 
 // TypeString types an entire string into a typing session (tests / automation).
@@ -604,8 +649,6 @@ func (s *Session) TypeString(ctx context.Context, text string) error {
 }
 
 // RunLine runs one shell command line in the session workspace (via sh -c).
-// Built-in "cd" is handled without spawning a process.
-// Typing sessions reject RunLine — use TypeRune instead.
 func (s *Session) RunLine(ctx context.Context, line string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -615,99 +658,22 @@ func (s *Session) RunLine(ctx context.Context, line string) error {
 	if s.kind == contracts.KindTyping {
 		return fmt.Errorf("RunLine is not valid for typing activities")
 	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
-	}
-
-	// Handle cd specially so subsequent commands use the new directory.
-	if isCD, target := parseCD(line); isCD {
-		if err := s.applyCD(target); err != nil {
-			s.lastError = err.Error()
-			s.lastOutput = ""
-			return err
-		}
-		s.lastOutput = ""
-		s.lastError = ""
-		s.commandsRun++
-		rel, _ := filepath.Rel(s.workspace, s.cwd)
-		shell := &terminal.ShellState{
-			Cwd:        rel,
-			Executable: "cd",
-			Args:       []string{target},
-			ExitCode:   0,
-		}
-		s.lastShell = shell
-		if _, err := s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, map[string]any{
-			"executable": "cd",
-			"args":       []string{target},
-			"exitCode":   0,
-			"cwd":        rel,
-		}); err != nil {
-			return err
-		}
-		s.reverify(ctx, shell)
-		return nil
-	}
-
-	start := time.Now()
-	stdout, stderr, exitCode, runErr := s.eng.runCommand(ctx, s.workspace, s.cwd, ScriptedCommand{
-		Argv:  []string{line},
-		Shell: true,
-	})
-	dur := time.Since(start).Milliseconds()
-	s.commandsRun++
-
-	out := stdout
-	if stderr != "" {
-		if out != "" {
-			out += "\n"
-		}
-		out += stderr
-	}
-	s.lastOutput = truncate(out, 4000)
-	if runErr != nil && exitCode == 0 {
-		s.lastError = runErr.Error()
-	} else {
-		s.lastError = ""
-	}
-
-	rel, _ := filepath.Rel(s.workspace, s.cwd)
-	shell := &terminal.ShellState{
-		Cwd:        rel,
-		Executable: "/bin/sh",
-		Args:       []string{"-c", line},
-		ExitCode:   exitCode,
-		Stdout:     stdout,
-		Stderr:     stderr,
-	}
-	s.lastShell = shell
-
-	payload := map[string]any{
-		"executable": "/bin/sh",
-		"args":       []string{"-c", line},
-		"exitCode":   exitCode,
-		"cwd":        rel,
-		"durationMs": dur,
-		"stdoutNorm": truncate(stdout, 2048),
-		"stderrNorm": truncate(stderr, 1024),
-	}
-	if runErr != nil && exitCode == 0 {
-		payload["error"] = runErr.Error()
-	}
-	if _, err := s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, payload); err != nil {
+	if err := s.runner.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: line}); err != nil {
 		return err
 	}
-	s.reverify(ctx, shell)
-	return nil
+	s.applyRunnerEvents(ctx)
+	return s.persistRunnerState(ctx)
 }
 
 // Verify re-runs deterministic checks against the current workspace or typing metrics.
 func (s *Session) Verify(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reverify(ctx, s.lastShell)
-	return nil
+	if err := s.runner.Verify(ctx); err != nil {
+		return err
+	}
+	s.applyRunnerEvents(ctx)
+	return s.persistRunnerState(ctx)
 }
 
 // Kind returns the activity kind (terminal or typing).
@@ -724,18 +690,20 @@ func (s *Session) Complete(ctx context.Context) error {
 	if s.completed {
 		return nil
 	}
-	s.reverify(ctx, s.lastShell)
-	if !s.requiredPassed {
-		return fmt.Errorf("required checks not passed (%d/%d)", s.checksPassed, len(s.checks))
+	_ = s.runner.Verify(ctx)
+	if !s.runner.CompleteReady() {
+		rs := s.runner.Snapshot()
+		return fmt.Errorf("required checks not passed (%d/%d)", rs.ChecksPassed, rs.ChecksTotal)
 	}
 
+	obs := s.runner.Observations()
 	completionID := uuid.NewString()
-	digest := requestDigest(s.digest, s.obs)
+	digest := requestDigest(s.digest, obs)
 	req := contracts.CompletionRequest{
 		SchemaVersion: contracts.CompletionSchemaVersion,
 		CompletionID:  completionID,
 		RequestDigest: digest,
-		Observations:  s.obs,
+		Observations:  obs,
 		ClientTime:    time.Now().UTC(),
 		Summary:       fmt.Sprintf("student completed %s", s.item.Activity.Slug),
 	}
@@ -751,14 +719,19 @@ func (s *Session) Complete(ctx context.Context) error {
 	s.completed = true
 	s.message = "completion queued"
 
-	// Flush when online.
+	// Mark session completed and drop durable runner progress.
+	if row, err := s.eng.opts.Store.GetSession(ctx, s.clientSessionID); err == nil {
+		row.State = "completed"
+		_ = s.eng.opts.Store.SaveSession(ctx, *row)
+	}
+	_ = s.eng.opts.Store.DeleteRunnerState(ctx, s.clientSessionID)
+
 	if err := s.eng.flush(ctx); err != nil {
 		s.syncStatus = sync.StatusAwaiting
 		s.message = "completion queued; awaiting sync"
 		if s.offline || s.eng.opts.Offline {
 			return nil
 		}
-		// Still success locally; outbox will retry.
 		s.message = "completion queued; awaiting sync"
 		return nil
 	}
@@ -785,8 +758,9 @@ func (s *Session) SetTutorHint(hint string) {
 func (s *Session) LocalHint() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.currentTaskIdx >= 0 && s.currentTaskIdx < len(s.content.Tasks) {
-		task := s.content.Tasks[s.currentTaskIdx]
+	rs := s.runner.Snapshot()
+	if rs.CurrentTaskIdx >= 0 && rs.CurrentTaskIdx < len(s.content.Tasks) {
+		task := s.content.Tasks[rs.CurrentTaskIdx]
 		byID := map[string]string{}
 		for _, h := range s.content.Hints {
 			byID[h.ID] = h.Text
@@ -811,6 +785,7 @@ func (s *Session) Pause(ctx context.Context) error {
 		_ = s.pty.Close()
 		s.pty = nil
 	}
+	_ = s.persistRunnerState(ctx)
 	s.mu.Unlock()
 
 	s.mu.Lock()
@@ -823,105 +798,68 @@ func (s *Session) Pause(ctx context.Context) error {
 	return s.eng.opts.Store.SaveSession(ctx, *row)
 }
 
-func (s *Session) reverify(ctx context.Context, shell *terminal.ShellState) {
-	if s.kind == contracts.KindTyping {
-		s.reverifyTyping(ctx, false)
-		return
+// Close releases the runner and PTY.
+func (s *Session) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pty != nil {
+		_ = s.pty.Close()
+		s.pty = nil
 	}
-	obs := terminal.VerifyAll(s.workspace, s.content.Checks, shell)
-	s.applyObservations(obs, shell != nil, terminal.VerifierVersion, ctx)
+	if s.runner != nil {
+		return s.runner.Close()
+	}
+	return nil
 }
 
-// reverifyTyping refreshes observations from the typing runner.
-// emitSample enqueues a typing_sample (+ check_evaluated) when true.
-func (s *Session) reverifyTyping(ctx context.Context, emitSample bool) {
-	if s.typing == nil {
-		return
+// applyRunnerEvents drains one-shot emit flags from the runner and
+// enqueues corresponding session events. Must hold s.mu.
+func (s *Session) applyRunnerEvents(ctx context.Context) {
+	var rs activities.Snapshot
+	if d, ok := s.runner.(activities.EventDrainer); ok {
+		rs = d.DrainEvents()
+	} else {
+		rs = s.runner.Snapshot()
 	}
-	obs := s.typing.Observations()
-	s.applyObservations(obs, emitSample, typing.VerifierVersion, ctx)
-	if emitSample {
-		m := s.typing.Metrics()
+	if rs.EmitCommand && rs.LastShell != nil {
+		sh := rs.LastShell
 		payload := map[string]any{
-			"wpm":              m.WPM,
-			"accuracy":         m.Accuracy,
-			"correctChars":     m.CorrectChars,
-			"incorrectChars":   m.IncorrectChars,
-			"completedPrompts": m.CompletedPrompts,
-			"totalPrompts":     m.TotalPrompts,
-			"elapsedMs":        m.Elapsed.Milliseconds(),
-			"done":             m.Done,
-			"thresholdsMet":    m.ThresholdsMet,
+			"executable": sh.Executable,
+			"args":       sh.Args,
+			"exitCode":   sh.ExitCode,
+			"cwd":        sh.Cwd,
+			"stdoutNorm": truncate(sh.Stdout, 2048),
+			"stderrNorm": truncate(sh.Stderr, 1024),
 		}
-		if id, text := s.typing.CurrentPrompt(); id != "" {
-			payload["promptId"] = id
-			payload["promptText"] = text
+		_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, payload)
+	}
+	if rs.EmitSample && s.kind == contracts.KindTyping && rs.Typing != nil {
+		payload := map[string]any{
+			"wpm":              rs.Typing.WPM,
+			"accuracy":         rs.Typing.Accuracy,
+			"correctChars":     rs.Typing.CorrectChars,
+			"incorrectChars":   rs.Typing.IncorrectChars,
+			"completedPrompts": rs.Typing.PromptIndex,
+			"totalPrompts":     rs.Typing.TotalPrompts,
+			"done":             rs.Typing.Done,
+			"thresholdsMet":    rs.Typing.ThresholdsMet,
+		}
+		if rs.Typing.PromptID != "" {
+			payload["promptId"] = rs.Typing.PromptID
+			payload["promptText"] = rs.Typing.PromptText
 		}
 		_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventTypingSample, payload)
 	}
-}
-
-func (s *Session) applyObservations(obs []contracts.Observation, enqueueChecks bool, verifierVersion string, ctx context.Context) {
-	s.obs = obs
-	byID := map[string]contracts.Observation{}
-	passed := 0
-	checks := make([]CheckStatus, 0, len(obs))
-	for _, o := range obs {
-		byID[o.CheckID] = o
-		if o.Passed {
-			passed++
+	if rs.EmitChecks {
+		obs := s.runner.Observations()
+		ver := terminal.VerifierVersion
+		if s.kind == contracts.KindTyping {
+			ver = typing.VerifierVersion
 		}
-		checks = append(checks, CheckStatus{
-			ID:       o.CheckID,
-			Passed:   o.Passed,
-			Optional: o.Optional,
-			Message:  o.Message,
-		})
-	}
-	s.checks = checks
-	s.checksPassed = passed
-
-	requiredOK := true
-	for _, ch := range s.content.Checks {
-		if ch.Optional {
-			continue
-		}
-		o, ok := byID[ch.ID]
-		if !ok || !o.Passed {
-			requiredOK = false
-			break
-		}
-	}
-	for _, task := range s.content.Tasks {
-		if task.Optional {
-			continue
-		}
-		ok, _ := terminal.EvalTree(task.Completion, byID)
-		if !ok {
-			requiredOK = false
-			break
-		}
-	}
-	s.requiredPassed = requiredOK
-
-	// Advance current task to first incomplete required task.
-	s.currentTaskIdx = len(s.content.Tasks)
-	for i, task := range s.content.Tasks {
-		if task.Optional {
-			continue
-		}
-		ok, _ := terminal.EvalTree(task.Completion, byID)
-		if !ok {
-			s.currentTaskIdx = i
-			break
-		}
-	}
-
-	if enqueueChecks {
 		for _, o := range obs {
 			checkPayload := map[string]any{
 				"activityDigest":  s.digest,
-				"verifierVersion": verifierVersion,
+				"verifierVersion": ver,
 				"observation":     o,
 			}
 			_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCheckEvaluated, checkPayload)
@@ -929,47 +867,15 @@ func (s *Session) applyObservations(obs []contracts.Observation, enqueueChecks b
 	}
 }
 
-func (s *Session) applyCD(target string) error {
-	if target == "" {
-		target = "."
+// persistRunnerState encodes and stores durable runner progress. Must hold s.mu.
+func (s *Session) persistRunnerState(ctx context.Context) error {
+	if s.runner == nil || s.eng == nil || s.eng.opts.Store == nil {
+		return nil
 	}
-	var next string
-	if filepath.IsAbs(target) {
-		// Only allow absolute paths under workspace.
-		rel, err := filepath.Rel(s.workspace, target)
-		if err != nil || strings.HasPrefix(rel, "..") {
-			return fmt.Errorf("cd: path outside workspace")
-		}
-		next = filepath.Clean(target)
-	} else {
-		next = filepath.Clean(filepath.Join(s.cwd, target))
-		rel, err := filepath.Rel(s.workspace, next)
-		if err != nil || strings.HasPrefix(rel, "..") {
-			return fmt.Errorf("cd: path outside workspace")
-		}
-	}
-	info, err := os.Stat(next)
+	raw, err := s.runner.EncodeState()
 	if err != nil {
-		return fmt.Errorf("cd: %w", err)
+		return err
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("cd: not a directory")
-	}
-	s.cwd = next
-	return nil
+	return s.eng.opts.Store.SaveRunnerState(ctx, s.clientSessionID, s.kind, raw)
 }
 
-func parseCD(line string) (bool, string) {
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return false, ""
-	}
-	if fields[0] != "cd" {
-		return false, ""
-	}
-	if len(fields) == 1 {
-		return true, "."
-	}
-	// Join remaining for paths with spaces (quoted handling is minimal).
-	return true, strings.Join(fields[1:], " ")
-}

@@ -5,6 +5,7 @@
 package typing
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -275,6 +276,75 @@ func (s *Session) SetClock(now func() time.Time) {
 	if now != nil {
 		s.now = now
 	}
+}
+
+// DurableState is the restart-safe typing progress payload.
+// ElapsedMs freezes active time so restore does not re-count wall clock gaps.
+type DurableState struct {
+	Version      int    `json:"v"`
+	PromptIdx    int    `json:"promptIdx"`
+	Input        string `json:"input"`
+	Correct      int    `json:"correct"`
+	Incorrect    int    `json:"incorrect"`
+	Keys         int    `json:"keys"`
+	ElapsedMs    int64  `json:"elapsedMs"`
+	HasStarted   bool   `json:"hasStarted"`
+}
+
+// EncodeState serializes prompt progress and metrics counters.
+func (s *Session) EncodeState() ([]byte, error) {
+	st := DurableState{
+		Version:    1,
+		PromptIdx:  s.promptIdx,
+		Input:      string(s.input),
+		Correct:    s.correct,
+		Incorrect:  s.incorrect,
+		Keys:       s.keys,
+		HasStarted: !s.startedAt.IsZero(),
+	}
+	if st.HasStarted {
+		// Freeze elapsed so downtime after restart is not counted as active typing.
+		elapsed := s.now().UTC().Sub(s.startedAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		st.ElapsedMs = elapsed.Milliseconds()
+	}
+	return json.Marshal(st)
+}
+
+// RestoreState loads previously encoded progress. Call after NewSession.
+// Elapsed active time is restored as a frozen base; further keys continue the clock.
+func (s *Session) RestoreState(raw []byte) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var st DurableState
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return fmt.Errorf("typing restore: %w", err)
+	}
+	if st.Version != 0 && st.Version != 1 {
+		return fmt.Errorf("typing restore: unsupported state version %d", st.Version)
+	}
+	n := len(s.content.Prompts)
+	if st.PromptIdx < 0 {
+		st.PromptIdx = 0
+	}
+	if st.PromptIdx > n {
+		st.PromptIdx = n
+	}
+	s.promptIdx = st.PromptIdx
+	s.input = []rune(st.Input)
+	s.correct = st.Correct
+	s.incorrect = st.Incorrect
+	s.keys = st.Keys
+	if st.HasStarted || st.ElapsedMs > 0 {
+		// Anchor startedAt so Metrics().Elapsed ≈ ElapsedMs at restore time,
+		// then continues from further wall-clock progress.
+		base := time.Duration(st.ElapsedMs) * time.Millisecond
+		s.startedAt = s.now().UTC().Add(-base)
+	}
+	return nil
 }
 
 func (s *Session) markStarted() {

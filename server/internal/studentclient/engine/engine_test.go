@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -131,6 +132,11 @@ func postJSON[T any](t *testing.T, url string, body any, bearer string) T {
 
 func openEngine(t *testing.T, env *harnessEnv, dbPath string, offline bool) *engine.Engine {
 	t.Helper()
+	return openEngineWS(t, env, dbPath, t.TempDir(), offline)
+}
+
+func openEngineWS(t *testing.T, env *harnessEnv, dbPath, wsRoot string, offline bool) *engine.Engine {
+	t.Helper()
 	store, err := cache.Open(dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -141,7 +147,7 @@ func openEngine(t *testing.T, env *harnessEnv, dbPath string, offline bool) *eng
 	eng, err := engine.New(engine.Options{
 		Client:           cl,
 		Store:            store,
-		WorkspaceRoot:    t.TempDir(),
+		WorkspaceRoot:    wsRoot,
 		Offline:          offline,
 		AllowUnsandboxed: true,
 	})
@@ -500,6 +506,131 @@ func contains(s, sub string) bool {
 
 func stringIndex(s, sub string) int {
 	return bytes.Index([]byte(s), []byte(sub))
+}
+
+func TestTypingSessionRestoresMidPromptNoDoubleEvents(t *testing.T) {
+	t.Parallel()
+	env := startTypingEnv(t)
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "typing-resume.db")
+	wsRoot := filepath.Join(t.TempDir(), "ws")
+	require.NoError(t, os.MkdirAll(wsRoot, 0o755))
+
+	// Seed work online then go offline for deterministic local resume.
+	engSeed := openEngineWS(t, env, dbPath, wsRoot, false)
+	require.NoError(t, engSeed.SyncOnce(ctx).Err)
+
+	eng1 := openEngineWS(t, env, dbPath, wsRoot, true)
+	sess1, err := eng1.OpenSession(ctx, env.AssignmentID)
+	require.NoError(t, err)
+	clientSID := sess1.Snapshot().ClientSessionID
+
+	// Type partial first prompt ("ls" in command-typing-basics is short — use first chars).
+	root := repoRoot(t)
+	doc, err := contracts.LoadDocument(filepath.Join(root, "curriculum", "activities", "command-typing-basics", "activity.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, doc.Content.Typing.Prompts)
+	p0 := doc.Content.Typing.Prompts[0].Text
+	runes0 := []rune(p0)
+	require.GreaterOrEqual(t, len(runes0), 2)
+	// Leave at least one character so the prompt is mid-flight after interrupt.
+	partial := string(runes0[:len(runes0)-1])
+	require.NoError(t, sess1.TypeString(ctx, partial))
+	snap1 := sess1.Snapshot()
+	require.NotNil(t, snap1.Typing)
+	assert.Equal(t, partial, snap1.Typing.Input)
+	assert.Equal(t, 0, snap1.Typing.PromptIndex)
+
+	pending1, err := eng1.Store().GetPendingSync(ctx)
+	require.NoError(t, err)
+	nEventsBefore := pending1.EventCount
+	// Pause and close in-memory session (simulates broker/process restart).
+	require.NoError(t, sess1.Pause(ctx))
+	_ = sess1.Close()
+
+	eng2 := openEngineWS(t, env, dbPath, wsRoot, true)
+	sess2, err := eng2.OpenSession(ctx, env.AssignmentID)
+	require.NoError(t, err)
+	snap2 := sess2.Snapshot()
+	assert.Equal(t, clientSID, snap2.ClientSessionID, "should resume same client session")
+	require.NotNil(t, snap2.Typing)
+	assert.Equal(t, partial, snap2.Typing.Input)
+	assert.Contains(t, snap2.Message, "resumed")
+
+	// Resume must not enqueue session_started again.
+	pending2, err := eng2.Store().GetPendingSync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, nEventsBefore, pending2.EventCount, "resume must not double-count past events")
+
+	// Finish remaining prompts and complete once.
+	// Finish current partial then the rest of prompts.
+	rest0 := string(runes0[len(runes0)-1:])
+	require.NoError(t, sess2.TypeString(ctx, rest0))
+	for i, p := range doc.Content.Typing.Prompts {
+		if i == 0 {
+			continue
+		}
+		require.NoError(t, sess2.TypeString(ctx, p.Text))
+	}
+	snapDone := sess2.Snapshot()
+	require.True(t, snapDone.RequiredPassed, "snap=%+v", snapDone)
+	require.NoError(t, sess2.Complete(ctx))
+	assert.True(t, sess2.Snapshot().Completed)
+}
+
+func TestTerminalSessionRestoresCwdAndCompletesOnce(t *testing.T) {
+	t.Parallel()
+	env := startEnv(t)
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "term-resume.db")
+	wsRoot := filepath.Join(t.TempDir(), "ws")
+	require.NoError(t, os.MkdirAll(wsRoot, 0o755))
+
+	engSeed := openEngineWS(t, env, dbPath, wsRoot, false)
+	require.NoError(t, engSeed.SyncOnce(ctx).Err)
+
+	eng1 := openEngineWS(t, env, dbPath, wsRoot, true)
+	sess1, err := eng1.OpenSession(ctx, env.AssignmentID)
+	require.NoError(t, err)
+	clientSID := sess1.Snapshot().ClientSessionID
+	// Activity initial_cwd is "home"; enter docs under home.
+	require.NoError(t, sess1.RunLine(ctx, "cd docs"))
+	require.NoError(t, sess1.RunLine(ctx, "pwd"))
+	snap1 := sess1.Snapshot()
+	assert.Equal(t, "home/docs", snap1.RelCwd)
+	assert.GreaterOrEqual(t, snap1.CommandsRun, 2)
+
+	pending1, err := eng1.Store().GetPendingSync(ctx)
+	require.NoError(t, err)
+	nEventsBefore := pending1.EventCount
+
+	require.NoError(t, sess1.Pause(ctx))
+	sess1.CloseTerminal()
+	_ = sess1.Close()
+
+	eng2 := openEngineWS(t, env, dbPath, wsRoot, true)
+	sess2, err := eng2.OpenSession(ctx, env.AssignmentID)
+	require.NoError(t, err)
+	snap2 := sess2.Snapshot()
+	assert.Equal(t, clientSID, snap2.ClientSessionID)
+	assert.Equal(t, "home/docs", snap2.RelCwd)
+	assert.GreaterOrEqual(t, snap2.CommandsRun, 2)
+
+	pending2, err := eng2.Store().GetPendingSync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, nEventsBefore, pending2.EventCount)
+
+	// Remaining navigation commands (workspace fixtures already present).
+	require.NoError(t, sess2.RunLine(ctx, "ls"))
+	require.NoError(t, sess2.RunLine(ctx, "cat guide.txt"))
+	require.NoError(t, sess2.Verify(ctx))
+	snapReady := sess2.Snapshot()
+	require.True(t, snapReady.RequiredPassed, "snap=%+v checks=%+v", snapReady, snapReady.Checks)
+	require.NoError(t, sess2.Complete(ctx))
+	assert.True(t, sess2.Snapshot().Completed)
+
+	// Completing again is idempotent locally.
+	require.NoError(t, sess2.Complete(ctx))
 }
 
 func TestSessionPTYWriteAndResize(t *testing.T) {

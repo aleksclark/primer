@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
+	"github.com/aleksclark/primer/server/internal/studentclient/activities"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
 	"github.com/aleksclark/primer/server/internal/studentclient/engine"
 	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"
@@ -518,6 +519,8 @@ func (s *Server) health(ctx context.Context) (HealthResponse, error) {
 		BaseURL:          s.opts.BaseURL,
 		SandboxOK:        sandbox.Available(),
 		AllowUnsandboxed: s.opts.AllowUnsandboxed,
+		SupportedKinds:   activities.SupportedKinds(),
+		RunnerVersion:    activities.RunnerVersion,
 	}
 	if pending != nil {
 		h.PendingEvents = pending.EventCount
@@ -575,17 +578,25 @@ func (s *Server) profile(ctx context.Context) (ProfileResponse, error) {
 		return ProfileResponse{}, err
 	}
 	if tok == "" {
-		return ProfileResponse{Paired: false}, nil
+		return ProfileResponse{
+			Paired:         false,
+			SupportedKinds: activities.SupportedKinds(),
+			RunnerVersion:  activities.RunnerVersion,
+			AppVersion:     s.version(),
+		}, nil
 	}
 	// Prefer local meta (works offline).
 	deviceID, _ := s.store.GetMeta(ctx, "device_id")
 	studentID, _ := s.store.GetMeta(ctx, "student_id")
 	deviceName, _ := s.store.GetMeta(ctx, "device_name")
 	out := ProfileResponse{
-		Paired:     true,
-		DeviceID:   deviceID,
-		DeviceName: deviceName,
-		StudentID:  studentID,
+		Paired:         true,
+		DeviceID:       deviceID,
+		DeviceName:     deviceName,
+		StudentID:      studentID,
+		SupportedKinds: activities.SupportedKinds(),
+		RunnerVersion:  activities.RunnerVersion,
+		AppVersion:     s.version(),
 	}
 	if !s.opts.Offline {
 		if p, err := s.client.Profile(ctx); err == nil && p != nil {

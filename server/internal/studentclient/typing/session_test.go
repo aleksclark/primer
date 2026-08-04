@@ -63,6 +63,35 @@ func TestTypePerfectPromptsMeetsThresholds(t *testing.T) {
 	assert.Equal(t, contracts.CheckTypingMetrics, obs[0].Kind)
 }
 
+func TestEncodeRestorePreservesProgress(t *testing.T) {
+	t.Parallel()
+	s, err := typing.NewSession(sampleContent(), nil)
+	require.NoError(t, err)
+	start := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	now := start
+	s.SetClock(func() time.Time { return now })
+	s.TypeString("l") // partial first prompt "ls"
+	now = start.Add(2 * time.Second)
+	raw, err := s.EncodeState()
+	require.NoError(t, err)
+
+	s2, err := typing.NewSession(sampleContent(), nil)
+	require.NoError(t, err)
+	// Jump clock forward (simulates restart downtime) — elapsed should freeze base.
+	now2 := start.Add(10 * time.Minute)
+	s2.SetClock(func() time.Time { return now2 })
+	require.NoError(t, s2.RestoreState(raw))
+	assert.Equal(t, "l", s2.CurrentInput())
+	assert.Equal(t, 0, s2.PromptIndex())
+	m := s2.Metrics()
+	// Elapsed should be ~2s not 10 minutes.
+	assert.Less(t, m.Elapsed, 5*time.Second)
+	assert.GreaterOrEqual(t, m.Elapsed, time.Second)
+
+	s2.TypeString("s")
+	assert.Equal(t, 1, s2.PromptIndex())
+}
+
 func TestIncorrectKeysLowerAccuracy(t *testing.T) {
 	t.Parallel()
 	s, err := typing.NewSession(sampleContent(), nil)

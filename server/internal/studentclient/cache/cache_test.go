@@ -155,3 +155,41 @@ func TestEnqueueWithoutSessionFails(t *testing.T) {
 	})
 	require.ErrorIs(t, err, cache.ErrNotFound)
 }
+
+func TestRunnerStateDurable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "rs.db")
+	s, err := cache.Open(path)
+	require.NoError(t, err)
+
+	sid := uuid.NewString()
+	require.NoError(t, s.SaveSession(ctx, cache.Session{
+		ClientSessionID: sid,
+		AssignmentID:    "asg-rs",
+		State:           "started",
+		NextSequence:    0,
+		LastAckedSequence: -1,
+	}))
+	require.NoError(t, s.SaveRunnerState(ctx, sid, "typing", []byte(`{"v":1,"kind":"typing"}`)))
+
+	got, err := s.GetRunnerState(ctx, sid)
+	require.NoError(t, err)
+	assert.Equal(t, "typing", got.Kind)
+	assert.JSONEq(t, `{"v":1,"kind":"typing"}`, string(got.StateJSON))
+
+	open, err := s.FindOpenSessionByAssignment(ctx, "asg-rs")
+	require.NoError(t, err)
+	assert.Equal(t, sid, open.ClientSessionID)
+
+	require.NoError(t, s.Close())
+	s2, err := cache.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+	got2, err := s2.GetRunnerState(ctx, sid)
+	require.NoError(t, err)
+	assert.Equal(t, "typing", got2.Kind)
+	require.NoError(t, s2.DeleteRunnerState(ctx, sid))
+	_, err = s2.GetRunnerState(ctx, sid)
+	require.ErrorIs(t, err, cache.ErrNotFound)
+}

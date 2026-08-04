@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -22,7 +21,6 @@ import (
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"
 	"github.com/aleksclark/primer/server/internal/studentclient/sync"
-	"github.com/aleksclark/primer/server/internal/studentclient/terminal"
 )
 
 // Status is a snapshot for the harness TUI / tests.
@@ -93,6 +91,9 @@ func New(opts Options) (*Engine, error) {
 // Status returns a copy of the last known harness status.
 func (e *Engine) Status() Status { return e.status }
 
+// Store returns the engine's durable cache (for tests and broker diagnostics).
+func (e *Engine) Store() *cache.Store { return e.opts.Store }
+
 // SyncOnce runs one sync pull/flush when online.
 func (e *Engine) SyncOnce(ctx context.Context) sync.Result {
 	if e.opts.Offline || e.opts.Sync == nil {
@@ -119,8 +120,11 @@ type ScriptedCommand struct {
 	Shell bool
 }
 
-// RunAssignment downloads (unless offline), materializes, runs commands, verifies,
-// queues events + completion. When online, flushes via SyncOnce at the end.
+// RunAssignment downloads (unless offline), opens a session via the runner
+// registry, runs scripted terminal commands or auto-types typing prompts,
+// verifies, and queues completion. When online, flushes via SyncOnce at the end.
+//
+// For typing activities, commands are ignored; prompts are typed from content.
 func (e *Engine) RunAssignment(ctx context.Context, assignmentID string, commands []ScriptedCommand) error {
 	e.status = Status{Phase: "load_work", Offline: e.opts.Offline, AssignmentID: assignmentID}
 
@@ -129,7 +133,6 @@ func (e *Engine) RunAssignment(ctx context.Context, assignmentID string, command
 		if res.Status == sync.StatusRevoked {
 			return fmt.Errorf("device revoked: %w", res.Err)
 		}
-		// Network errors are OK if work is already cached.
 		if res.Err != nil {
 			e.status.Message = "sync failed; trying cache"
 		}
@@ -137,7 +140,6 @@ func (e *Engine) RunAssignment(ctx context.Context, assignmentID string, command
 
 	item, err := e.opts.Store.GetWork(ctx, assignmentID)
 	if err != nil {
-		// Try list and match, or pull once more.
 		if !e.opts.Offline && e.opts.Client != nil {
 			if res := e.SyncOnce(ctx); res.Err == nil {
 				item, err = e.opts.Store.GetWork(ctx, assignmentID)
@@ -149,276 +151,94 @@ func (e *Engine) RunAssignment(ctx context.Context, assignmentID string, command
 	}
 	e.status.ActivitySlug = item.Activity.Slug
 	e.status.WorkDownloaded = 1
-	e.status.Phase = "materialize"
+	e.status.Phase = "session"
 
-	content, err := cache.DecodeActivityContent(item.Revision.Content)
+	// Headless path uses OpenSession so runners + durable state stay unified.
+	// Prefer a fresh session for scripted runs: mark any open session completed-local
+	// only if it has no runner state; otherwise OpenSession resumes (tests use fresh stores).
+	sess, err := e.OpenSession(ctx, assignmentID)
 	if err != nil {
 		return err
 	}
-	if content.Terminal == nil {
-		return fmt.Errorf("activity %s is not a terminal activity", item.Activity.Slug)
-	}
-	e.activeRuntimeProfile = content.Terminal.RuntimeProfile
-	if e.opts.RuntimeProfile != "" {
-		e.activeRuntimeProfile = e.opts.RuntimeProfile
-	}
+	defer func() { _ = sess.Close() }()
 
-	wsRoot := e.opts.WorkspaceRoot
-	if wsRoot == "" {
-		wsRoot, err = os.MkdirTemp("", "primer-ws-*")
-		if err != nil {
-			return err
-		}
-	}
-	workspace := filepath.Join(wsRoot, "exercise-"+item.Assignment.ID[:8])
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		return err
-	}
-	if err := terminal.Materialize(workspace, content.Terminal.Fixtures); err != nil {
-		return fmt.Errorf("materialize fixtures: %w", err)
-	}
+	e.status.ClientSessionID = sess.clientSessionID
+	e.status.ServerSessionID = sess.serverSessionID
+	e.status.Offline = sess.offline
 
-	clientSessionID := uuid.NewString()
-	e.status.ClientSessionID = clientSessionID
-	e.status.Phase = "session"
-
-	sess := cache.Session{
-		ClientSessionID:    clientSessionID,
-		AssignmentID:       item.Assignment.ID,
-		ActivityRevisionID: item.Revision.ID,
-		State:              "started",
-		LastAckedSequence:  -1,
-		NextSequence:       0,
-		WorkspacePath:      workspace,
-	}
-
-	// Start server session when online.
-	if !e.opts.Offline && e.opts.Client != nil {
-		if tok, _ := e.opts.Store.DeviceToken(ctx); tok != "" {
-			e.opts.Client.SetToken(tok)
+	switch sess.Kind() {
+	case contracts.KindTyping:
+		e.status.Phase = "run_typing"
+		if sess.content.Typing == nil {
+			return fmt.Errorf("activity %s is kind typing but has no typing content", item.Activity.Slug)
 		}
-		serverSess, err := e.opts.Client.StartSession(ctx, clientSessionID, item.Assignment.ID)
-		if err != nil {
-			// Queue local session anyway for offline resume.
-			e.status.LastError = err.Error()
-			e.status.Message = "start session failed; continuing offline"
-			e.status.Offline = true
-		} else {
-			sess.ServerSessionID = serverSess.ID
-			e.status.ServerSessionID = serverSess.ID
-		}
-	}
-	if err := e.opts.Store.SaveSession(ctx, sess); err != nil {
-		return err
-	}
-
-	// session_started event
-	if _, err := e.enqueue(ctx, clientSessionID, contracts.EventSessionStarted, map[string]any{
-		"assignmentId": item.Assignment.ID,
-		"activitySlug": item.Activity.Slug,
-		"revisionId":   item.Revision.ID,
-	}); err != nil {
-		return err
-	}
-
-	cwd := workspace
-	if content.Terminal.InitialCwd != "" {
-		joined, err := contracts.JoinUnder(workspace, content.Terminal.InitialCwd)
-		if err != nil {
-			return err
-		}
-		cwd = joined
-	}
-
-	// task_viewed for each task
-	for _, task := range content.Tasks {
-		if _, err := e.enqueue(ctx, clientSessionID, contracts.EventTaskViewed, map[string]any{
-			"taskId": task.ID,
-			"title":  task.Title,
-		}); err != nil {
-			return err
-		}
-	}
-
-	e.status.Phase = "run_commands"
-	var lastShell *terminal.ShellState
-	for i, sc := range commands {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		runDir := cwd
-		if sc.Dir != "" {
-			runDir = filepath.Join(workspace, sc.Dir)
-		}
-		start := time.Now()
-		stdout, stderr, exitCode, runErr := e.runCommand(ctx, workspace, runDir, sc)
-		dur := time.Since(start).Milliseconds()
-		argv := sc.Argv
-		if len(argv) == 0 {
-			return fmt.Errorf("command %d: empty argv", i)
-		}
-		execName := argv[0]
-		args := argv[1:]
-		if sc.Shell {
-			execName = "/bin/sh"
-			args = []string{"-c", strings.Join(sc.Argv, " ")}
-		}
-		// Track cd for subsequent commands (scripted relative navigation).
-		if execName == "cd" || (sc.Shell && len(sc.Argv) > 0 && sc.Argv[0] == "cd") {
-			target := ""
-			if !sc.Shell && len(args) > 0 {
-				target = args[0]
-			} else if sc.Shell && len(sc.Argv) > 1 {
-				target = sc.Argv[1]
+		for _, p := range sess.content.Typing.Prompts {
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-			if target != "" {
-				if filepath.IsAbs(target) {
-					// ignore abs host paths; only relative under workspace
-				} else {
-					next := filepath.Clean(filepath.Join(runDir, target))
-					// ensure still under workspace
-					if rel, err := filepath.Rel(workspace, next); err == nil && !strings.HasPrefix(rel, "..") {
-						cwd = next
-						runDir = next
-					}
-				}
-			}
-		}
-
-		relCwd, _ := filepath.Rel(workspace, runDir)
-		shell := &terminal.ShellState{
-			Cwd:        relCwd,
-			Executable: execName,
-			Args:       args,
-			ExitCode:   exitCode,
-			Stdout:     stdout,
-			Stderr:     stderr,
-		}
-		lastShell = shell
-		e.status.CommandsRun++
-
-		payload := map[string]any{
-			"executable": execName,
-			"args":       args,
-			"exitCode":   exitCode,
-			"cwd":        relCwd,
-			"durationMs": dur,
-			"stdoutNorm": truncate(stdout, 2048),
-			"stderrNorm": truncate(stderr, 1024),
-		}
-		if runErr != nil && exitCode == 0 {
-			payload["error"] = runErr.Error()
-		}
-		if _, err := e.enqueue(ctx, clientSessionID, contracts.EventCommandFinished, payload); err != nil {
-			return err
-		}
-
-		// Verify after each command
-		obs := terminal.VerifyAll(workspace, content.Checks, shell)
-		passed := 0
-		for _, o := range obs {
-			if o.Passed {
-				passed++
-			}
-			checkPayload := map[string]any{
-				"activityDigest":  item.Revision.ContentSHA256,
-				"verifierVersion": terminal.VerifierVersion,
-				"observation":     o,
-			}
-			if _, err := e.enqueue(ctx, clientSessionID, contracts.EventCheckEvaluated, checkPayload); err != nil {
+			if err := sess.TypeString(ctx, p.Text); err != nil {
 				return err
 			}
 		}
-		e.status.ChecksPassed = passed
-		e.status.ChecksTotal = len(obs)
+	case contracts.KindTerminal:
+		e.status.Phase = "run_commands"
+		for _, sc := range commands {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			line := strings.Join(sc.Argv, " ")
+			if sc.Shell {
+				line = strings.Join(sc.Argv, " ")
+			}
+			if sc.Dir != "" {
+				// Best-effort: cd into Dir first when relative.
+				if err := sess.RunLine(ctx, "cd "+sc.Dir); err != nil {
+					return err
+				}
+			}
+			if err := sess.RunLine(ctx, line); err != nil {
+				// Non-zero exit is OK for discovery; RunLine only errors on cd/path.
+				if !strings.Contains(err.Error(), "cd:") {
+					// keep going for ordinary command failures (exit codes)
+				} else {
+					return err
+				}
+			}
+			e.status.CommandsRun++
+		}
+	default:
+		return fmt.Errorf("unsupported activity kind %q", sess.Kind())
 	}
 
-	// Final verification
 	e.status.Phase = "verify"
-	finalObs := terminal.VerifyAll(workspace, content.Checks, lastShell)
-	byID := map[string]contracts.Observation{}
-	passed := 0
-	requiredOK := true
-	for _, o := range finalObs {
-		byID[o.CheckID] = o
-		if o.Passed {
-			passed++
-		}
+	if err := sess.Verify(ctx); err != nil {
+		return err
 	}
-	for _, ch := range content.Checks {
-		if ch.Optional {
-			continue
-		}
-		o, ok := byID[ch.ID]
-		if !ok || !o.Passed {
-			requiredOK = false
-			break
-		}
-	}
-	for _, task := range content.Tasks {
-		if task.Optional {
-			continue
-		}
-		ok, _ := terminal.EvalTree(task.Completion, byID)
-		if !ok {
-			requiredOK = false
-			break
-		}
-	}
-	e.status.ChecksPassed = passed
-	e.status.ChecksTotal = len(finalObs)
-	e.status.RequiredPassed = requiredOK
+	snap := sess.Snapshot()
+	e.status.ChecksPassed = snap.ChecksPassed
+	e.status.ChecksTotal = snap.ChecksTotal
+	e.status.RequiredPassed = snap.RequiredPassed
+	e.status.CommandsRun = snap.CommandsRun
 
-	if !requiredOK {
+	if !snap.RequiredPassed {
 		e.status.Phase = "incomplete"
 		e.status.Message = "required checks not passed"
-		// Still try to flush events.
 		e.flush(ctx)
-		return fmt.Errorf("required checks not passed (%d/%d)", passed, len(finalObs))
+		return fmt.Errorf("required checks not passed (%d/%d)", snap.ChecksPassed, snap.ChecksTotal)
 	}
 
-	// Queue completion
 	e.status.Phase = "complete"
-	completionID := uuid.NewString()
-	digest := requestDigest(item.Revision.ContentSHA256, finalObs)
-	req := contracts.CompletionRequest{
-		SchemaVersion: contracts.CompletionSchemaVersion,
-		CompletionID:  completionID,
-		RequestDigest: digest,
-		Observations:  finalObs,
-		ClientTime:    time.Now().UTC(),
-		Summary:       fmt.Sprintf("harness completed %s", item.Activity.Slug),
-	}
-	serverID := e.status.ServerSessionID
-	if err := e.opts.Store.SaveCompletionIntent(ctx, clientSessionID, serverID, req); err != nil {
+	if err := sess.Complete(ctx); err != nil {
 		return err
 	}
-	if _, err := e.enqueue(ctx, clientSessionID, contracts.EventSessionCompleted, map[string]any{
-		"completionId": completionID,
-	}); err != nil {
-		return err
-	}
-	e.status.CompletionQueued = true
-
-	// Flush when online
-	if err := e.flush(ctx); err != nil {
-		e.status.Message = "completion queued; awaiting sync"
-		e.status.Phase = "awaiting_sync"
-		// Offline completion is success for the harness local path.
-		if e.opts.Offline || e.status.Offline {
-			return nil
-		}
-		return err
-	}
-
-	// Check if completion acked
-	if cmp, err := e.opts.Store.GetCompletion(ctx, completionID); err == nil && cmp.Acked {
-		e.status.CompletionAcked = true
+	snap = sess.Snapshot()
+	e.status.CompletionQueued = snap.CompletionQueued
+	e.status.CompletionAcked = snap.CompletionAcked
+	e.status.Message = snap.Message
+	if snap.CompletionAcked {
 		e.status.Phase = "done"
-		e.status.Message = "completed and synced"
 	} else {
 		e.status.Phase = "awaiting_sync"
-		e.status.Message = "completion queued; awaiting sync"
 	}
 	return nil
 }
