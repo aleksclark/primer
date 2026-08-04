@@ -23,3 +23,4 @@ rootProject.name = "primer-tv"
 
 include(":core")
 include(":app")
+include(":media3-ffmpeg")

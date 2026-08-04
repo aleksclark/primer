@@ -205,19 +205,33 @@ func (d itemDTO) toItem() Item {
 		ParentID:          d.ParentID,
 		ImageTag:          d.ImageTags["Primary"],
 	}
+	var videoCodecs, audioCodecs []string
 	for _, s := range d.MediaStreams {
+		codec := strings.TrimSpace(s.Codec)
+		if codec == "" {
+			continue
+		}
 		switch s.Type {
 		case "Video":
-			if item.VideoCodec == "" {
-				item.VideoCodec = s.Codec
-			}
+			videoCodecs = appendUniqueCodec(videoCodecs, codec)
 		case "Audio":
-			if item.AudioCodec == "" {
-				item.AudioCodec = s.Codec
-			}
+			audioCodecs = appendUniqueCodec(audioCodecs, codec)
 		}
 	}
+	// Keep a primary codec for display/storage, but join every stream so
+	// direct-play checks cannot miss a secondary AC-3/E-AC-3/DTS track.
+	item.VideoCodec = strings.Join(videoCodecs, ",")
+	item.AudioCodec = strings.Join(audioCodecs, ",")
 	return item
+}
+
+func appendUniqueCodec(codecs []string, codec string) []string {
+	for _, existing := range codecs {
+		if strings.EqualFold(existing, codec) {
+			return codecs
+		}
+	}
+	return append(codecs, codec)
 }
 
 // EpisodeKey returns the SxxEyy key for an episode item, or "" if not an episode.

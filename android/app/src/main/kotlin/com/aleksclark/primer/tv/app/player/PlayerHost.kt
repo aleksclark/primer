@@ -29,10 +29,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -77,6 +79,7 @@ fun PlayerHost(
     onProbeReady: (PlaybackSessionController.PlayerProbe) -> Unit,
     onEnded: () -> Unit,
     onResumed: () -> Unit,
+    onPlayerError: (message: String) -> Unit = {},
     modifier: Modifier = Modifier,
     broadcastSeek: BroadcastSeek? = null,
     overlay: PlaybackOverlayModel = PlaybackOverlayPolicy.forControls(controls),
@@ -110,7 +113,9 @@ fun PlayerHost(
     }
 
     val exoPlayer = remember(streamUrl) {
-        ExoPlayer.Builder(context)
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(OkHttpDataSource.Factory(httpClient)),
             )
@@ -235,6 +240,13 @@ fun PlayerHost(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) onEnded()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                val detail = error.errorCodeName.takeIf { it.isNotBlank() }
+                    ?: error.message
+                    ?: "Playback failed."
+                onPlayerError(detail)
             }
 
             override fun onTracksChanged(tracks: Tracks) {

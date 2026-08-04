@@ -35,6 +35,8 @@ android/.kotlin/
 android/local.properties
 android/keystore.properties
 android/*.jks
+android/media3-ffmpeg/.cxx/
+android/media3-ffmpeg/build/
 
 # NixOS
 workstation/result

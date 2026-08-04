@@ -187,6 +187,7 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.common)
     implementation(libs.media3.datasource.okhttp)
+    implementation(project(":media3-ffmpeg"))
 
     implementation(libs.coil.compose)
 

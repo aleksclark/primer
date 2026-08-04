@@ -296,6 +296,7 @@ private fun PlayerRoute(
                 // broadcast is rather than trusting the box's own clock. On demand
                 // this is a no-op.
                 onResumed = viewModel::resyncBroadcast,
+                onPlayerError = viewModel::reportPlayerError,
                 broadcastSeek = broadcastSeek,
                 overlay = overlay,
                 furthestPositionSeconds = state.furthestPositionSeconds,
