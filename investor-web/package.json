@@ -1,0 +1,29 @@
+{
+  "name": "investor-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint .",
+    "preview": "vite preview",
+    "validate": "tsx scripts/validate-data.ts",
+    "test": "tsx scripts/validate-data.ts",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "tsx": "^4.20.5",
+    "typescript": "~5.9.0",
+    "vite": "^8.1.1"
+  }
+}
