@@ -629,43 +629,159 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 }
 
 // findJellyfinItems locates Jellyfin library entries for a manifest item.
+// Matching is exact and client-verified:
+//   - movies: only items whose ProviderIds.Tmdb equals the manifest TMDB id
+//   - series: find the Series row by TVDB/TMDB, then list its episodes by SeriesId
+//   - youtube: path prefix Shows/<manifest-id>/
+//
+// Jellyfin's AnyProviderIdEquals query is treated as a hint only; every hit is
+// re-checked against ProviderIds before it is returned. A server that ignores
+// the filter therefore cannot leak unrelated library items into the import.
 func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jellyfin.Item, error) {
 	switch it.Kind {
 	case manifest.KindMovie:
 		if it.Provider.TMDB == 0 {
 			return nil, nil
 		}
-		return e.deps.Jellyfin.Browse(ctx, jellyfin.BrowseParams{
-			AnyProviderIDEquals: "Tmdb=" + strconv.Itoa(it.Provider.TMDB),
+		expr := "Tmdb=" + strconv.Itoa(it.Provider.TMDB)
+		hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
+			AnyProviderIDEquals: expr,
 			IncludeProviderIDs:  true,
-			Limit:               50,
+			IncludeItemTypes:    "Movie",
+			// Prefer a title search as a server-side narrow; still verified below.
+			SearchTerm: it.Title,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return filterByProvider(hits, expr), nil
+
 	case manifest.KindSeries:
 		if it.Provider.TVDB == 0 && it.Provider.TMDB == 0 {
 			return nil, nil
 		}
-		var expr parts
-		if it.Provider.TVDB != 0 {
-			expr = append(expr, "Tvdb="+strconv.Itoa(it.Provider.TVDB))
+		series, err := e.findSeries(ctx, it)
+		if err != nil {
+			return nil, err
 		}
-		if it.Provider.TMDB != 0 {
-			expr = append(expr, "Tmdb="+strconv.Itoa(it.Provider.TMDB))
+		if series == nil {
+			return nil, nil
 		}
-		return e.deps.Jellyfin.Browse(ctx, jellyfin.BrowseParams{
-			AnyProviderIDEquals: expr.Join("|"),
-			IncludeProviderIDs:  true,
-			Limit:               500,
+		// Episodes of this series only — never a library-wide provider scan.
+		eps, err := e.browseAll(ctx, jellyfin.BrowseParams{
+			SeriesID:         series.ID,
+			IncludeItemTypes: "Episode",
+			IncludePath:      true,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return eps, nil
+
 	case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
-		// Path convention: Shows/<manifest-id>/...
-		return e.deps.Jellyfin.Browse(ctx, jellyfin.BrowseParams{
-			PathContains: ytdlp.PathPrefix(it.ID),
-			IncludePath:  true,
-			Limit:        500,
+		// Path-only match. Do not pass SearchTerm: yt-dlp episode titles rarely
+		// contain the channel name, and a title filter would drop real hits.
+		prefix := ytdlp.PathPrefix(it.ID)
+		hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
+			PathContains:     prefix,
+			IncludePath:      true,
+			IncludeItemTypes: "Movie,Episode,Video",
 		})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]jellyfin.Item, 0, len(hits))
+		for _, h := range hits {
+			if strings.Contains(h.Path, prefix) {
+				out = append(out, h)
+			}
+		}
+		return out, nil
+
 	default:
 		return nil, nil
 	}
+}
+
+// findSeries returns the single Jellyfin Series whose provider ids match the
+// manifest item, or nil if none. Multiple matches are an error so a human can
+// disambiguate rather than importing the wrong show's episodes.
+func (e *Engine) findSeries(ctx context.Context, it manifest.Item) (*jellyfin.Item, error) {
+	var expr parts
+	if it.Provider.TVDB != 0 {
+		expr = append(expr, "Tvdb="+strconv.Itoa(it.Provider.TVDB))
+	}
+	if it.Provider.TMDB != 0 {
+		expr = append(expr, "Tmdb="+strconv.Itoa(it.Provider.TMDB))
+	}
+	providerExpr := expr.Join("|")
+
+	// Prefer Series-type rows with the provider id. SearchTerm narrows the page
+	// Jellyfin returns; client-side ProviderMatch is authoritative.
+	hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
+		AnyProviderIDEquals: providerExpr,
+		IncludeProviderIDs:  true,
+		IncludeItemTypes:    "Series",
+		SearchTerm:          it.Title,
+	})
+	if err != nil {
+		return nil, err
+	}
+	hits = filterByProvider(hits, providerExpr)
+	switch len(hits) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &hits[0], nil
+	default:
+		names := make([]string, 0, len(hits))
+		for _, h := range hits {
+			names = append(names, h.Name+"("+h.ID+")")
+		}
+		return nil, fmt.Errorf("ambiguous series match for %s (%s): %s",
+			it.ID, providerExpr, strings.Join(names, ", "))
+	}
+}
+
+// browseAll pages through Jellyfin Browse until a short page is returned.
+// Limit is applied per page; provider/path filters are applied by Browse itself.
+func (e *Engine) browseAll(ctx context.Context, p jellyfin.BrowseParams) ([]jellyfin.Item, error) {
+	const pageSize = 200
+	if p.Limit <= 0 || p.Limit > pageSize {
+		p.Limit = pageSize
+	}
+	var all []jellyfin.Item
+	for start := 0; ; start += p.Limit {
+		page := p
+		page.StartIndex = start
+		items, err := e.deps.Jellyfin.Browse(ctx, page)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if len(items) < p.Limit {
+			break
+		}
+		// Hard ceiling so a broken filter cannot pull the whole library forever.
+		if len(all) >= 5000 {
+			break
+		}
+	}
+	return all, nil
+}
+
+// filterByProvider keeps only items whose ProviderIds satisfy expr.
+func filterByProvider(items []jellyfin.Item, expr string) []jellyfin.Item {
+	if expr == "" {
+		return items
+	}
+	out := make([]jellyfin.Item, 0, len(items))
+	for _, it := range items {
+		if jellyfin.ProviderMatch(it, expr) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 type parts []string

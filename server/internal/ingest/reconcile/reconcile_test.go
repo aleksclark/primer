@@ -75,14 +75,20 @@ func TestPlanResolveAndAcquire(t *testing.T) {
 	yt := &ytdlp.FakeRunner{}
 	jf := jellyfin.NewFake(
 		jellyfin.Item{
+			ID: "series-lp", Name: "The Living Planet", Type: "Series",
+			ProviderIds: map[string]string{"Tvdb": "79165"},
+		},
+		jellyfin.Item{
 			ID: "jf-lp-e1", Name: "The Building of the Earth", Type: "Episode",
-			SeriesName: "The Living Planet", ParentIndexNumber: 1, IndexNumber: 1,
+			SeriesName: "The Living Planet", SeriesID: "series-lp",
+			ParentIndexNumber: 1, IndexNumber: 1,
 			ProviderIds: map[string]string{"Tvdb": "79165"},
 			Runtime:     55 * time.Minute,
 		},
 		jellyfin.Item{
 			ID: "jf-lp-e7", Name: "Our Blue Planet", Type: "Episode",
-			SeriesName: "The Living Planet", ParentIndexNumber: 1, IndexNumber: 7,
+			SeriesName: "The Living Planet", SeriesID: "series-lp",
+			ParentIndexNumber: 1, IndexNumber: 7,
 			ProviderIds: map[string]string{"Tvdb": "79165"},
 			Runtime:     55 * time.Minute,
 		},
@@ -304,4 +310,114 @@ func TestSkipImportWhenUnconfigured(t *testing.T) {
 	res, err := eng.Run(context.Background(), m, nil, reconcile.Options{DryRun: true})
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(res.Report.ManualQueue, "\n"), "x")
+}
+
+func TestImportDoesNotCrossWireForeignLibrary(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// Library contains the target series plus unrelated movies/episodes that a
+	// broken provider filter would previously have imported under every title.
+	jf := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "series-lp", Name: "The Living Planet", Type: "Series",
+			ProviderIds: map[string]string{"Tvdb": "79165"},
+		},
+		jellyfin.Item{
+			ID: "jf-lp-e1", Name: "The Building of the Earth", Type: "Episode",
+			SeriesName: "The Living Planet", SeriesID: "series-lp",
+			ParentIndexNumber: 1, IndexNumber: 1,
+			ProviderIds: map[string]string{"Tvdb": "79165"},
+		},
+		jellyfin.Item{
+			ID: "jf-3ninjas", Name: "3 Ninjas", Type: "Movie",
+			ProviderIds: map[string]string{"Tmdb": "11234"},
+		},
+		jellyfin.Item{
+			ID: "jf-50first", Name: "50 First Dates", Type: "Movie",
+			ProviderIds: map[string]string{"Tmdb": "1824"},
+		},
+		jellyfin.Item{
+			ID: "jf-b5", Name: "Midnight on the Firing Line", Type: "Episode",
+			SeriesName: "Babylon 5", SeriesID: "series-b5",
+			ParentIndexNumber: 1, IndexNumber: 1,
+			ProviderIds: map[string]string{"Tvdb": "70726"},
+		},
+		jellyfin.Item{
+			ID: "series-b5", Name: "Babylon 5", Type: "Series",
+			ProviderIds: map[string]string{"Tvdb": "70726"},
+		},
+		jellyfin.Item{
+			ID: "jf-matrix", Name: "The Matrix", Type: "Movie",
+			ProviderIds: map[string]string{"Tmdb": "603"},
+		},
+	)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		ReportDir: filepath.Join(dir, "reports"),
+		SyncWait:  time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{
+		{
+			ID: "living-planet", Title: "The Living Planet", Year: 1984,
+			Kind: manifest.KindSeries, Provider: manifest.Provider{TVDB: 79165},
+			Class: manifest.ClassEducational,
+		},
+		{
+			ID: "matrix", Title: "The Matrix", Year: 1999,
+			Kind: manifest.KindMovie, Provider: manifest.Provider{TMDB: 603},
+			Class: manifest.ClassEntertainment,
+		},
+		{
+			// Resolved series that is not in Jellyfin at all.
+			ID: "missing-show", Title: "Not In Library", Year: 2000,
+			Kind: manifest.KindSeries, Provider: manifest.Provider{TVDB: 999999},
+			Class: manifest.ClassEducational,
+		},
+	}}
+
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true, DryRun: true,
+	})
+	require.NoError(t, err)
+
+	imported := strings.Join(res.Report.Imported, "\n")
+	assert.Contains(t, imported, "living-planet")
+	assert.Contains(t, imported, "The Building of the Earth")
+	assert.Contains(t, imported, "matrix")
+	assert.NotContains(t, imported, "3 Ninjas")
+	assert.NotContains(t, imported, "50 First Dates")
+	assert.NotContains(t, imported, "Babylon")
+	assert.NotContains(t, imported, "jf-3ninjas")
+	assert.NotContains(t, imported, "jf-50first")
+	assert.NotContains(t, imported, "jf-b5")
+	assert.Contains(t, strings.Join(res.Report.NotInJellyfin, "\n"), "missing-show")
+
+	// Only the two genuine hits.
+	assert.Equal(t, 2, len(res.Report.Imported), "got: %v", res.Report.Imported)
+}
+
+func TestImportSeriesAmbiguousIsError(t *testing.T) {
+	t.Parallel()
+	jf := jellyfin.NewFake(
+		jellyfin.Item{ID: "s1", Name: "Legacy A", Type: "Series", ProviderIds: map[string]string{"Tvdb": "111"}},
+		jellyfin.Item{ID: "s2", Name: "Legacy B", Type: "Series", ProviderIds: map[string]string{"Tvdb": "111"}},
+	)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv, ReportDir: t.TempDir(),
+		SyncWait: time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "legacy", Title: "Legacy", Kind: manifest.KindSeries,
+		Provider: manifest.Provider{TVDB: 111}, Class: manifest.ClassEducational,
+	}}}
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true, DryRun: true,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, res.Report.Errors)
+	assert.Contains(t, strings.Join(res.Report.Errors, "\n"), "ambiguous series")
+	assert.Empty(t, res.Report.Imported)
 }
