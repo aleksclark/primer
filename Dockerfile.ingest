@@ -12,7 +12,12 @@ COPY server/ ./server/
 RUN cd server && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /content-ingest ./cmd/content-ingest
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates yt-dlp ffmpeg
+# Alpine's yt-dlp package lags YouTube player changes; install the latest release.
+RUN apk add --no-cache ca-certificates ffmpeg python3 curl \
+	&& curl -fsSL -o /usr/local/bin/yt-dlp \
+		https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+	&& chmod a+rx /usr/local/bin/yt-dlp \
+	&& yt-dlp --version
 COPY --from=build /content-ingest /usr/local/bin/content-ingest
 COPY curriculum/ /curriculum/
 
@@ -20,7 +25,7 @@ ENV INGEST_MANIFEST_PATH=/curriculum/content-manifest.yaml
 ENV INGEST_REVIEW_PATH=/curriculum/content-review.yaml
 ENV INGEST_REPORT_DIR=/var/log/content-ingest
 ENV INGEST_YTDLP_PATH=yt-dlp
-ENV INGEST_YTDLP_ARCHIVE_PATH=/data/ytdlp-archive.txt
+ENV INGEST_YTDLP_ARCHIVE_PATH=/media/ytdlp-archive.txt
 
 WORKDIR /
 ENTRYPOINT ["content-ingest"]

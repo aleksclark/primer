@@ -370,7 +370,23 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 		}
 	}
 
+	// Movies/series first so a slow yt-dlp pass cannot starve Radarr/Sonarr
+	// adds. Priority still orders within each wave.
+	acquireOrder := make([]manifest.Item, 0, len(m.Items))
 	for _, it := range m.SortedByPriority() {
+		switch it.Kind {
+		case manifest.KindMovie, manifest.KindSeries, manifest.KindManual:
+			acquireOrder = append(acquireOrder, it)
+		}
+	}
+	for _, it := range m.SortedByPriority() {
+		switch it.Kind {
+		case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
+			acquireOrder = append(acquireOrder, it)
+		}
+	}
+
+	for _, it := range acquireOrder {
 		status := skipAcquire[it.ID]
 		if status == tvclient.ManifestStatusFailed {
 			rep.FailedQueue = append(rep.FailedQueue, fmt.Sprintf("%s — %s (human intervention)", it.ID, it.Title))

@@ -34,3 +34,16 @@ func TestExecRunnerValidates(t *testing.T) {
 	assert.Error(t, r.Download(context.Background(), ytdlp.DownloadOpts{URL: "u"}))
 	assert.Error(t, r.Download(context.Background(), ytdlp.DownloadOpts{URL: "u", Slug: "s"}))
 }
+
+func TestNormalizeYouTubeURL(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t,
+		"https://www.youtube.com/@PaulSellersWoodwork/videos",
+		ytdlp.NormalizeYouTubeURL("https://www.youtube.com/@PaulSellersWoodwork"))
+	assert.Equal(t,
+		"https://www.youtube.com/playlist?list=PL8",
+		ytdlp.NormalizeYouTubeURL("https://www.youtube.com/playlist?list=PL8"))
+	assert.Equal(t,
+		"https://www.youtube.com/@x/videos",
+		ytdlp.NormalizeYouTubeURL("https://www.youtube.com/@x/videos"))
+}
