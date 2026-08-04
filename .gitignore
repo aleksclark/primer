@@ -41,6 +41,7 @@ core.*
 
 # Deployment secrets
 deploy/.env
+.env
 
 # Editor / OS
 .DS_Store

@@ -1,5 +1,11 @@
 # Primer LMS + TV — build, test, and codegen entry points.
 
+# Load local service credentials for content-ingest. Keep .env git-ignored.
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
 COVER_MIN := 85
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
