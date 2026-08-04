@@ -1,9 +1,9 @@
 package com.aleksclark.primer.tv.app.ui.components
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +20,8 @@ import com.aleksclark.primer.tv.core.presentation.MediaLabels
 /**
  * Consistent runtime / classification / availability rendering for cards and
  * heroes. Status is always text, never color-only.
+ *
+ * Badges follow System C state-label language: square, ruled, mono uppercase.
  */
 @Composable
 fun MediaMetadataRow(
@@ -55,7 +57,11 @@ fun MediaMetadataRow(
                 else -> null
             }
             if (accent != null && (part == MediaLabels.LIVE || part == MediaLabels.ONE_VIEWING || part == MediaLabels.WATCHED)) {
-                StatusChip(text = part, container = accent.copy(alpha = 0.18f), content = accent)
+                StatusChip(
+                    text = part,
+                    filled = part == MediaLabels.LIVE,
+                    accent = accent,
+                )
             } else {
                 Text(
                     text = if (index == 0 || accent != null) part else "·  $part",
@@ -78,8 +84,8 @@ fun OneViewingBadge(
     val accent = if (watched) colors.onSurfaceMuted else colors.entertainment
     StatusChip(
         text = text,
-        container = accent.copy(alpha = 0.18f),
-        content = accent,
+        filled = false,
+        accent = accent,
         modifier = modifier,
     )
 }
@@ -89,31 +95,49 @@ fun LiveBadge(modifier: Modifier = Modifier) {
     val colors = PrimerTheme.colors
     StatusChip(
         text = MediaLabels.LIVE,
-        container = colors.live,
-        content = colors.onLive,
+        filled = true,
+        accent = colors.live,
         modifier = modifier.semantics {
             contentDescription = "Live"
         },
     )
 }
 
+/**
+ * System C state label: square corners, mono uppercase, filled or ruled.
+ */
 @Composable
 private fun StatusChip(
     text: String,
-    container: Color,
-    content: Color,
+    filled: Boolean,
+    accent: Color,
     modifier: Modifier = Modifier,
 ) {
+    val colors = PrimerTheme.colors
+    val spacing = PrimerTheme.spacing
+    val shape = PrimerTheme.shapes.chip
+    val container = if (filled) accent else Color.Transparent
+    val content = if (filled) colors.onLive else accent
+
     Surface(
-        modifier = modifier,
+        modifier = modifier.border(
+            width = spacing.ruleWidth,
+            color = accent,
+            shape = shape,
+        ),
         color = container,
         contentColor = content,
-        shape = RoundedCornerShape(999.dp),
+        shape = shape,
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Text(
-            text = text,
+            text = text.uppercase(),
             style = PrimerTheme.typography.label,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(
+                horizontal = spacing.sm + 2.dp,
+                vertical = spacing.xs,
+            ),
             maxLines = 1,
         )
     }

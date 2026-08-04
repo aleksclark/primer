@@ -10,13 +10,13 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.IntSize
 
 /**
- * Short, purposeful motion tokens. RK3318-class TV boxes prefer subtle focus
+ * Motion tokens from System C. RK3318-class TV boxes prefer subtle focus
  * motion over heavy transitions; reduced-motion collapses decorative durations.
  */
 data class PrimerMotion(
-    val focusMs: Int = 150,
-    val fadeMs: Int = 200,
-    val railExpandMs: Int = 200,
+    val focusMs: Int = PrimerTokens.Motion.Fast,
+    val fadeMs: Int = PrimerTokens.Motion.Standard,
+    val railExpandMs: Int = PrimerTokens.Motion.Standard,
     val reducedMotion: Boolean = false,
 ) {
     val focus: AnimationSpec<Float>
@@ -42,7 +42,7 @@ fun rememberReducedMotion(): Boolean {
     // Configuration does not expose animator scale directly on all API levels
     // we support; treat fontScale extremes as a weak signal only when the
     // platform marks itself low-RAM-like. Prefer explicit false so TV focus
-    // remains visible; Compose animation still stays under 200ms.
+    // remains visible; Compose animation still stays under System C slow (320ms).
     val config = LocalConfiguration.current
     return config.fontScale >= 1.6f
 }

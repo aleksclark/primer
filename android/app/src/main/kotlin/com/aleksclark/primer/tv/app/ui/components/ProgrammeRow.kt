@@ -36,7 +36,7 @@ fun ProgrammeRow(
     val spacing = PrimerTheme.spacing
     val deEmphasized = model.temporal == ProgrammeTemporalState.PAST
     val titleColor = when (model.temporal) {
-        ProgrammeTemporalState.CURRENT -> colors.live
+        ProgrammeTemporalState.CURRENT -> colors.brand
         ProgrammeTemporalState.PAST -> colors.onSurfaceMuted
         ProgrammeTemporalState.FUTURE -> colors.onSurface
     }
@@ -49,7 +49,8 @@ fun ProgrammeRow(
                 .fillMaxWidth()
                 .then(
                     if (model.isCurrent) {
-                        Modifier.background(colors.live.copy(alpha = 0.10f))
+                        // Current row: raised surface + left accent rule (System C selected).
+                        Modifier.background(colors.surfaceRaised)
                     } else {
                         Modifier
                     },

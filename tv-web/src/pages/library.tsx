@@ -105,7 +105,7 @@ export function LibraryPage() {
               <img
                 src={imageURL(row.id)}
                 alt=""
-                className="h-12 w-8 rounded object-cover bg-muted"
+                className="h-12 w-8 rounded-none object-cover bg-surface-raised"
                 onError={(e) => {
                   e.currentTarget.style.visibility = "hidden";
                 }}
@@ -165,12 +165,16 @@ export function LibraryPage() {
         ]}
       />
 
-      {syncError && <p className="text-sm text-destructive">Sync failed: {syncError}</p>}
+      {syncError && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          Sync failed: {syncError}
+        </p>
+      )}
       {syncResult && (
-        <div className="rounded-md border bg-muted/30 p-3 text-sm">
+        <div className="border border-border bg-surface-raised p-3 text-sm">
           Checked {syncResult.checked}, updated {syncResult.updated}
           {syncResult.orphaned && syncResult.orphaned.length > 0 && (
-            <span className="text-destructive">
+            <span className="text-attention">
               {" "}
               — {syncResult.orphaned.length} item(s) no longer exist in Jellyfin
             </span>
@@ -269,7 +273,7 @@ function BrowseDialog({ open, onClose, onImported }: BrowseDialogProps) {
           <DialogTitle>Browse Jellyfin</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="browse-search">Search</Label>
           <Input
             id="browse-search"
@@ -279,12 +283,16 @@ function BrowseDialog({ open, onClose, onImported }: BrowseDialogProps) {
           />
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+            {error}
+          </p>
+        )}
 
-        <div className="rounded-md border">
+        <div className="border border-border">
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="hover:bg-transparent">
                 <TableHead>Title</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Codecs</TableHead>
@@ -308,7 +316,7 @@ function BrowseDialog({ open, onClose, onImported }: BrowseDialogProps) {
                       <TableCell className="font-medium">{item.title}</TableCell>
                       <TableCell className="text-muted-foreground">{item.type}</TableCell>
                       <TableCell>
-                        <code className="text-xs">
+                        <code className="font-mono text-xs">
                           {[item.container, item.videoCodec, item.audioCodec].filter(Boolean).join(" / ")}
                         </code>
                       </TableCell>
@@ -316,7 +324,7 @@ function BrowseDialog({ open, onClose, onImported }: BrowseDialogProps) {
                         {issues.length === 0 ? (
                           <Badge variant="secondary">OK</Badge>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-destructive">
+                          <span className="inline-flex items-center gap-1 text-xs text-attention">
                             <TriangleAlert className="h-3 w-3" />
                             {issues.join("; ")}
                           </span>
@@ -324,7 +332,7 @@ function BrowseDialog({ open, onClose, onImported }: BrowseDialogProps) {
                       </TableCell>
                       <TableCell>
                         {done ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <span className="type-label inline-flex items-center gap-1 text-muted-foreground">
                             <Check className="h-3 w-3" /> Imported
                           </span>
                         ) : (

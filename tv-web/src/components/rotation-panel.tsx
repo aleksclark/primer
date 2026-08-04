@@ -73,13 +73,14 @@ export function RotationPanel({ onRotated }: { onRotated?: () => void }) {
   };
 
   return (
-    <div className="rounded-md border p-4 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-medium">Rotate the catalog</h2>
-          <p className="text-xs text-muted-foreground">
-            Items that can play, are not currently offered, and have not been watched.
-            Selecting none takes the server&apos;s own pick.
+    <div className="space-y-4 border border-border bg-surface-raised p-5">
+      <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+        <div className="space-y-1">
+          <p className="type-label text-muted-foreground">Rotation</p>
+          <h2 className="type-h3 text-foreground">Rotate the catalog</h2>
+          <p className="text-sm text-muted-foreground">
+            Items that can play, are not currently offered, and have not been watched. Selecting none
+            takes the server&apos;s own pick.
           </p>
         </div>
         <Button variant="outline" size="icon" onClick={load} title="Refresh suggestions">
@@ -87,32 +88,36 @@ export function RotationPanel({ onRotated }: { onRotated?: () => void }) {
         </Button>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
 
       {suggestions.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Nothing is waiting. Import more from the library, or let the current windows close.
         </p>
       ) : (
-        <div className="max-h-64 space-y-1 overflow-y-auto">
+        <div className="max-h-64 space-y-0 overflow-y-auto border border-border">
           {suggestions.map((s) => {
             const lastOffered = new Date(s.lastWindowEndedAt);
             const neverOffered = lastOffered < NEVER_OFFERED_BEFORE;
             return (
               <label
                 key={s.mediaItem.id}
-                className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent"
+                className="flex items-center gap-3 border-b border-border px-3 py-2.5 text-sm last:border-b-0 hover:bg-background"
               >
                 <input
                   type="checkbox"
-                  className="h-4 w-4"
+                  className="h-4 w-4 rounded-none border border-border accent-[var(--primer-color-accent)]"
                   checked={selected.has(s.mediaItem.id)}
                   onChange={() => toggle(s.mediaItem.id)}
                   aria-label={`Offer ${s.mediaItem.title}`}
                 />
-                <span className="flex-1">{s.mediaItem.title}</span>
-                <span className="text-xs text-muted-foreground">{s.mediaItem.class}</span>
-                <span className="text-xs text-muted-foreground">
+                <span className="flex-1 text-foreground">{s.mediaItem.title}</span>
+                <span className="type-label text-muted-foreground">{s.mediaItem.class}</span>
+                <span className="type-label text-muted-foreground">
                   {neverOffered ? "never offered" : `last offered ${lastOffered.toLocaleDateString()}`}
                 </span>
               </label>
@@ -121,9 +126,9 @@ export function RotationPanel({ onRotated }: { onRotated?: () => void }) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 border-t border-border pt-4">
         <div className="flex items-center gap-2">
-          <Label className="text-sm">Open for</Label>
+          <Label>Open for</Label>
           {SPANS.map((span) => (
             <Button
               key={span}
@@ -139,7 +144,7 @@ export function RotationPanel({ onRotated }: { onRotated?: () => void }) {
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            className="h-4 w-4"
+            className="h-4 w-4 rounded-none border border-border accent-[var(--primer-color-accent)]"
             checked={expireOpen}
             onChange={(e) => setExpireOpen(e.target.checked)}
           />
@@ -152,7 +157,7 @@ export function RotationPanel({ onRotated }: { onRotated?: () => void }) {
       </div>
 
       {result && (
-        <p className="text-sm text-muted-foreground">
+        <p className="type-label text-muted-foreground">
           Closed {result.expired}, opened {result.opened.length}.
         </p>
       )}

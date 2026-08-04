@@ -66,11 +66,11 @@ fun UpdateCard(
                 )
             }
             Text(
-                text = model.statusLabel.value,
-                style = typography.body,
+                text = model.statusLabel.value.uppercase(),
+                style = typography.label,
                 color = when {
                     model.isError -> colors.error
-                    model.canInstall -> colors.entertainment
+                    model.canInstall -> colors.brand
                     else -> colors.onSurfaceMuted
                 },
             )
@@ -81,17 +81,32 @@ fun UpdateCard(
                 onClick = onCheckForUpdate,
                 enabled = model.canRetryCheck,
                 shape = PrimerTheme.shapes.button,
+                border = androidx.compose.foundation.BorderStroke(
+                    width = spacing.ruleWidth,
+                    color = if (model.canRetryCheck) colors.outline else colors.outline.copy(alpha = 0.5f),
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = colors.onSurface,
+                    disabledContentColor = colors.outlineStrong,
+                ),
                 modifier = Modifier
                     .heightIn(min = minHeight)
                     .semantics { contentDescription = "Check for updates" },
             ) {
-                Text("Check for updates", style = typography.button)
+                Text("CHECK FOR UPDATES", style = typography.button)
             }
 
             if (model.canInstall) {
                 Button(
                     onClick = onInstallUpdate,
                     shape = PrimerTheme.shapes.button,
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp,
+                        disabledElevation = 0.dp,
+                    ),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.brand,
                         contentColor = colors.onBrand,
@@ -100,7 +115,7 @@ fun UpdateCard(
                         .heightIn(min = minHeight)
                         .semantics { contentDescription = "Install update" },
                 ) {
-                    Text("Install update", style = typography.button)
+                    Text("INSTALL UPDATE", style = typography.button)
                 }
             }
         }

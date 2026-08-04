@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -114,14 +113,14 @@ fun MediaPosterCardSkeleton(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .height(14.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(PrimerTheme.shapes.mediaCard)
                 .background(colors.surfaceRaised),
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.55f)
                 .height(12.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(PrimerTheme.shapes.mediaCard)
                 .background(colors.surfaceRaised),
         )
     }

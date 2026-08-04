@@ -159,11 +159,12 @@ function WeekGrid({ toolbar }: WeekGridProps) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Schedule</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-rule-strong pb-4">
+        <div className="space-y-1">
+          <p className="type-label text-muted-foreground">Content</p>
+          <h1 className="type-h1 text-foreground">Schedule</h1>
+          <p className="text-sm text-muted-foreground">
             The programmed channel, week of {weekStart.toLocaleDateString()}
             {data && ` · times shown in your browser's zone, bucketed server-side in ${data.timezone}`}
           </p>
@@ -182,7 +183,7 @@ function WeekGrid({ toolbar }: WeekGridProps) {
           Next week <ChevronRight />
         </Button>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">
+          <span className="type-label text-muted-foreground">
             {programmes.length} airing{programmes.length === 1 ? "" : "s"}
           </span>
           <Button variant="outline" size="sm" onClick={() => setCopying(true)}>
@@ -191,25 +192,33 @@ function WeekGrid({ toolbar }: WeekGridProps) {
         </div>
       </div>
 
-      {loadError && <p className="text-sm text-destructive">{loadError}</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {loadError && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {loadError}
+        </p>
+      )}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
       {overlapping.size > 0 && (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">
+        <p className="border border-attention px-3 py-2 text-sm text-attention" role="alert">
           {overlapping.size} airing{overlapping.size === 1 ? "" : "s"} overlap another slot. This
           happens when an item's runtime changed after it was scheduled — move or remove the
           highlighted airings so the channel stays a single stream.
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-md border">
+      <div className="overflow-x-auto border border-border">
         <div className="min-w-[60rem]">
           <div
-            className="grid border-b bg-muted/30 text-xs font-medium"
+            className="type-label grid border-b border-border bg-surface-raised text-muted-foreground"
             style={{ gridTemplateColumns: `4rem repeat(${DAYS_PER_WEEK}, minmax(0, 1fr))` }}
           >
             <div className="p-2" />
             {days.map((day) => (
-              <div key={dayKey(day)} className="border-l p-2 text-center">
+              <div key={dayKey(day)} className="border-l border-border p-2 text-center">
                 <div>{day.toLocaleDateString(undefined, { weekday: "short" })}</div>
                 <div className="text-muted-foreground">{day.getDate()}</div>
               </div>
@@ -267,11 +276,11 @@ function WeekGrid({ toolbar }: WeekGridProps) {
 /** HourGutter labels the vertical axis of the grid. */
 function HourGutter() {
   return (
-    <div className="relative border-r" style={{ height: `${24 * GRID_PIXELS_PER_HOUR}px` }}>
+    <div className="relative border-r border-border" style={{ height: `${24 * GRID_PIXELS_PER_HOUR}px` }}>
       {DAY_HOURS.map((hour) => (
         <div
           key={hour}
-          className="absolute right-1 -translate-y-1/2 text-[10px] text-muted-foreground"
+          className="type-label absolute right-1 -translate-y-1/2 text-muted-foreground"
           style={{ top: `${hour * GRID_PIXELS_PER_HOUR}px` }}
         >
           {hour === 0 ? "" : `${hour}:00`}
@@ -301,12 +310,12 @@ function DayColumn({ day, programmes, overlapping, onPick, onEmptyHour }: DayCol
   });
 
   return (
-    <div className="relative border-l" style={{ height: `${24 * GRID_PIXELS_PER_HOUR}px` }}>
+    <div className="relative border-l border-border" style={{ height: `${24 * GRID_PIXELS_PER_HOUR}px` }}>
       {DAY_HOURS.map((hour) => (
         <button
           key={hour}
           type="button"
-          className="absolute w-full border-t border-border/40 hover:bg-accent/40"
+          className="absolute w-full border-t border-border hover:bg-surface-raised"
           style={{ top: `${hour * GRID_PIXELS_PER_HOUR}px`, height: `${GRID_PIXELS_PER_HOUR}px` }}
           title={`Schedule something at ${hour}:00`}
           aria-label={`Schedule an airing at ${hour}:00 on ${day.toLocaleDateString()}`}
@@ -349,10 +358,10 @@ function AiringBlock({ programme, day, conflicted, onClick }: AiringBlockProps) 
       type="button"
       onClick={onClick}
       title={`${programme.title} · ${formatTime(programme.airsAt)}–${formatTime(programme.endsAt)}`}
-      className={`absolute left-0.5 right-0.5 overflow-hidden rounded px-1 py-0.5 text-left text-[10px] leading-tight ${
+      className={`absolute left-0.5 right-0.5 overflow-hidden rounded-none border px-1 py-0.5 text-left text-[10px] leading-tight ${
         conflicted
-          ? "bg-destructive/80 text-destructive-foreground ring-1 ring-destructive"
-          : "bg-primary/80 text-primary-foreground hover:bg-primary"
+          ? "border-attention bg-transparent text-attention"
+          : "border-primary bg-primary text-primary-foreground hover:bg-accent-hover"
       }`}
       style={{
         top: `${(startMinutes / 60) * GRID_PIXELS_PER_HOUR}px`,
@@ -445,13 +454,13 @@ function AiringDialog({ programme, createAt, onClose, onSaved, onRemove }: Airin
             void submit(new FormData(e.currentTarget));
           }}
         >
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="airing-media">Media item</Label>
             <select
               id="airing-media"
               name="mediaItemId"
               defaultValue={programme?.mediaItemId ?? ""}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              className="flex h-10 w-full rounded-none border border-input bg-surface-raised px-3.5 py-3 text-sm text-foreground focus-visible:border-primary focus-visible:outline focus-visible:outline-[length:var(--primer-focus-width)] focus-visible:outline-offset-[var(--primer-focus-offset)] focus-visible:outline-primary"
             >
               <option value="">—</option>
               {media.choices.map((choice) => (
@@ -462,7 +471,7 @@ function AiringDialog({ programme, createAt, onClose, onSaved, onRemove }: Airin
             </select>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="airing-airs-at">Airs at</Label>
             <Input
               id="airing-airs-at"
@@ -478,13 +487,13 @@ function AiringDialog({ programme, createAt, onClose, onSaved, onRemove }: Airin
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="airing-block">Block</Label>
             <select
               id="airing-block"
               name="block"
               defaultValue={programme?.block ?? ""}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              className="flex h-10 w-full rounded-none border border-input bg-surface-raised px-3.5 py-3 text-sm text-foreground focus-visible:border-primary focus-visible:outline focus-visible:outline-[length:var(--primer-focus-width)] focus-visible:outline-offset-[var(--primer-focus-offset)] focus-visible:outline-primary"
             >
               <option value="">Derive from the air time</option>
               {SCHEDULE_BLOCKS.map((block) => (
@@ -501,12 +510,16 @@ function AiringDialog({ programme, createAt, onClose, onSaved, onRemove }: Airin
               name="joinInProgress"
               type="checkbox"
               defaultChecked={programme?.joinInProgress ?? true}
-              className="h-4 w-4"
+              className="h-4 w-4 rounded-none border border-border accent-[var(--primer-color-accent)]"
             />
             <Label htmlFor="airing-join">Devices may join in progress</Label>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p className="type-label text-attention" role="alert">
+              {error}
+            </p>
+          )}
 
           <DialogFooter className="gap-2">
             {programme && (
@@ -587,7 +600,7 @@ function CopyWeekDialog({ open, weekStart, onClose, onCopied }: CopyWeekDialogPr
             void submit(new FormData(e.currentTarget));
           }}
         >
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="copy-to">Copy to the week starting</Label>
             <Input
               id="copy-to"
@@ -602,11 +615,20 @@ function CopyWeekDialog({ open, weekStart, onClose, onCopied }: CopyWeekDialogPr
           </div>
 
           <div className="flex items-center gap-2">
-            <input id="copy-replace" name="replace" type="checkbox" className="h-4 w-4" />
+            <input
+              id="copy-replace"
+              name="replace"
+              type="checkbox"
+              className="h-4 w-4 rounded-none border border-border accent-[var(--primer-color-accent)]"
+            />
             <Label htmlFor="copy-replace">Clear the destination week first</Label>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p className="type-label text-attention" role="alert">
+              {error}
+            </p>
+          )}
           {result && <CopyOutcome result={result} />}
 
           <DialogFooter>
@@ -624,7 +646,7 @@ function CopyWeekDialog({ open, weekStart, onClose, onCopied }: CopyWeekDialogPr
 function CopyOutcome({ result }: { result: CopyWeekResponse }) {
   const skipped = result.skipped ?? [];
   return (
-    <div className="space-y-2 rounded-md border p-3 text-sm">
+    <div className="space-y-2 border border-border bg-background p-3 text-sm">
       <div className="flex flex-wrap gap-2">
         <Badge variant="secondary">{result.copied} copied</Badge>
         {result.deleted > 0 && <Badge variant="outline">{result.deleted} replaced</Badge>}

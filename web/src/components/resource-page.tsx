@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { mutate } from "@/api/client";
 import { useList } from "@/hooks/use-list";
+import { cn } from "@/lib/utils";
 
 /** ColumnDef describes one column of a resource table. */
 export interface ColumnDef<T> {
@@ -48,6 +49,14 @@ interface ResourcePageProps<T extends { id: string }> {
 }
 
 const PAGE_SIZE = 25;
+
+const selectClassName = cn(
+  "flex h-10 w-full rounded-none border border-input bg-surface-raised",
+  "px-3.5 py-3 text-sm text-foreground",
+  "focus-visible:border-primary focus-visible:outline focus-visible:outline-[length:var(--primer-focus-width)]",
+  "focus-visible:outline-offset-[var(--primer-focus-offset)] focus-visible:outline-primary",
+  "disabled:cursor-not-allowed disabled:text-rule-strong",
+);
 
 /**
  * ResourcePage is a complete admin CRUD screen: paginated + searchable
@@ -136,10 +145,13 @@ export function ResourcePage<T extends { id: string }>({
   const pageEnd = Math.min(offset + PAGE_SIZE, total);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <div className="flex items-center gap-2">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-rule-strong pb-4">
+        <div className="space-y-1">
+          <p className="type-label text-muted-foreground">Resource</p>
+          <h1 className="type-h1 text-foreground">{title}</h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             placeholder="Search…"
             value={q}
@@ -152,23 +164,33 @@ export function ResourcePage<T extends { id: string }>({
           <Button variant="outline" size="icon" onClick={refresh} title="Refresh">
             <RefreshCw />
           </Button>
-          <Button onClick={() => { setFormError(null); setCreating(true); }}>
+          <Button
+            onClick={() => {
+              setFormError(null);
+              setCreating(true);
+            }}
+          >
             <Plus /> New
           </Button>
         </div>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
 
-      <div className="rounded-md border">
+      <div className="border border-border bg-background">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="hover:bg-transparent">
               {columns.map((col) => (
                 <TableHead key={col.key}>
                   {col.sortable ? (
                     <button
-                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      type="button"
+                      className="type-label inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
                       onClick={() => toggleSort(col.key)}
                     >
                       {col.header}
@@ -180,7 +202,7 @@ export function ResourcePage<T extends { id: string }>({
                   )}
                 </TableHead>
               ))}
-              <TableHead className="w-20" />
+              <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -205,7 +227,10 @@ export function ResourcePage<T extends { id: string }>({
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => { setFormError(null); setEditing(row); }}
+                        onClick={() => {
+                          setFormError(null);
+                          setEditing(row);
+                        }}
                         title="Edit"
                       >
                         <Pencil />
@@ -228,8 +253,8 @@ export function ResourcePage<T extends { id: string }>({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
+      <div className="flex items-center justify-between gap-4">
+        <span className="type-label text-muted-foreground">
           {pageStart}–{pageEnd} of {total}
         </span>
         <div className="flex gap-2">
@@ -279,7 +304,7 @@ export function ResourcePage<T extends { id: string }>({
                   ? (editing as Record<string, unknown>)[field.key]
                   : undefined;
                 return (
-                  <div key={field.key} className="space-y-1.5">
+                  <div key={field.key} className="space-y-2">
                     <Label htmlFor={field.key}>{field.label}</Label>
                     {field.type === "select" ? (
                       <select
@@ -287,7 +312,7 @@ export function ResourcePage<T extends { id: string }>({
                         name={field.key}
                         defaultValue={existing != null ? String(existing) : ""}
                         required={field.required && !editing}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                        className={selectClassName}
                       >
                         <option value="">—</option>
                         {field.options?.map((opt) => (
@@ -302,7 +327,7 @@ export function ResourcePage<T extends { id: string }>({
                         name={field.key}
                         type="checkbox"
                         defaultChecked={Boolean(existing)}
-                        className="h-4 w-4"
+                        className="h-4 w-4 rounded-none border border-border accent-[var(--primer-color-accent)]"
                       />
                     ) : (
                       <Input
@@ -311,12 +336,17 @@ export function ResourcePage<T extends { id: string }>({
                         type={inputType(field.type)}
                         defaultValue={defaultInputValue(field, existing)}
                         required={field.required && !editing}
+                        aria-invalid={formError ? true : undefined}
                       />
                     )}
                   </div>
                 );
               })}
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
+            {formError && (
+              <p className="type-label text-attention" role="alert">
+                {formError}
+              </p>
+            )}
             <DialogFooter>
               <Button type="submit">{editing ? "Save" : "Create"}</Button>
             </DialogFooter>

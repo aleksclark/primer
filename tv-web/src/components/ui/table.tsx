@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** Ruled data table — elevation via surface contrast and 1px rules only. */
 function Table({ className, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   return (
     <div className="relative w-full overflow-auto">
@@ -10,7 +11,7 @@ function Table({ className, ...props }: React.HTMLAttributes<HTMLTableElement>) 
 }
 
 function TableHeader({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={cn("[&_tr]:border-b", className)} {...props} />;
+  return <thead className={cn("[&_tr]:border-b [&_tr]:border-border", className)} {...props} />;
 }
 
 function TableBody({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -20,7 +21,10 @@ function TableBody({ className, ...props }: React.HTMLAttributes<HTMLTableSectio
 function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) {
   return (
     <tr
-      className={cn("border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted", className)}
+      className={cn(
+        "border-b border-border transition-colors hover:bg-surface-raised data-[state=selected]:bg-surface-raised",
+        className,
+      )}
       {...props}
     />
   );
@@ -29,14 +33,17 @@ function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTableRowElem
 function TableHead({ className, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) {
   return (
     <th
-      className={cn("h-10 px-2 text-left align-middle font-medium text-muted-foreground", className)}
+      className={cn(
+        "type-label h-11 px-3 text-left align-middle text-muted-foreground",
+        className,
+      )}
       {...props}
     />
   );
 }
 
 function TableCell({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={cn("p-2 align-middle", className)} {...props} />;
+  return <td className={cn("px-3 py-3 align-middle", className)} {...props} />;
 }
 
 export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell };

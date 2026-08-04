@@ -262,11 +262,12 @@ function RotationCalendar({ toolbar }: RotationCalendarProps) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Availability</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-rule-strong pb-4">
+        <div className="space-y-1">
+          <p className="type-label text-muted-foreground">Content</p>
+          <h1 className="type-h1 text-foreground">Availability</h1>
+          <p className="text-sm text-muted-foreground">
             On-demand rotation over {DAYS_SHOWN} days. Select windows to expire or rotate them.
           </p>
         </div>
@@ -284,7 +285,7 @@ function RotationCalendar({ toolbar }: RotationCalendarProps) {
           Later <ChevronRight />
         </Button>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">{selectedVisible.length} selected</span>
+          <span className="type-label text-muted-foreground">{selectedVisible.length} selected</span>
           <Button
             variant="outline"
             size="sm"
@@ -311,14 +312,21 @@ function RotationCalendar({ toolbar }: RotationCalendarProps) {
         </div>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
 
-      <div className="overflow-x-auto rounded-md border">
+      <div className="overflow-x-auto border border-border">
         <div className="min-w-[56rem]">
-          <div className="grid border-b bg-muted/30 text-xs font-medium" style={{ gridTemplateColumns: `16rem repeat(${DAYS_SHOWN}, minmax(0, 1fr))` }}>
+          <div
+            className="type-label grid border-b border-border bg-surface-raised text-muted-foreground"
+            style={{ gridTemplateColumns: `16rem repeat(${DAYS_SHOWN}, minmax(0, 1fr))` }}
+          >
             <div className="p-2">Media item</div>
             {days.map((day) => (
-              <div key={dayKey(day)} className="border-l p-2 text-center">
+              <div key={dayKey(day)} className="border-l border-border p-2 text-center">
                 <div>{day.toLocaleDateString(undefined, { weekday: "narrow" })}</div>
                 <div className="text-muted-foreground">{day.getDate()}</div>
               </div>
@@ -365,7 +373,7 @@ function WindowRow({ window: win, days, title, selected, onToggle }: WindowRowPr
 
   return (
     <div
-      className="grid items-center border-b text-sm last:border-b-0 hover:bg-muted/40"
+      className="grid items-center border-b border-border text-sm last:border-b-0 hover:bg-surface-raised"
       style={{ gridTemplateColumns: `16rem repeat(${days.length}, minmax(0, 1fr))` }}
     >
       <label className="flex items-center gap-2 p-2">
@@ -374,7 +382,7 @@ function WindowRow({ window: win, days, title, selected, onToggle }: WindowRowPr
           checked={selected}
           onChange={onToggle}
           aria-label={`Select window for ${title}`}
-          className="h-4 w-4 shrink-0"
+          className="h-4 w-4 shrink-0 rounded-none border border-border accent-[var(--primer-color-accent)]"
         />
         <span className="truncate" title={`${title} · ${formatDateTime(win.startsAt)} → ${formatDateTime(win.endsAt)}`}>
           <span className={expired ? "text-muted-foreground line-through" : "font-medium"}>{title}</span>
@@ -385,13 +393,13 @@ function WindowRow({ window: win, days, title, selected, onToggle }: WindowRowPr
         const dayEnd = addDays(day, 1).getTime();
         const covered = ends > dayStart && starts < dayEnd;
         return (
-          <div key={dayKey(day)} className="h-full border-l p-1">
+          <div key={dayKey(day)} className="h-full border-l border-border p-1">
             {covered && (
               <div
                 className={
                   expired
-                    ? "h-5 rounded bg-muted"
-                    : "h-5 rounded bg-primary/80"
+                    ? "h-5 rounded-none bg-border"
+                    : "h-5 rounded-none bg-primary"
                 }
                 title={`${formatDateTime(win.startsAt)} → ${formatDateTime(win.endsAt)}`}
               />

@@ -13,7 +13,9 @@ export function idCol<T extends { id: string }>(): ColumnDef<T> {
   return {
     key: "id",
     header: "ID",
-    render: (row) => <code className="text-xs text-muted-foreground">{shortId(row.id)}</code>,
+    render: (row) => (
+      <code className="font-mono text-xs text-muted-foreground">{shortId(row.id)}</code>
+    ),
   };
 }
 
@@ -56,7 +58,7 @@ export function codeCol<T>(
     key: opts?.sortKey ?? key,
     header,
     sortable: opts?.sortable,
-    render: (row) => <code>{get(row) ?? ""}</code>,
+    render: (row) => <code className="font-mono text-xs">{get(row) ?? ""}</code>,
   };
 }
 

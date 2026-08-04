@@ -39,7 +39,7 @@ fun StatusBanner(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(if (isError) colors.error.copy(alpha = 0.18f) else colors.surfaceRaised)
+                .background(colors.surfaceRaised)
                 .padding(horizontal = spacing.md, vertical = spacing.sm)
                 .semantics {
                     contentDescription = message
@@ -48,8 +48,8 @@ fun StatusBanner(
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
-                text = message,
-                style = PrimerTheme.typography.metadata,
+                text = if (isError) message.uppercase() else message,
+                style = if (isError) PrimerTheme.typography.label else PrimerTheme.typography.metadata,
                 color = if (isError) colors.error else colors.onSurface,
             )
         }

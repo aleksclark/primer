@@ -5,8 +5,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * Semantic color roles for Primer TV. Classification accents are reserved for
- * badges and metadata; artwork and surfaces stay neutral.
+ * Semantic color roles for Primer TV, mapped from System C ([PrimerTokens]).
+ *
+ * Classification accents (`live`, `educational`, `entertainment`) are product
+ * extensions for media badges only. They are derived from System C tokens
+ * (attention / accent / accentHover) — not a parallel palette.
  */
 @Immutable
 data class PrimerColors(
@@ -16,10 +19,14 @@ data class PrimerColors(
     val onSurface: Color,
     val onSurfaceMuted: Color,
     val brand: Color,
+    val brandHover: Color,
     val onBrand: Color,
+    /** Live / on-air badge — derived from attention. */
     val live: Color,
     val onLive: Color,
+    /** Educational classification — derived from accent (product extension). */
     val educational: Color,
+    /** Entertainment / one-viewing — derived from accentHover (product extension). */
     val entertainment: Color,
     val error: Color,
     val onError: Color,
@@ -27,28 +34,75 @@ data class PrimerColors(
     val focusGlow: Color,
     val scrimStrong: Color,
     val scrimSoft: Color,
+    /** Default rule / outline (System C `rule`). */
     val outline: Color,
+    /** Strong rule / section divide (System C `ruleStrong`). */
+    val outlineStrong: Color,
 )
 
-val PrimerDarkColors = PrimerColors(
-    background = Color(0xFF0B0F14),
-    surface = Color(0xFF151B24),
-    surfaceRaised = Color(0xFF1E2633),
-    onSurface = Color(0xFFF2F5F8),
-    onSurfaceMuted = Color(0xFFA7B0BD),
-    brand = Color(0xFF5B8CFF),
-    onBrand = Color(0xFF071018),
-    live = Color(0xFFE4572E),
-    onLive = Color(0xFFFFF7F4),
-    educational = Color(0xFF3DBE8B),
-    entertainment = Color(0xFFE0A458),
-    error = Color(0xFFFF6B6B),
-    onError = Color(0xFF1A0505),
-    focusBorder = Color(0xFFF4F7FF),
-    focusGlow = Color(0x665B8CFF),
-    scrimStrong = Color(0xCC05070A),
-    scrimSoft = Color(0x6605070A),
-    outline = Color(0xFF2C3545),
+/**
+ * Builds semantic colors from a System C theme object.
+ * Dark is the product default.
+ */
+fun primerColorsFromTokens(
+    surface: Color,
+    surfaceRaised: Color,
+    rule: Color,
+    ruleStrong: Color,
+    textMuted: Color,
+    text: Color,
+    accent: Color,
+    accentHover: Color,
+    onAccent: Color,
+    attention: Color,
+): PrimerColors = PrimerColors(
+    background = surface,
+    surface = surface,
+    surfaceRaised = surfaceRaised,
+    onSurface = text,
+    onSurfaceMuted = textMuted,
+    brand = accent,
+    brandHover = accentHover,
+    onBrand = onAccent,
+    // Classification / live: derived from System C, not free palette hex.
+    live = attention,
+    onLive = onAccent,
+    educational = accent,
+    entertainment = accentHover,
+    error = attention,
+    onError = onAccent,
+    focusBorder = accent,
+    focusGlow = accent.copy(alpha = 0.40f),
+    scrimStrong = surface.copy(alpha = 0.80f),
+    scrimSoft = surface.copy(alpha = 0.40f),
+    outline = rule,
+    outlineStrong = ruleStrong,
+)
+
+val PrimerDarkColors: PrimerColors = primerColorsFromTokens(
+    surface = PrimerTokens.Dark.surface,
+    surfaceRaised = PrimerTokens.Dark.surfaceRaised,
+    rule = PrimerTokens.Dark.rule,
+    ruleStrong = PrimerTokens.Dark.ruleStrong,
+    textMuted = PrimerTokens.Dark.textMuted,
+    text = PrimerTokens.Dark.text,
+    accent = PrimerTokens.Dark.accent,
+    accentHover = PrimerTokens.Dark.accentHover,
+    onAccent = PrimerTokens.Dark.onAccent,
+    attention = PrimerTokens.Dark.attention,
+)
+
+val PrimerLightColors: PrimerColors = primerColorsFromTokens(
+    surface = PrimerTokens.Light.surface,
+    surfaceRaised = PrimerTokens.Light.surfaceRaised,
+    rule = PrimerTokens.Light.rule,
+    ruleStrong = PrimerTokens.Light.ruleStrong,
+    textMuted = PrimerTokens.Light.textMuted,
+    text = PrimerTokens.Light.text,
+    accent = PrimerTokens.Light.accent,
+    accentHover = PrimerTokens.Light.accentHover,
+    onAccent = PrimerTokens.Light.onAccent,
+    attention = PrimerTokens.Light.attention,
 )
 
 val LocalPrimerColors = staticCompositionLocalOf { PrimerDarkColors }

@@ -64,7 +64,11 @@ export function PrimerPage() {
         fields={[]}
       />
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
       {summary && <RunSummaryLine summary={summary} />}
     </div>
   );
@@ -73,10 +77,10 @@ export function PrimerPage() {
 /** RunSummaryLine explains what a forced reporting pass did. */
 function RunSummaryLine({ summary }: { summary: RunSummary }) {
   if (summary.scanned === 0) {
-    return <p className="text-sm text-muted-foreground">Nothing new to report.</p>;
+    return <p className="type-label text-muted-foreground">Nothing new to report.</p>;
   }
   return (
-    <p className="text-sm text-muted-foreground">
+    <p className="type-label text-muted-foreground">
       Scanned {summary.scanned}: {summary.reported} counted, {summary.duplicate} already known,{" "}
       {summary.failed} left queued.
     </p>

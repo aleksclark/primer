@@ -50,31 +50,36 @@ function KeyForm({ rejected, onSkip, onForget }: KeyFormProps) {
   const [value, setValue] = useState("");
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
       <form
-        className="w-full max-w-sm space-y-4 rounded-lg border p-6 shadow-sm"
+        className="w-full max-w-sm space-y-4 border border-border bg-surface-raised p-6"
         onSubmit={(e) => {
           e.preventDefault();
           if (value) setAdminKey(value);
         }}
       >
-        <div className="space-y-1.5">
-          <h1 className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight">
+        <div className="space-y-2 border-b border-border pb-4">
+          <p className="type-label text-muted-foreground">Access</p>
+          <h1 className="type-h3 inline-flex items-center gap-2 text-foreground">
             <KeyRound className="h-5 w-5" /> Primer TV admin
           </h1>
           <p className="text-sm text-muted-foreground">
-            Enter the admin API key configured as <code>TV_ADMIN_API_KEY</code> on the server.
+            Enter the admin API key configured as <code className="font-mono">TV_ADMIN_API_KEY</code> on
+            the server.
           </p>
         </div>
 
         {rejected && (
-          <p className="inline-flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive">
+          <p
+            className="type-label inline-flex items-start gap-2 border border-attention px-3 py-2 text-attention"
+            role="alert"
+          >
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             The server rejected that key. Check it and try again.
           </p>
         )}
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="admin-key">Admin API key</Label>
           <Input
             id="admin-key"
@@ -83,10 +88,11 @@ function KeyForm({ rejected, onSkip, onForget }: KeyFormProps) {
             autoComplete="off"
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            aria-invalid={rejected || undefined}
           />
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
           <Button type="submit" disabled={!value}>
             Continue
           </Button>

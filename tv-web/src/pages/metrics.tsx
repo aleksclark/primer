@@ -20,9 +20,9 @@ function duration(seconds: number): string {
 
 function Panel({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border p-4 space-y-3">
-      <div>
-        <h2 className="font-medium">{title}</h2>
+    <div className="space-y-3 border border-border bg-surface-raised p-5">
+      <div className="space-y-1 border-b border-border pb-3">
+        <h2 className="type-h3 text-foreground">{title}</h2>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
       {children}
@@ -34,13 +34,13 @@ function Panel({ title, hint, children }: { title: string; hint?: string; childr
 function Bar({ label, value, total, detail }: { label: string; value: number; total: number; detail: string }) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-sm">
+    <div className="space-y-1.5">
+      <div className="flex justify-between gap-3 text-sm">
         <span>{label}</span>
-        <span className="text-muted-foreground">{detail}</span>
+        <span className="type-label text-muted-foreground">{detail}</span>
       </div>
-      <div className="h-2 rounded bg-muted">
-        <div className="h-2 rounded bg-primary" style={{ width: `${pct}%` }} />
+      <div className="h-[3px] bg-border">
+        <div className="h-[3px] bg-primary" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -83,9 +83,12 @@ export function MetricsPage() {
       : 0;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Viewing</h1>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-rule-strong pb-4">
+        <div className="space-y-1">
+          <p className="type-label text-muted-foreground">Reporting</p>
+          <h1 className="type-h1 text-foreground">Viewing</h1>
+        </div>
         <div className="flex items-center gap-2">
           {WINDOWS.map((option) => (
             <Button
@@ -103,23 +106,27 @@ export function MetricsPage() {
         </div>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
       {loading && !data && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {data && (
         <>
           <div className="grid gap-4 sm:grid-cols-3">
             <Panel title="Watched">
-              <p className="text-2xl font-semibold">{duration(totalWatched)}</p>
-              <p className="text-xs text-muted-foreground">{data.completion.sessions} viewings</p>
+              <p className="type-h2 text-foreground">{duration(totalWatched)}</p>
+              <p className="type-label text-muted-foreground">{data.completion.sessions} viewings</p>
             </Panel>
             <Panel title="Instructional" hint="Educational and mixed only">
-              <p className="text-2xl font-semibold">{duration(instructional)}</p>
-              <p className="text-xs text-muted-foreground">reported to Primer as hours</p>
+              <p className="type-h2 text-foreground">{duration(instructional)}</p>
+              <p className="type-label text-muted-foreground">reported to Primer as hours</p>
             </Panel>
             <Panel title="Finished" hint="Viewings watched to the end">
-              <p className="text-2xl font-semibold">{completionPct}%</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="type-h2 text-foreground">{completionPct}%</p>
+              <p className="type-label text-muted-foreground">
                 {data.completion.completed} of {data.completion.sessions}
               </p>
             </Panel>
@@ -168,8 +175,11 @@ export function MetricsPage() {
             hint="Single viewings spent against those offered in this window"
           >
             <p className="text-sm">
-              <span className="text-2xl font-semibold">{data.entertainment.playsUsed}</span>
-              <span className="text-muted-foreground"> used of {data.entertainment.windowsOffered} offered</span>
+              <span className="type-h2 text-foreground">{data.entertainment.playsUsed}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                used of {data.entertainment.windowsOffered} offered
+              </span>
             </p>
           </Panel>
 

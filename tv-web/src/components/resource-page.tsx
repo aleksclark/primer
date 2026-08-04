@@ -21,6 +21,7 @@ import {
 import { mutate } from "@/api/client";
 import { useList } from "@/hooks/use-list";
 import { fromLocalInput, toLocalInput } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
 
 /** ColumnDef describes one column of a resource table. */
 export interface ColumnDef<T> {
@@ -76,6 +77,14 @@ interface ResourcePageProps<T extends { id: string }> {
 }
 
 const PAGE_SIZE = 25;
+
+const selectClassName = cn(
+  "flex h-10 w-full rounded-none border border-input bg-surface-raised",
+  "px-3.5 py-3 text-sm text-foreground",
+  "focus-visible:border-primary focus-visible:outline focus-visible:outline-[length:var(--primer-focus-width)]",
+  "focus-visible:outline-offset-[var(--primer-focus-offset)] focus-visible:outline-primary",
+  "disabled:cursor-not-allowed disabled:text-rule-strong",
+);
 
 /**
  * ResourcePage is a complete admin CRUD screen: paginated + searchable
@@ -195,13 +204,14 @@ export function ResourcePage<T extends { id: string }>({
   const actionCount = (rowActions?.length ?? 0) + (canEdit ? 2 : 1);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-rule-strong pb-4">
+        <div className="space-y-1">
+          <p className="type-label text-muted-foreground">Resource</p>
+          <h1 className="type-h1 text-foreground">{title}</h1>
+          {description && <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {toolbar}
           {searchable && (
             <Input
@@ -218,25 +228,39 @@ export function ResourcePage<T extends { id: string }>({
             <RefreshCw />
           </Button>
           {canCreate && (
-            <Button onClick={() => { setFormError(null); setCreating(true); }}>
+            <Button
+              onClick={() => {
+                setFormError(null);
+                setCreating(true);
+              }}
+            >
               <Plus /> New
             </Button>
           )}
         </div>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+      {error && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {error}
+        </p>
+      )}
+      {actionError && (
+        <p className="type-label border border-attention px-3 py-2 text-attention" role="alert">
+          {actionError}
+        </p>
+      )}
 
-      <div className="rounded-md border">
+      <div className="border border-border bg-background">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="hover:bg-transparent">
               {columns.map((col) => (
                 <TableHead key={col.key}>
                   {col.sortable ? (
                     <button
-                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      type="button"
+                      className="type-label inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
                       onClick={() => toggleSort(col.key)}
                     >
                       {col.header}
@@ -285,7 +309,10 @@ export function ResourcePage<T extends { id: string }>({
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => { setFormError(null); setEditing(row); }}
+                          onClick={() => {
+                            setFormError(null);
+                            setEditing(row);
+                          }}
                           title="Edit"
                         >
                           <Pencil />
@@ -309,8 +336,8 @@ export function ResourcePage<T extends { id: string }>({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
+      <div className="flex items-center justify-between gap-4">
+        <span className="type-label text-muted-foreground">
           {pageStart}–{pageEnd} of {total}
         </span>
         <div className="flex gap-2">
@@ -361,9 +388,14 @@ export function ResourcePage<T extends { id: string }>({
                   field={field}
                   editing={editing !== null}
                   value={editing ? (editing as Record<string, unknown>)[field.key] : undefined}
+                  invalid={Boolean(formError)}
                 />
               ))}
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
+            {formError && (
+              <p className="type-label text-attention" role="alert">
+                {formError}
+              </p>
+            )}
             <DialogFooter>
               <Button type="submit">{editing ? "Save" : "Create"}</Button>
             </DialogFooter>
@@ -378,10 +410,11 @@ interface ResourceFieldProps {
   field: FieldDef;
   editing: boolean;
   value: unknown;
+  invalid?: boolean;
 }
 
 /** ResourceField renders one create/edit input for its declared field type. */
-function ResourceField({ field, editing, value }: ResourceFieldProps) {
+function ResourceField({ field, editing, value, invalid }: ResourceFieldProps) {
   const required = field.required && !editing;
 
   const control = () => {
@@ -394,7 +427,7 @@ function ResourceField({ field, editing, value }: ResourceFieldProps) {
             name={field.key}
             defaultValue={value != null ? String(value) : ""}
             required={required}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            className={selectClassName}
           >
             <option value="">—</option>
             {choices.map((choice) => (
@@ -412,7 +445,7 @@ function ResourceField({ field, editing, value }: ResourceFieldProps) {
             name={field.key}
             type="checkbox"
             defaultChecked={Boolean(value)}
-            className="h-4 w-4"
+            className="h-4 w-4 rounded-none border border-border accent-[var(--primer-color-accent)]"
           />
         );
       case "datetime":
@@ -423,6 +456,7 @@ function ResourceField({ field, editing, value }: ResourceFieldProps) {
             type="datetime-local"
             defaultValue={toLocalInput(value as string | null | undefined)}
             required={required}
+            aria-invalid={invalid || undefined}
           />
         );
       case "tags":
@@ -432,6 +466,7 @@ function ResourceField({ field, editing, value }: ResourceFieldProps) {
             name={field.key}
             placeholder="comma,separated"
             defaultValue={Array.isArray(value) ? (value as string[]).join(", ") : ""}
+            aria-invalid={invalid || undefined}
           />
         );
       default:
@@ -442,13 +477,14 @@ function ResourceField({ field, editing, value }: ResourceFieldProps) {
             type={field.type === "number" ? "number" : "text"}
             defaultValue={value != null ? String(value) : ""}
             required={required}
+            aria-invalid={invalid || undefined}
           />
         );
     }
   };
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label htmlFor={field.key}>{field.label}</Label>
       {control()}
       {field.help && <p className="text-xs text-muted-foreground">{field.help}</p>}

@@ -117,17 +117,23 @@ export function DevicesPage() {
 /** PairingCode shows an outstanding code, or why there is not one. */
 function PairingCode({ device }: { device: Device }) {
   if (!device.pairingCode) {
-    return <span className="text-xs text-muted-foreground">—</span>;
+    return <span className="type-label text-muted-foreground">—</span>;
   }
   const expired =
     device.pairingExpiresAt != null && new Date(device.pairingExpiresAt).getTime() <= Date.now();
   return (
     <div className="space-y-0.5">
-      <code className={expired ? "text-muted-foreground line-through" : "font-medium tracking-widest"}>
+      <code
+        className={
+          expired
+            ? "font-mono text-muted-foreground line-through tracking-widest"
+            : "font-mono font-medium tracking-widest"
+        }
+      >
         {device.pairingCode}
       </code>
       {device.pairingExpiresAt && (
-        <div className="text-xs text-muted-foreground">
+        <div className="type-label text-muted-foreground">
           {expired ? "expired" : `expires ${formatDateTime(device.pairingExpiresAt)}`}
         </div>
       )}
@@ -179,17 +185,17 @@ function RegisterDialog({ open, onClose, onRegistered }: RegisterDialogProps) {
             void submit(new FormData(e.currentTarget));
           }}
         >
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="device-name">Name</Label>
             <Input id="device-name" name="name" required placeholder="Living room TV box" />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="device-kind">Kind</Label>
             <select
               id="device-kind"
               name="kind"
               defaultValue="tablet"
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              className="flex h-10 w-full rounded-none border border-input bg-surface-raised px-3.5 py-3 text-sm text-foreground focus-visible:border-primary focus-visible:outline focus-visible:outline-[length:var(--primer-focus-width)] focus-visible:outline-offset-[var(--primer-focus-offset)] focus-visible:outline-primary"
             >
               {DEVICE_KINDS.map((kind) => (
                 <option key={kind} value={kind}>
@@ -198,7 +204,11 @@ function RegisterDialog({ open, onClose, onRegistered }: RegisterDialogProps) {
               ))}
             </select>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p className="type-label text-attention" role="alert">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button type="submit">Register</Button>
           </DialogFooter>
@@ -224,12 +234,12 @@ function PairingCodeDialog({ device, onClose }: { device: Device | null; onClose
             <p className="text-sm text-muted-foreground">
               Enter this code on <span className="font-medium text-foreground">{device.name}</span>.
             </p>
-            <p className="inline-flex items-center gap-2 font-mono text-4xl font-semibold tracking-[0.3em]">
+            <p className="inline-flex items-center gap-2 font-mono text-4xl font-semibold tracking-[0.3em] text-foreground">
               <KeyRound className="h-6 w-6 text-muted-foreground" />
               {device.pairingCode}
             </p>
             {device.pairingExpiresAt && (
-              <p className="text-sm text-muted-foreground">
+              <p className="type-label text-muted-foreground">
                 Expires {formatDateTime(device.pairingExpiresAt)}.
               </p>
             )}
