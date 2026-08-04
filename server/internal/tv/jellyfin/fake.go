@@ -61,15 +61,39 @@ func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
 	if f.Err != nil {
 		return nil, f.Err
 	}
+	wantTypes := map[string]bool{}
+	if p.IncludeItemTypes != "" {
+		for _, t := range strings.Split(p.IncludeItemTypes, ",") {
+			wantTypes[strings.TrimSpace(t)] = true
+		}
+	}
 	out := make([]Item, 0, len(f.Items))
 	for _, it := range f.Items {
-		if p.SearchTerm != "" && !strings.Contains(strings.ToLower(it.Name), strings.ToLower(p.SearchTerm)) {
+		if len(wantTypes) > 0 && !wantTypes[it.Type] {
+			continue
+		}
+		if p.SearchTerm != "" && !strings.Contains(strings.ToLower(it.Name), strings.ToLower(p.SearchTerm)) &&
+			!strings.Contains(strings.ToLower(it.SeriesName), strings.ToLower(p.SearchTerm)) {
 			continue
 		}
 		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
 			continue
 		}
-		if p.AnyProviderIDEquals != "" && !providerMatch(it, p.AnyProviderIDEquals) {
+		if p.AnyProviderIDEquals != "" && !ProviderMatch(it, p.AnyProviderIDEquals) {
+			continue
+		}
+		if p.SeriesID != "" && it.SeriesID != p.SeriesID && it.ID != p.SeriesID {
+			// Episodes carry SeriesID; allow the series row itself through only
+			// when its own ID matches (not used for episode listings).
+			if it.Type == "Episode" || it.Type == "Video" {
+				if it.SeriesID != p.SeriesID {
+					continue
+				}
+			} else if it.ID != p.SeriesID {
+				continue
+			}
+		}
+		if p.ParentID != "" && it.ParentID != p.ParentID && it.SeriesID != p.ParentID {
 			continue
 		}
 		out = append(out, it)
@@ -84,30 +108,6 @@ func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
 		out = out[:p.Limit]
 	}
 	return out, nil
-}
-
-// providerMatch checks Jellyfin's AnyProviderIdEquals "Key=Value|…" form.
-func providerMatch(it Item, expr string) bool {
-	for _, part := range strings.Split(expr, "|") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		key, val, ok := strings.Cut(part, "=")
-		if !ok {
-			// Bare value: match any provider id equal to it.
-			for _, v := range it.ProviderIds {
-				if v == part {
-					return true
-				}
-			}
-			continue
-		}
-		if it.ProviderID(key) == val {
-			return true
-		}
-	}
-	return false
 }
 
 // RefreshLibrary records a refresh call.
