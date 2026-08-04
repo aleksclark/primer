@@ -1,0 +1,6 @@
+# Human review queue for content-ingest.
+# For each entry, set chosen_tmdb or chosen_tvdb from the candidates
+# (or look the title up yourself). The next `ingest apply` resolve pass
+# writes the pick into the manifest and drops the entry.
+
+entries: []

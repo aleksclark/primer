@@ -332,4 +332,154 @@ func TestFakeClientSurfacesConfiguredError(t *testing.T) {
 	assert.ErrorIs(t, err, assert.AnError)
 	_, _, err = fake.FetchImage(context.Background(), "a", "Primary", "")
 	assert.ErrorIs(t, err, assert.AnError)
+	assert.ErrorIs(t, fake.RefreshLibrary(context.Background()), assert.AnError)
+	_, err = fake.ScanRunning(context.Background())
+	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestRefreshAndScanRunning(t *testing.T) {
+	t.Parallel()
+	var refreshHits int
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/Refresh":
+			assert.Equal(t, http.MethodPost, r.Method)
+			refreshHits++
+			w.WriteHeader(http.StatusNoContent)
+		case "/ScheduledTasks":
+			_, _ = w.Write([]byte(`[
+				{"Name":"Scan Media Library","Key":"RefreshLibrary","State":"Running"},
+				{"Name":"Other","Key":"x","State":"Idle"}
+			]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	require.NoError(t, client.RefreshLibrary(context.Background()))
+	assert.Equal(t, 1, refreshHits)
+	running, err := client.ScanRunning(context.Background())
+	require.NoError(t, err)
+	assert.True(t, running)
+}
+
+func TestScanRunningIdle(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"Name":"Cleanup","Key":"clean","State":"Idle"}]`))
+	}))
+	running, err := client.ScanRunning(context.Background())
+	require.NoError(t, err)
+	assert.False(t, running)
+}
+
+func TestBrowseProviderAndPath(t *testing.T) {
+	t.Parallel()
+	var gotQuery url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		// Simulate a Jellyfin that IGNORES AnyProviderIdEquals and returns
+		// unrelated library items — the client must filter them out.
+		_, _ = w.Write([]byte(`{
+			"Items": [
+				{
+					"Id": "ep1", "Name": "Ep1", "Type": "Episode",
+					"Path": "/media/Shows/paul-sellers/Season 01/x.mkv",
+					"ProviderIds": {"Tmdb": "603", "Tvdb": "79165"},
+					"IndexNumber": 1, "ParentIndexNumber": 1, "SeriesName": "Paul Sellers",
+					"SeriesId": "series-ps",
+					"RunTimeTicks": 100000000
+				},
+				{
+					"Id": "other", "Name": "3 Ninjas", "Type": "Movie",
+					"Path": "/media/Movies/3 Ninjas.mkv",
+					"ProviderIds": {"Tmdb": "1"}
+				},
+				{
+					"Id": "no-provider", "Name": "Orphan", "Type": "Movie",
+					"Path": "/media/Movies/Orphan.mkv"
+				}
+			]
+		}`))
+	}))
+
+	items, err := client.Browse(context.Background(), jellyfin.BrowseParams{
+		AnyProviderIDEquals: "Tmdb=603",
+		PathContains:        "paul-sellers",
+		IncludeProviderIDs:  true,
+		IncludePath:         true,
+		Limit:               20,
+	})
+	require.NoError(t, err)
+	require.Len(t, items, 1, "unrelated library items must be dropped client-side")
+	assert.Equal(t, "ep1", items[0].ID)
+	assert.Equal(t, "S01E01", items[0].EpisodeKey())
+	assert.Equal(t, "603", items[0].ProviderID("tmdb"))
+	assert.Equal(t, "Tmdb=603", gotQuery.Get("AnyProviderIdEquals"))
+	assert.Contains(t, gotQuery.Get("Fields"), "ProviderIds")
+	assert.Contains(t, gotQuery.Get("Fields"), "Path")
+}
+
+func TestBrowseDropsProviderMismatches(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Whole-library dump with no matching provider id.
+		_, _ = w.Write([]byte(`{
+			"Items": [
+				{"Id":"a","Name":"3 Ninjas","Type":"Movie","ProviderIds":{"Tmdb":"11234"}},
+				{"Id":"b","Name":"50 First Dates","Type":"Movie","ProviderIds":{"Tmdb":"1824"}},
+				{"Id":"c","Name":"Babylon 5","Type":"Episode","ProviderIds":{"Tvdb":"70726"}}
+			]
+		}`))
+	}))
+	items, err := client.Browse(context.Background(), jellyfin.BrowseParams{
+		AnyProviderIDEquals: "Tvdb=79165",
+		IncludeProviderIDs:  true,
+		Limit:               500,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, items, "provider filter must not accept foreign library rows")
+}
+
+func TestProviderMatch(t *testing.T) {
+	t.Parallel()
+	it := jellyfin.Item{ProviderIds: map[string]string{"Tmdb": "603", "Tvdb": "79165"}}
+	assert.True(t, jellyfin.ProviderMatch(it, "Tmdb=603"))
+	assert.True(t, jellyfin.ProviderMatch(it, "tmdb=603"))
+	assert.True(t, jellyfin.ProviderMatch(it, "Tvdb=79165|Tmdb=999"))
+	assert.False(t, jellyfin.ProviderMatch(it, "Tmdb=1"))
+	assert.False(t, jellyfin.ProviderMatch(it, "Tvdb=1"))
+	assert.True(t, jellyfin.ProviderMatch(it, "603"), "bare value matches any key")
+	assert.False(t, jellyfin.ProviderMatch(jellyfin.Item{}, "Tmdb=603"))
+}
+
+func TestFakeBrowseProviderPathAndAdmin(t *testing.T) {
+	t.Parallel()
+	fake := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "a", Name: "A", Path: "/media/Shows/slug/x.mkv",
+			ProviderIds: map[string]string{"Tmdb": "9"}, Type: "Episode",
+			ParentIndexNumber: 1, IndexNumber: 2,
+		},
+		jellyfin.Item{ID: "b", Name: "B", Path: "/other", ProviderIds: map[string]string{"Tvdb": "1"}},
+	)
+	byPath, err := fake.Browse(context.Background(), jellyfin.BrowseParams{PathContains: "Shows/slug"})
+	require.NoError(t, err)
+	require.Len(t, byPath, 1)
+
+	byProv, err := fake.Browse(context.Background(), jellyfin.BrowseParams{AnyProviderIDEquals: "Tmdb=9"})
+	require.NoError(t, err)
+	require.Len(t, byProv, 1)
+
+	byBare, err := fake.Browse(context.Background(), jellyfin.BrowseParams{AnyProviderIDEquals: "9"})
+	require.NoError(t, err)
+	require.Len(t, byBare, 1)
+
+	require.NoError(t, fake.RefreshLibrary(context.Background()))
+	assert.Equal(t, 1, fake.RefreshCalls)
+	fake.Scanning = true
+	running, err := fake.ScanRunning(context.Background())
+	require.NoError(t, err)
+	assert.True(t, running)
+	assert.Equal(t, "S01E02", byPath[0].EpisodeKey())
+	assert.Equal(t, "", jellyfin.Item{Type: "Movie"}.EpisodeKey())
 }

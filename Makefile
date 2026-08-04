@@ -4,7 +4,7 @@ COVER_MIN := 85
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
-	tv-client tv-web tv-bundle
+	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply
 
 all: build openapi openapi-tv client tv-client
 
@@ -109,3 +109,19 @@ tv-bundle: tv-web
 ## Vet the Go code.
 lint:
 	cd server && go vet ./...
+
+## Build the content-ingest binary.
+ingest-build:
+	cd server && go build -o ../bin/content-ingest ./cmd/content-ingest
+
+## Show the content-ingest diff (writes review.yaml candidates + a report).
+ingest-plan: ingest-build
+	./bin/content-ingest plan
+
+## Interactive TUI to pick candidates in curriculum/content-review.yaml.
+ingest-review: ingest-build
+	./bin/content-ingest review
+
+## Converge Radarr/Sonarr/yt-dlp/Jellyfin/TV toward the content manifest.
+ingest-apply: ingest-build
+	./bin/content-ingest apply

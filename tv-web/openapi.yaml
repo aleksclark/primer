@@ -491,6 +491,10 @@ components:
         expiresAt:
           format: date-time
           type: string
+        furthestPositionSeconds:
+          description: Furthest playhead position this device has reached on the item. On-demand seek ceiling; zero when fresh.
+          format: int64
+          type: integer
         grantId:
           format: uuid
           type: string
@@ -503,6 +507,7 @@ components:
           format: date-time
           type: string
         startOffsetSeconds:
+          description: Where the player should start. On demand this is resume-30s from the furthest position; programmed is the broadcast offset.
           format: int64
           type: integer
         streamUrl:
@@ -511,6 +516,7 @@ components:
         - grantId
         - streamUrl
         - startOffsetSeconds
+        - furthestPositionSeconds
         - mode
         - expiresAt
         - serverTime

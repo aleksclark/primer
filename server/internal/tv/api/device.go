@@ -46,13 +46,13 @@ type CatalogResponse struct {
 
 // GrantResponse authorizes one playback.
 type GrantResponse struct {
-	GrantID              string    `json:"grantId" format:"uuid"`
-	StreamURL            string    `json:"streamUrl"`
-	StartOffsetSeconds   int       `json:"startOffsetSeconds" doc:"Where the player should start. On demand this is resume-30s from the furthest position; programmed is the broadcast offset."`
-	FurthestPositionSeconds int    `json:"furthestPositionSeconds" doc:"Furthest playhead position this device has reached on the item. On-demand seek ceiling; zero when fresh."`
-	Mode                 string    `json:"mode" enum:"on_demand,programmed"`
-	ExpiresAt            time.Time `json:"expiresAt"`
-	ServerTime           time.Time `json:"serverTime"`
+	GrantID                 string    `json:"grantId" format:"uuid"`
+	StreamURL               string    `json:"streamUrl"`
+	StartOffsetSeconds      int       `json:"startOffsetSeconds" doc:"Where the player should start. On demand this is resume-30s from the furthest position; programmed is the broadcast offset."`
+	FurthestPositionSeconds int       `json:"furthestPositionSeconds" doc:"Furthest playhead position this device has reached on the item. On-demand seek ceiling; zero when fresh."`
+	Mode                    string    `json:"mode" enum:"on_demand,programmed"`
+	ExpiresAt               time.Time `json:"expiresAt"`
+	ServerTime              time.Time `json:"serverTime"`
 }
 
 // HeartbeatRequest reports playback progress.
