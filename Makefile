@@ -13,13 +13,30 @@ COVER_MIN := 85
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
 	activity-validate activity-publish student-build student-deploy student-acceptance \
 	student-stub student-harness \
-	workstation-package workstation-check update-student-vendor-hash
+	workstation-package workstation-check update-student-vendor-hash \
+	investor-web investor-web-dev investor-web-test investor-web-ci
 
 all: build openapi openapi-tv client tv-client
 
 ## Generate and validate cross-platform design tokens and the review preview.
 design-system:
 	python3 design-system/build.py
+
+## Build the investor pitch site (regenerates design-system tokens first).
+investor-web: design-system
+	cd investor-web && npm run build
+
+## Run the investor pitch Vite dev server.
+investor-web-dev:
+	cd investor-web && npm run dev
+
+## Investor data, launch, a11y, and unit checks (no production build).
+investor-web-test:
+	cd investor-web && npm test
+
+## CI sequence: design-system → tests → typecheck/lint → build → bundle budgets.
+investor-web-ci: design-system
+	cd investor-web && npm run gate
 
 ## Build the server binaries.
 build:
