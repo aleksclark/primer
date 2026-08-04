@@ -244,10 +244,13 @@ in
     ];
 
     systemd.tmpfiles.rules = [
-      "d ${stateDir} 0750 primer-broker primer-broker -"
-      "d ${stateDir}/workspaces 0750 primer-broker primer-broker -"
+      # State is broker-only (token + SQLite). Runtime dir is group students so
+      # the student account can traverse to broker.sock (0660 students).
+      "d ${stateDir} 0700 primer-broker primer-broker -"
+      "d ${stateDir}/workspaces 0700 primer-broker primer-broker -"
       "d ${stateDir}/bin 0750 root root -"
-      "d ${runDir} 0750 primer-broker primer-broker -"
+      "d ${runDir} 0750 primer-broker students -"
+      "Z ${runDir} 0750 primer-broker students -"
     ];
 
     systemd.services.primer-student-broker = {
@@ -259,15 +262,24 @@ in
       serviceConfig = {
         Type = "simple";
         User = "primer-broker";
-        Group = "primer-broker";
-        # Needed to chown the socket to group students after bind.
-        SupplementaryGroups = [ "students" ];
+        # Primary group students so RuntimeDirectory is primer-broker:students
+        # (0750). Student is in group students and can reach broker.sock.
+        Group = "students";
+        SupplementaryGroups = [ "primer-broker" ];
         StateDirectory = "primer-student";
-        # State must not be student-readable (token + SQLite).
+        # State must not be student-readable (token + SQLite). Mode 0700 is
+        # owner-only even when the primary group is students.
         StateDirectoryMode = "0700";
         RuntimeDirectory = "primer-student";
         RuntimeDirectoryMode = "0750";
-        UMask = "0077";
+        # Allow group rw on the socket; token/db still created 0600 via explicit modes.
+        UMask = "0007";
+        # Ensure runtime dir group stays students across restarts (systemd may
+        # recreate RuntimeDirectory as User:Group before ExecStart).
+        ExecStartPre = [
+          "+${pkgs.coreutils}/bin/chgrp students ${runDir}"
+          "+${pkgs.coreutils}/bin/chmod 0750 ${runDir}"
+        ];
         ExecStart = lib.concatStringsSep " " [
           primerStudentBin
           "broker"

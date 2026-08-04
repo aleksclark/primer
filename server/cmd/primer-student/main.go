@@ -285,15 +285,23 @@ func runHealth(socket, baseURL, dbPath string) error {
 		}
 	}
 
+	// State dir is broker-owned (0700). Student/TUI health must not require
+	// write access when the broker socket is healthy.
 	dbDir := filepath.Dir(absPath(dbPath))
-	if err := os.MkdirAll(dbDir, 0o750); err != nil {
-		fmt.Fprintf(os.Stderr, "FAIL: cannot create state dir %s: %v\n", dbDir, err)
+	if st, err := os.Stat(dbDir); err != nil {
+		if socket != "" {
+			fmt.Printf("WARN: state dir not visible to this user %s: %v (ok if broker-owned)\n", dbDir, err)
+		} else if err := os.MkdirAll(dbDir, 0o750); err != nil {
+			fmt.Fprintf(os.Stderr, "FAIL: cannot create state dir %s: %v\n", dbDir, err)
+			errors++
+		}
+	} else if !st.IsDir() {
+		fmt.Fprintf(os.Stderr, "FAIL: state path is not a directory %s\n", dbDir)
 		errors++
 	} else {
 		probe := filepath.Join(dbDir, ".health-write")
 		if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
-			// Broker-owned dir may not be writable by student — warn only.
-			fmt.Printf("WARN: state dir not writable by this user %s: %v\n", dbDir, err)
+			fmt.Printf("WARN: state dir not writable by this user %s: %v (ok if broker-owned)\n", dbDir, err)
 		} else {
 			_ = os.Remove(probe)
 			fmt.Printf("ok: state dir writable %s\n", dbDir)
