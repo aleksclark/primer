@@ -1,0 +1,129 @@
+schema_version: "1"
+slug: basic-navigation
+title: Basic Navigation
+summary: Discover where you are and move around a small directory tree with pwd, ls, and cd.
+kind: terminal
+subject_code: digital-literacy
+standards:
+  - code: PRIMER.DL.6.NAV.1
+    role: primary
+    weight: 1.0
+  - code: PRIMER.DL.6.NAV.2
+    role: reinforcement
+    weight: 0.5
+min_runner_version: "1"
+content:
+  objective: Navigate a disposable workspace using pwd, ls, and cd.
+  instructions: |
+    Your workspace looks like a small home folder. Figure out where you are,
+    list what is nearby, and move into the docs folder. Prefer discovery over
+    guessing full paths.
+  terminal:
+    runtime_profile: coreutils-basic
+    initial_cwd: home
+    fixtures:
+      - path: home
+        type: directory
+      - path: home/welcome.txt
+        type: file
+        content: |
+          Welcome to your practice workspace.
+          Use pwd, ls, and cd to look around.
+      - path: home/docs
+        type: directory
+      - path: home/docs/guide.txt
+        type: file
+        mode: "0644"
+        content: |
+          The docs folder holds short guides.
+          You reached the right place if you can list this file.
+      - path: home/projects
+        type: directory
+      - path: home/projects/readme.txt
+        type: file
+        content: |
+          Projects live here later.
+  tasks:
+    - id: orient
+      title: Find your location
+      instructions: |
+        Run a command that prints your current directory, then list the files
+        in your current folder. Confirm welcome.txt is visible.
+      completion:
+        check_id: welcome-exists
+      hint_ids: [hint-pwd, hint-ls]
+    - id: enter-docs
+      title: Enter the docs folder
+      instructions: |
+        Change into the docs directory under home and list its contents.
+        You should see guide.txt.
+      prerequisites: [orient]
+      completion:
+        all:
+          - check_id: docs-is-dir
+          - check_id: guide-exists
+          - check_id: guide-is-file
+            optional: true
+      hint_ids: [hint-cd]
+    - id: read-guide
+      title: Confirm the guide text
+      instructions: |
+        Open guide.txt with a read-only command and make sure it mentions guides.
+      prerequisites: [enter-docs]
+      completion:
+        any:
+          - check_id: guide-mentions-guides
+          - check_id: guide-matches-welcome-line
+  checks:
+    - id: welcome-exists
+      kind: file_exists
+      params:
+        path: home/welcome.txt
+    - id: docs-is-dir
+      kind: path_type
+      params:
+        path: home/docs
+        type: directory
+    - id: guide-exists
+      kind: file_exists
+      params:
+        path: home/docs/guide.txt
+    - id: guide-is-file
+      kind: path_type
+      params:
+        path: home/docs/guide.txt
+        type: file
+    - id: guide-mentions-guides
+      kind: content_contains
+      params:
+        path: home/docs/guide.txt
+        value: guides
+    - id: guide-matches-welcome-line
+      kind: content_match
+      params:
+        path: home/docs/guide.txt
+        pattern: "right place"
+  hints:
+    - id: hint-pwd
+      level: 1
+      text: A short command prints the path of your current directory.
+    - id: hint-ls
+      level: 1
+      text: Another short command lists names in the current directory.
+    - id: hint-cd
+      level: 2
+      text: Change directory using a relative name like docs rather than an absolute path.
+  tutor:
+    goal_summary: Student learns to orient and move with pwd/ls/cd.
+    misconceptions:
+      - Absolute paths from the host are not available inside the exercise workspace.
+      - ls does not change the current directory.
+    constraints:
+      - Do not paste full command lines unless the student is stuck after graduated hints.
+      - Prefer questions that send the student back to the workspace.
+  progression:
+    allow_reset: true
+    resume_from_task: true
+    require_in_order: true
+  artifacts:
+    enabled: false

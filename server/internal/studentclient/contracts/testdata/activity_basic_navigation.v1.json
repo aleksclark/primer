@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1",
+  "slug": "basic-navigation",
+  "title": "Basic Navigation",
+  "summary": "Learn ls, cd, pwd",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "primary",
+      "weight": 1
+    }
+  ],
+  "content": {
+    "objective": "Navigate a small directory tree",
+    "instructions": "Explore the workspace with ls, cd, and pwd.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "fixtures": [
+        {
+          "path": "home",
+          "type": "directory"
+        },
+        {
+          "path": "home/welcome.txt",
+          "type": "file",
+          "content": "hello\n"
+        },
+        {
+          "path": "home/docs",
+          "type": "directory"
+        },
+        {
+          "path": "home/docs/guide.txt",
+          "type": "file",
+          "content": "read me\n",
+          "mode": "0644"
+        }
+      ],
+      "initialCwd": "home"
+    },
+    "tasks": [
+      {
+        "id": "list-home",
+        "title": "List home",
+        "instructions": "List the files in home.",
+        "completion": {
+          "checkId": "welcome-exists"
+        }
+      },
+      {
+        "id": "enter-docs",
+        "title": "Enter docs",
+        "instructions": "Change into home/docs.",
+        "prerequisites": [
+          "list-home"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "in-docs"
+            },
+            {
+              "checkId": "guide-is-file",
+              "optional": true
+            }
+          ]
+        }
+      }
+    ],
+    "checks": [
+      {
+        "id": "welcome-exists",
+        "kind": "file_exists",
+        "params": {
+          "path": "home/welcome.txt"
+        }
+      },
+      {
+        "id": "in-docs",
+        "kind": "cwd",
+        "params": {
+          "path": "home/docs"
+        }
+      },
+      {
+        "id": "guide-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "home/docs/guide.txt",
+          "type": "file"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "hint-ls",
+        "level": 1,
+        "text": "Try the ls command."
+      }
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+# Primer custom digital-literacy standards (Phase 0 seed).
+# Codes use PRIMER.DL.<grade>.<domain>.<n> and are reconciled into the LMS
+# standards table in Phase 1.
+standards:
+  - code: PRIMER.DL.6.NAV.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: navigation
+    cluster: filesystem-discovery
+    description: >
+      Use pwd, ls, and cd to determine location and explore a directory tree
+      without leaving the assigned workspace.
+    mastery_criteria:
+      - Can report the current working directory with pwd
+      - Can list directory contents with ls
+      - Can change directories with cd using relative paths
+
+  - code: PRIMER.DL.6.NAV.2
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: navigation
+    cluster: path-literacy
+    description: >
+      Distinguish files from directories and follow relative paths to a target
+      location inside a workspace.
+    mastery_criteria:
+      - Can identify path types (file vs directory)
+      - Can reach a nested directory using a relative path
+
+  - code: PRIMER.DL.6.FILES.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: files
+    cluster: organize
+    description: >
+      Create directories and move or copy files to organize a small workspace
+      according to an explicit structure.
+    mastery_criteria:
+      - Can create directories with mkdir
+      - Can copy files with cp
+      - Can move or rename files with mv
+
+  - code: PRIMER.DL.6.FILES.2
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: files
+    cluster: inspect
+    description: >
+      Inspect file contents with safe read-only tools and confirm expected text
+      after organizing files.
+    mastery_criteria:
+      - Can read a text file with cat or equivalent
+      - Can verify a file exists at an expected path
+
+  - code: PRIMER.DL.6.TYPE.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: typing
+    cluster: fluency
+    description: >
+      Type short assigned prompts with accuracy suitable for command-line work
+      (supports typing activities only; does not imply command mastery).
+    mastery_criteria:
+      - Meets activity accuracy threshold
+      - Completes the assigned prompt set

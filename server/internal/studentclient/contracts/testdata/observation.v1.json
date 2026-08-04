@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1",
+  "checkId": "welcome-exists",
+  "kind": "file_exists",
+  "passed": true,
+  "message": "exists",
+  "observedAt": "2026-03-21T12:00:00Z",
+  "details": {
+    "path": "home/welcome.txt"
+  }
+}

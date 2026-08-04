@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1",
+  "completionId": "22222222-2222-2222-2222-222222222222",
+  "requestDigest": "sha256:def",
+  "observations": [
+    {
+      "schemaVersion": "1",
+      "checkId": "welcome-exists",
+      "kind": "file_exists",
+      "passed": true,
+      "message": "exists",
+      "observedAt": "2026-03-21T12:00:00Z",
+      "details": {
+        "path": "home/welcome.txt"
+      }
+    }
+  ],
+  "clientTime": "2026-03-21T12:00:00Z"
+}

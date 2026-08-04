@@ -10,7 +10,8 @@ COVER_MIN := 85
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
-	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system
+	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
+	activity-validate
 
 all: build openapi openapi-tv client tv-client
 
@@ -135,3 +136,7 @@ ingest-review: ingest-build
 ## Converge Radarr/Sonarr/yt-dlp/Jellyfin/TV toward the content manifest.
 ingest-apply: ingest-build
 	./bin/content-ingest apply
+
+## Validate curriculum/activities against student-client contracts (offline, no DB).
+activity-validate:
+	cd server && go run ./cmd/activity-validate -dir ../curriculum/activities
