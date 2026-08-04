@@ -1,0 +1,11 @@
+export { CompetitionSection } from "./CompetitionSection";
+export { CurrentStateSection } from "./CurrentStateSection";
+export { EvidenceSection } from "./EvidenceSection";
+export { FounderSection } from "./FounderSection";
+export { GtmSection } from "./GtmSection";
+export { MarketSection } from "./MarketSection";
+export { ProblemSection } from "./ProblemSection";
+export { ProductSection } from "./ProductSection";
+export { RoundSection } from "./RoundSection";
+export { TeachingSection } from "./TeachingSection";
+export { ThesisSection } from "./ThesisSection";

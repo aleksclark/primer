@@ -1,28 +1,39 @@
+import { adoptionLadder } from "./adoptionLadder";
 import { competitorCategories } from "./competitorCategories";
 import { founderProof } from "./founderProof";
 import { fundingPlan } from "./fundingPlan";
+import { instructionalLoop } from "./instructionalLoop";
 import { marketLayers } from "./marketLayers";
+import { beachheadJobs, problemPoints } from "./problemPoints";
 import { pricingTiers } from "./pricingTiers";
 import { productState } from "./productState";
 import { researchClaims } from "./researchClaims";
 import { sections } from "./sections";
 import { seedScorecard } from "./seedScorecard";
 import { sources } from "./sources";
+import { teachingExamples } from "./teachingExamples";
+import { teamPlan } from "./teamPlan";
 import type { InvestorDataPackage } from "./types";
 import { toDisplayStatus } from "./types";
 
 export * from "./types";
 export {
+  adoptionLadder,
+  beachheadJobs,
   competitorCategories,
   founderProof,
   fundingPlan,
+  instructionalLoop,
   marketLayers,
   pricingTiers,
+  problemPoints,
   productState,
   researchClaims,
   sections,
   seedScorecard,
   sources,
+  teachingExamples,
+  teamPlan,
   toDisplayStatus,
 };
 
@@ -38,6 +49,12 @@ export const investorData: InvestorDataPackage = {
   fundingPlan,
   sources,
   sections,
+  instructionalLoop,
+  teachingExamples,
+  adoptionLadder,
+  problemPoints,
+  beachheadJobs,
+  teamPlan,
 };
 
 export default investorData;

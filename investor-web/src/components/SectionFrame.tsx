@@ -68,10 +68,12 @@ export function SectionFrame({
         </header>
 
         <div className="section-frame__body">
-          {section.subhead ? <p className="type-h3">{section.subhead}</p> : null}
-          <p className="type-body prose-measure">{section.body}</p>
+          <div className="section-frame__prose">
+            {section.subhead ? <p className="type-h3">{section.subhead}</p> : null}
+            <p className="type-body prose-measure">{section.body}</p>
+          </div>
 
-          {children}
+          {children ? <div className="section-frame__extras">{children}</div> : null}
 
           {(section.cta || section.secondaryCta) && (
             <div className="section-frame__actions">

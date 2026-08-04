@@ -204,6 +204,57 @@ export interface SectionManifestEntry {
   proofLine?: string;
 }
 
+/** Narrative-structure records consumed by Phase 2 section bodies. */
+export interface InstructionalLoopNode {
+  id: string;
+  order: number;
+  name: string;
+  summary: string;
+  status: Extract<StatusLabel, "LIVE" | "IN_DEVELOPMENT" | "PLANNED">;
+  capabilityId?: string;
+}
+
+export interface TeachingExample {
+  id: string;
+  order: number;
+  title: string;
+  principle: string;
+  example: string;
+  status: Extract<StatusLabel, "LIVE" | "IN_DEVELOPMENT" | "PLANNED">;
+}
+
+export interface AdoptionRung {
+  id: string;
+  order: number;
+  name: string;
+  buyer: string;
+  proof: string;
+  integration: string;
+  status: StatusLabel;
+}
+
+export interface ProblemPoint {
+  id: string;
+  side: "package" | "classroom" | "adult-burden" | "founder-example";
+  title: string;
+  body: string;
+}
+
+export interface BeachheadJob {
+  id: string;
+  title: string;
+  body: string;
+}
+
+export interface TeamRole {
+  id: string;
+  title: string;
+  ownership: string[];
+  timing: string;
+  /** Avoid `status` — reserved for System C publication labels. */
+  presence: "current" | "planned";
+}
+
 export interface InvestorDataPackage {
   productState: ProductCapability[];
   pricingTiers: PricingTier[];
@@ -215,6 +266,12 @@ export interface InvestorDataPackage {
   fundingPlan: FundingPlan;
   sources: Source[];
   sections: SectionManifestEntry[];
+  instructionalLoop: InstructionalLoopNode[];
+  teachingExamples: TeachingExample[];
+  adoptionLadder: AdoptionRung[];
+  problemPoints: ProblemPoint[];
+  beachheadJobs: BeachheadJob[];
+  teamPlan: TeamRole[];
 }
 
 export function toDisplayStatus(status: StatusLabel): StatusLabelDisplay {

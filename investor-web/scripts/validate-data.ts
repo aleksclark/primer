@@ -5,17 +5,23 @@
  * Run: npm test  (or npm run validate)
  */
 import {
+  adoptionLadder,
+  beachheadJobs,
   competitorCategories,
   founderProof,
   fundingPlan,
+  instructionalLoop,
   investorData,
   marketLayers,
   pricingTiers,
+  problemPoints,
   productState,
   researchClaims,
   sections,
   seedScorecard,
   sources,
+  teachingExamples,
+  teamPlan,
   type MarketLayer,
   type StatusLabel,
 } from "../src/data/index.ts";
@@ -146,6 +152,12 @@ check("package exports are complete", () => {
     "fundingPlan",
     "sources",
     "sections",
+    "instructionalLoop",
+    "teachingExamples",
+    "adoptionLadder",
+    "problemPoints",
+    "beachheadJobs",
+    "teamPlan",
   ];
   for (const key of required) {
     const value = investorData[key];
@@ -536,6 +548,12 @@ check("dataset IDs are unique within each collection", () => {
     ["founderProof", founderProof],
     ["sections", sections],
     ["fundingLineItems", fundingPlan.lineItems],
+    ["instructionalLoop", instructionalLoop],
+    ["teachingExamples", teachingExamples],
+    ["adoptionLadder", adoptionLadder],
+    ["problemPoints", problemPoints],
+    ["beachheadJobs", beachheadJobs],
+    ["teamPlan", teamPlan],
   ];
   for (const [name, rows] of groups) {
     const seen = new Map<string, number>();
@@ -546,6 +564,89 @@ check("dataset IDs are unique within each collection", () => {
       if (n > 1) errors.push(`${name}: duplicate id "${id}"`);
     }
   }
+  return errors;
+});
+
+check("instructional loop has ordered nodes with status badges", () => {
+  const errors: string[] = [];
+  if (instructionalLoop.length < 6) {
+    errors.push(`expected >= 6 loop nodes, got ${instructionalLoop.length}`);
+  }
+  const required = [
+    "adult-direction",
+    "planner",
+    "specialist-tutor",
+    "habit-checks",
+    "revision-loop",
+    "evidence-record",
+    "transfer-project",
+    "adult-exception-review",
+  ];
+  for (const id of required) {
+    if (!instructionalLoop.some((n) => n.id === id)) {
+      errors.push(`missing loop node ${id}`);
+    }
+  }
+  for (const node of instructionalLoop) {
+    if (!node.name || !node.summary) errors.push(`${node.id}: missing name/summary`);
+    if (!["LIVE", "IN_DEVELOPMENT", "PLANNED"].includes(node.status)) {
+      errors.push(`${node.id}: invalid product status ${node.status}`);
+    }
+  }
+  // LLM must not be a central/named node
+  for (const node of instructionalLoop) {
+    if (/\bllm\b|\blanguage model\b/i.test(`${node.name} ${node.summary}`)) {
+      errors.push(`${node.id}: LLM must not be a loop node`);
+    }
+  }
+  return errors;
+});
+
+check("teaching examples cover 4–6 ruled mechanisms", () => {
+  const errors: string[] = [];
+  if (teachingExamples.length < 4 || teachingExamples.length > 6) {
+    errors.push(`expected 4–6 teaching examples, got ${teachingExamples.length}`);
+  }
+  for (const ex of teachingExamples) {
+    if (!ex.title || !ex.principle || !ex.example) {
+      errors.push(`${ex.id}: missing title/principle/example`);
+    }
+  }
+  return errors;
+});
+
+check("adoption ladder has family-to-institution rungs", () => {
+  const errors: string[] = [];
+  if (adoptionLadder.length < 5) {
+    errors.push(`expected >= 5 adoption rungs, got ${adoptionLadder.length}`);
+  }
+  const required = [
+    "family-base",
+    "family-core",
+    "esa-microschool",
+    "premier-elite-support",
+    "lti-clever-pilot",
+    "tuition-embedded",
+  ];
+  for (const id of required) {
+    if (!adoptionLadder.some((r) => r.id === id)) errors.push(`missing rung ${id}`);
+  }
+  for (const rung of adoptionLadder) {
+    if (!rung.buyer || !rung.proof || !rung.integration) {
+      errors.push(`${rung.id}: missing buyer/proof/integration`);
+    }
+  }
+  return errors;
+});
+
+check("problem points and beachhead jobs are present", () => {
+  const errors: string[] = [];
+  if (problemPoints.length < 4) errors.push("expected >= 4 problem points");
+  if (!problemPoints.some((p) => p.side === "founder-example")) {
+    errors.push("missing founder-example problem point");
+  }
+  if (beachheadJobs.length < 2) errors.push("expected >= 2 beachhead jobs");
+  if (teamPlan.length < 3) errors.push("expected founder + 2 planned roles");
   return errors;
 });
 

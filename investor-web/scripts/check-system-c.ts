@@ -62,6 +62,7 @@ const required = [
   "thesis",
   "problem",
   "product",
+  "how-it-teaches",
   "proof",
   "market",
   "go-to-market",
