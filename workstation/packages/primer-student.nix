@@ -38,7 +38,7 @@ in
 
   # Fixed-output hash of the Go module download (buildGoModule go-modules).
   # Update with workstation/scripts/update-primer-student-vendor-hash.sh.
-  vendorHash = "sha256-hcdrQx9TbQvwpp2jS/WAZXRyoIhbt2UVXdRHjh1XZF0=";
+  vendorHash = "sha256-WKaDIFOOAgp0/RubxLoKwPjljVJZ4vk1R+M0UoeBmr0=";
 
   ldflags = [
     "-s"
