@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #08090B; font-family: "Instrument Sans", Helvetica, Arial, sans-serif; }
+  a { color: #5B8CFF; } a:hover { color: #FFFFFF; }
+</style>
+</helmet>
+
+<div style="width: 1920px; background: #0E1013; color: #FFFFFF; padding: 72px 88px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 64px;">
+
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #3A3F45; padding-bottom: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="display: flex; align-items: center; gap: 20px;">
+        <svg width="52" height="52" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#5B8CFF"></rect></svg>
+        <div style="font-size: 36px; font-weight: 500; letter-spacing: -0.022em;">Primer<span style="font-weight: 700;">LMS</span></div>
+      </div>
+      <div style="font-size: 15px; color: #7C838C; max-width: 860px; line-height: 1.55; text-wrap: pretty;">System C — Record. Ruled structure, high contrast, monospace as the system voice. Dark is primary; light is a full parity theme. One accent for action and state, one attention colour for review and error.</div>
+    </div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #7C838C; letter-spacing: 0.04em; text-align: right; display: flex; flex-direction: column; gap: 6px;">
+      <div>SYSTEM SPEC / C</div>
+      <div>BASE UNIT 4 PX · RADIUS 0 · RULE 1 PX</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 300px 1fr; gap: 48px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Colour</div>
+      <div style="font-size: 14px; color: #7C838C; line-height: 1.55; text-wrap: pretty;">Four neutrals, one accent, one attention colour per theme. Neither carries body text; both darken on light to hold contrast.</div>
+    </div>
+    <div style="display: flex; flex-direction: column;">
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 12px;">
+        <div>TOKEN</div><div>ROLE</div><div>DARK</div><div>LIGHT</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">surface</div><div style="color: #7C838C;">Page ground</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #0E1013; border: 1px solid #3A3F45;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">0E1013</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #FFFFFF;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">FFFFFF</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">surface-raised</div><div style="color: #7C838C;">Panels, inputs</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #15181C;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">15181C</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #F4F5F6;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">F4F5F6</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">rule</div><div style="color: #7C838C;">Row and panel lines</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #262A2F;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">262A2F</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #DDE0E3;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">DDE0E3</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">rule-strong</div><div style="color: #7C838C;">Section divides</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #3A3F45;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">3A3F45</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #B8BDC2;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">B8BDC2</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">text-muted</div><div style="color: #7C838C;">Secondary, mono labels</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #7C838C;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">7C838C</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #6A7178;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">6A7178</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">text</div><div style="color: #7C838C;">Primary text</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #FFFFFF;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">FFFFFF</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #0E1013;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">0E1013</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">accent</div><div style="color: #7C838C;">State, action, focus</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #5B8CFF;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">5B8CFF</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #2E62D8;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">2E62D8</span></div>
+      </div>
+      <div style="display: grid; grid-template-columns: 220px 1fr 1fr 1fr; gap: 24px; align-items: center; border-bottom: 1px solid #262A2F; padding: 14px 0; font-size: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">attention</div><div style="color: #7C838C;">Needs review, input error</div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #FF8A6B;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">FF8A6B</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;"><span style="width: 26px; height: 26px; background: #B8431F;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">B8431F</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 300px 1fr; gap: 48px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Type</div>
+      <div style="font-size: 14px; color: #7C838C; line-height: 1.55; text-wrap: pretty;">Instrument Sans for content, IBM Plex Mono for anything the system says about itself: state, counts, units, timestamps. Mono is always uppercase and tracked.</div>
+    </div>
+    <div style="display: flex; flex-direction: column;">
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-size: 48px; font-weight: 500; letter-spacing: -0.024em; line-height: 1.05;">Mastery, not coverage</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">DISPLAY · 48 / 1.05 / −2.4%</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-size: 34px; font-weight: 500; letter-spacing: -0.022em; line-height: 1.1;">Fractions as division</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">H1 · 34 / 1.1 / −2.2%</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-size: 24px; font-weight: 500; letter-spacing: -0.02em;">This week with Maya</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">H2 · 24 / 1.2 / −2%</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.015em;">Equivalent fractions</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">H3 · 18 / 1.3 / −1.5%</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-size: 15px; line-height: 1.55; max-width: 640px; text-wrap: pretty;">Your tutor will hold this unit until you can explain it back without prompting. Nothing new opens until then.</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">BODY · 15 / 1.55</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-size: 13px; color: #7C838C; line-height: 1.5;">Reviewed by a parent on 12 March</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">SMALL · 13 / 1.5</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 300px; gap: 32px; align-items: baseline; border-bottom: 1px solid #262A2F; padding: 18px 0;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em;">UNIT 04 / 09 · MASTERY 72%</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C; letter-spacing: 0.06em;">LABEL · MONO 11 / 0.08EM</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 300px 1fr; gap: 48px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Components</div>
+      <div style="font-size: 14px; color: #7C838C; line-height: 1.55; text-wrap: pretty;">Square corners throughout. Hover lifts contrast rather than colour; focus is a 1 px accent ring on a 2 px offset. Disabled drops to rule colour with no fill.</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 48px 56px;">
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">BUTTON — PRIMARY / SECONDARY / QUIET</div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="background: #5B8CFF; color: #0E1013; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.06em; padding: 12px 20px;">CONTINUE</div>
+            <div style="background: #86A9FF; color: #0E1013; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.06em; padding: 12px 20px;">CONTINUE</div>
+            <div style="background: #15181C; color: #3A3F45; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">CONTINUE</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C; letter-spacing: 0.08em;">REST / HOVER / DISABLED</div>
+          </div>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="border: 1px solid #262A2F; color: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">ASSIGN</div>
+            <div style="border: 1px solid #7C838C; color: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">ASSIGN</div>
+            <div style="border: 1px solid #262A2F; color: #3A3F45; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">ASSIGN</div>
+          </div>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="color: #7C838C; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 0;">SKIP FOR NOW</div>
+            <div style="color: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 0; border-bottom: 1px solid #FFFFFF;">SKIP FOR NOW</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">INPUT — REST / FOCUS / ERROR</div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="background: #15181C; border: 1px solid #262A2F; padding: 12px 14px; font-size: 14px; color: #7C838C;">Explain your reasoning</div>
+          <div style="background: #15181C; border: 1px solid #5B8CFF; outline: 1px solid #5B8CFF; outline-offset: 2px; padding: 12px 14px; font-size: 14px; color: #FFFFFF;">Two thirds of nine is six<span style="color: #5B8CFF;">|</span></div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="background: #15181C; border: 1px solid #FF8A6B; padding: 12px 14px; font-size: 14px; color: #FFFFFF;">Six</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #FF8A6B;">SHOW THE STEP YOU TOOK</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">STATE LABELS</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #0E1013; background: #5B8CFF; padding: 6px 10px;">MASTERED</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #5B8CFF; border: 1px solid #5B8CFF; padding: 6px 10px;">IN PROGRESS</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #7C838C; border: 1px solid #262A2F; padding: 6px 10px;">LOCKED</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #FF8A6B; border: 1px solid #FF8A6B; padding: 6px 10px;">NEEDS REVIEW</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;"><span>MASTERY</span><span>72%</span></div>
+          <div style="height: 3px; background: #262A2F; display: flex;"><div style="width: 72%; background: #5B8CFF;"></div></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">NAVIGATION — RULED, NOT TABBED</div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; padding: 12px 0; font-size: 14px; border-left: 2px solid #5B8CFF; padding-left: 14px;"><span>Today</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #5B8CFF; letter-spacing: 0.08em;">2 DUE</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; padding: 12px 0 12px 16px; font-size: 14px; color: #7C838C;"><span>Course map</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; border-bottom: 1px solid #262A2F; padding: 12px 0 12px 16px; font-size: 14px; color: #7C838C;"><span>Transcript</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; align-items: baseline; gap: 20px; border-bottom: 1px solid #3A3F45; padding-bottom: 18px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Components — extended</div>
+      <div style="font-size: 14px; color: #7C838C;">Cards, selection controls, menus and the tutor thread. Standard anatomy, restated in the ruled language: no bubbles, no shadows, no radius.</div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;">
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">CARD — METRIC</div>
+        <div style="background: #15181C; border: 1px solid #262A2F; padding: 22px; display: flex; flex-direction: column; gap: 14px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">MASTERED THIS WEEK</div>
+          <div style="display: flex; align-items: baseline; gap: 10px;">
+            <div style="font-size: 44px; font-weight: 500; letter-spacing: -0.024em; line-height: 1;">3</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B8CFF; letter-spacing: 0.06em;">+1 VS W10</div>
+          </div>
+          <div style="height: 3px; background: #262A2F; display: flex;"><div style="width: 60%; background: #5B8CFF;"></div></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">CARD — UNIT, WITH FOOTER</div>
+        <div style="background: #15181C; border: 1px solid #262A2F; display: flex; flex-direction: column;">
+          <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="font-size: 17px; font-weight: 600; letter-spacing: -0.015em;">Fractions as division</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #5B8CFF; border: 1px solid #5B8CFF; padding: 4px 8px;">IN PROGRESS</div>
+            </div>
+            <div style="font-size: 14px; color: #7C838C; line-height: 1.55; text-wrap: pretty;">Six problems left. Held until Maya can explain the step back.</div>
+          </div>
+          <div style="border-top: 1px solid #262A2F; padding: 14px 22px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">UNIT 04 / 09</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: #FFFFFF; border-bottom: 1px solid #FFFFFF;">OPEN</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">CARD — SELECTED / ATTENTION</div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="background: #15181C; border: 1px solid #5B8CFF; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <div style="font-size: 15px; font-weight: 500;">Socratic tutor</div>
+              <div style="font-size: 13px; color: #7C838C;">Asks before it tells</div>
+            </div>
+            <div style="width: 16px; height: 16px; background: #5B8CFF;"></div>
+          </div>
+          <div style="background: #15181C; border: 1px solid #262A2F; border-left: 2px solid #FF8A6B; padding: 18px 20px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="font-size: 15px; font-weight: 500;">Word problems</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #FF8A6B;">NEEDS REVIEW · 3 MISSES</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px; margin-top: 8px;">
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">RADIO GROUP</div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="display: flex; gap: 14px; align-items: flex-start; border-bottom: 1px solid #262A2F; padding: 14px 0;">
+            <div style="width: 16px; height: 16px; border: 1px solid #5B8CFF; display: flex; align-items: center; justify-content: center; margin-top: 2px;"><div style="width: 8px; height: 8px; background: #5B8CFF;"></div></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><div style="font-size: 14px;">Two thirds of nine</div><div style="font-size: 13px; color: #7C838C;">Selected</div></div>
+          </div>
+          <div style="display: flex; gap: 14px; align-items: flex-start; border-bottom: 1px solid #262A2F; padding: 14px 0;">
+            <div style="width: 16px; height: 16px; border: 1px solid #7C838C; margin-top: 2px;"></div>
+            <div style="font-size: 14px;">Nine thirds of two</div>
+          </div>
+          <div style="display: flex; gap: 14px; align-items: flex-start; border-bottom: 1px solid #262A2F; padding: 14px 0;">
+            <div style="width: 16px; height: 16px; border: 1px solid #262A2F; margin-top: 2px;"></div>
+            <div style="font-size: 14px; color: #3A3F45;">Disabled option</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 22px; align-items: center; margin-top: 4px;">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <div style="width: 16px; height: 16px; background: #5B8CFF; display: flex; align-items: center; justify-content: center;"><div style="width: 8px; height: 2px; background: #0E1013;"></div></div>
+            <div style="font-size: 14px;">Checkbox</div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <div style="width: 34px; height: 18px; background: #5B8CFF; display: flex; justify-content: flex-end; padding: 2px; box-sizing: border-box;"><div style="width: 14px; height: 14px; background: #0E1013;"></div></div>
+            <div style="width: 34px; height: 18px; border: 1px solid #262A2F; display: flex; padding: 2px; box-sizing: border-box;"><div style="width: 14px; height: 12px; background: #3A3F45;"></div></div>
+            <div style="font-size: 14px;">Switch</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">SELECT — CLOSED / OPEN</div>
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="background: #15181C; border: 1px solid #262A2F; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 14px;">Grade 6 · Mathematics</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C838C;">▾</div>
+          </div>
+          <div style="display: flex; flex-direction: column;">
+            <div style="background: #15181C; border: 1px solid #5B8CFF; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center;">
+              <div style="font-size: 14px;">Grade 6 · Mathematics</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B8CFF;">▴</div>
+            </div>
+            <div style="background: #0E1013; border: 1px solid #5B8CFF; border-top: none;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; padding: 12px 14px 8px;">SUBJECTS</div>
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; font-size: 14px; border-top: 1px solid #262A2F;"><span>Mathematics</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5B8CFF;">✓</span></div>
+              <div style="padding: 11px 14px; font-size: 14px; border-top: 1px solid #262A2F; background: #15181C;">Science</div>
+              <div style="padding: 11px 14px; font-size: 14px; border-top: 1px solid #262A2F; color: #7C838C;">Reading</div>
+              <div style="padding: 11px 14px; font-size: 14px; border-top: 1px solid #262A2F; color: #3A3F45;">History — not yet assigned</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">TYPEAHEAD</div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="background: #15181C; border: 1px solid #5B8CFF; outline: 1px solid #5B8CFF; outline-offset: 2px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 14px;">frac<span style="color: #5B8CFF;">|</span></div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C; letter-spacing: 0.08em;">4 MATCHES</div>
+          </div>
+          <div style="border: 1px solid #262A2F; border-top: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: 14px; background: #15181C;"><span><span style="color: #5B8CFF;">Frac</span>tions as division</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C; letter-spacing: 0.08em;">UNIT 04</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: 14px; border-top: 1px solid #262A2F;"><span>Equivalent <span style="color: #5B8CFF;">frac</span>tions</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C; letter-spacing: 0.08em;">UNIT 03</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: 14px; border-top: 1px solid #262A2F;"><span>Improper <span style="color: #5B8CFF;">frac</span>tions</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C; letter-spacing: 0.08em;">UNIT 06</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: 14px; border-top: 1px solid #262A2F; color: #7C838C;"><span><span style="color: #5B8CFF;">Frac</span>tion walls</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em;">RESOURCE</span></div>
+          </div>
+        </div>
+        <div style="border: 1px solid #262A2F; padding: 16px 14px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">NO MATCHES</div>
+          <div style="font-size: 13px; color: #7C838C;">Nothing in Grade 6 Mathematics. Search all subjects.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 8px;">
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">TUTOR THREAD — FULL INTERFACE</div>
+        <div style="background: #15181C; border: 1px solid #262A2F; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; border-bottom: 1px solid #262A2F;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <svg width="20" height="20" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#5B8CFF"></rect></svg>
+              <div style="font-size: 14px; font-weight: 500;">Arithmetic tutor</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #5B8CFF; border: 1px solid #5B8CFF; padding: 3px 7px;">SOCRATIC</div>
+            </div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">UNIT 04 · 14:06</div>
+          </div>
+          <div style="padding: 4px 22px 18px;">
+            <div style="border-bottom: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 7px;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #5B8CFF;">TUTOR</div>
+              <div style="font-size: 15px; line-height: 1.55; text-wrap: pretty;">Before you multiply, tell me what one third of nine is.</div>
+            </div>
+            <div style="border-bottom: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 7px;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">MAYA</div>
+              <div style="font-size: 15px; line-height: 1.55; color: #C6CBD1;">Three.</div>
+            </div>
+            <div style="border-bottom: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 10px;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #5B8CFF;">TUTOR</div>
+              <div style="font-size: 15px; line-height: 1.55; text-wrap: pretty;">Good. So two thirds is that twice. Say it before you write it.</div>
+              <div style="display: flex; gap: 10px;">
+                <div style="border: 1px solid #262A2F; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C; padding: 6px 10px;">SHOW ME AGAIN</div>
+                <div style="border: 1px solid #262A2F; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C; padding: 6px 10px;">I'M STUCK</div>
+              </div>
+            </div>
+            <div style="padding: 16px 0 0; display: flex; align-items: center; gap: 10px;">
+              <div style="display: flex; gap: 4px;"><span style="width: 5px; height: 5px; background: #5B8CFF;"></span><span style="width: 5px; height: 5px; background: #3A3F45;"></span><span style="width: 5px; height: 5px; background: #3A3F45;"></span></div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">TUTOR IS WORKING THROUGH YOUR ANSWER</div>
+            </div>
+          </div>
+          <div style="border-top: 1px solid #262A2F; padding: 14px 22px; display: flex; align-items: center; gap: 16px;">
+            <div style="flex: 1; font-size: 14px; color: #7C838C;">Type your reasoning…</div>
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">SHIFT + ⏎ NEW LINE</div>
+            <div style="background: #5B8CFF; color: #0E1013; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; padding: 9px 16px;">SEND</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C; border-bottom: 1px solid #262A2F; padding-bottom: 10px;">THREAD PARTS — DETAIL</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">TUTOR TURN, WITH WORKING</div>
+            <div style="border-top: 1px solid #262A2F; border-bottom: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 10px;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #5B8CFF;">TUTOR</div>
+              <div style="font-size: 15px; line-height: 1.55;">Line the steps up:</div>
+              <div style="background: #0E1013; border-left: 2px solid #262A2F; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; color: #C6CBD1;">9 ÷ 3 = 3<br />3 × 2 = 6</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">CORRECTION TURN</div>
+            <div style="border-top: 1px solid #262A2F; border-bottom: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 8px; border-left: 2px solid #FF8A6B; padding-left: 14px;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #FF8A6B;">CHECK THIS STEP</div>
+              <div style="font-size: 15px; line-height: 1.55; text-wrap: pretty;">You divided by two, not by three. Try the first step again.</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">COMPOSER — FOCUS</div>
+            <div style="background: #15181C; border: 1px solid #5B8CFF; padding: 12px 14px; display: flex; flex-direction: column; gap: 26px;">
+              <div style="font-size: 14px;">Two thirds of nine is six because<span style="color: #5B8CFF;">|</span></div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">42 / 400</div>
+                <div style="background: #5B8CFF; color: #0E1013; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; padding: 8px 14px;">SEND</div>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">SESSION CLOSE</div>
+            <div style="border: 1px solid #262A2F; padding: 16px 14px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #5B8CFF;">SESSION LOGGED · 18 MIN</div>
+              <div style="font-size: 13px; color: #7C838C; line-height: 1.5;">Sent to the weekly record. Nothing new opens until Unit 04 is mastered.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; align-items: baseline; gap: 20px; border-bottom: 1px solid #3A3F45; padding-bottom: 18px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Surfaces</div>
+      <div style="font-size: 14px; color: #7C838C;">Three roles, one grid: the student works, the tutor questions, the parent reads the record.</div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;">
+
+      <div style="background: #15181C; padding: 32px; display: flex; flex-direction: column; gap: 24px; min-height: 460px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">STUDENT — LESSON</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #5B8CFF;">UNIT 04 / 09</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 26px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.15;">Fractions as division</div>
+          <div style="font-size: 15px; color: #7C838C; line-height: 1.55; text-wrap: pretty;">Two thirds of nine. Work it however you like, then say what you did.</div>
+        </div>
+        <div style="background: #0E1013; border: 1px solid #262A2F; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 26px; letter-spacing: 0.02em;">⅔ × 9 =</div>
+          <div style="height: 1px; background: #262A2F;"></div>
+          <div style="font-size: 14px; color: #7C838C;">Type your answer and your reasoning</div>
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: auto;">
+          <div style="background: #5B8CFF; color: #0E1013; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.06em; padding: 12px 20px;">SUBMIT</div>
+          <div style="border: 1px solid #262A2F; color: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">ASK FOR A HINT</div>
+        </div>
+      </div>
+
+      <div style="background: #15181C; padding: 32px; display: flex; flex-direction: column; gap: 24px; min-height: 460px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">TUTOR — TRANSCRIPT</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">14:06</div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="border-top: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 7px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #5B8CFF;">TUTOR · ARITHMETIC</div>
+            <div style="font-size: 15px; line-height: 1.55; text-wrap: pretty;">Before you multiply, tell me what one third of nine is.</div>
+          </div>
+          <div style="border-top: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 7px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">MAYA</div>
+            <div style="font-size: 15px; line-height: 1.55; color: #C6CBD1;">Three.</div>
+          </div>
+          <div style="border-top: 1px solid #262A2F; border-bottom: 1px solid #262A2F; padding: 16px 0; display: flex; flex-direction: column; gap: 7px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #5B8CFF;">TUTOR · ARITHMETIC</div>
+            <div style="font-size: 15px; line-height: 1.55; text-wrap: pretty;">Good. So two thirds is that twice. No calculator — say it out loud first.</div>
+          </div>
+        </div>
+        <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #7C838C;">TUTOR SETTING</div>
+          <div style="display: flex; border: 1px solid #262A2F;">
+            <div style="flex: 1; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; padding: 10px 0; background: #5B8CFF; color: #0E1013;">SOCRATIC</div>
+            <div style="flex: 1; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; padding: 10px 0; color: #7C838C;">WORKED</div>
+            <div style="flex: 1; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; padding: 10px 0; color: #7C838C;">DRILL</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background: #15181C; padding: 32px; display: flex; flex-direction: column; gap: 24px; min-height: 460px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">PARENT — WEEKLY RECORD</div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">W 11</div>
+        </div>
+        <div style="font-size: 22px; font-weight: 500; letter-spacing: -0.02em;">This week with Maya</div>
+        <div style="display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; padding: 13px 0; font-size: 14px;"><span>Equivalent fractions</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #0E1013; background: #5B8CFF; padding: 4px 8px;">MASTERED</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; padding: 13px 0; font-size: 14px;"><span>Fractions as division</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #5B8CFF;">72%</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; padding: 13px 0; font-size: 14px;"><span>Word problems</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #FF8A6B;">NEEDS REVIEW</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #262A2F; border-bottom: 1px solid #262A2F; padding: 13px 0; font-size: 14px; color: #7C838C;"><span>Mixed numbers</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em;">LOCKED</span></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="font-size: 14px; color: #7C838C; line-height: 1.55; text-wrap: pretty;">Maya asked for hints twice and stopped using them by Thursday.</div>
+        </div>
+        <div style="display: flex; gap: 12px; margin-top: auto;">
+          <div style="border: 1px solid #262A2F; color: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">SET NEXT UNIT</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; align-items: baseline; gap: 20px; border-bottom: 1px solid #3A3F45; padding-bottom: 18px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Light theme &amp; logo use</div>
+      <div style="font-size: 14px; color: #7C838C;">Full parity, same geometry, accent and attention darkened. Clear space is half the symbol height on every side; minimum symbol is 16 px.</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 520px; gap: 32px;">
+
+      <div style="background: #FFFFFF; color: #0E1013; padding: 32px; display: flex; flex-direction: column; gap: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #DDE0E3; padding-bottom: 18px;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <svg width="34" height="34" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#2E62D8"></rect></svg>
+            <div style="font-size: 24px; font-weight: 500; letter-spacing: -0.02em;">Primer<span style="font-weight: 700;">LMS</span></div>
+          </div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #6A7178;">LIGHT — PARITY</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+          <div style="display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #DDE0E3; padding: 13px 0; font-size: 14px;"><span>Equivalent fractions</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #FFFFFF; background: #2E62D8; padding: 4px 8px;">MASTERED</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #DDE0E3; padding: 13px 0; font-size: 14px;"><span>Fractions as division</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #2E62D8;">72%</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #DDE0E3; padding: 13px 0; font-size: 14px;"><span>Word problems</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #B8431F; border: 1px solid #B8431F; padding: 4px 8px;">NEEDS REVIEW</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #DDE0E3; border-bottom: 1px solid #DDE0E3; padding: 13px 0; font-size: 14px; color: #6A7178;"><span>Mixed numbers</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em;">LOCKED</span></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="background: #F4F5F6; border: 1px solid #DDE0E3; padding: 12px 14px; font-size: 14px; color: #6A7178;">Explain your reasoning</div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="background: #F4F5F6; border: 1px solid #B8431F; padding: 12px 14px; font-size: 14px; color: #0E1013;">Six</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #B8431F;">SHOW THE STEP YOU TOOK</div>
+            </div>
+            <div style="display: flex; gap: 12px;">
+              <div style="background: #2E62D8; color: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.06em; padding: 12px 20px;">CONTINUE</div>
+              <div style="border: 1px solid #DDE0E3; color: #0E1013; font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em; padding: 12px 20px;">ASSIGN</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <div style="background: #15181C; padding: 24px; display: flex; flex-direction: column; gap: 16px; align-items: flex-start;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">CLEAR SPACE</div>
+          <div style="border: 1px dashed #3A3F45; padding: 34px;">
+            <svg width="68" height="68" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#5B8CFF"></rect></svg>
+          </div>
+          <div style="font-size: 13px; color: #7C838C; line-height: 1.5;">0.5 × symbol height, all sides.</div>
+        </div>
+        <div style="background: #15181C; padding: 24px; display: flex; flex-direction: column; gap: 16px; align-items: flex-start;">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.1em; color: #7C838C;">MINIMUM SIZES</div>
+          <div style="display: flex; align-items: flex-end; gap: 20px;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+              <svg width="32" height="32" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#5B8CFF"></rect></svg>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C;">32</div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+              <svg width="24" height="24" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#5B8CFF"></rect></svg>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C;">24</div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+              <svg width="16" height="16" viewBox="0 0 100 100"><rect x="10" y="14" width="13" height="76" fill="currentColor"></rect><rect x="33" y="72" width="53" height="11" fill="currentColor"></rect><rect x="33" y="50" width="41" height="11" fill="currentColor"></rect><rect x="33" y="28" width="29" height="11" fill="currentColor"></rect><rect x="70" y="28" width="11" height="11" fill="#FFFFFF"></rect></svg>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #7C838C;">16</div>
+            </div>
+          </div>
+          <div style="font-size: 13px; color: #7C838C; line-height: 1.5;">Below 20 px the accent square goes mono.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1920}}"></script>
+</body>
+</html>
