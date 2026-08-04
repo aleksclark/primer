@@ -9,10 +9,14 @@
     "lint": "oxlint .",
     "preview": "vite preview",
     "validate": "tsx scripts/validate-data.ts",
-    "test": "tsx scripts/validate-data.ts && tsx scripts/check-system-c.ts && tsx tests/marketMath.test.ts",
-    "typecheck": "tsc -b --pretty false",
     "check:system-c": "tsx scripts/check-system-c.ts",
-    "test:unit": "tsx tests/marketMath.test.ts"
+    "check:launch": "tsx scripts/check-launch.ts",
+    "check:a11y": "tsx scripts/check-a11y.ts",
+    "check:bundle": "tsx scripts/check-bundle.ts",
+    "test:unit": "tsx tests/marketMath.test.ts",
+    "test": "tsx scripts/validate-data.ts && tsx scripts/check-system-c.ts && tsx tests/marketMath.test.ts && tsx scripts/check-launch.ts && tsx scripts/check-a11y.ts",
+    "typecheck": "tsc -b --pretty false",
+    "gate": "npm run test && npm run typecheck && npm run lint && npm run build && npm run check:bundle"
   },
   "dependencies": {
     "react": "^19.2.7",

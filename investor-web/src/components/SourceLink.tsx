@@ -1,4 +1,5 @@
 import type { Source } from "@/data/types";
+import { analytics } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 
 interface SourceLinkProps {
@@ -15,6 +16,7 @@ export function SourceLink({ source, className }: SourceLinkProps) {
       target="_blank"
       rel="noopener noreferrer"
       title={`${source.title} — ${source.organization}`}
+      onClick={() => analytics.sourceClick(source.id)}
     >
       <span aria-hidden="true">↗</span>
       <span>{source.organization || source.title}</span>

@@ -2015,13 +2015,16 @@ button {
   .mobile-section-nav,
   .diligence-page__print-btn,
   .theme-toggle,
-  .demo-script__controls {
+  .demo-script__controls,
+  .investor-cta,
+  .explorer__toolbar button {
     display: none !important;
   }
 
   .site-shell,
   .site-main,
-  .diligence-page {
+  .diligence-page,
+  .route-page {
     display: block;
     background: white;
     color: black;
@@ -2036,11 +2039,14 @@ button {
   .funds-table-wrap,
   .diligence-index-list,
   .source-register,
-  .demo-transcript {
+  .demo-transcript,
+  .explorer-table-wrap,
+  .section-frame {
     break-inside: avoid;
   }
 
-  .diligence-section {
+  .diligence-section,
+  .section-frame {
     break-before: auto;
     page-break-inside: avoid;
   }
@@ -2050,9 +2056,23 @@ button {
     text-decoration: underline;
   }
 
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+
   .type-h1,
   .type-h2,
-  .type-h3 {
+  .type-h3,
+  .type-display,
+  .type-body,
+  .type-small {
     color: black;
+  }
+
+  .text-muted {
+    color: black;
+    opacity: 0.75;
   }
 }

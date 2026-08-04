@@ -1,12 +1,26 @@
 import type { ReactNode } from "react";
 import type { SectionManifestEntry, Source } from "@/data/types";
+import { analytics } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
+import { contactMailto } from "@/lib/contact";
 import { CaveatNote } from "./CaveatNote";
 import { PrimaryButton } from "./PrimaryButton";
 import { SourceLinkList } from "./SourceLink";
 import { StateBadge } from "./StateBadge";
 import { SystemLabel } from "./SystemLabel";
 import { TextLink } from "./TextLink";
+
+function resolveCtaHref(href: string): string {
+  if (href.startsWith("mailto:")) return contactMailto();
+  return href;
+}
+
+function trackSectionCta(label: string, href: string) {
+  analytics.ctaClick(label, href);
+  if (href.startsWith("mailto:") || href.includes("contact")) {
+    analytics.contactIntent(href.startsWith("mailto:") ? "mailto" : "contact_anchor");
+  }
+}
 
 interface SectionFrameProps {
   section: SectionManifestEntry;
@@ -78,10 +92,27 @@ export function SectionFrame({
           {(section.cta || section.secondaryCta) && (
             <div className="section-frame__actions">
               {section.cta ? (
-                <PrimaryButton href={section.cta.href}>{section.cta.label}</PrimaryButton>
+                <PrimaryButton
+                  href={resolveCtaHref(section.cta.href)}
+                  onClick={() =>
+                    trackSectionCta(section.cta!.label, resolveCtaHref(section.cta!.href))
+                  }
+                >
+                  {section.cta.label}
+                </PrimaryButton>
               ) : null}
               {section.secondaryCta ? (
-                <TextLink href={section.secondaryCta.href}>{section.secondaryCta.label}</TextLink>
+                <TextLink
+                  href={resolveCtaHref(section.secondaryCta.href)}
+                  onClick={() =>
+                    trackSectionCta(
+                      section.secondaryCta!.label,
+                      resolveCtaHref(section.secondaryCta!.href),
+                    )
+                  }
+                >
+                  {section.secondaryCta.label}
+                </TextLink>
               ) : null}
             </div>
           )}

@@ -12,6 +12,8 @@ import {
   materialRisks,
   publicPrivateBoundary,
 } from "@/data/materialRisks";
+import { analytics } from "@/lib/analytics";
+import { contactDisplayEmail, contactMailto } from "@/lib/contact";
 import { formatUsd } from "@/lib/format";
 import { schoolReadinessGates } from "@/data/schoolsRoadmap";
 
@@ -251,8 +253,27 @@ export function DiligenceIndexPage() {
             architecture, live credentials, and cap-table documents.
           </p>
           <p className="type-small" style={{ margin: 0 }}>
-            Request access via <TextLink href="/#contact">Discuss the round</TextLink> or{" "}
-            <TextLink href="mailto:aleks@primer.local">aleks@primer.local</TextLink>.
+            Request access via{" "}
+            <TextLink
+              href="/#contact"
+              onClick={() => {
+                analytics.ctaClick("Discuss the round", "/#contact");
+                analytics.contactIntent("contact_anchor");
+              }}
+            >
+              Discuss the round
+            </TextLink>{" "}
+            or{" "}
+            <TextLink
+              href={contactMailto()}
+              onClick={() => {
+                analytics.ctaClick("Email founder", contactMailto());
+                analytics.contactIntent("mailto");
+              }}
+            >
+              {contactDisplayEmail()}
+            </TextLink>
+            .
           </p>
         </RuledCard>
       </DiligenceSection>

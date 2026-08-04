@@ -6,6 +6,7 @@ import { SourceLinkList } from "@/components/SourceLink";
 import { SystemLabel } from "@/components/SystemLabel";
 import { marketLayers, sources } from "@/data";
 import type { MarketLayer } from "@/data/types";
+import { analytics } from "@/lib/analytics";
 import { formatCeiling, formatLearners } from "@/lib/format";
 import {
   defaultsFromLayer,
@@ -48,6 +49,7 @@ export function MarketExplorer() {
   const anyDirty = computed.some((c) => c.dirty);
 
   function updateLayer(id: string, patch: Partial<LayerInputs>) {
+    analytics.marketExplorerUse("adjust", id);
     setInputs((prev) => {
       const base = prev[id] ?? defaultsFromLayer(layers.find((l) => l.id === id)!);
       return {
@@ -62,11 +64,13 @@ export function MarketExplorer() {
   }
 
   function resetAll() {
+    analytics.marketExplorerUse("reset");
     setInputs(buildDefaultMap(layers));
     setCopyState(null);
   }
 
   async function copyEquation(equation: string, id: string) {
+    analytics.marketExplorerUse("copy_equation", id);
     try {
       await navigator.clipboard.writeText(equation);
       setCopyState(id);

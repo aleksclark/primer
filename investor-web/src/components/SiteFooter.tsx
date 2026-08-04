@@ -1,3 +1,5 @@
+import { analytics } from "@/lib/analytics";
+import { contactMailto } from "@/lib/contact";
 import { BrandLogo } from "./BrandLogo";
 import { SystemLabel } from "./SystemLabel";
 import { TextLink } from "./TextLink";
@@ -13,10 +15,11 @@ const diligenceLinks = [
 
 /** Site footer with contact and diligence source links. */
 export function SiteFooter() {
+  const mailto = contactMailto();
   const contactLinks = [
     { label: "Discuss the round", href: "/#contact" },
     { label: "Primary pitch", href: "/" },
-    { label: "Email founder", href: "mailto:aleks@primer.local" },
+    { label: "Email founder", href: mailto },
   ];
 
   return (
@@ -46,7 +49,19 @@ export function SiteFooter() {
             <ul className="site-footer__links">
               {contactLinks.map((link) => (
                 <li key={link.href}>
-                  <TextLink href={link.href}>{link.label}</TextLink>
+                  <TextLink
+                    href={link.href}
+                    onClick={() => {
+                      if (link.href.includes("contact") || link.href.startsWith("mailto:")) {
+                        analytics.ctaClick(link.label, link.href);
+                        analytics.contactIntent(
+                          link.href.startsWith("mailto:") ? "mailto" : "contact_anchor",
+                        );
+                      }
+                    }}
+                  >
+                    {link.label}
+                  </TextLink>
                 </li>
               ))}
             </ul>

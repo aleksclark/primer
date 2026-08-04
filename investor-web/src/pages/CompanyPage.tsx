@@ -13,6 +13,8 @@ import {
   hiringPrinciples,
   openRolesNote,
 } from "@/data/companyDeep";
+import { analytics } from "@/lib/analytics";
+import { contactMailto } from "@/lib/contact";
 
 const nav = [
   { id: "timeline", label: "Founder timeline" },
@@ -208,8 +210,24 @@ export function CompanyPage() {
           ))}
         </ol>
         <div className="diligence-page__actions" style={{ marginTop: "var(--primer-space-5)" }}>
-          <TextLink href="/#contact">Discuss the round</TextLink>
-          <TextLink href="mailto:aleks@primer.local">Email founder</TextLink>
+          <TextLink
+            href="/#contact"
+            onClick={() => {
+              analytics.ctaClick("Discuss the round", "/#contact");
+              analytics.contactIntent("contact_anchor");
+            }}
+          >
+            Discuss the round
+          </TextLink>
+          <TextLink
+            href={contactMailto()}
+            onClick={() => {
+              analytics.ctaClick("Email founder", contactMailto());
+              analytics.contactIntent("mailto");
+            }}
+          >
+            Email founder
+          </TextLink>
         </div>
       </DiligenceSection>
     </DiligencePage>

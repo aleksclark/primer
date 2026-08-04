@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CaveatNote } from "@/components/CaveatNote";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { RuledCard, RuledGrid } from "@/components/RuledCard";
@@ -12,6 +12,7 @@ import {
   type DemoStep,
 } from "@/data/demoScript";
 import { productState } from "@/data";
+import { analytics } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 
 /**
@@ -21,9 +22,28 @@ import { cn } from "@/lib/cn";
 export function DemoExplorer() {
   const [stepIndex, setStepIndex] = useState(0);
   const [autoPlay, setAutoPlay] = useState(false);
+  const startedRef = useRef(false);
+  const completedRef = useRef(false);
   const step = targetExperienceSteps[stepIndex] ?? targetExperienceSteps[0];
   const transcriptId = useId();
   const transcript = useMemo(() => buildTargetTranscript(), []);
+
+  useEffect(() => {
+    if (!startedRef.current) {
+      startedRef.current = true;
+      analytics.demoStart();
+    }
+  }, []);
+
+  useEffect(() => {
+    const current = targetExperienceSteps[stepIndex];
+    if (!current) return;
+    analytics.demoStep(stepIndex + 1, current.id);
+    if (stepIndex >= targetExperienceSteps.length - 1 && !completedRef.current) {
+      completedRef.current = true;
+      analytics.demoComplete();
+    }
+  }, [stepIndex]);
 
   useEffect(() => {
     if (!autoPlay) return;

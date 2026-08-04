@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import type { SectionManifestEntry } from "@/data/types";
 import { useActiveSection } from "@/hooks/useActiveSection";
 import { useScrolled } from "@/hooks/useScrolled";
+import { analytics } from "@/lib/analytics";
 import { BrandLogo } from "./BrandLogo";
 import { MobileSectionNav } from "./MobileSectionNav";
 import { PrimaryButton } from "./PrimaryButton";
@@ -69,7 +70,14 @@ export function SiteHeader({ sections }: SiteHeaderProps) {
 
           <div className="site-header__actions">
             <ThemeToggle />
-            <PrimaryButton href={contactHref} className="site-header__cta">
+            <PrimaryButton
+              href={contactHref}
+              className="site-header__cta"
+              onClick={() => {
+                analytics.ctaClick("Discuss the round", contactHref);
+                analytics.contactIntent("header_cta");
+              }}
+            >
               Discuss the round
             </PrimaryButton>
             <button

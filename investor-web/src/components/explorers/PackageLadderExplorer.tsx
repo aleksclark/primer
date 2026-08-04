@@ -5,6 +5,7 @@ import { StateBadge } from "@/components/StateBadge";
 import { SystemLabel } from "@/components/SystemLabel";
 import { pricingTiers } from "@/data";
 import type { PackageTier } from "@/data/types";
+import { analytics } from "@/lib/analytics";
 import { formatUsd } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
@@ -83,6 +84,11 @@ export function PackageLadderExplorer() {
   const [selected, setSelected] = useState<PackageTier>("base");
   const active = tiers.find((t) => t.id === selected) ?? tiers[0];
 
+  function selectTier(id: PackageTier) {
+    setSelected(id);
+    analytics.packageCompare(id);
+  }
+
   return (
     <div className="explorer" data-explorer="package-ladder">
       <div className="explorer__toolbar">
@@ -109,7 +115,7 @@ export function PackageLadderExplorer() {
               role="listitem"
               className={cn("package-ladder-col", isActive && "package-ladder-col--active")}
               aria-pressed={isActive}
-              onClick={() => setSelected(tier.id)}
+              onClick={() => selectTier(tier.id)}
             >
               <SystemLabel tone={isActive ? "accent" : "text"}>{tier.name}</SystemLabel>
               <p className="type-h3" style={{ margin: 0 }}>

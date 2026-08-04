@@ -11,7 +11,7 @@ COVER_MIN := 85
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
-	investor-web investor-web-dev
+	investor-web investor-web-dev investor-web-test investor-web-ci
 
 all: build openapi openapi-tv client tv-client
 
@@ -26,6 +26,14 @@ investor-web: design-system
 ## Run the investor pitch Vite dev server.
 investor-web-dev:
 	cd investor-web && npm run dev
+
+## Investor data, launch, a11y, and unit checks (no production build).
+investor-web-test:
+	cd investor-web && npm test
+
+## CI sequence: design-system → tests → typecheck/lint → build → bundle budgets.
+investor-web-ci: design-system
+	cd investor-web && npm run gate
 
 ## Build the server binaries.
 build:

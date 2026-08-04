@@ -87,7 +87,7 @@ export const marketLayers: MarketLayer[] = [
     overlapGroup: "premium-private-us",
     additive: false,
     caveat:
-      "Subset of the $15K+ private cohort. Alternative premium boundary — do not add to NAIS or all-private $15K+.",
+      "NCES 2020–21 sticker-price tuition subset of the $15K+ private cohort. Alternative boundary that overlaps NAIS and all-private $15K+ — do not sum.",
     sourceIds: ["nces-digest-205-50"],
     displayLabel: "PREMIER NONSECTARIAN · 600,680 learners × $3,600 = $2.16B",
   },
