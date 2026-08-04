@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Options configure the stub TUI.
@@ -125,7 +125,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.list.SetItems(msg.items)
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
@@ -137,20 +137,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 	if m.err != "" {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("error: "+m.err) + "\n(q to quit)\n"
+		return tea.NewView(lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("error: "+m.err) + "\n(q to quit)\n")
 	}
 	if !m.loaded {
-		return "Loading work queue…\n"
+		return tea.NewView("Loading work queue…\n")
 	}
 	if len(m.list.Items()) == 0 {
-		return m.list.View() + "\nNo assignments.\n"
+		return tea.NewView(m.list.View() + "\nNo assignments.\n")
 	}
-	return m.list.View()
+	return tea.NewView(m.list.View())
 }
 
 // Run starts the TUI (blocking).

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // StatusModel is a small Bubble Tea view of harness Status.
@@ -30,7 +30,7 @@ func (m StatusModel) Init() tea.Cmd { return nil }
 
 func (m StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "enter":
 			m.quitting = true
@@ -42,9 +42,9 @@ func (m StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m StatusModel) View() string {
+func (m StatusModel) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 	st := m.status
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
@@ -93,7 +93,7 @@ func (m StatusModel) View() string {
 		fmt.Fprintf(&b, "%s\n", errStyle.Render("Error: "+st.LastError))
 	}
 	b.WriteString("\n(q to quit)\n")
-	return b.String()
+	return tea.NewView(b.String())
 }
 
 // RunStatusTUI blocks rendering status until quit.

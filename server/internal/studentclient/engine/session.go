@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	stdsync "sync"
@@ -14,8 +15,10 @@ import (
 	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
+	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"
 	"github.com/aleksclark/primer/server/internal/studentclient/sync"
 	"github.com/aleksclark/primer/server/internal/studentclient/terminal"
+	"github.com/aleksclark/primer/server/internal/studentclient/terminal/ptyterm"
 	"github.com/aleksclark/primer/server/internal/studentclient/typing"
 )
 
@@ -74,6 +77,10 @@ type SessionSnapshot struct {
 	Hints            []contracts.Hint `json:"hints,omitempty"`
 	TutorHint        string           `json:"tutorHint,omitempty"`
 	Typing           *TypingSnapshot  `json:"typing,omitempty"`
+	// TerminalScreen is the bounded PTY scrollback when a live PTY is attached.
+	TerminalScreen string `json:"terminalScreen,omitempty"`
+	// HasTerminal is true when a PTY shell is available for this session.
+	HasTerminal bool `json:"hasTerminal,omitempty"`
 }
 
 // Session is an interactive terminal or typing activity session driven by the TUI.
@@ -93,6 +100,7 @@ type Session struct {
 
 	lastShell *terminal.ShellState
 	typing    *typing.Session
+	pty       *ptyterm.Terminal
 	obs       []contracts.Observation
 	checks    []CheckStatus
 
@@ -109,6 +117,9 @@ type Session struct {
 	syncStatus       sync.Status
 	tutorHint        string
 	currentTaskIdx   int
+	// lastPTYInput tracks whether recent WriteTerminal ended with newline (idle poll).
+	lastPTYInputAt time.Time
+	pendingVerify  bool
 }
 
 // OpenSession loads work, prepares the activity runner (terminal fixtures or
@@ -277,9 +288,100 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 		}
 	}
 
+	// Start embedded PTY for terminal activities (interactive shell).
+	// Failures are non-fatal when AllowUnsandboxed is set so RunLine tests still work;
+	// production expects a live PTY and surfaces the error.
+	if kind == contracts.KindTerminal {
+		if err := s.startPTY(24, 80); err != nil {
+			if !e.opts.AllowUnsandboxed {
+				return nil, fmt.Errorf("start terminal pty: %w", err)
+			}
+			s.message = "pty unavailable; command box only: " + err.Error()
+		}
+	}
+
 	// Initial verify (fixtures alone may satisfy filesystem checks; typing starts incomplete).
 	s.reverify(ctx, nil)
 	return s, nil
+}
+
+// startPTY launches an interactive shell in the session workspace.
+// Prefer sandbox.bwrap when available; otherwise plain sh/bash in the workspace Dir
+// (only when AllowUnsandboxed — PTY shell is the interface, not arbitrary host commands).
+func (s *Session) startPTY(rows, cols uint16) error {
+	cmd, err := s.eng.shellCommand(s.workspace, s.cwd)
+	if err != nil {
+		return err
+	}
+	term, err := ptyterm.Start(ptyterm.Options{Cmd: cmd, Rows: rows, Cols: cols})
+	if err != nil {
+		return err
+	}
+	s.pty = term
+	return nil
+}
+
+// shellCommand builds the *exec.Cmd for an interactive PTY shell.
+func (e *Engine) shellCommand(workspace, cwd string) (*exec.Cmd, error) {
+	useSandbox := e.opts.UseSandbox
+	if useSandbox && !sandbox.Available() {
+		if !e.opts.AllowUnsandboxed {
+			return nil, sandbox.ErrUnavailable
+		}
+		useSandbox = false
+	}
+
+	shell := "sh"
+	if p, err := exec.LookPath("bash"); err == nil {
+		shell = p
+	} else if p, err := exec.LookPath("sh"); err == nil {
+		shell = p
+	}
+
+	if useSandbox {
+		rel, relErr := filepath.Rel(workspace, cwd)
+		workDir := "/workspace"
+		if relErr == nil && rel != "." && rel != "" {
+			workDir = filepath.Join("/workspace", rel)
+		}
+		cfg := sandbox.Config{Workspace: workspace, WorkDir: workDir}
+		if p := e.runtimeProfile(); p != "" {
+			if perr := sandbox.ApplyProfile(&cfg, p); perr != nil {
+				return nil, perr
+			}
+		}
+		// Interactive shell inside bwrap.
+		name := shell
+		args := []string{"-i"}
+		if filepath.Base(shell) == "bash" {
+			args = []string{"--noprofile", "--norc", "-i"}
+		}
+		cmd, err := sandbox.Command(context.Background(), cfg, name, args...)
+		if err != nil {
+			return nil, err
+		}
+		// PTY manages stdio; clear any inherited pipes.
+		cmd.Stdin = nil
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		return cmd, nil
+	}
+
+	// Plain shell in workspace directory (tests without bwrap).
+	var cmd *exec.Cmd
+	if filepath.Base(shell) == "bash" {
+		cmd = exec.Command(shell, "--noprofile", "--norc", "-i")
+	} else {
+		cmd = exec.Command(shell, "-i")
+	}
+	cmd.Dir = cwd
+	cmd.Env = []string{
+		"PATH=/usr/bin:/bin:/usr/local/bin",
+		"HOME=" + workspace,
+		"TERM=xterm-256color",
+		"PS1=$ ",
+	}
+	return cmd, nil
 }
 
 // Snapshot returns a copy of the current session state for rendering.
@@ -355,7 +457,109 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 			ThresholdsMet:    m.ThresholdsMet,
 		}
 	}
+	if s.pty != nil && s.pty.Alive() {
+		snap.HasTerminal = true
+		snap.TerminalScreen = s.pty.ScreenContent()
+		if snap.TerminalScreen != "" {
+			snap.LastOutput = truncate(snap.TerminalScreen, 4000)
+		}
+	}
 	return snap
+}
+
+// WriteTerminal sends raw bytes to the live PTY (keystrokes).
+// After a newline, schedules a poll-based VerifyAll once the shell is idle.
+func (s *Session) WriteTerminal(ctx context.Context, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.completed {
+		return fmt.Errorf("session already completed")
+	}
+	if s.kind == contracts.KindTyping {
+		return fmt.Errorf("WriteTerminal is not valid for typing activities")
+	}
+	if s.pty == nil || !s.pty.Alive() {
+		return fmt.Errorf("no live terminal")
+	}
+	if _, err := s.pty.Write(data); err != nil {
+		return err
+	}
+	s.lastPTYInputAt = time.Now()
+	if len(data) > 0 && data[len(data)-1] == '\n' {
+		s.commandsRun++
+		s.pendingVerify = true
+		// Best-effort: re-verify filesystem checks after short idle.
+		// Full command observation capture is Phase 10 / DEBUG trap.
+		go s.idleVerify()
+	}
+	return nil
+}
+
+// idleVerify waits briefly after newline input then re-runs checks.
+func (s *Session) idleVerify() {
+	time.Sleep(400 * time.Millisecond)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.pendingVerify || s.completed || s.pty == nil {
+		return
+	}
+	// If more input arrived recently, skip; another idleVerify will run.
+	if time.Since(s.lastPTYInputAt) < 350*time.Millisecond {
+		return
+	}
+	s.pendingVerify = false
+	// Build a lightweight shell state from screen content for stdout checks.
+	screen := s.pty.ScreenPlain()
+	rel, _ := filepath.Rel(s.workspace, s.cwd)
+	shell := &terminal.ShellState{
+		Cwd:        rel,
+		Executable: "pty-shell",
+		Args:       nil,
+		ExitCode:   0,
+		Stdout:     screen,
+	}
+	s.lastShell = shell
+	s.lastOutput = truncate(screen, 4000)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s.reverify(ctx, shell)
+	_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, map[string]any{
+		"executable": "pty-shell",
+		"args":       []string{},
+		"exitCode":   0,
+		"cwd":        rel,
+		"source":     "pty-idle",
+	})
+}
+
+// TerminalScreen returns the current PTY scrollback (empty if no PTY).
+func (s *Session) TerminalScreen() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pty == nil {
+		return ""
+	}
+	return s.pty.ScreenContent()
+}
+
+// ResizeTerminal updates the PTY window size.
+func (s *Session) ResizeTerminal(rows, cols uint16) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pty == nil || !s.pty.Alive() {
+		return fmt.Errorf("no live terminal")
+	}
+	return s.pty.Resize(rows, cols)
+}
+
+// CloseTerminal shuts down the PTY if present.
+func (s *Session) CloseTerminal() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pty != nil {
+		_ = s.pty.Close()
+		s.pty = nil
+	}
 }
 
 // TypeRune handles one character of input in a typing session.
@@ -600,7 +804,15 @@ func (s *Session) LocalHint() string {
 }
 
 // Pause marks the session paused in the local cache (events stay durable).
+// The live PTY is closed; durable session state remains for resume of task UI.
 func (s *Session) Pause(ctx context.Context) error {
+	s.mu.Lock()
+	if s.pty != nil {
+		_ = s.pty.Close()
+		s.pty = nil
+	}
+	s.mu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	row, err := s.eng.opts.Store.GetSession(ctx, s.clientSessionID)

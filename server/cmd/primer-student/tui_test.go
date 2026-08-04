@@ -238,13 +238,14 @@ func TestStudentTUIWorkQueueAndComplete(t *testing.T) {
 		h.ExpectVisible("Checks", trifle.WithFull())
 
 		// basic-navigation fixtures already satisfy filesystem checks; verify then complete.
-		if err := term.Write("verify\r"); err != nil {
+		// Phase 9: PTY is focused — use ctrl+v / ctrl+s (command box is secondary).
+		if err := term.Write("\x16"); err != nil { // ctrl+v
 			t.Fatalf("verify: %v", err)
 		}
 		time.Sleep(800 * time.Millisecond)
 		h.ExpectVisible("REQUIRED PASS", trifle.WithFull())
 
-		if err := term.Write("complete\r"); err != nil {
+		if err := term.Write("\x13"); err != nil { // ctrl+s
 			t.Fatalf("complete: %v", err)
 		}
 		time.Sleep(1500 * time.Millisecond)
@@ -303,27 +304,28 @@ func TestStudentTUICommandRunnerPath(t *testing.T) {
 		time.Sleep(1200 * time.Millisecond)
 		h.ExpectVisible("Checks", trifle.WithFull())
 
-		// Real command entry.
+		// Real PTY command entry (keystrokes go to the embedded shell).
 		if err := term.Write("pwd\r"); err != nil {
 			t.Fatalf("pwd: %v", err)
 		}
-		time.Sleep(700 * time.Millisecond)
-		h.ExpectVisible("commands:", trifle.WithFull())
+		time.Sleep(900 * time.Millisecond)
+		// Terminal pane title or shell activity should be visible.
+		h.ExpectVisible("Terminal", trifle.WithFull())
 
 		if err := term.Write("ls\r"); err != nil {
 			t.Fatalf("ls: %v", err)
 		}
-		time.Sleep(700 * time.Millisecond)
+		time.Sleep(900 * time.Millisecond)
 		// welcome.txt should appear in ls output of home.
 		h.ExpectVisible("welcome.txt", trifle.WithFull())
 
-		if err := term.Write("verify\r"); err != nil {
+		if err := term.Write("\x16"); err != nil { // ctrl+v verify
 			t.Fatalf("verify: %v", err)
 		}
-		time.Sleep(700 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 		h.ExpectVisible("REQUIRED PASS", trifle.WithFull())
 
-		if err := term.Write("complete\r"); err != nil {
+		if err := term.Write("\x13"); err != nil { // ctrl+s complete
 			t.Fatalf("complete: %v", err)
 		}
 		time.Sleep(1500 * time.Millisecond)
@@ -348,6 +350,76 @@ func bytesContainsAny(s string, subs ...string) bool {
 		}
 	}
 	return false
+}
+
+func TestStudentTUIPTYFocusResizeAndBack(t *testing.T) {
+	trifle.SkipOnWindows(t)
+	env := startTUIEnv(t)
+	bin := buildStudentBin(t)
+	ws := filepath.Join(t.TempDir(), "ws-pty")
+
+	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
+		Program: bin,
+		Env:     directEnv(),
+		Args: []string{
+			"-db", env.DBPath,
+			"-base-url", env.BaseURL,
+			"-workspace", ws,
+			"-token", env.DeviceToken,
+		},
+		Rows:        32,
+		Cols:        100,
+		StartupWait: 800 * time.Millisecond,
+		Timeout:     90 * time.Second,
+	})
+
+	suite.Run("pty focus cycle resize leave", func(t *testing.T, term *trifle.Terminal) {
+		h := trifle.NewTestHelper(t, term)
+		time.Sleep(800 * time.Millisecond)
+		h.ExpectVisible("Basic Navigation", trifle.WithFull())
+
+		if err := term.Write("\r"); err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		h.ExpectVisible("Terminal", trifle.WithFull())
+		h.ExpectVisible("Checks", trifle.WithFull())
+
+		// Type into PTY so screen content is live.
+		if err := term.Write("echo phase9-pty\r"); err != nil {
+			t.Fatalf("echo: %v", err)
+		}
+		time.Sleep(900 * time.Millisecond)
+		h.ExpectVisible("phase9-pty", trifle.WithFull())
+
+		// Tab cycles focus away from terminal (Instructions active title).
+		if err := term.Write("\t"); err != nil {
+			t.Fatalf("tab: %v", err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		h.ExpectVisible("Instructions (active)", trifle.WithFull())
+
+		// Resize should not crash.
+		if err := term.Resize(110, 34); err != nil {
+			t.Fatalf("resize: %v", err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		h.ExpectVisible("Terminal", trifle.WithFull())
+
+		// ctrl+g leaves activity back to queue.
+		if err := term.Write("\x07"); err != nil { // ctrl+g
+			t.Fatalf("ctrl+g: %v", err)
+		}
+		time.Sleep(700 * time.Millisecond)
+		h.ExpectVisible("work queue", trifle.WithFull())
+
+		if err := term.Write("q"); err != nil {
+			t.Fatalf("quit: %v", err)
+		}
+		if err := term.WaitWithTimeout(8 * time.Second); err != nil {
+			t.Fatalf("process did not exit: %v\noutput:\n%s", err, term.Output())
+		}
+	})
 }
 
 func startTypingTUIEnv(t *testing.T) *tuiEnv {

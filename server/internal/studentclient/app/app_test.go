@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +25,7 @@ func TestBootWithoutStoreShowsPairingErrorPath(t *testing.T) {
 	next, _ := m.Update(bm)
 	nm := next.(Model)
 	assert.Equal(t, "pairing", nm.ScreenName())
-	assert.Contains(t, nm.View(), "pair device")
+	assert.Contains(t, nm.View().Content, "pair device")
 }
 
 func TestWindowSizeDoesNotPanic(t *testing.T) {
@@ -47,11 +47,11 @@ func TestSummaryThenQuitKeys(t *testing.T) {
 	m.screen = ScreenSummary
 	m.summaryTitle = "Activity complete"
 	m.summaryBody = "Status:   accepted and synced\n"
-	view := m.View()
+	view := m.View().Content
 	assert.Contains(t, view, "Activity complete")
 	assert.Contains(t, view, "accepted and synced")
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	nm := next.(Model)
 	assert.True(t, nm.quitting)
 	require.NotNil(t, cmd)
@@ -61,7 +61,7 @@ func TestPairingViewChrome(t *testing.T) {
 	m := NewModel(Options{})
 	m.screen = ScreenPairing
 	m.status = "Enter the pairing code from a parent."
-	v := m.View()
+	v := m.View().Content
 	assert.Contains(t, v, "pair device")
 	assert.Contains(t, v, "pairing code")
 }

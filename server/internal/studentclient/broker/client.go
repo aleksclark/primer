@@ -231,6 +231,34 @@ func (c *Client) Pause(ctx context.Context, clientSessionID string) (engine.Sess
 	return out.Snapshot, err
 }
 
+// TerminalWrite sends raw keystrokes to the session PTY.
+func (c *Client) TerminalWrite(ctx context.Context, clientSessionID, data string) (engine.SessionSnapshot, error) {
+	var out SnapshotResponse
+	err := c.call(ctx, TypeTerminalWrite, TerminalWriteRequest{
+		ClientSessionID: clientSessionID,
+		Data:            data,
+	}, &out)
+	return out.Snapshot, err
+}
+
+// TerminalRead polls PTY screen content and the latest snapshot.
+func (c *Client) TerminalRead(ctx context.Context, clientSessionID string) (TerminalReadResponse, error) {
+	var out TerminalReadResponse
+	err := c.call(ctx, TypeTerminalRead, TerminalReadRequest{ClientSessionID: clientSessionID}, &out)
+	return out, err
+}
+
+// TerminalResize updates the PTY window size.
+func (c *Client) TerminalResize(ctx context.Context, clientSessionID string, rows, cols uint16) (engine.SessionSnapshot, error) {
+	var out SnapshotResponse
+	err := c.call(ctx, TypeTerminalResize, TerminalResizeRequest{
+		ClientSessionID: clientSessionID,
+		Rows:            rows,
+		Cols:            cols,
+	}, &out)
+	return out.Snapshot, err
+}
+
 // SyncStatus maps a SyncWorkResponse status string to studentsync.Status.
 func SyncStatus(s string) studentsync.Status {
 	switch studentsync.Status(s) {

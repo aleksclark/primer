@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -499,4 +500,50 @@ func contains(s, sub string) bool {
 
 func stringIndex(s, sub string) int {
 	return bytes.Index([]byte(s), []byte(sub))
+}
+
+func TestSessionPTYWriteAndResize(t *testing.T) {
+	t.Parallel()
+	env := startEnv(t)
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "pty-state.db")
+	eng := openEngine(t, env, dbPath, true)
+
+	// Ensure work is cached offline-style via an online sync first.
+	engOnline := openEngine(t, env, dbPath, false)
+	require.NoError(t, engOnline.SyncOnce(ctx).Err)
+
+	sess, err := eng.OpenSession(ctx, env.AssignmentID)
+	require.NoError(t, err)
+	t.Cleanup(func() { sess.CloseTerminal() })
+
+	snap := sess.Snapshot()
+	require.Equal(t, contracts.KindTerminal, snap.Kind)
+	require.True(t, snap.HasTerminal, "expected PTY on terminal session")
+
+	require.NoError(t, sess.WriteTerminal(ctx, []byte("echo pty-hello\n")))
+	require.NoError(t, sess.WriteTerminal(ctx, []byte("ls\n")))
+
+	deadline := time.Now().Add(4 * time.Second)
+	var screen string
+	for time.Now().Before(deadline) {
+		screen = sess.TerminalScreen()
+		if strings.Contains(screen, "pty-hello") || strings.Contains(screen, "welcome.txt") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	require.True(t,
+		strings.Contains(screen, "pty-hello") || strings.Contains(screen, "welcome.txt"),
+		"screen should show command output, got:\n%s", screen)
+
+	require.NoError(t, sess.ResizeTerminal(30, 100))
+	snap = sess.Snapshot()
+	assert.True(t, snap.HasTerminal)
+	assert.NotEmpty(t, snap.TerminalScreen)
+
+	// RunLine still works alongside PTY.
+	require.NoError(t, sess.RunLine(ctx, "pwd"))
+	snap = sess.Snapshot()
+	assert.GreaterOrEqual(t, snap.CommandsRun, 1)
 }

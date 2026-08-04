@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -82,7 +82,7 @@ func RunTUI(opts Options) error {
 		}
 	}
 	m := tuiModel{list: l, results: results}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	final, err := p.Run()
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.SetSize(msg.Width-2, h)
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			m.quitting = true
@@ -131,9 +131,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m tuiModel) View() string {
+func (m tuiModel) View() tea.View {
 	if m.quitting {
-		return ""
+		v := tea.NewView("")
+		v.AltScreen = true
+		return v
 	}
 	passed := 0
 	for _, r := range m.results {
@@ -150,5 +152,7 @@ func (m tuiModel) View() string {
 	}
 	body := m.list.View()
 	footer := helpStyle.Render("q quit · / filter")
-	return strings.Join([]string{header + "  " + summary, "", body, footer}, "\n")
+	v := tea.NewView(strings.Join([]string{header + "  " + summary, "", body, footer}, "\n"))
+	v.AltScreen = true
+	return v
 }

@@ -408,6 +408,21 @@ func (s *Server) handle(env Envelope) Envelope {
 		if err = UnmarshalPayload(env, &req); err == nil {
 			payload, err = s.pause(ctx, req)
 		}
+	case TypeTerminalWrite:
+		var req TerminalWriteRequest
+		if err = UnmarshalPayload(env, &req); err == nil {
+			payload, err = s.terminalWrite(ctx, req)
+		}
+	case TypeTerminalRead:
+		var req TerminalReadRequest
+		if err = UnmarshalPayload(env, &req); err == nil {
+			payload, err = s.terminalRead(ctx, req)
+		}
+	case TypeTerminalResize:
+		var req TerminalResizeRequest
+		if err = UnmarshalPayload(env, &req); err == nil {
+			payload, err = s.terminalResize(ctx, req)
+		}
 	default:
 		err = fmt.Errorf("unknown method %q", env.Type)
 	}
@@ -758,6 +773,42 @@ func (s *Server) pause(ctx context.Context, req SessionRef) (SnapshotResponse, e
 	delete(s.sessions, req.ClientSessionID)
 	s.mu.Unlock()
 	return SnapshotResponse{Snapshot: snap}, nil
+}
+
+func (s *Server) terminalWrite(ctx context.Context, req TerminalWriteRequest) (SnapshotResponse, error) {
+	sess, err := s.getSession(req.ClientSessionID)
+	if err != nil {
+		return SnapshotResponse{}, err
+	}
+	if err := sess.WriteTerminal(ctx, []byte(req.Data)); err != nil {
+		return SnapshotResponse{Snapshot: sess.Snapshot()}, err
+	}
+	return SnapshotResponse{Snapshot: sess.Snapshot()}, nil
+}
+
+func (s *Server) terminalRead(ctx context.Context, req TerminalReadRequest) (TerminalReadResponse, error) {
+	sess, err := s.getSession(req.ClientSessionID)
+	if err != nil {
+		return TerminalReadResponse{}, err
+	}
+	_ = ctx
+	snap := sess.Snapshot()
+	return TerminalReadResponse{
+		Screen:   sess.TerminalScreen(),
+		Snapshot: snap,
+	}, nil
+}
+
+func (s *Server) terminalResize(ctx context.Context, req TerminalResizeRequest) (SnapshotResponse, error) {
+	sess, err := s.getSession(req.ClientSessionID)
+	if err != nil {
+		return SnapshotResponse{}, err
+	}
+	_ = ctx
+	if err := sess.ResizeTerminal(req.Rows, req.Cols); err != nil {
+		return SnapshotResponse{Snapshot: sess.Snapshot()}, err
+	}
+	return SnapshotResponse{Snapshot: sess.Snapshot()}, nil
 }
 
 // ServeBackground starts ListenAndServe on a goroutine and waits until the

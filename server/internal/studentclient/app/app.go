@@ -1,5 +1,8 @@
 // Package app is the Bubble Tea student client: pairing, work queue, activity
-// session (command runner), and completion summary.
+// session (PTY terminal / typing), and completion summary.
+//
+// Phase 9: Bubble Tea v2 + embedded PTY three-pane activity view.
+// Leave activity: ctrl+g (avoids shell conflict). Tab cycles pane focus.
 package app
 
 import (
@@ -9,10 +12,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/broker"
@@ -31,6 +34,15 @@ const (
 	ScreenQueue
 	ScreenActivity
 	ScreenSummary
+)
+
+// activityPane is focus within the terminal activity three-pane layout.
+type activityPane int
+
+const (
+	paneTerminal activityPane = iota
+	paneInstructions
+	paneChat
 )
 
 // Options configure the student TUI.
@@ -52,13 +64,13 @@ type Options struct {
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	opts   Options
-	screen Screen
-	width  int
-	height int
-	err    string
-	status string // free-form status line message
-	syncSt sync.Status
+	opts     Options
+	screen   Screen
+	width    int
+	height   int
+	err      string
+	status   string // free-form status line message
+	syncSt   sync.Status
 	quitting bool
 
 	// pairing
@@ -73,10 +85,13 @@ type Model struct {
 	sess            *engine.Session // direct mode only
 	brokerSessionID string          // broker mode session handle
 	snap            engine.SessionSnapshot
-	cmdInput        textinput.Model
+	cmdInput        textinput.Model // fallback RunLine box when no PTY / instructions pane
 	busy            bool
 	focusCmd        bool
 	activityMsg     string
+	activePane      activityPane
+	termScreen      string
+	chatLog         []string
 
 	// summary
 	summaryTitle string
@@ -95,6 +110,9 @@ func (m Model) hasSession() bool {
 func (m *Model) clearSession() {
 	m.sess = nil
 	m.brokerSessionID = ""
+	m.termScreen = ""
+	m.chatLog = nil
+	m.activePane = paneTerminal
 }
 
 // NewModel builds the root model. Call Init via the tea program.
@@ -108,13 +126,13 @@ func NewModel(opts Options) Model {
 	pi := textinput.New()
 	pi.Placeholder = "pairing code"
 	pi.CharLimit = 32
-	pi.Width = 24
+	pi.SetWidth(24)
 	pi.Prompt = "> "
 
 	ci := textinput.New()
-	ci.Placeholder = "command (e.g. ls, pwd, cd docs)"
+	ci.Placeholder = "command (fallback when no PTY)"
 	ci.CharLimit = 512
-	ci.Width = 60
+	ci.SetWidth(60)
 	ci.Prompt = "$ "
 
 	delegate := list.NewDefaultDelegate()
@@ -139,7 +157,7 @@ func NewModel(opts Options) Model {
 
 // Run starts the interactive TUI (blocking).
 func Run(opts Options) error {
-	p := tea.NewProgram(NewModel(opts), tea.WithAltScreen())
+	p := tea.NewProgram(NewModel(opts))
 	_, err := p.Run()
 	return err
 }
@@ -188,6 +206,14 @@ type hintDoneMsg struct {
 	hint string
 }
 
+type termTickMsg struct{}
+
+type termPollMsg struct {
+	screen string
+	snap   engine.SessionSnapshot
+	err    error
+}
+
 // --- lifecycle ---------------------------------------------------------------
 
 func (m Model) Init() tea.Cmd {
@@ -228,20 +254,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layout()
-		return m, nil
+		var cmds []tea.Cmd
+		if m.screen == ScreenActivity && m.snap.HasTerminal {
+			cmds = append(cmds, m.resizeTerminalCmd(msg.Height, msg.Width))
+		}
+		return m, tea.Batch(cmds...)
 
 	case bootMsg:
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			m.screen = ScreenPairing
-			m.pairInput.Focus()
-			return m, textinput.Blink
+			return m, m.pairInput.Focus()
 		}
 		if !msg.hasToken {
 			m.screen = ScreenPairing
-			m.pairInput.Focus()
 			m.status = "Enter the pairing code from a parent."
-			return m, textinput.Blink
+			return m, m.pairInput.Focus()
 		}
 		m.screen = ScreenQueue
 		return m, tea.Batch(m.syncCmd(), m.loadWorkCmd())
@@ -301,16 +329,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = ScreenActivity
 		m.cmdInput.SetValue("")
+		m.termScreen = msg.snap.TerminalScreen
+		m.activePane = paneTerminal
 		if msg.snap.Kind == contracts.KindTyping {
 			m.cmdInput.Blur()
 			m.focusCmd = false
-			m.activityMsg = "Type the prompt exactly. backspace fixes · ctrl+s complete · esc back"
+			m.activityMsg = "Type the prompt exactly. backspace fixes · ctrl+s complete · ctrl+g back"
 			return m, nil
 		}
-		m.cmdInput.Focus()
+		if msg.snap.HasTerminal {
+			m.cmdInput.Blur()
+			m.focusCmd = false
+			m.activityMsg = "PTY terminal · tab focus · ctrl+v verify · ctrl+s complete · ctrl+g back"
+			return m, tea.Batch(m.termTickCmd(), m.resizeTerminalCmd(m.height, m.width))
+		}
+		// Fallback command box (no PTY).
 		m.focusCmd = true
-		m.activityMsg = "Type a command and press Enter. verify/complete/hint as commands · esc=back"
-		return m, textinput.Blink
+		m.activityMsg = "Type a command and press Enter. verify/complete/hint as commands · ctrl+g back"
+		return m, m.cmdInput.Focus()
 
 	case cmdDoneMsg:
 		m.busy = false
@@ -320,13 +356,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activityMsg = ""
 		}
 		m.snap = msg.snap
+		if msg.snap.TerminalScreen != "" {
+			m.termScreen = msg.snap.TerminalScreen
+		}
 		m.cmdInput.SetValue("")
-		m.cmdInput.Focus()
-		return m, textinput.Blink
+		if m.snap.HasTerminal && m.activePane == paneTerminal {
+			return m, nil
+		}
+		return m, m.cmdInput.Focus()
 
 	case verifyDoneMsg:
 		m.busy = false
 		m.snap = msg.snap
+		if msg.snap.TerminalScreen != "" {
+			m.termScreen = msg.snap.TerminalScreen
+		}
 		m.activityMsg = fmt.Sprintf("Checks: %d/%d · required=%v", msg.snap.ChecksPassed, msg.snap.ChecksTotal, msg.snap.RequiredPassed)
 		return m, nil
 
@@ -359,7 +403,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case hintDoneMsg:
 		if m.brokerMode() {
-			// Snapshot already includes tutor hint from broker.
 			if msg.hint != "" {
 				m.snap.TutorHint = msg.hint
 			}
@@ -367,10 +410,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sess.SetTutorHint(msg.hint)
 			m.snap = m.sess.Snapshot()
 		}
+		if msg.hint != "" {
+			m.chatLog = append(m.chatLog, "tutor: "+msg.hint)
+			if len(m.chatLog) > 20 {
+				m.chatLog = m.chatLog[len(m.chatLog)-20:]
+			}
+		}
 		m.activityMsg = "Hint ready"
 		return m, nil
 
-	case tea.KeyMsg:
+	case termTickMsg:
+		if m.screen != ScreenActivity || !m.hasSession() || !m.snap.HasTerminal {
+			return m, nil
+		}
+		return m, m.termPollCmd()
+
+	case termPollMsg:
+		if m.screen != ScreenActivity {
+			return m, nil
+		}
+		if msg.err == nil {
+			if msg.screen != "" {
+				m.termScreen = msg.screen
+			}
+			// Preserve tutor hint / local activityMsg when refreshing snap.
+			hint := m.snap.TutorHint
+			m.snap = msg.snap
+			if m.snap.TutorHint == "" {
+				m.snap.TutorHint = hint
+			}
+			if msg.snap.TerminalScreen != "" {
+				m.termScreen = msg.snap.TerminalScreen
+			}
+		}
+		return m, m.termTickCmd()
+
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
 
@@ -388,7 +463,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.snap.Kind == contracts.KindTyping {
 			return m, nil
 		}
-		if m.focusCmd && !m.busy {
+		if !m.snap.HasTerminal && m.focusCmd && !m.busy {
+			var cmd tea.Cmd
+			m.cmdInput, cmd = m.cmdInput.Update(msg)
+			return m, cmd
+		}
+		if m.snap.HasTerminal && m.activePane == paneInstructions && m.focusCmd && !m.busy {
 			var cmd tea.Cmd
 			m.cmdInput, cmd = m.cmdInput.Update(msg)
 			return m, cmd
@@ -397,7 +477,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
 	case "ctrl+c":
@@ -455,73 +535,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.snap.Kind == contracts.KindTyping {
 			return m.handleTypingKey(msg)
 		}
-		// Global activity keys when not typing specials into input — use ctrl combos
-		// and single keys only when we intentionally intercept.
-		switch key {
-		case "esc":
-			return m.pauseToQueue()
-		case "ctrl+v":
-			if m.busy || !m.hasSession() {
-				return m, nil
-			}
-			m.busy = true
-			return m, m.verifyCmd()
-		case "ctrl+s":
-			if m.busy || !m.hasSession() {
-				return m, nil
-			}
-			if !m.snap.RequiredPassed {
-				m.activityMsg = "Required checks not passed yet — run verify after commands."
-				return m, nil
-			}
-			m.busy = true
-			return m, m.completeCmd()
-		case "ctrl+h":
-			if !m.hasSession() {
-				return m, nil
-			}
-			return m, m.hintCmd()
-		case "enter":
-			if m.busy || !m.hasSession() {
-				return m, nil
-			}
-			line := strings.TrimSpace(m.cmdInput.Value())
-			// Test-friendly shortcuts typed as commands:
-			switch line {
-			case ":verify", "verify":
-				m.busy = true
-				m.cmdInput.SetValue("")
-				return m, m.verifyCmd()
-			case ":complete", "complete":
-				if !m.snap.RequiredPassed {
-					m.activityMsg = "Required checks not passed yet"
-					m.cmdInput.SetValue("")
-					return m, nil
-				}
-				m.busy = true
-				m.cmdInput.SetValue("")
-				return m, m.completeCmd()
-			case ":hint", "hint":
-				m.cmdInput.SetValue("")
-				return m, m.hintCmd()
-			case ":back", "back":
-				return m.pauseToQueue()
-			}
-			if line == "" {
-				return m, nil
-			}
-			m.busy = true
-			return m, m.runCmd(line)
-		}
-		if !m.busy {
-			var cmd tea.Cmd
-			m.cmdInput, cmd = m.cmdInput.Update(msg)
-			return m, cmd
-		}
+		return m.handleTerminalActivityKey(msg)
 
 	case ScreenSummary:
 		switch key {
-		case "enter", "q", "esc":
+		case "enter", "q", "esc", "ctrl+g":
 			m.clearSession()
 			m.screen = ScreenQueue
 			m.summaryBody = ""
@@ -529,6 +547,145 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) handleTerminalActivityKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// Global activity keys (work even when PTY focused).
+	switch key {
+	case "ctrl+g":
+		// Documented leave-activity key (avoids shell ESC / ctrl+c conflict).
+		return m.pauseToQueue()
+	case "esc":
+		// Esc only leaves when not focused on the live terminal.
+		if !(m.snap.HasTerminal && m.activePane == paneTerminal) {
+			return m.pauseToQueue()
+		}
+	case "tab":
+		if m.snap.HasTerminal {
+			m.activePane = (m.activePane + 1) % 3
+			m.focusCmd = m.activePane == paneInstructions
+			if m.focusCmd {
+				return m, m.cmdInput.Focus()
+			}
+			m.cmdInput.Blur()
+			return m, nil
+		}
+	case "ctrl+v":
+		if m.busy || !m.hasSession() {
+			return m, nil
+		}
+		m.busy = true
+		return m, m.verifyCmd()
+	case "ctrl+s":
+		if m.busy || !m.hasSession() {
+			return m, nil
+		}
+		if !m.snap.RequiredPassed {
+			m.activityMsg = "Required checks not passed yet — run verify after commands."
+			return m, nil
+		}
+		m.busy = true
+		return m, m.completeCmd()
+	case "ctrl+h":
+		if !m.hasSession() {
+			return m, nil
+		}
+		return m, m.hintCmd()
+	}
+
+	// Live PTY: forward keystrokes when terminal pane focused.
+	if m.snap.HasTerminal && m.activePane == paneTerminal && !m.busy {
+		data := keyToPTY(msg)
+		if data == "" {
+			return m, nil
+		}
+		return m, m.termWriteCmd(data)
+	}
+
+	// Fallback / instructions-pane command box (RunLine + verify/complete shortcuts).
+	if key == "enter" {
+		if m.busy || !m.hasSession() {
+			return m, nil
+		}
+		line := strings.TrimSpace(m.cmdInput.Value())
+		switch line {
+		case ":verify", "verify":
+			m.busy = true
+			m.cmdInput.SetValue("")
+			return m, m.verifyCmd()
+		case ":complete", "complete":
+			if !m.snap.RequiredPassed {
+				m.activityMsg = "Required checks not passed yet"
+				m.cmdInput.SetValue("")
+				return m, nil
+			}
+			m.busy = true
+			m.cmdInput.SetValue("")
+			return m, m.completeCmd()
+		case ":hint", "hint":
+			m.cmdInput.SetValue("")
+			return m, m.hintCmd()
+		case ":back", "back":
+			return m.pauseToQueue()
+		}
+		if line == "" {
+			return m, nil
+		}
+		m.busy = true
+		return m, m.runCmd(line)
+	}
+	if !m.busy {
+		var cmd tea.Cmd
+		m.cmdInput, cmd = m.cmdInput.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// keyToPTY maps a Bubble Tea v2 key press to PTY input bytes.
+func keyToPTY(msg tea.KeyPressMsg) string {
+	k := msg.Key()
+	// Printable text (including shifted symbols) prefers Key.Text.
+	if k.Text != "" {
+		return k.Text
+	}
+	switch msg.String() {
+	case "enter":
+		return "\r"
+	case "backspace":
+		return "\x7f"
+	case "tab":
+		return "\t"
+	case "esc":
+		return "\x1b"
+	case "ctrl+c":
+		return "\x03"
+	case "ctrl+d":
+		return "\x04"
+	case "ctrl+z":
+		return "\x1a"
+	case "ctrl+l":
+		return "\x0c"
+	case "up":
+		return "\x1b[A"
+	case "down":
+		return "\x1b[B"
+	case "right":
+		return "\x1b[C"
+	case "left":
+		return "\x1b[D"
+	case "space":
+		return " "
+	}
+	// Single printable rune fallback.
+	s := msg.String()
+	if rs := []rune(s); len(rs) == 1 && unicode.IsPrint(rs[0]) &&
+		!strings.HasPrefix(s, "ctrl+") && !strings.HasPrefix(s, "alt+") {
+		return s
+	}
+	return ""
 }
 
 func (m Model) pauseToQueue() (tea.Model, tea.Cmd) {
@@ -677,10 +834,79 @@ func (m Model) runCmd(line string) tea.Cmd {
 	}
 }
 
-func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) termWriteCmd(data string) tea.Cmd {
+	opts := m.opts
+	sess := m.sess
+	sid := m.brokerSessionID
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if opts.Broker != nil {
+			snap, err := opts.Broker.TerminalWrite(ctx, sid, data)
+			screen := snap.TerminalScreen
+			return termPollMsg{screen: screen, snap: snap, err: err}
+		}
+		err := sess.WriteTerminal(ctx, []byte(data))
+		snap := sess.Snapshot()
+		return termPollMsg{screen: snap.TerminalScreen, snap: snap, err: err}
+	}
+}
+
+func (m Model) termPollCmd() tea.Cmd {
+	opts := m.opts
+	sess := m.sess
+	sid := m.brokerSessionID
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if opts.Broker != nil {
+			resp, err := opts.Broker.TerminalRead(ctx, sid)
+			return termPollMsg{screen: resp.Screen, snap: resp.Snapshot, err: err}
+		}
+		if sess == nil {
+			return termPollMsg{err: fmt.Errorf("no session")}
+		}
+		snap := sess.Snapshot()
+		return termPollMsg{screen: sess.TerminalScreen(), snap: snap}
+	}
+}
+
+func (m Model) termTickCmd() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+		return termTickMsg{}
+	})
+}
+
+func (m Model) resizeTerminalCmd(height, width int) tea.Cmd {
+	if !m.hasSession() {
+		return nil
+	}
+	// Approximate terminal pane size (left ~55% width, most of height minus chrome).
+	cols := uint16(max(20, width*55/100-4))
+	rows := uint16(max(8, height-8))
+	opts := m.opts
+	sess := m.sess
+	sid := m.brokerSessionID
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if opts.Broker != nil {
+			snap, err := opts.Broker.TerminalResize(ctx, sid, rows, cols)
+			return termPollMsg{screen: snap.TerminalScreen, snap: snap, err: err}
+		}
+		if sess != nil {
+			_ = sess.ResizeTerminal(rows, cols)
+			snap := sess.Snapshot()
+			return termPollMsg{screen: snap.TerminalScreen, snap: snap}
+		}
+		return termPollMsg{}
+	}
+}
+
+func (m Model) handleTypingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
-	case "esc":
+	case "ctrl+g", "esc":
 		return m.pauseToQueue()
 	case "ctrl+s":
 		if m.busy || !m.hasSession() {
@@ -745,22 +971,16 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var runes []rune
-	switch msg.Type {
-	case tea.KeyRunes:
-		runes = msg.Runes
-	case tea.KeySpace:
+	k := msg.Key()
+	if k.Text != "" {
+		runes = []rune(k.Text)
+	} else if key == "space" {
 		runes = []rune{' '}
-	case tea.KeyTab:
+	} else if key == "tab" {
 		runes = []rune{'\t'}
-	default:
-		// Fallback for single printable characters reported only via String().
-		if key == " " {
-			runes = []rune{' '}
-		} else if rs := []rune(key); len(rs) == 1 && unicode.IsPrint(rs[0]) &&
-			!strings.HasPrefix(key, "ctrl+") && !strings.HasPrefix(key, "alt+") &&
-			!strings.HasPrefix(key, "shift+") {
-			runes = rs
-		}
+	} else if rs := []rune(key); len(rs) == 1 && unicode.IsPrint(rs[0]) &&
+		!strings.HasPrefix(key, "ctrl+") && !strings.HasPrefix(key, "alt+") {
+		runes = rs
 	}
 	if len(runes) == 0 {
 		return m, nil
@@ -865,8 +1085,8 @@ func (m *Model) layout() {
 		h = 12
 	}
 	m.workList.SetSize(w-2, h-6)
-	m.cmdInput.Width = max(20, w-8)
-	m.pairInput.Width = min(32, w-10)
+	m.cmdInput.SetWidth(max(20, w-8))
+	m.pairInput.SetWidth(min(32, w-10))
 }
 
 // --- view --------------------------------------------------------------------
@@ -879,26 +1099,33 @@ var (
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	panelStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	focusBorder = lipgloss.Color("212")
+	idleBorder  = lipgloss.Color("62")
 )
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	var content string
 	if m.quitting {
-		return ""
+		content = ""
+	} else {
+		switch m.screen {
+		case ScreenBoot:
+			content = "Starting Primer student…\n"
+		case ScreenPairing:
+			content = m.viewPairing()
+		case ScreenQueue:
+			content = m.viewQueue()
+		case ScreenActivity:
+			content = m.viewActivity()
+		case ScreenSummary:
+			content = m.viewSummary()
+		default:
+			content = ""
+		}
 	}
-	switch m.screen {
-	case ScreenBoot:
-		return "Starting Primer student…\n"
-	case ScreenPairing:
-		return m.viewPairing()
-	case ScreenQueue:
-		return m.viewQueue()
-	case ScreenActivity:
-		return m.viewActivity()
-	case ScreenSummary:
-		return m.viewSummary()
-	default:
-		return ""
-	}
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 func (m Model) viewPairing() string {
@@ -1012,18 +1239,9 @@ func (m Model) viewTypingActivity() string {
 		fmt.Fprintf(&metrics, "%s %s\n", style.Render(mark), c.ID)
 	}
 
-	w := m.width
-	if w < 60 {
-		w = 60
-	}
-	leftW := w * 3 / 5
-	if leftW < 30 {
-		leftW = 30
-	}
-	rightW := w - leftW - 4
-	if rightW < 20 {
-		rightW = 20
-	}
+	w := max(60, m.width)
+	leftW := max(30, w*3/5)
+	rightW := max(20, w-leftW-4)
 	b.WriteString(lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		panelStyle.Width(leftW).Render(instr),
@@ -1052,7 +1270,7 @@ func (m Model) viewTypingActivity() string {
 		b.WriteString(statusStyle.Render(m.activityMsg))
 		b.WriteString("\n")
 	}
-	b.WriteString(dimStyle.Render("type to match prompt · backspace · ctrl+s complete · esc back"))
+	b.WriteString(dimStyle.Render("type to match prompt · backspace · ctrl+s complete · ctrl+g back"))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -1074,7 +1292,7 @@ func (m Model) viewTerminalActivity() string {
 		taskBody = strings.TrimSpace(t.Instructions)
 	} else if s.RequiredPassed {
 		taskTitle = "All tasks complete"
-		taskBody = "Required checks passed. Press complete (or type complete) to finish."
+		taskBody = "Required checks passed. Press ctrl+s (or complete) to finish."
 	}
 	instr := fmt.Sprintf("%s\n\n%s", taskTitle, taskBody)
 	if s.TutorHint != "" {
@@ -1105,49 +1323,120 @@ func (m Model) viewTerminalActivity() string {
 		fmt.Fprintf(&checks, "%s %s\n", style.Render(mark), c.ID)
 	}
 
-	w := m.width
-	if w < 60 {
-		w = 60
-	}
-	leftW := w * 3 / 5
-	if leftW < 30 {
-		leftW = 30
-	}
-	rightW := w - leftW - 4
-	if rightW < 20 {
-		rightW = 20
-	}
-	left := panelStyle.Width(leftW).Render(instr)
-	right := panelStyle.Width(rightW).Render(strings.TrimRight(checks.String(), "\n"))
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right))
-	b.WriteString("\n")
+	w := max(60, m.width)
+	h := max(16, m.height)
 
-	// Output + command
-	cwd := s.RelCwd
-	if cwd == "" {
-		cwd = "."
-	}
-	fmt.Fprintf(&b, "cwd: %s  commands: %d\n", cwd, s.CommandsRun)
-	out := s.LastOutput
-	if out == "" {
-		out = dimStyle.Render("(no output yet)")
-	} else {
-		// Cap displayed lines.
-		lines := strings.Split(out, "\n")
-		if len(lines) > 8 {
-			lines = lines[len(lines)-8:]
+	// Three-pane when PTY is available: left terminal, top-right instructions+checks, bottom-right chat.
+	if s.HasTerminal {
+		leftW := max(30, w*55/100)
+		rightW := max(22, w-leftW-3)
+		termH := max(8, h-6)
+		instrH := max(4, termH*55/100)
+		chatH := max(3, termH-instrH-1)
+
+		termBorder := idleBorder
+		instrBorder := idleBorder
+		chatBorder := idleBorder
+		termTitle := " Terminal "
+		instrTitle := " Instructions "
+		chatTitle := " Tutor "
+		switch m.activePane {
+		case paneTerminal:
+			termBorder = focusBorder
+			termTitle = " Terminal (active) "
+		case paneInstructions:
+			instrBorder = focusBorder
+			instrTitle = " Instructions (active) "
+		case paneChat:
+			chatBorder = focusBorder
+			chatTitle = " Tutor (active) "
 		}
-		out = strings.Join(lines, "\n")
-	}
-	b.WriteString(panelStyle.Width(max(40, w-4)).Render(out))
-	b.WriteString("\n")
-	if m.busy {
-		b.WriteString(dimStyle.Render("Running…"))
+
+		screen := m.termScreen
+		if screen == "" {
+			screen = s.TerminalScreen
+		}
+		if screen == "" {
+			screen = dimStyle.Render("(starting shell…)")
+		} else {
+			// Cap displayed lines to pane height.
+			lines := strings.Split(screen, "\n")
+			maxLines := max(3, int(termH)-3)
+			if len(lines) > maxLines {
+				lines = lines[len(lines)-maxLines:]
+			}
+			// Trim trailing spaces per line for cleaner view.
+			for i, ln := range lines {
+				lines[i] = strings.TrimRight(ln, " \t")
+			}
+			screen = strings.Join(lines, "\n")
+		}
+
+		termPanel := panelStyle.
+			BorderForeground(termBorder).
+			Width(leftW).
+			Height(termH).
+			Render(termTitle + "\n" + screen)
+
+		rightTop := panelStyle.
+			BorderForeground(instrBorder).
+			Width(rightW).
+			Height(instrH).
+			Render(instrTitle + "\n" + instr + "\n\n" + strings.TrimRight(checks.String(), "\n"))
+
+		chatBody := strings.Join(m.chatLog, "\n")
+		if chatBody == "" {
+			chatBody = dimStyle.Render("ctrl+h for a hint")
+		}
+		rightBot := panelStyle.
+			BorderForeground(chatBorder).
+			Width(rightW).
+			Height(chatH).
+			Render(chatTitle + "\n" + chatBody)
+
+		rightCol := lipgloss.JoinVertical(lipgloss.Left, rightTop, rightBot)
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, termPanel, " ", rightCol))
 		b.WriteString("\n")
+
+		if m.activePane == paneInstructions {
+			b.WriteString(m.cmdInput.View())
+			b.WriteString("\n")
+		}
 	} else {
-		b.WriteString(m.cmdInput.View())
+		// Legacy two-panel + command box when no PTY.
+		leftW := max(30, w*3/5)
+		rightW := max(20, w-leftW-4)
+		left := panelStyle.Width(leftW).Render(instr)
+		right := panelStyle.Width(rightW).Render(strings.TrimRight(checks.String(), "\n"))
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right))
 		b.WriteString("\n")
+
+		cwd := s.RelCwd
+		if cwd == "" {
+			cwd = "."
+		}
+		fmt.Fprintf(&b, "cwd: %s  commands: %d\n", cwd, s.CommandsRun)
+		out := s.LastOutput
+		if out == "" {
+			out = dimStyle.Render("(no output yet)")
+		} else {
+			lines := strings.Split(out, "\n")
+			if len(lines) > 8 {
+				lines = lines[len(lines)-8:]
+			}
+			out = strings.Join(lines, "\n")
+		}
+		b.WriteString(panelStyle.Width(max(40, w-4)).Render(out))
+		b.WriteString("\n")
+		if m.busy {
+			b.WriteString(dimStyle.Render("Running…"))
+			b.WriteString("\n")
+		} else {
+			b.WriteString(m.cmdInput.View())
+			b.WriteString("\n")
+		}
 	}
+
 	if m.activityMsg != "" {
 		b.WriteString(statusStyle.Render(m.activityMsg))
 		b.WriteString("\n")
@@ -1156,7 +1445,11 @@ func (m Model) viewTerminalActivity() string {
 		b.WriteString(errStyle.Render(s.LastError))
 		b.WriteString("\n")
 	}
-	b.WriteString(dimStyle.Render("enter run · verify/complete/hint as commands · esc back"))
+	if s.HasTerminal {
+		b.WriteString(dimStyle.Render("tab focus · ctrl+v verify · ctrl+s complete · ctrl+h hint · ctrl+g back"))
+	} else {
+		b.WriteString(dimStyle.Render("enter run · verify/complete/hint · ctrl+g back"))
+	}
 	b.WriteString("\n")
 	return b.String()
 }

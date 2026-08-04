@@ -35,9 +35,12 @@ const (
 	TypeComplete     = "complete"
 	TypeTutor        = "tutor"
 	TypeStatus       = "status"
-	TypePause        = "pause"
-	TypeResponse     = "response"
-	TypeError        = "error"
+	TypePause           = "pause"
+	TypeTerminalWrite   = "terminalWrite"
+	TypeTerminalRead    = "terminalRead"
+	TypeTerminalResize  = "terminalResize"
+	TypeResponse        = "response"
+	TypeError           = "error"
 )
 
 // Envelope is one JSON-lines IPC message.
@@ -159,6 +162,31 @@ type TutorResponse struct {
 // SnapshotResponse is a generic session snapshot reply.
 type SnapshotResponse struct {
 	Snapshot engine.SessionSnapshot `json:"snapshot"`
+}
+
+// TerminalWriteRequest sends keystrokes to the session PTY.
+type TerminalWriteRequest struct {
+	ClientSessionID string `json:"clientSessionId"`
+	// Data is raw PTY input (UTF-8 text / control bytes as a string).
+	Data string `json:"data"`
+}
+
+// TerminalReadRequest polls the current PTY screen content.
+type TerminalReadRequest struct {
+	ClientSessionID string `json:"clientSessionId"`
+}
+
+// TerminalReadResponse is a polled screen snapshot.
+type TerminalReadResponse struct {
+	Screen   string                 `json:"screen"`
+	Snapshot engine.SessionSnapshot `json:"snapshot"`
+}
+
+// TerminalResizeRequest updates the PTY window size.
+type TerminalResizeRequest struct {
+	ClientSessionID string `json:"clientSessionId"`
+	Rows            uint16 `json:"rows"`
+	Cols            uint16 `json:"cols"`
 }
 
 // StatusRequest may target a session or the broker overall.
