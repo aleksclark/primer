@@ -3,6 +3,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    # Go 1.25+ for primer-student (go.mod requires >= 1.25.7). Workstation
+    # system packages stay on nixos-25.05; only the Go toolchain comes from here.
+    nixpkgs-go.url = "github:NixOS/nixpkgs/nixos-unstable";
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -10,19 +13,57 @@
     impermanence.url = "github:nix-community/impermanence";
   };
 
-  outputs = { self, nixpkgs, disko, impermanence, ... }:
+  outputs = { self, nixpkgs, nixpkgs-go, disko, impermanence, ... }:
   let
     system = "x86_64-linux";
+    pkgs = import nixpkgs { inherit system; };
+    pkgsGo = import nixpkgs-go { inherit system; };
+
     # Explicit path so the flake root (workstation/) can see sibling server/.
-    # Used when wiring packages/primer-student.nix after vendorHash is pinned.
     primerServerSrc = builtins.path {
       path = ../server;
       name = "primer-server-src";
       filter = path: type:
         let base = baseNameOf path;
-        in !(builtins.elem base [ ".git" "bin" "coverage.out" ]);
+        in !(builtins.elem base [ ".git" "bin" "coverage.out" "vendor" ]);
+    };
+
+    curriculumActivities = builtins.path {
+      path = ../curriculum/activities;
+      name = "primer-curriculum-activities";
+    };
+
+    # self.rev / shortRev require a clean git flake context. Fall back so
+    # `nix build` still works from Docker mounts and dirty worktrees.
+    gitCommit =
+      if self ? shortRev then self.shortRev
+      else if self ? dirtyShortRev then self.dirtyShortRev
+      else "unknown";
+    gitVersion = "0.1.0+${gitCommit}";
+
+    primerStudent = pkgs.callPackage ./packages/primer-student.nix {
+      inherit primerServerSrc;
+      go_1_25 = pkgsGo.go_1_25;
+      version = gitVersion;
+      commit = gitCommit;
+    };
+
+    activityValidate = pkgs.callPackage ./packages/activity-validate.nix {
+      inherit primerServerSrc;
+      go_1_25 = pkgsGo.go_1_25;
+      curriculumActivities = curriculumActivities;
+    };
+
+    runtimeCoreutilsBasic = pkgs.callPackage ./packages/runtime-coreutils-basic.nix { };
+
+    primerOverlay = final: prev: {
+      primer-student = primerStudent;
+      primer-runtime-coreutils-basic = runtimeCoreutilsBasic;
+      primer-activity-validate = activityValidate;
     };
   in {
+    overlays.default = primerOverlay;
+
     # The bootstrap ISO - boots with SSH, your key, DHCP
     # Build: nix build .#installer-iso
     nixosConfigurations.installer = nixpkgs.lib.nixosSystem {
@@ -34,23 +75,16 @@
     };
 
     # The actual student workstation config
-    # Deploy: nixos-anywhere --flake .#workstation root@<ip>
-    # Or after bootstrap: nixos-rebuild switch --flake .#workstation --target-host root@<ip>
-    #
-    # primer-student.nix defaults package=null so evaluation does not need a
-    # pinned Go vendorHash. Install the binary via `make student-deploy`, or
-    # after fixing packages/primer-student.nix vendorHash, enable:
-    #
-    #   nixpkgs.overlays = [(final: prev: {
-    #     primer-student = final.callPackage ./packages/primer-student.nix {
-    #       primerServerSrc = primerServerSrc;
-    #     };
-    #   })];
-    #   services.primer-student.package = pkgs.primer-student;
+    # Deploy: ./deploy.sh root@primer.local
     nixosConfigurations.workstation = nixpkgs.lib.nixosSystem {
       inherit system;
-      specialArgs = { inherit primerServerSrc; };
+      specialArgs = {
+        inherit primerServerSrc;
+      };
       modules = [
+        {
+          nixpkgs.overlays = [ primerOverlay ];
+        }
         disko.nixosModules.disko
         impermanence.nixosModules.impermanence
         ./hosts/workstation/disko.nix
@@ -61,16 +95,54 @@
         ./hosts/workstation/users.nix
         ./hosts/workstation/klipper.nix
         ./hosts/workstation/primer-student.nix
+        {
+          # Default to the flake-built package and coreutils-basic runtime.
+          services.primer-student.package = nixpkgs.lib.mkDefault primerStudent;
+          services.primer-student.runtimeProfilePackage =
+            nixpkgs.lib.mkDefault runtimeCoreutilsBasic;
+        }
       ];
     };
 
-    # Convenience: build the ISO image directly
-    # nix build .#installer-iso
-    #
-    # Go package is intentionally not exposed here until vendorHash is real;
-    # see packages/primer-student.nix. System deploy uses a prebuilt binary
-    # path (/var/lib/primer-student/bin/primer-student) instead.
-    packages.${system}.installer-iso =
-      self.nixosConfigurations.installer.config.system.build.isoImage;
+    packages.${system} = {
+      default = primerStudent;
+      primer-student = primerStudent;
+      activity-validate = activityValidate;
+      runtime-coreutils-basic = runtimeCoreutilsBasic;
+      installer-iso =
+        self.nixosConfigurations.installer.config.system.build.isoImage;
+    };
+
+    # Best-effort checks for CI / `nix flake check` (run via Docker when host
+    # nix segfaults — see Makefile workstation-check).
+    checks.${system} = {
+      primer-student = primerStudent;
+      runtime-coreutils-basic = runtimeCoreutilsBasic;
+      activity-validate = pkgs.runCommand "activity-validate-check" {
+        nativeBuildInputs = [ activityValidate ];
+      } ''
+        activity-validate -dir ${curriculumActivities} -no-materialize
+        mkdir -p $out
+        echo ok > $out/result
+      '';
+      # Evaluate the workstation module set and ensure the package is wired.
+      workstation-eval = pkgs.runCommand "workstation-eval" {
+        # Force evaluation of key options without building the full toplevel
+        # (toplevel needs disko devices and is heavy for quick checks).
+        passAsFile = [ ];
+      } ''
+        set -e
+        test -n "${primerStudent}"
+        test -x "${primerStudent}/bin/primer-student"
+        "${primerStudent}/bin/primer-student" -version
+        test -d "${runtimeCoreutilsBasic}/bin"
+        mkdir -p $out
+        echo "package=${primerStudent}" > $out/result
+        echo "runtime=${runtimeCoreutilsBasic}" >> $out/result
+      '';
+    };
+
+    # Expose for scripts that need the filtered server src path.
+    primerServerSrc = primerServerSrc;
   };
 }

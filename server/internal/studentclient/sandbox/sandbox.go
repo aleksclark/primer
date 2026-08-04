@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -20,6 +21,13 @@ var ErrUnavailable = errors.New("bubblewrap (bwrap) is not available")
 
 // DefaultBwrap is the binary name looked up on PATH.
 const DefaultBwrap = "bwrap"
+
+// Bind is an ordered host→sandbox path mount.
+type Bind struct {
+	Host     string
+	Dest     string
+	ReadOnly bool
+}
 
 // Config controls sandbox launch.
 type Config struct {
@@ -31,12 +39,39 @@ type Config struct {
 	WorkDir string
 	// ReadOnlyBinds maps host path -> sandbox path for optional tool closures.
 	ReadOnlyBinds map[string]string
+	// ExtraBinds are ordered binds applied after ReadOnlyBinds (needed when the
+	// same host path must appear at two destinations).
+	ExtraBinds []Bind
 	// ExtraArgs are appended before the command argv.
 	ExtraArgs []string
 	// Network enables network namespace connectivity (default false = off).
 	Network bool
 	// Env is the environment inside the sandbox (default PATH=/usr/bin:/bin).
 	Env []string
+	// RuntimeProfile is the named profile last applied via ApplyProfile.
+	RuntimeProfile string
+	// ProfileDir is the resolved host directory for RuntimeProfile, if any.
+	ProfileDir string
+	// UseHostToolBinds mounts host /usr /bin /lib /lib64 when true.
+	// Default (zero value) is true for backward-compatible dev/tests; ApplyProfile
+	// sets it false when a Nix profile dir is available.
+	// Use the pointer-like tri-state via hostToolBindsSet + useHostToolBinds.
+	hostToolBinds *bool
+}
+
+// UseHostToolBinds reports whether host tool trees should be bound.
+// Zero-value Config defaults to true (dev/tests). Call SetUseHostToolBinds or
+// ApplyProfile to change.
+func (c Config) UseHostToolBinds() bool {
+	if c.hostToolBinds == nil {
+		return true
+	}
+	return *c.hostToolBinds
+}
+
+// SetUseHostToolBinds controls host /usr+/bin+/lib binds.
+func (c *Config) SetUseHostToolBinds(v bool) {
+	c.hostToolBinds = &v
 }
 
 // Available reports whether bwrap is on PATH (or BwrapPath exists).
@@ -107,20 +142,47 @@ func BuildArgs(cfg Config, cmd []string) ([]string, error) {
 	if !cfg.Network {
 		args = append(args, "--unshare-net")
 	}
-	// Host binaries for coreutils (fail-soft if missing; still isolate workspace).
-	roDefaults := []struct{ host, dest string }{
-		{"/usr", "/usr"},
-		{"/bin", "/bin"},
-		{"/lib", "/lib"},
-		{"/lib64", "/lib64"},
-	}
-	for _, b := range roDefaults {
-		if st, err := os.Stat(b.host); err == nil && st.IsDir() {
-			args = append(args, "--ro-bind", b.host, b.dest)
+
+	// Host binaries for coreutils (dev/tests). Disabled when a Nix runtime
+	// profile directory is bound so the sandbox only sees the pinned closure.
+	if cfg.UseHostToolBinds() {
+		roDefaults := []struct{ host, dest string }{
+			{"/usr", "/usr"},
+			{"/bin", "/bin"},
+			{"/lib", "/lib"},
+			{"/lib64", "/lib64"},
+		}
+		for _, b := range roDefaults {
+			if st, err := os.Stat(b.host); err == nil && st.IsDir() {
+				args = append(args, "--ro-bind", b.host, b.dest)
+			}
 		}
 	}
-	for host, dest := range cfg.ReadOnlyBinds {
-		args = append(args, "--ro-bind", host, dest)
+	// On NixOS, /nix/store is required to resolve profile binaries' dynamic
+	// linker and shared libraries when a profile dir under /nix/store is used.
+	if cfg.ProfileDir != "" || !cfg.UseHostToolBinds() {
+		if st, err := os.Stat("/nix/store"); err == nil && st.IsDir() {
+			args = append(args, "--ro-bind", "/nix/store", "/nix/store")
+		}
+	}
+
+	// Deterministic order for map binds.
+	if len(cfg.ReadOnlyBinds) > 0 {
+		hosts := make([]string, 0, len(cfg.ReadOnlyBinds))
+		for host := range cfg.ReadOnlyBinds {
+			hosts = append(hosts, host)
+		}
+		slices.Sort(hosts)
+		for _, host := range hosts {
+			args = append(args, "--ro-bind", host, cfg.ReadOnlyBinds[host])
+		}
+	}
+	for _, b := range cfg.ExtraBinds {
+		flag := "--bind"
+		if b.ReadOnly {
+			flag = "--ro-bind"
+		}
+		args = append(args, flag, b.Host, b.Dest)
 	}
 	args = append(args, cfg.ExtraArgs...)
 	// Clear environment then set a minimal one.

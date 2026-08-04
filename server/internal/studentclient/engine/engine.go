@@ -60,6 +60,9 @@ type Options struct {
 	UseSandbox bool
 	// AllowUnsandboxed permits plain exec when bwrap is unavailable.
 	AllowUnsandboxed bool
+	// RuntimeProfile is the activity terminal.runtime_profile name. When set,
+	// sandboxed commands bind the matching Nix tool closure (or host fallback).
+	RuntimeProfile string
 	// Sync is optional; when nil a Loop is created from Client+Store.
 	Sync *sync.Loop
 }
@@ -68,6 +71,9 @@ type Options struct {
 type Engine struct {
 	opts   Options
 	status Status
+	// activeRuntimeProfile is taken from the current activity's terminal
+	// content (or Options.RuntimeProfile when set as an override).
+	activeRuntimeProfile string
 }
 
 // New builds an Engine.
@@ -151,6 +157,10 @@ func (e *Engine) RunAssignment(ctx context.Context, assignmentID string, command
 	}
 	if content.Terminal == nil {
 		return fmt.Errorf("activity %s is not a terminal activity", item.Activity.Slug)
+	}
+	e.activeRuntimeProfile = content.Terminal.RuntimeProfile
+	if e.opts.RuntimeProfile != "" {
+		e.activeRuntimeProfile = e.opts.RuntimeProfile
 	}
 
 	wsRoot := e.opts.WorkspaceRoot
@@ -457,6 +467,14 @@ func (e *Engine) enqueue(ctx context.Context, clientSessionID, typ string, paylo
 	})
 }
 
+// runtimeProfile returns the active sandbox profile name.
+func (e *Engine) runtimeProfile() string {
+	if p := strings.TrimSpace(e.activeRuntimeProfile); p != "" {
+		return p
+	}
+	return strings.TrimSpace(e.opts.RuntimeProfile)
+}
+
 func (e *Engine) runCommand(ctx context.Context, workspace, dir string, sc ScriptedCommand) (stdout, stderr string, exitCode int, err error) {
 	argv := sc.Argv
 	if len(argv) == 0 {
@@ -490,6 +508,11 @@ func (e *Engine) runCommand(ctx context.Context, workspace, dir string, sc Scrip
 			workDir = filepath.Join("/workspace", rel)
 		}
 		cfg := sandbox.Config{Workspace: workspace, WorkDir: workDir}
+		if p := e.runtimeProfile(); p != "" {
+			if perr := sandbox.ApplyProfile(&cfg, p); perr != nil {
+				return "", "", 1, perr
+			}
+		}
 		cmd, cerr := sandbox.Command(ctx, cfg, name, args...)
 		if cerr != nil {
 			return "", "", 1, cerr

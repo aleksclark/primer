@@ -11,7 +11,8 @@ COVER_MIN := 85
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
-	activity-validate activity-publish
+	activity-validate activity-publish student-build student-deploy \
+	workstation-package workstation-check update-student-vendor-hash
 
 all: build openapi openapi-tv client tv-client
 
@@ -146,14 +147,52 @@ activity-validate:
 activity-publish:
 	cd server && go run ./cmd/activity-publish -activities ../curriculum/activities -standards ../curriculum/standards
 
-## Build the interactive student workstation TUI.
+## Build the interactive student workstation TUI with version/commit ldflags.
+STUDENT_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+STUDENT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 student-build:
-	cd server && go build -o ../bin/primer-student ./cmd/primer-student
+	cd server && go build -ldflags="-s -w -X main.version=$(STUDENT_VERSION) -X main.commit=$(STUDENT_COMMIT)" \
+		-o ../bin/primer-student ./cmd/primer-student
 
-## Copy a locally built primer-student binary onto the workstation prebuilt path.
+## DEPRECATED: scp a prebuilt binary to /var/lib/primer-student/bin.
+## Prefer: cd workstation && ./deploy.sh  (Nix package is the default now).
 ## Usage: make student-deploy HOST=root@primer.local
 HOST ?= root@primer.local
 student-deploy: student-build
+	@echo "WARNING: student-deploy is deprecated; use workstation flake package via ./deploy.sh" >&2
 	ssh "$(HOST)" 'mkdir -p /var/lib/primer-student/bin && chown student:students /var/lib/primer-student /var/lib/primer-student/bin'
 	scp bin/primer-student "$(HOST):/var/lib/primer-student/bin/primer-student"
 	ssh "$(HOST)" 'chown student:students /var/lib/primer-student/bin/primer-student && chmod 755 /var/lib/primer-student/bin/primer-student && primer-student-health'
+
+## Build primer-student via the workstation flake (Docker Nix when host nix is broken).
+## Mounts the Primer parent tree so git worktrees resolve inside the container.
+PRIMER_ROOT ?= $(shell cd "$(CURDIR)/../.." && pwd)
+workstation-package:
+	docker volume create primer-nix-store >/dev/null
+	docker run --rm \
+		-v primer-nix-store:/nix \
+		-v "$(PRIMER_ROOT):$(PRIMER_ROOT)" \
+		-w "$(CURDIR)/workstation" \
+		-e NIX_CONFIG='experimental-features = nix-command flakes' \
+		nixos/nix:2.24.11 \
+		sh -c 'git config --global --add safe.directory "*" && nix build .#primer-student --option sandbox false --print-out-paths'
+
+## Run flake checks (package build + activity-validate) in Docker Nix.
+workstation-check:
+	docker volume create primer-nix-store >/dev/null
+	docker run --rm \
+		-v primer-nix-store:/nix \
+		-v "$(PRIMER_ROOT):$(PRIMER_ROOT)" \
+		-w "$(CURDIR)/workstation" \
+		-e NIX_CONFIG='experimental-features = nix-command flakes' \
+		nixos/nix:2.24.11 \
+		sh -c 'git config --global --add safe.directory "*" && nix build \
+			.#checks.x86_64-linux.primer-student \
+			.#checks.x86_64-linux.runtime-coreutils-basic \
+			.#checks.x86_64-linux.activity-validate \
+			.#checks.x86_64-linux.workstation-eval \
+			--option sandbox false --print-out-paths'
+
+## Recompute packages/primer-student.nix vendorHash after go.mod changes.
+update-student-vendor-hash:
+	./workstation/scripts/update-primer-student-vendor-hash.sh

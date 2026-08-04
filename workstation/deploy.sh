@@ -9,13 +9,28 @@ cache_dir="$(mktemp -d)"
 remote_cache="/tmp/primer-deploy-cache"
 trap 'rm -rf "$cache_dir"' EXIT
 
+# Resolve paths so git worktrees work inside Docker (flake needs the real
+# .git/worktrees path, not a re-rooted /work mount).
+ws_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$ws_dir/.." && pwd)"
+primer_root="$(cd "$repo_root/../.." && pwd)"
+
 docker volume create "$volume" >/dev/null
 system="$(docker run --rm \
   -v "$volume:/nix" \
-  -v "$PWD:/work" \
-  -w /work \
+  -v "$primer_root:$primer_root" \
+  -w "$ws_dir" \
   "$image" \
-  sh -c 'nix --extra-experimental-features "nix-command flakes" flake check --option sandbox false >&2 && nix --extra-experimental-features "nix-command flakes" build .#nixosConfigurations.workstation.config.system.build.toplevel --no-link --print-out-paths --option sandbox false')"
+  sh -c 'git config --global --add safe.directory "*" &&
+    nix --extra-experimental-features "nix-command flakes" build \
+      .#checks.x86_64-linux.primer-student \
+      .#checks.x86_64-linux.runtime-coreutils-basic \
+      .#checks.x86_64-linux.activity-validate \
+      .#checks.x86_64-linux.workstation-eval \
+      --option sandbox false --no-link >&2 &&
+    nix --extra-experimental-features "nix-command flakes" build \
+      .#nixosConfigurations.workstation.config.system.build.toplevel \
+      --no-link --print-out-paths --option sandbox false')"
 
 docker run --rm \
   -v "$volume:/nix" \

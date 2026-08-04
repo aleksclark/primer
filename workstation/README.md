@@ -151,24 +151,50 @@ The TUI runs as `student` and holds the device token in the SQLite cache.
 A full root-owned broker that keeps credentials off the student account is
 deferred. Bubblewrap is installed for terminal activity sandboxes.
 
-### Packaging note
+### Packaging (Phase 7)
 
-The Nix module installs bubblewrap, `primer` / `primer-student` launchers,
-state dir persistence, and `primer-student-health`. The Go binary is **not**
-built by the flake until `vendorHash` is pinned (keeps `deploy.sh` / flake
-check working offline).
-
-Install a binary today:
+The flake builds `primer-student` with `buildGoModule` and a pinned
+`vendorHash`, installs it as the default `services.primer-student.package`,
+and ships a named bubblewrap runtime profile (`coreutils-basic`) as
+`services.primer-student.runtimeProfilePackage`.
 
 ```bash
-make student-deploy HOST=root@primer.local
-# places bin at /var/lib/primer-student/bin/primer-student
+# From repo root (uses Docker Nix — host nix may segfault on this machine):
+make workstation-package          # nix build .#primer-student
+make workstation-check            # nix flake check
+make update-student-vendor-hash   # after go.mod/go.sum changes
+
+# Preferred deploy (builds full workstation generation including the package):
+cd workstation && ./deploy.sh root@primer.local
 ```
 
-When ready to nix-build the client, set `vendorHash` in
-`packages/primer-student.nix` (start from `lib.fakeHash`, build once, paste
-the `got:` hash), then overlay it in `flake.nix` and set
-`services.primer-student.package = pkgs.primer-student`.
+Local Go build with version ldflags:
+
+```bash
+make student-build
+./bin/primer-student -version
+./bin/primer-student -health -db /tmp/ps-state.db
+```
+
+`make student-deploy` (scp into `/var/lib/primer-student/bin`) is **deprecated**.
+The launcher still accepts that path for one release and prints a WARN.
+
+#### Runtime profiles
+
+Terminal activities declare `runtime_profile: coreutils-basic` (see
+`curriculum/activities/*/activity.yaml`). On the workstation the module sets
+`PRIMER_RUNTIME_PROFILE_DIR` to the Nix store path of the profile package so
+bubblewrap binds that tree read-only instead of host `/usr` + `/bin`.
+
+Dev/tests without the env var keep the host-tool fallback so `go test` works
+on a normal Linux machine.
+
+#### vendorHash
+
+```bash
+./workstation/scripts/update-primer-student-vendor-hash.sh
+# or: make update-student-vendor-hash
+```
 
 ## Disk Layout
 

@@ -160,6 +160,10 @@ func (e *Engine) OpenSession(ctx context.Context, assignmentID string) (*Session
 		if content.Terminal == nil {
 			return nil, fmt.Errorf("activity %s is kind terminal but has no terminal content", item.Activity.Slug)
 		}
+		e.activeRuntimeProfile = content.Terminal.RuntimeProfile
+		if e.opts.RuntimeProfile != "" {
+			e.activeRuntimeProfile = e.opts.RuntimeProfile
+		}
 		wsRoot := e.opts.WorkspaceRoot
 		if wsRoot == "" {
 			wsRoot, err = os.MkdirTemp("", "primer-ws-*")

@@ -5,32 +5,46 @@
 # filtered path (see flake.nix).
 #
 # vendorHash must be recomputed after go.mod/go.sum changes:
+#   ./scripts/update-primer-student-vendor-hash.sh
+# or:
 #   nix build .#primer-student --option sandbox false
 # then replace the hash printed in the "got:" line.
-#
-# Until a real vendorHash is set, this file can still be imported; prefer the
-# stub in hosts/workstation/primer-student.nix for system evaluation so
-# `nixos-rebuild` / deploy.sh do not require network or a fixed hash.
 {
   lib,
   buildGoModule,
+  go_1_25 ? null,
+  go,
   primerServerSrc,
+  version ? "0.1.0",
+  commit ? "unknown",
 }:
 
-buildGoModule {
+let
+  # go.mod requires go >= 1.25. Prefer an explicit go_1_25 from nixpkgs-unstable
+  # when the workstation nixpkgs pin is older.
+  goToolchain =
+    if go_1_25 != null then go_1_25
+    else if lib.versionAtLeast go.version "1.25" then go
+    else
+      throw "primer-student requires Go >= 1.25 (got ${go.version}); pass go_1_25 from nixpkgs-unstable";
+in
+(buildGoModule.override { go = goToolchain; }) {
   pname = "primer-student";
-  version = "0.1.0";
+  inherit version;
 
   src = primerServerSrc;
 
   subPackages = [ "cmd/primer-student" ];
 
-  # Replace lib.fakeHash after first failed nix build (see README).
-  vendorHash = lib.fakeHash;
+  # Fixed-output hash of the Go module download (buildGoModule go-modules).
+  # Update with workstation/scripts/update-primer-student-vendor-hash.sh.
+  vendorHash = "sha256-hcdrQx9TbQvwpp2jS/WAZXRyoIhbt2UVXdRHjh1XZF0=";
 
   ldflags = [
     "-s"
     "-w"
+    "-X main.version=${version}"
+    "-X main.commit=${commit}"
   ];
 
   doCheck = false;
