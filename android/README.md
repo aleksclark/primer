@@ -27,6 +27,18 @@ cd android
 ./gradlew assembleDebug  # app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Production versions are supplied by `primerVersionCode` / `primerVersionName`
+Gradle properties (or `PRIMER_ANDROID_VERSION_CODE` /
+`PRIMER_ANDROID_VERSION_NAME`). Version codes must increase for every update.
+Production signing is enabled only when all four environment variables are set:
+`PRIMER_ANDROID_KEYSTORE`, `PRIMER_ANDROID_STORE_PASSWORD`,
+`PRIMER_ANDROID_KEY_ALIAS`, and `PRIMER_ANDROID_KEY_PASSWORD`. The equivalent
+Gradle properties are `primerSigningStoreFile`, `primerSigningStorePassword`,
+`primerSigningKeyAlias`, and `primerSigningKeyPassword`; keep them in the ignored
+`keystore.properties` file and pass `-PprimerSigning...` when building locally.
+Devices must be provisioned initially with that same production signing identity;
+Android will reject later APKs signed with another key.
+
 If Gradle cannot find the SDK, create `android/local.properties`:
 
 ```
@@ -52,6 +64,32 @@ troubleshooting.
 
 The app declares both `LAUNCHER` and `LEANBACK_LAUNCHER`, so it appears in the
 tablet's app drawer and on the TV home row.
+
+## Android 9 dedicated-device provisioning
+
+Kiosk behavior is deliberately gated by both TV mode and device ownership, so
+the same APK remains a normal app on tablets. Device ownership can only be set
+on a factory-reset/unprovisioned device. For development provisioning:
+
+```bash
+adb install app/build/outputs/apk/debug/app-debug.apk
+adb shell dpm set-device-owner \
+  com.aleksclark.primer.tv/.app.admin.PrimerDeviceAdminReceiver
+adb shell dpm list-owners
+```
+
+After provisioning, `MainActivity` allowlists only Primer TV for lock task and
+enters lock task whenever it resumes. The device restrictions block factory
+reset, safe boot, extra users, overlays, and removable media, but intentionally
+do **not** restrict Wi-Fi/network repair, Bluetooth/audio/volume, or package
+installation. Validate these APIs on the production RK3318 firmware because
+some Android 9 TV ROMs have incomplete device-policy implementations.
+
+Device-owner updates use a `PackageInstaller` session for silent same-package
+replacement. Downloads are size/checksum checked and must contain the same
+package, a newer published version, and a compatible signing certificate.
+Unmanaged devices, and device-owner ROMs that reject silent sessions, use the
+interactive system installer fallback.
 
 ## Pairing
 

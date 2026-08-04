@@ -76,9 +76,10 @@ fun TvShell(
         lastTopLevel = selectedTopLevel.name
     }
 
-    LaunchedEffect(settings.isPaired) {
-        viewModel.onSettingsLoaded(settings)
-        if (settings.isPaired) viewModel.refreshHome()
+    LaunchedEffect(settings.isPaired, destination) {
+        if (settings.isPaired && destination == Destination.CATALOG && home.loading) {
+            viewModel.refreshHome()
+        }
     }
 
     BackHandler(enabled = true) {

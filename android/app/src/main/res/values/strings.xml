@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Primer TV</string>
+    <string name="device_admin_label">Primer TV dedicated device</string>
+    <string name="device_admin_description">Keeps a managed television in the Primer TV experience while preserving playback, networking, and updates.</string>
 </resources>

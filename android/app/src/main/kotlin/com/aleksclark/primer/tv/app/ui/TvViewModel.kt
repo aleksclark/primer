@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.aleksclark.primer.tv.app.data.AppContainer
+import com.aleksclark.primer.tv.app.player.liveCardRefreshDelaySeconds
 import com.aleksclark.primer.tv.app.update.UpdateState
 import com.aleksclark.primer.tv.core.data.ApiError
 import com.aleksclark.primer.tv.core.data.ApiResult
@@ -33,10 +34,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -51,8 +50,8 @@ class TvViewModel(
 
     private val scope: CoroutineScope = injectedScope ?: viewModelScope
 
-    val settings: StateFlow<DeviceSettings> = container.settingsStore.settings
-        .stateIn(scope, SharingStarted.Eagerly, DeviceSettings())
+    private val _settings = MutableStateFlow(DeviceSettings())
+    val settings: StateFlow<DeviceSettings> = _settings.asStateFlow()
 
     private val _pairing = MutableStateFlow(PairingUiState())
     val pairing: StateFlow<PairingUiState> = _pairing.asStateFlow()
@@ -85,9 +84,11 @@ class TvViewModel(
     /** Last successful channel snapshot used by Home when the Channel screen is idle. */
     private var homeChannelNow = _channel.value.now
 
+    private var settingsLoaded = false
     private var controller: PlaybackSessionController? = null
     private var playbackMirror: Job? = null
     private var seekMirror: Job? = null
+    private var liveCardRefreshJob: Job? = null
 
     private val _playback = MutableStateFlow<PlaybackState>(PlaybackState.Idle)
     val playback: StateFlow<PlaybackState> = _playback.asStateFlow()
@@ -138,6 +139,16 @@ class TvViewModel(
      * first post-pair catalog call look unauthenticated and bounce the UI.
      */
     private var activeBaseUrl: String? = null
+
+    init {
+        scope.launch {
+            var first = true
+            container.settingsStore.settings.collect { next ->
+                applySettings(next, bootstrap = first)
+                first = false
+            }
+        }
+    }
 
     private fun repository(): TvRepository? {
         val baseUrl = activeBaseUrl
@@ -392,6 +403,28 @@ class TvViewModel(
             refreshing = refreshing,
             error = error,
         )
+        scheduleLiveCardRefresh(channelNow)
+    }
+
+    /**
+     * Refresh Home one minute after the current (or next) airing boundary so the
+     * LIVE hero cannot outlive the schedule and surface a stale "this has ended"
+     * play error.
+     */
+    private fun scheduleLiveCardRefresh(channelNow: com.aleksclark.primer.tv.core.domain.ChannelNow?) {
+        liveCardRefreshJob?.cancel()
+        val delaySeconds = liveCardRefreshDelaySeconds(
+            remainingSeconds = channelNow?.remainingSeconds,
+            nextStartsInSeconds = channelNow?.nextStartsInSeconds?.takeIf { channelNow.onAir == null },
+        ) ?: return
+        liveCardRefreshJob = scope.launch {
+            delay(delaySeconds * 1_000L)
+            if (_destination.value == Destination.CATALOG || _destination.value == Destination.CHANNEL) {
+                refreshHome()
+            } else {
+                refreshChannel()
+            }
+        }
     }
 
     // ---- channel -------------------------------------------------------
@@ -560,13 +593,20 @@ class TvViewModel(
     private suspend fun handleUnauthenticated(error: ApiError) {
         if (error !is ApiError.Unauthenticated) return
         if (_destination.value == Destination.PAIRING && settings.value.token.isNullOrBlank()) {
-            // Already bounced; keep the retained URL and existing explanation.
             return
         }
         val retainedUrl = retainedServerUrl()
+        // Ignore 401s that raced the interceptor before a token was published.
+        if (settings.value.token.isNullOrBlank() && !settingsLoaded) return
         container.settingsStore.clearPairing()
         container.noteToken(null)
         activeBaseUrl = null
+        _settings.value = _settings.value.copy(
+            token = null,
+            deviceId = null,
+            deviceName = null,
+            deviceKind = null,
+        )
         _pairing.value = PairingUiState(
             baseUrlInput = retainedUrl,
             error = error.message?.takeIf { it.isNotBlank() }
@@ -930,10 +970,24 @@ class TvViewModel(
             ?: _selectedMediaItemId.value?.let { _catalog.value.card(it)?.entry?.mediaClass }
             ?: MediaClass.UNKNOWN
 
-    /** Chooses the first destination once persisted settings are known. */
     fun onSettingsLoaded(settings: DeviceSettings) {
+        applySettings(settings, bootstrap = !settingsLoaded)
+    }
+
+    private fun applySettings(settings: DeviceSettings, bootstrap: Boolean) {
+        _settings.value = settings
+        container.noteToken(settings.token)
         if (settings.baseUrl?.isNotBlank() == true) {
             activeBaseUrl = settings.baseUrl
+        }
+        if (bootstrap) {
+            settingsLoaded = true
+            _destination.value = if (settings.isPaired) Destination.CATALOG else Destination.PAIRING
+            _pairing.value = _pairing.value.copy(baseUrlInput = settings.baseUrl.orEmpty())
+            // Catalog is refreshed by the screen that needs it, not on bootstrap,
+            // so a cold start cannot spend the first MockWebServer response or a
+            // real network call before the UI is ready.
+            return
         }
         if (!settings.isPaired && _destination.value != Destination.PAIRING) {
             _destination.value = Destination.PAIRING

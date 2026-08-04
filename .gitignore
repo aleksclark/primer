@@ -33,6 +33,8 @@ android/*/build/
 android/.gradle/
 android/.kotlin/
 android/local.properties
+android/keystore.properties
+android/*.jks
 
 # NixOS
 workstation/result
