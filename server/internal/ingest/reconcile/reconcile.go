@@ -119,8 +119,20 @@ func (e *Engine) Run(ctx context.Context, m *manifest.Manifest, review *manifest
 	rep := NewReport(opts.DryRun)
 	res := &Result{Report: rep, Manifest: m, Review: review}
 
+	// Mirror desired state into the TV server first so attempt/present tracking
+	// has a row for every catalog slug, even when later stages no-op.
+	if err := e.syncManifestCatalog(ctx, m, rep, opts); err != nil {
+		rep.Errors = append(rep.Errors, fmt.Sprintf("manifest catalog: %v", err))
+	}
+
 	if err := e.resolve(ctx, m, review, rep, res, opts); err != nil {
 		rep.Errors = append(rep.Errors, fmt.Sprintf("resolve: %v", err))
+	}
+	// Re-sync after resolve so newly filled provider IDs land in TV immediately.
+	if res.ManifestDirty {
+		if err := e.syncManifestCatalog(ctx, m, rep, opts); err != nil {
+			rep.Errors = append(rep.Errors, fmt.Sprintf("manifest catalog: %v", err))
+		}
 	}
 	if !opts.SkipAcquire {
 		if err := e.acquire(ctx, m, rep, opts); err != nil {
@@ -282,6 +294,46 @@ func (e *Engine) resolve(ctx context.Context, m *manifest.Manifest, review *mani
 	return nil
 }
 
+// syncManifestCatalog pushes the YAML desired state into the TV server.
+func (e *Engine) syncManifestCatalog(ctx context.Context, m *manifest.Manifest, rep *Report, opts Options) error {
+	if e.deps.TV == nil {
+		return nil
+	}
+	items := make([]tvclient.ManifestDesired, 0, len(m.Items))
+	for _, it := range m.Items {
+		items = append(items, toManifestDesired(it))
+	}
+	if opts.DryRun {
+		rep.ManifestSynced = fmt.Sprintf("would upsert %d entries", len(items))
+		return nil
+	}
+	res, err := e.deps.TV.SyncManifest(ctx, items)
+	if err != nil {
+		return err
+	}
+	rep.ManifestSynced = fmt.Sprintf("created=%d updated=%d total=%d", res.Created, res.Updated, res.Total)
+	return nil
+}
+
+func toManifestDesired(it manifest.Item) tvclient.ManifestDesired {
+	return tvclient.ManifestDesired{
+		Slug:            it.ID,
+		Title:           it.Title,
+		Year:            it.Year,
+		Kind:            it.Kind,
+		TMDBID:          it.Provider.TMDB,
+		TVDBID:          it.Provider.TVDB,
+		URL:             it.URL,
+		Class:           it.Class,
+		SubjectTags:     it.SubjectTags,
+		StandardCodes:   it.StandardCodes,
+		Priority:        it.Priority,
+		ExcludeEpisodes: it.ExcludeEpisodes,
+		MaxEpisodes:     it.MaxEpisodes,
+		Notes:           it.Notes,
+	}
+}
+
 // acquire adds missing movies/series and runs yt-dlp for YouTube sources.
 func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report, opts Options) error {
 	var (
@@ -302,6 +354,8 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 		}
 	}
 
+	skipAcquire := e.manifestStatuses(ctx, rep)
+
 	var radarrTagID, sonarrTagID int
 	if !opts.DryRun && e.deps.Radarr != nil {
 		radarrTagID, err = e.deps.Radarr.EnsureTag(ctx, e.deps.RadarrTag)
@@ -316,7 +370,33 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 		}
 	}
 
+	// Movies/series first so a slow yt-dlp pass cannot starve Radarr/Sonarr
+	// adds. Priority still orders within each wave.
+	acquireOrder := make([]manifest.Item, 0, len(m.Items))
 	for _, it := range m.SortedByPriority() {
+		switch it.Kind {
+		case manifest.KindMovie, manifest.KindSeries, manifest.KindManual:
+			acquireOrder = append(acquireOrder, it)
+		}
+	}
+	for _, it := range m.SortedByPriority() {
+		switch it.Kind {
+		case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
+			acquireOrder = append(acquireOrder, it)
+		}
+	}
+
+	for _, it := range acquireOrder {
+		status := skipAcquire[it.ID]
+		if status == tvclient.ManifestStatusFailed {
+			rep.FailedQueue = append(rep.FailedQueue, fmt.Sprintf("%s — %s (human intervention)", it.ID, it.Title))
+			continue
+		}
+		if status == tvclient.ManifestStatusPresent {
+			// Already obtained; nothing to acquire. Import still runs later.
+			continue
+		}
+
 		switch it.Kind {
 		case manifest.KindManual:
 			rep.ManualQueue = append(rep.ManualQueue, fmt.Sprintf("%s — %s", it.ID, it.Title))
@@ -334,6 +414,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				rep.AlreadyHeld = append(rep.AlreadyHeld, fmt.Sprintf("%s (radarr id=%d hasFile=%v)", it.ID, existing.ID, existing.HasFile))
 				if !existing.HasFile {
 					rep.AwaitingDownload = append(rep.AwaitingDownload, it.ID)
+					e.recordAttempt(ctx, it.ID, "", rep, opts)
 				}
 				continue
 			}
@@ -349,6 +430,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 			hits, err := e.deps.Radarr.Lookup(ctx, term)
 			if err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s lookup: %v", it.ID, err))
+				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
 			}
 			var movie *radarr.Movie
@@ -365,10 +447,12 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 			added, err := e.deps.Radarr.Add(ctx, *movie, e.deps.RadarrQualityProfileID, e.deps.RadarrRootFolder, []int{radarrTagID})
 			if err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s add: %v", it.ID, err))
+				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
 			}
 			rep.AcquiredMovies = append(rep.AcquiredMovies, fmt.Sprintf("%s → radarr id=%d", it.ID, added.ID))
 			rep.AwaitingDownload = append(rep.AwaitingDownload, it.ID)
+			e.recordAttempt(ctx, it.ID, "", rep, opts)
 
 		case manifest.KindSeries:
 			if it.Provider.TVDB == 0 {
@@ -388,6 +472,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				}
 				if existing.Statistics != nil && existing.Statistics.EpisodeFileCount < existing.Statistics.EpisodeCount {
 					rep.AwaitingDownload = append(rep.AwaitingDownload, it.ID)
+					e.recordAttempt(ctx, it.ID, "", rep, opts)
 				}
 				continue
 			}
@@ -402,6 +487,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 			hits, err := e.deps.Sonarr.Lookup(ctx, term)
 			if err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s lookup: %v", it.ID, err))
+				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
 			}
 			var series *sonarr.Series
@@ -417,10 +503,12 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 			added, err := e.deps.Sonarr.Add(ctx, *series, e.deps.SonarrQualityProfileID, e.deps.SonarrRootFolder, []int{sonarrTagID})
 			if err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s add: %v", it.ID, err))
+				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
 			}
 			rep.AcquiredSeries = append(rep.AcquiredSeries, fmt.Sprintf("%s → sonarr id=%d", it.ID, added.ID))
 			rep.AwaitingDownload = append(rep.AwaitingDownload, it.ID)
+			e.recordAttempt(ctx, it.ID, "", rep, opts)
 			if len(it.ExcludeEpisodes) > 0 {
 				if err := e.unmonitorExcluded(ctx, added.ID, it, rep); err != nil {
 					rep.Errors = append(rep.Errors, fmt.Sprintf("%s unmonitor: %v", it.ID, err))
@@ -451,12 +539,63 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 			// Callers who want exact playlist URLs should put them in item.URL.
 			if err := e.deps.YtDlp.Download(ctx, dlOpts); err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s yt-dlp: %v", it.ID, err))
+				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
 			}
 			rep.AcquiredYouTube = append(rep.AcquiredYouTube, it.ID)
+			e.recordAttempt(ctx, it.ID, "", rep, opts)
 		}
 	}
 	return nil
+}
+
+// manifestStatuses loads TV catalog status by slug. Missing TV client → empty map.
+func (e *Engine) manifestStatuses(ctx context.Context, rep *Report) map[string]string {
+	out := map[string]string{}
+	if e.deps.TV == nil {
+		return out
+	}
+	entries, err := e.deps.TV.ListManifestEntries(ctx)
+	if err != nil {
+		rep.Errors = append(rep.Errors, fmt.Sprintf("list manifest entries: %v", err))
+		return out
+	}
+	for _, ent := range entries {
+		out[ent.Slug] = ent.Status
+		if ent.Status == tvclient.ManifestStatusFailed {
+			// Surface failed rows even when we did not attempt this run.
+			// acquire also appends; de-dupe in the report section is fine.
+		}
+	}
+	return out
+}
+
+// recordAttempt tells the TV server one acquisition pass touched this slug.
+func (e *Engine) recordAttempt(ctx context.Context, slug, lastError string, rep *Report, opts Options) {
+	if opts.DryRun || e.deps.TV == nil {
+		return
+	}
+	entry, err := e.deps.TV.RecordManifestAttempt(ctx, slug, lastError)
+	if err != nil {
+		rep.Errors = append(rep.Errors, fmt.Sprintf("%s attempt: %v", slug, err))
+		return
+	}
+	rep.AttemptsRecorded = append(rep.AttemptsRecorded, fmt.Sprintf("%s attempt=%d status=%s", slug, entry.AttemptCount, entry.Status))
+	if entry.Status == tvclient.ManifestStatusFailed {
+		rep.FailedQueue = append(rep.FailedQueue, fmt.Sprintf("%s (failed after %d attempts)", slug, entry.AttemptCount))
+	}
+}
+
+// markPresent tells the TV server the slug is available in Jellyfin.
+func (e *Engine) markPresent(ctx context.Context, slug string, rep *Report, opts Options) {
+	if opts.DryRun || e.deps.TV == nil {
+		return
+	}
+	if _, err := e.deps.TV.MarkManifestPresent(ctx, slug); err != nil {
+		rep.Errors = append(rep.Errors, fmt.Sprintf("%s present: %v", slug, err))
+		return
+	}
+	rep.MarkedPresent = append(rep.MarkedPresent, slug)
 }
 
 func (e *Engine) unmonitorExcluded(ctx context.Context, seriesID int, it manifest.Item, rep *Report) error {
@@ -547,6 +686,9 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 			}
 			continue
 		}
+
+		// At least one Jellyfin hit means the title is present on disk.
+		e.markPresent(ctx, it.ID, rep, opts)
 
 		imported := 0
 		for _, jf := range jfItems {

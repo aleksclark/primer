@@ -170,6 +170,26 @@ func TestPlanResolveAndAcquire(t *testing.T) {
 	assert.False(t, ids["jf-lp-e7"], "excluded episode must not be imported")
 	assert.True(t, ids["jf-ps-1"])
 
+	// TV catalog mirrored + present marked for Jellyfin hits.
+	assert.GreaterOrEqual(t, tv.ManifestSyncCalls, 1)
+	assert.NotEmpty(t, res.Report.MarkedPresent)
+	present := map[string]bool{}
+	for _, slug := range res.Report.MarkedPresent {
+		present[slug] = true
+	}
+	assert.True(t, present["matrix"])
+	assert.True(t, present["living-planet"])
+	assert.True(t, present["paul-sellers"])
+	entries, err := tv.ListManifestEntries(context.Background())
+	require.NoError(t, err)
+	bySlug := map[string]tvclient.ManifestEntry{}
+	for _, e := range entries {
+		bySlug[e.Slug] = e
+	}
+	assert.Equal(t, tvclient.ManifestStatusPresent, bySlug["matrix"].Status)
+	assert.Equal(t, tvclient.ManifestStatusManual, bySlug["bernstein-ypc"].Status)
+	assert.Greater(t, bySlug["matrix"].AttemptCount+bySlug["paul-sellers"].AttemptCount, 0)
+
 	// Second apply is a no-op for already-held / already-imported.
 	res2, err := eng.Run(context.Background(), m, review, reconcile.Options{SkipSync: true})
 	require.NoError(t, err)
@@ -217,13 +237,47 @@ func TestReportGoldenShape(t *testing.T) {
 	r.Resolved = []string{"matrix → tmdb=603"}
 	r.ManualQueue = []string{"bernstein-ypc — Leonard Bernstein"}
 	r.ReviewQueued = []string{"ambiguous (2 hits)"}
+	r.FailedQueue = []string{"scarce — needs DVD"}
+	r.ManifestSynced = "would upsert 5 entries"
 	r.Errors = []string{"boom"}
 	md := r.Markdown()
 	assert.Contains(t, md, "# content-ingest plan")
 	assert.Contains(t, md, "## Manual rip queue")
 	assert.Contains(t, md, "bernstein-ypc")
+	assert.Contains(t, md, "## Failed (human intervention)")
+	assert.Contains(t, md, "TV content-manifest catalog: would upsert 5 entries")
 	assert.Contains(t, md, "| Resolved | 1 |")
 	assert.Contains(t, md, "## Errors")
+}
+
+func TestAcquireSkipsFailedManifestEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rf := radarr.NewFake()
+	rf.LookupResults = []radarr.Movie{{Title: "Scarce", Year: 1990, TmdbID: 999}}
+	tv := tvclient.NewFake()
+	tv.Manifest = []tvclient.ManifestEntry{{
+		ID: "me-1", Slug: "scarce", Title: "Scarce", Kind: "movie",
+		Status: tvclient.ManifestStatusFailed, AttemptCount: 10,
+	}}
+
+	eng := reconcile.New(reconcile.Deps{
+		Radarr: rf, TV: tv,
+		RadarrQualityProfileID: 1, RadarrRootFolder: "/movies",
+		ReportDir: filepath.Join(dir, "reports"),
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "scarce", Title: "Scarce", Year: 1990,
+		Kind: manifest.KindMovie, Provider: manifest.Provider{TMDB: 999},
+		Class: manifest.ClassEntertainment,
+	}}}
+
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipSync: true, SkipImport: true,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, rf.AddCalls, "failed entries must not be re-acquired")
+	assert.Contains(t, strings.Join(res.Report.FailedQueue, "\n"), "scarce")
 }
 
 func TestAcquireNewSeriesAndSync(t *testing.T) {

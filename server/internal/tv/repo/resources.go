@@ -72,3 +72,11 @@ var PrimerReports = repo.NewResource[domain.PrimerReport](repo.ListConfig{
 	SortableColumns:   []string{"reported_at", "created_at", "updated_at"},
 	FilterableColumns: []string{"playback_session_id"},
 })
+
+// ContentManifestEntries is the desired-state content catalog repository.
+var ContentManifestEntries = repo.NewResource[domain.ContentManifestEntry](repo.ListConfig{
+	Table:             "content_manifest_entries",
+	SearchColumns:     []string{"slug", "title", "notes", "last_error"},
+	SortableColumns:   []string{"slug", "title", "kind", "status", "priority", "attempt_count", "last_attempt_at", "created_at", "updated_at"},
+	FilterableColumns: []string{"slug", "kind", "status", "class"},
+})

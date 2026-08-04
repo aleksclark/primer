@@ -131,12 +131,18 @@ rip the DVD list at leisure.
   (`INGEST_` env prefix), the Jellyfin client (`internal/tv/jellyfin`), and testutil
   harness. New thin clients for Radarr/Sonarr (each is ~4 endpoints: lookup, add,
   tag, queue status). yt-dlp shelled out (it's already the fleet standard).
-- **State**: none beyond the manifest + yt-dlp archive files + what Radarr/Sonarr/
-  Jellyfin/tv-server already hold. The reconciler derives everything by querying —
-  no new database. (`review.yaml` is working state, in git like the manifest.)
-- **Deploy**: Nomad periodic batch job (e.g. every 6h) + on-demand `ingest apply`.
-  Needs mounts: Jellyfin library volume (for yt-dlp output) — same MooseFS path the
-  media stack already shares.
+- **State**: desired-state YAML stays in git; the TV server owns runtime acquisition
+  state in `content_manifest_entries` (status missing/present/failed/manual,
+  attempt_count, first/last attempt timestamps). content-ingest upserts desired
+  state on every run (`POST /content-manifest/sync`), increments attempts when it
+  tries to obtain missing media, and marks present when Jellyfin has the title.
+  TV flips missing → failed after `TV_MANIFEST_FAIL_MAX_ATTEMPTS` or
+  `TV_MANIFEST_FAIL_MAX_DAYS` so a human can buy/rip. (`review.yaml` remains the
+  ambiguous-lookup working file in git.)
+- **Deploy**: Nomad periodic batch job (`deploy/content-ingest.nomad.hcl.tmpl`,
+  every 6h) + on-demand `make ingest-apply`. Image is `Dockerfile.ingest`
+  (bakes curriculum YAML + yt-dlp). Needs mounts: Jellyfin library volume (for
+  yt-dlp output) — same host volume the media stack already shares.
 - **Testing**: httptest fakes for Radarr/Sonarr (mirroring `jellyfin/fake.go`),
   golden-file tests for plan output, integration test for the resolve→import path
   against the existing testcontainer harness.

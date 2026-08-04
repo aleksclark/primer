@@ -171,11 +171,20 @@ TV server toward `curriculum/content-manifest.yaml`. No LLM in the loop; ambiguo
 title matches land in `curriculum/content-review.yaml` for a human pick. See
 [content-ingest plan](agent_docs/plans/content-ingest.md).
 
+The TV server persists the catalog in `content_manifest_entries` (desired-state
+fields plus `status` / `attempt_count`). Each plan/apply run upserts that table
+via `POST /content-manifest/sync`, records acquisition attempts, and marks
+entries `present` once Jellyfin has the media. After
+`TV_MANIFEST_FAIL_MAX_ATTEMPTS` (default 10) or `TV_MANIFEST_FAIL_MAX_DAYS`
+(default 14) a still-missing entry flips to `failed` for human intervention
+(buy/rip). Failed rows are skipped by automatic acquire.
+
 ```bash
 make ingest-build
 make ingest-plan      # diff + review candidates + report
 make ingest-review    # interactive TUI to pick candidates in content-review.yaml
 make ingest-apply     # resolve → acquire → sync → import → report
+# Fleet: SERVICE=ingest ./deploy/deploy.sh   # Nomad periodic batch every 6h
 ```
 
 Config uses the `INGEST_` env prefix. Scheduling stays out of scope — this tool

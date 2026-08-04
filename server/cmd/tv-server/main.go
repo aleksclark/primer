@@ -71,14 +71,16 @@ func run() error {
 	reporter := primerReporter(cfg)
 
 	_, handler := api.New(pool, api.Options{
-		CORSOrigins:     cfg.CORSOrigins,
-		Jellyfin:        media,
-		AdminKey:        cfg.AdminAPIKey,
-		GrantTTL:        cfg.GrantTTL,
-		PairingTTL:      cfg.PairingTTL,
-		ChannelTimezone: cfg.ChannelTimezone,
-		Primer:          reporter,
-		ReleaseDir:      cfg.ReleaseDir,
+		CORSOrigins:             cfg.CORSOrigins,
+		Jellyfin:                media,
+		AdminKey:                cfg.AdminAPIKey,
+		GrantTTL:                cfg.GrantTTL,
+		PairingTTL:              cfg.PairingTTL,
+		ChannelTimezone:         cfg.ChannelTimezone,
+		Primer:                  reporter,
+		ReleaseDir:              cfg.ReleaseDir,
+		ManifestFailMaxAttempts: cfg.ManifestFailMaxAttempts,
+		ManifestFailMaxDays:     cfg.ManifestFailMaxDays,
 	})
 
 	if reporter != nil {

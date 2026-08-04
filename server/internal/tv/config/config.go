@@ -62,6 +62,15 @@ type Config struct {
 	// naming its versionCode. The box has no app store, so this is the whole
 	// distribution channel. Empty switches self-update off.
 	ReleaseDir string `envconfig:"RELEASE_DIR"`
+
+	// ManifestFailMaxAttempts is how many content-ingest acquisition attempts
+	// a missing title may receive before the TV server marks it failed for
+	// human intervention (buy/rip). Zero disables the attempt threshold.
+	ManifestFailMaxAttempts int `envconfig:"MANIFEST_FAIL_MAX_ATTEMPTS" default:"10"`
+	// ManifestFailMaxDays is how many calendar days after the first attempt a
+	// title may stay missing before it is marked failed. Zero disables the
+	// day threshold. Either threshold alone is enough to fail an entry.
+	ManifestFailMaxDays int `envconfig:"MANIFEST_FAIL_MAX_DAYS" default:"14"`
 }
 
 // Load reads TV configuration from the environment.

@@ -52,22 +52,30 @@ type Options struct {
 	// ReleaseDir holds the published APK and its version file. Empty switches
 	// self-update off, which is correct for a checkout with no build to serve.
 	ReleaseDir string
+	// ManifestFailMaxAttempts is how many content-ingest attempts a missing
+	// title may receive before it is marked failed. Zero disables the limit.
+	ManifestFailMaxAttempts int
+	// ManifestFailMaxDays is how many days after the first attempt a title may
+	// stay missing before it is marked failed. Zero disables the limit.
+	ManifestFailMaxDays int
 	// Now overrides the clock, for tests that need a fixed instant.
 	Now func() time.Time
 }
 
 // Server holds the dependencies shared by the TV API handlers.
 type Server struct {
-	api             huma.API
-	q               baserepo.Querier
-	jellyfin        jellyfin.Client
-	adminKey        string
-	grantTTL        time.Duration
-	pairingTTL      time.Duration
-	channelLocation *time.Location
-	reporter        *primer.Reporter
-	releaseDir      string
-	clock           func() time.Time
+	api                     huma.API
+	q                       baserepo.Querier
+	jellyfin                jellyfin.Client
+	adminKey                string
+	grantTTL                time.Duration
+	pairingTTL              time.Duration
+	channelLocation         *time.Location
+	reporter                *primer.Reporter
+	releaseDir              string
+	manifestFailMaxAttempts int
+	manifestFailMaxDays     int
+	clock                   func() time.Time
 }
 
 // now returns the server's current time.
@@ -109,16 +117,18 @@ func New(q baserepo.Querier, opts Options) (huma.API, http.Handler) {
 // the given Huma API. Exposed for tests that use humatest.
 func RegisterRoutes(humaAPI huma.API, q baserepo.Querier, opts Options) {
 	s := &Server{
-		api:             humaAPI,
-		q:               q,
-		jellyfin:        opts.Jellyfin,
-		adminKey:        opts.AdminKey,
-		grantTTL:        opts.GrantTTL,
-		pairingTTL:      opts.PairingTTL,
-		channelLocation: ChannelLocation(opts.ChannelTimezone),
-		reporter:        opts.Primer,
-		releaseDir:      opts.ReleaseDir,
-		clock:           opts.Now,
+		api:                     humaAPI,
+		q:                       q,
+		jellyfin:                opts.Jellyfin,
+		adminKey:                opts.AdminKey,
+		grantTTL:                opts.GrantTTL,
+		pairingTTL:              opts.PairingTTL,
+		channelLocation:         ChannelLocation(opts.ChannelTimezone),
+		reporter:                opts.Primer,
+		releaseDir:              opts.ReleaseDir,
+		manifestFailMaxAttempts: opts.ManifestFailMaxAttempts,
+		manifestFailMaxDays:     opts.ManifestFailMaxDays,
+		clock:                   opts.Now,
 	}
 	if s.grantTTL <= 0 {
 		s.grantTTL = DefaultGrantTTL
