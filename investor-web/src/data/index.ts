@@ -39,6 +39,52 @@ export {
   toDisplayStatus,
 };
 
+export {
+  buildTargetTranscript,
+  DEMO_UPDATED,
+  liveSurfaces,
+  SYNTHETIC_LEARNER,
+  targetExperienceSteps,
+} from "./demoScript";
+export {
+  bloomCaveat,
+  claimBoundaries,
+  EVIDENCE_UPDATED,
+  evidenceStages,
+  learningThresholds,
+  nullAdversePolicy,
+} from "./evidencePlan";
+export {
+  COMPANY_UPDATED,
+  contactProcess,
+  ebackpackProofPoints,
+  founderRiskMitigation,
+  hiringPrinciples,
+  openRolesNote,
+} from "./companyDeep";
+export {
+  contractingModels,
+  MARKET_UPDATED,
+  opportunityMap,
+  overlapMethodology,
+  publicInterventionRationale,
+  tutoringPriceComparisons,
+} from "./marketDeep";
+export {
+  DILIGENCE_UPDATED,
+  diligenceIndex,
+  materialRisks,
+  publicPrivateBoundary,
+} from "./materialRisks";
+export {
+  buyingMotions,
+  complianceItems,
+  integrationStrategy,
+  SCHOOLS_UPDATED,
+  schoolHonestPitch,
+  schoolReadinessGates,
+} from "./schoolsRoadmap";
+
 /** Aggregated package consumed by Phase 1+ presentation components. */
 export const investorData: InvestorDataPackage = {
   productState,

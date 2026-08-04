@@ -1,6 +1,8 @@
 export { BrandLogo } from "./BrandLogo";
 export { CaveatNote } from "./CaveatNote";
+export { DiligencePage, DiligenceSection } from "./DiligencePage";
 export {
+  DemoExplorer,
   EvidenceExplorer,
   InstitutionalExplorer,
   MarketExplorer,

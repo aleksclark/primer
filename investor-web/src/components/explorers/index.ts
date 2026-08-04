@@ -1,3 +1,4 @@
+export { DemoExplorer } from "./DemoExplorer";
 export { EvidenceExplorer } from "./EvidenceExplorer";
 export { InstitutionalExplorer } from "./InstitutionalExplorer";
 export { MarketExplorer } from "./MarketExplorer";

@@ -1670,3 +1670,389 @@ button {
     transition-duration: 0.01ms;
   }
 }
+
+/* ——— Phase 4 diligence routes ——— */
+
+.diligence-page {
+  padding-block: var(--primer-space-10) var(--primer-space-12);
+}
+
+.diligence-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-4);
+}
+
+.diligence-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--primer-space-3) var(--primer-space-5);
+  align-items: center;
+}
+
+.diligence-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--primer-space-4);
+  align-items: center;
+}
+
+.diligence-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-10);
+  margin-top: var(--primer-space-8);
+}
+
+.diligence-page__sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-4);
+  margin-top: var(--primer-space-10);
+  padding-top: var(--primer-space-6);
+  border-top: var(--primer-rule-default) solid var(--primer-color-rule-strong);
+}
+
+.diligence-toc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-3);
+  padding: var(--primer-space-5);
+  border: var(--primer-rule-default) solid var(--primer-color-rule-strong);
+  background: var(--primer-color-surface-raised);
+}
+
+.diligence-toc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border-top: var(--primer-rule-default) solid var(--primer-color-rule);
+}
+
+@media (min-width: 720px) {
+  .diligence-toc__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.diligence-toc__list a {
+  display: flex;
+  align-items: baseline;
+  gap: var(--primer-space-3);
+  min-height: 44px;
+  padding: var(--primer-space-3) 0;
+  border-bottom: var(--primer-rule-default) solid var(--primer-color-rule);
+  font-family: var(--primer-font-system);
+  font-size: var(--primer-type-label-size);
+  letter-spacing: var(--primer-type-label-tracking);
+  text-transform: uppercase;
+  color: var(--primer-color-text-muted);
+  transition: color var(--primer-motion-fast) ease;
+}
+
+.diligence-toc__list a:hover {
+  color: var(--primer-color-text);
+}
+
+.diligence-toc__index {
+  color: var(--primer-color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.diligence-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-5);
+  scroll-margin-top: 96px;
+}
+
+.diligence-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-2);
+  padding-bottom: var(--primer-space-4);
+  border-bottom: var(--primer-rule-default) solid var(--primer-color-rule);
+}
+
+.diligence-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-5);
+}
+
+.diligence-index-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: var(--primer-rule-default) solid var(--primer-color-rule);
+}
+
+.diligence-index-list__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-3);
+  padding: var(--primer-space-5);
+  background: var(--primer-color-surface-raised);
+  border-bottom: var(--primer-rule-default) solid var(--primer-color-rule);
+}
+
+.diligence-index-list__item:last-child {
+  border-bottom: none;
+}
+
+.diligence-index-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--primer-space-3);
+  align-items: center;
+}
+
+.ruled-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-4);
+  margin-top: var(--primer-space-3);
+}
+
+.source-register {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: var(--primer-rule-default) solid var(--primer-color-rule);
+}
+
+.source-register__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-2);
+  padding: var(--primer-space-4) var(--primer-space-5);
+  background: var(--primer-color-surface-raised);
+  border-bottom: var(--primer-rule-default) solid var(--primer-color-rule);
+}
+
+.source-register__item:last-child {
+  border-bottom: none;
+}
+
+.source-register__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--primer-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Demo explorer */
+
+.demo-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-5);
+}
+
+.demo-block__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-2);
+  max-width: 40rem;
+}
+
+.demo-block--target {
+  padding-top: var(--primer-space-6);
+  border-top: var(--primer-rule-active) solid var(--primer-color-attention);
+}
+
+.demo-capture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-2);
+  padding: var(--primer-space-3);
+  border-left: var(--primer-rule-active) solid var(--primer-color-accent);
+  background: var(--primer-color-surface);
+}
+
+.target-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 var(--primer-space-3);
+  border: var(--primer-rule-default) solid var(--primer-color-attention);
+  color: var(--primer-color-attention);
+  font-family: var(--primer-font-system);
+  font-size: var(--primer-type-label-size);
+  font-weight: var(--primer-type-label-weight);
+  letter-spacing: var(--primer-type-label-tracking);
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.demo-script {
+  display: grid;
+  gap: var(--primer-space-4);
+}
+
+@media (min-width: 900px) {
+  .demo-script {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.demo-script__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: var(--primer-rule-default) solid var(--primer-color-rule);
+  max-height: 28rem;
+  overflow-y: auto;
+}
+
+.demo-script__step-btn {
+  display: flex;
+  align-items: baseline;
+  gap: var(--primer-space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--primer-space-3) var(--primer-space-4);
+  text-align: left;
+  border-bottom: var(--primer-rule-default) solid var(--primer-color-rule);
+  background: var(--primer-color-surface-raised);
+  color: var(--primer-color-text-muted);
+  font-family: var(--primer-font-system);
+  font-size: var(--primer-type-label-size);
+  letter-spacing: var(--primer-type-label-tracking);
+  text-transform: uppercase;
+  transition: color var(--primer-motion-fast) ease,
+    border-color var(--primer-motion-fast) ease,
+    background-color var(--primer-motion-fast) ease;
+}
+
+.demo-script__step-btn:last-child {
+  border-bottom: none;
+}
+
+.demo-script__step-btn:hover {
+  color: var(--primer-color-text);
+}
+
+.demo-script__step-btn--active {
+  color: var(--primer-color-text);
+  background: var(--primer-color-surface);
+  border-left: var(--primer-rule-active) solid var(--primer-color-attention);
+}
+
+.demo-script__step-num {
+  color: var(--primer-color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.demo-script__stage {
+  min-width: 0;
+}
+
+.demo-script__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--primer-space-3);
+  align-items: center;
+  margin-top: var(--primer-space-4);
+}
+
+.demo-step-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primer-space-4);
+}
+
+.demo-step-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--primer-space-3);
+  align-items: center;
+}
+
+.demo-transcript {
+  border: var(--primer-rule-default) solid var(--primer-color-rule);
+  background: var(--primer-color-surface-raised);
+}
+
+.demo-transcript__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--primer-space-3);
+  min-height: 44px;
+  padding: var(--primer-space-3) var(--primer-space-4);
+  cursor: pointer;
+  list-style: none;
+}
+
+.demo-transcript__summary::-webkit-details-marker {
+  display: none;
+}
+
+.demo-transcript__body {
+  margin: 0;
+  padding: var(--primer-space-4);
+  border-top: var(--primer-rule-default) solid var(--primer-color-rule);
+  white-space: pre-wrap;
+  font-family: var(--primer-font-system);
+  font-size: var(--primer-type-small-size);
+  line-height: var(--primer-type-small-line-height);
+  color: var(--primer-color-text-muted);
+  overflow-x: auto;
+}
+
+/* Print-friendly diligence layouts */
+@media print {
+  .skip-link,
+  .site-header,
+  .site-footer,
+  .site-header__actions,
+  .mobile-section-nav,
+  .diligence-page__print-btn,
+  .theme-toggle,
+  .demo-script__controls {
+    display: none !important;
+  }
+
+  .site-shell,
+  .site-main,
+  .diligence-page {
+    display: block;
+    background: white;
+    color: black;
+  }
+
+  .diligence-page[data-printable="true"] {
+    padding: 0;
+  }
+
+  .diligence-toc,
+  .ruled-card,
+  .funds-table-wrap,
+  .diligence-index-list,
+  .source-register,
+  .demo-transcript {
+    break-inside: avoid;
+  }
+
+  .diligence-section {
+    break-before: auto;
+    page-break-inside: avoid;
+  }
+
+  a {
+    color: black;
+    text-decoration: underline;
+  }
+
+  .type-h1,
+  .type-h2,
+  .type-h3 {
+    color: black;
+  }
+}

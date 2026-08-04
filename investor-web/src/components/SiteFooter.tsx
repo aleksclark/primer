@@ -11,13 +11,14 @@ const diligenceLinks = [
   { label: "Diligence", href: "/diligence" },
 ];
 
-const contactLinks = [
-  { label: "Discuss the round", href: "#contact" },
-  { label: "Email founder", href: "mailto:aleks@primer.local" },
-];
-
 /** Site footer with contact and diligence source links. */
 export function SiteFooter() {
+  const contactLinks = [
+    { label: "Discuss the round", href: "/#contact" },
+    { label: "Primary pitch", href: "/" },
+    { label: "Email founder", href: "mailto:aleks@primer.local" },
+  ];
+
   return (
     <footer className="site-footer">
       <div className="site-container">

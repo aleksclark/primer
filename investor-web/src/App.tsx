@@ -5,8 +5,13 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SkipLink } from "@/components/SkipLink";
 import { sections } from "@/data";
+import { CompanyPage } from "@/pages/CompanyPage";
+import { DemoPage } from "@/pages/DemoPage";
+import { DiligenceIndexPage } from "@/pages/DiligenceIndexPage";
+import { EvidencePage } from "@/pages/EvidencePage";
 import { HomePage } from "@/pages/HomePage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
+import { MarketPage } from "@/pages/MarketPage";
+import { SchoolsPage } from "@/pages/SchoolsPage";
 
 function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -28,66 +33,12 @@ export function App() {
       <AppShell>
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route
-            path="/demo"
-            element={
-              <PlaceholderPage
-                eyebrow="Product demo"
-                title="Current product surfaces"
-                description="Phase 4 will host truthful product surfaces, a tutor-flow prototype, and a product-state legend. Synthetic artifacts only — no student data."
-              />
-            }
-          />
-          <Route
-            path="/market"
-            element={
-              <PlaceholderPage
-                eyebrow="Market model"
-                title="Assumptions and expansion layers"
-                description="Interactive market calculator and non-summing expansion ladder land in Phase 3. Structured layer data is already validated in the data package."
-              />
-            }
-          />
-          <Route
-            path="/evidence"
-            element={
-              <PlaceholderPage
-                eyebrow="Evidence"
-                title="Research, claims, and source register"
-                description="Diligence-depth evidence pages and the full source register arrive in later phases. Core claims already carry citations on the primary page."
-              />
-            }
-          />
-          <Route
-            path="/schools"
-            element={
-              <PlaceholderPage
-                eyebrow="Schools"
-                title="Supplementary to primary LMS path"
-                description="LTI/Clever entry, SIS/SSO roadmap, and privacy/accessibility notes will expand here for institutional diligence."
-              />
-            }
-          />
-          <Route
-            path="/company"
-            element={
-              <PlaceholderPage
-                eyebrow="Company"
-                title="Founder story and team plan"
-                description="Extended founder timeline, hiring plan, and advisor notes expand here. Core founder claims are on the primary page."
-              />
-            }
-          />
-          <Route
-            path="/diligence"
-            element={
-              <PlaceholderPage
-                eyebrow="Diligence"
-                title="Product state, risks, and data room"
-                description="Risk register, compliance roadmap, and gated data-room link come after the public narrative is correct. No premature portal."
-              />
-            }
-          />
+          <Route path="/demo" element={<DemoPage />} />
+          <Route path="/market" element={<MarketPage />} />
+          <Route path="/evidence" element={<EvidencePage />} />
+          <Route path="/schools" element={<SchoolsPage />} />
+          <Route path="/company" element={<CompanyPage />} />
+          <Route path="/diligence" element={<DiligenceIndexPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
