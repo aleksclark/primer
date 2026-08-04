@@ -145,3 +145,7 @@ activity-validate:
 ## Requires DATABASE_URL (see server/internal/config).
 activity-publish:
 	cd server && go run ./cmd/activity-publish -activities ../curriculum/activities -standards ../curriculum/standards
+
+## Build the interactive student workstation TUI.
+student-build:
+	cd server && go build -o ../bin/primer-student ./cmd/primer-student

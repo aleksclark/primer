@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -247,6 +248,31 @@ func registerStudentAPI(h huma.API, q repo.Querier) {
 		}
 		return &completeSessionOutput{Body: result}, nil
 	})
+
+	// Minimal Phase 3 tutor stub: static coaching from activity hints/tasks.
+	// Real LLM coaching lands later; this keeps the TUI path wired.
+	huma.Register(h, studentOp(h, q, huma.Operation{
+		OperationID:   "post-session-tutor-message",
+		Method:        http.MethodPost,
+		Path:          "/student/sessions/{id}/tutor/messages",
+		Summary:       "Send a tutor chat message (stub coaching)",
+		Tags:          []string{"Student"},
+		DefaultStatus: http.StatusOK,
+	}), func(ctx context.Context, in *tutorMessageInput) (*tutorMessageOutput, error) {
+		dev, err := studentDevice(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sess, err := repo.GetSession(ctx, q, in.ID)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		if sess.StudentID != dev.StudentID {
+			return nil, huma.Error404NotFound("session not found")
+		}
+		reply := stubTutorReply(ctx, q, sess)
+		return &tutorMessageOutput{Body: TutorMessageResponse{Reply: reply}}, nil
+	})
 }
 
 type pairStudentDeviceInput struct {
@@ -329,4 +355,55 @@ type completeSessionInput struct {
 
 type completeSessionOutput struct {
 	Body contracts.CompletionResult
+}
+
+type tutorMessageInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		Message string `json:"message"`
+	}
+}
+
+// TutorMessageResponse is a short coaching reply (Phase 3 stub).
+type TutorMessageResponse struct {
+	Reply string `json:"reply"`
+}
+
+type tutorMessageOutput struct {
+	Body TutorMessageResponse
+}
+
+func stubTutorReply(ctx context.Context, q repo.Querier, sess *domain.LearningSession) string {
+	// Prefer the first hint from the activity revision content when available.
+	asg, err := repo.StudentAssignments.Get(ctx, q, sess.AssignmentID)
+	if err != nil {
+		return "Try a short discovery command first, then move one directory at a time."
+	}
+	rev, err := repo.LearningActivityRevisions.Get(ctx, q, asg.ActivityRevisionID)
+	if err != nil {
+		return "Look around with pwd and ls before changing directories."
+	}
+	content, err := decodeRevisionContent(rev.Content)
+	if err != nil {
+		return "Explore the workspace with small commands. Prefer relative paths."
+	}
+	if len(content.Hints) > 0 && content.Hints[0].Text != "" {
+		return content.Hints[0].Text
+	}
+	if content.Objective != "" {
+		return content.Objective
+	}
+	return "Take one small step, then check what changed in the workspace."
+}
+
+func decodeRevisionContent(m map[string]any) (contracts.ActivityContent, error) {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return contracts.ActivityContent{}, err
+	}
+	var c contracts.ActivityContent
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return contracts.ActivityContent{}, err
+	}
+	return c, nil
 }

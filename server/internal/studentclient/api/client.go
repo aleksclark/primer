@@ -230,6 +230,26 @@ func (c *Client) Complete(ctx context.Context, sessionID string, req contracts.C
 	return &out, nil
 }
 
+// TutorMessageRequest is POST /student/sessions/{id}/tutor/messages.
+type TutorMessageRequest struct {
+	Message string `json:"message"`
+}
+
+// TutorMessageResponse is a short coaching reply.
+type TutorMessageResponse struct {
+	Reply string `json:"reply"`
+}
+
+// TutorMessage posts a student message and returns a coaching reply.
+func (c *Client) TutorMessage(ctx context.Context, sessionID, message string) (*TutorMessageResponse, error) {
+	var out TutorMessageResponse
+	path := "/student/sessions/" + url.PathEscape(sessionID) + "/tutor/messages"
+	if err := c.doJSON(ctx, http.MethodPost, path, true, TutorMessageRequest{Message: message}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, auth bool, body any, out any) error {
 	var rdr io.Reader
 	if body != nil {
