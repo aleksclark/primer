@@ -328,6 +328,32 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 				return fmt.Errorf("checks[%d] (%s): invalid pattern: %w", i, ch.ID, err)
 			}
 		}
+	case CheckTypingMetrics:
+		if _, err := floatParam(ch.Params["min_wpm"]); err != nil {
+			// Also accept camelCase from JSON content.
+			if _, err2 := floatParam(ch.Params["minWpm"]); err2 != nil {
+				return fmt.Errorf("checks[%d] (%s): params.min_wpm is required and must be a number", i, ch.ID)
+			}
+		}
+		if _, err := floatParam(ch.Params["min_accuracy"]); err != nil {
+			if _, err2 := floatParam(ch.Params["minAccuracy"]); err2 != nil {
+				return fmt.Errorf("checks[%d] (%s): params.min_accuracy is required and must be a number", i, ch.ID)
+			}
+		}
+		acc, err := typingMinAccuracy(ch.Params)
+		if err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
+		if acc < 0 || acc > 1 {
+			return fmt.Errorf("checks[%d] (%s): params.min_accuracy must be between 0 and 1", i, ch.ID)
+		}
+		wpm, err := typingMinWPM(ch.Params)
+		if err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
+		if wpm < 0 {
+			return fmt.Errorf("checks[%d] (%s): params.min_wpm must be non-negative", i, ch.ID)
+		}
 	default:
 		return fmt.Errorf("checks[%d] (%s): unknown kind %q", i, ch.ID, ch.Kind)
 	}
@@ -444,6 +470,66 @@ func intParam(v any) (int, error) {
 	default:
 		return 0, fmt.Errorf("not an int")
 	}
+}
+
+func floatParam(v any) (float64, error) {
+	switch n := v.(type) {
+	case float64:
+		return n, nil
+	case float32:
+		return float64(n), nil
+	case int:
+		return float64(n), nil
+	case int64:
+		return float64(n), nil
+	case jsonNumber:
+		return n.Float64()
+	case string:
+		return strconv.ParseFloat(n, 64)
+	default:
+		return 0, fmt.Errorf("not a number")
+	}
+}
+
+// jsonNumber is satisfied by encoding/json.Number without importing encoding/json here.
+type jsonNumber interface {
+	Float64() (float64, error)
+}
+
+// TypingMinWPM extracts min_wpm / minWpm from typing_metrics check params.
+func TypingMinWPM(params map[string]any) (float64, error) {
+	return typingMinWPM(params)
+}
+
+// TypingMinAccuracy extracts min_accuracy / minAccuracy from typing_metrics check params.
+func TypingMinAccuracy(params map[string]any) (float64, error) {
+	return typingMinAccuracy(params)
+}
+
+func typingMinWPM(params map[string]any) (float64, error) {
+	if params == nil {
+		return 0, fmt.Errorf("params.min_wpm is required")
+	}
+	if v, err := floatParam(params["min_wpm"]); err == nil {
+		return v, nil
+	}
+	if v, err := floatParam(params["minWpm"]); err == nil {
+		return v, nil
+	}
+	return 0, fmt.Errorf("params.min_wpm is required")
+}
+
+func typingMinAccuracy(params map[string]any) (float64, error) {
+	if params == nil {
+		return 0, fmt.Errorf("params.min_accuracy is required")
+	}
+	if v, err := floatParam(params["min_accuracy"]); err == nil {
+		return v, nil
+	}
+	if v, err := floatParam(params["minAccuracy"]); err == nil {
+		return v, nil
+	}
+	return 0, fmt.Errorf("params.min_accuracy is required")
 }
 
 func stringSlice(v any) ([]string, error) {

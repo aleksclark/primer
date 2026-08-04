@@ -33,6 +33,7 @@ const (
 	CheckCwd               = "cwd"
 	CheckCommandProperties = "command_properties"
 	CheckPipelineOutput    = "pipeline_output"
+	CheckTypingMetrics     = "typing_metrics"
 )
 
 // Path types for path_type checks and fixtures.

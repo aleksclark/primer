@@ -172,15 +172,53 @@ func TestValidateTyping(t *testing.T) {
 			Checks: []contracts.Check{
 				{
 					ID:   "done",
-					Kind: contracts.CheckPipelineOutput,
+					Kind: contracts.CheckTypingMetrics,
 					Params: map[string]any{
-						"contains": "complete",
+						"min_wpm":      20.0,
+						"min_accuracy": 0.95,
 					},
 				},
 			},
 		},
 	}
 	require.NoError(t, contracts.ValidateDocument(doc))
+}
+
+func TestValidateTypingMetricsRejectsBadAccuracy(t *testing.T) {
+	t.Parallel()
+	doc := &contracts.ActivityDocument{
+		SchemaVersion: contracts.SchemaVersion,
+		Slug:          "typing-bad",
+		Title:         "Bad",
+		Kind:          contracts.KindTyping,
+		SubjectCode:   "digital-literacy",
+		Standards: []contracts.StandardRef{
+			{Code: "PRIMER.DL.6.TYPE.1", Role: contracts.StandardRolePrimary},
+		},
+		Content: contracts.ActivityContent{
+			Objective:    "Type",
+			Instructions: "Type",
+			Typing: &contracts.TypingContent{
+				PromptSetID: "x",
+				Prompts:     []contracts.TypingPrompt{{ID: "p1", Text: "hi"}},
+			},
+			Tasks: []contracts.Task{{
+				ID: "t", Title: "T", Instructions: "Go",
+				Completion: contracts.CheckTree{CheckID: "m"},
+			}},
+			Checks: []contracts.Check{{
+				ID:   "m",
+				Kind: contracts.CheckTypingMetrics,
+				Params: map[string]any{
+					"min_wpm":      10.0,
+					"min_accuracy": 1.5,
+				},
+			}},
+		},
+	}
+	err := contracts.ValidateDocument(doc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "min_accuracy")
 }
 
 func TestValidateRejectsWrongSchema(t *testing.T) {

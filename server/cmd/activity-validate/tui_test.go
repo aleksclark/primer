@@ -46,7 +46,8 @@ func TestActivityValidateTUI(t *testing.T) {
 		h.ExpectVisible("PASS", trifle.WithFull())
 		h.ExpectVisible("basic-navigation", trifle.WithFull())
 		h.ExpectVisible("file-organization", trifle.WithFull())
-		h.ExpectVisible("2/2 passed", trifle.WithFull())
+		h.ExpectVisible("command-typing-basics", trifle.WithFull())
+		h.ExpectVisible("3/3 passed", trifle.WithFull())
 
 		if err := term.Write("q"); err != nil {
 			t.Fatalf("quit: %v", err)

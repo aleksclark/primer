@@ -340,3 +340,129 @@ func bytesContainsAny(s string, subs ...string) bool {
 	}
 	return false
 }
+
+func startTypingTUIEnv(t *testing.T) *tuiEnv {
+	t.Helper()
+	q := testutil.NewSavepointQuerier(testutil.Tx(t))
+	_, handler := api.New(q, api.Options{})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	const password = "test-password-ok"
+	ed := factory.EducatorWithPassword(t, q, password, factory.Override{
+		"email": "tui-type-" + uuid.NewString()[:8] + "@example.com",
+		"role":  "parent",
+	})
+	student := factory.Student(t, q, factory.Override{"first_name": "Type", "last_name": "Tui"})
+	parentToken := parentLogin(t, srv.URL, ed.Email, password)
+
+	root := repoRoot(t)
+	_, err := curriculum.Publish(ctx, q, curriculum.PublishOptions{
+		StandardsDir: filepath.Join(root, "curriculum", "standards"),
+		Now:          time.Now().UTC(),
+	})
+	require.NoError(t, err)
+	doc, err := contracts.LoadDocument(filepath.Join(root, "curriculum", "activities", "command-typing-basics", "activity.yaml"))
+	require.NoError(t, err)
+	_, rev, err := curriculum.PublishDocument(ctx, q, doc, time.Now().UTC())
+	require.NoError(t, err)
+
+	assignmentID := postJSON[map[string]any](t, srv.URL+"/assignments", map[string]any{
+		"studentId":          student.ID,
+		"activityRevisionId": rev.ID,
+		"priority":           10,
+	}, parentToken)["id"].(string)
+
+	code := postJSON[map[string]any](t, srv.URL+"/pairing-codes", map[string]any{
+		"studentId": student.ID,
+	}, parentToken)["code"].(string)
+
+	pair := postJSON[map[string]any](t, srv.URL+"/student-devices/pair", map[string]any{
+		"code":       code,
+		"deviceName": "tui-type-ws",
+	}, "")
+	deviceToken := pair["token"].(string)
+
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	store, err := cache.Open(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, store.SetDeviceToken(ctx, deviceToken))
+	require.NoError(t, store.SetDeviceIdentity(ctx, pair["deviceId"].(string), student.ID, "tui-type-ws"))
+	_ = store.Close()
+
+	return &tuiEnv{
+		Server:       srv,
+		BaseURL:      srv.URL,
+		Q:            q,
+		DeviceToken:  deviceToken,
+		AssignmentID: assignmentID,
+		DBPath:       dbPath,
+	}
+}
+
+func TestStudentTUITypingFlow(t *testing.T) {
+	trifle.SkipOnWindows(t)
+	env := startTypingTUIEnv(t)
+	bin := buildStudentBin(t)
+	ws := filepath.Join(t.TempDir(), "ws-type")
+
+	root := repoRoot(t)
+	doc, err := contracts.LoadDocument(filepath.Join(root, "curriculum", "activities", "command-typing-basics", "activity.yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, doc.Content.Typing)
+
+	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
+		Program: bin,
+		Args: []string{
+			"-db", env.DBPath,
+			"-base-url", env.BaseURL,
+			"-workspace", ws,
+			"-token", env.DeviceToken,
+		},
+		Rows:        32,
+		Cols:        100,
+		StartupWait: 800 * time.Millisecond,
+		Timeout:     120 * time.Second,
+	})
+
+	suite.Run("complete typing activity", func(t *testing.T, term *trifle.Terminal) {
+		h := trifle.NewTestHelper(t, term)
+		time.Sleep(800 * time.Millisecond)
+		h.ExpectVisible("work queue", trifle.WithFull())
+		h.ExpectVisible("Command Typing Basics", trifle.WithFull())
+
+		if err := term.Write("\r"); err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		time.Sleep(1200 * time.Millisecond)
+		h.ExpectVisible("Prompt:", trifle.WithFull())
+		h.ExpectVisible("WPM", trifle.WithFull())
+
+		// Auto-type every assigned prompt.
+		for _, p := range doc.Content.Typing.Prompts {
+			if err := term.Write(p.Text); err != nil {
+				t.Fatalf("type %q: %v", p.Text, err)
+			}
+			time.Sleep(80 * time.Millisecond)
+		}
+		time.Sleep(600 * time.Millisecond)
+		h.ExpectVisible("REQUIRED PASS", trifle.WithFull())
+
+		// Enter completes when thresholds met.
+		if err := term.Write("\r"); err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		h.ExpectVisible("Activity complete", trifle.WithFull())
+
+		if err := term.Write("q"); err != nil {
+			t.Fatalf("quit: %v", err)
+		}
+		time.Sleep(400 * time.Millisecond)
+		_ = term.Write("q")
+		if err := term.WaitWithTimeout(8 * time.Second); err != nil {
+			t.Fatalf("process did not exit: %v\noutput:\n%s", err, term.Output())
+		}
+	})
+}

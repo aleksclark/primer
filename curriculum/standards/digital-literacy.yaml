@@ -68,3 +68,16 @@ standards:
     mastery_criteria:
       - Meets activity accuracy threshold
       - Completes the assigned prompt set
+
+  - code: PRIMER.DL.6.TYPE.2
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: typing
+    cluster: speed
+    description: >
+      Maintain a sustained typing rate on short command-like prompts while
+      keeping accuracy above the activity threshold (typing fluency only).
+    mastery_criteria:
+      - Meets activity words-per-minute threshold
+      - Completes the assigned prompt set without abandoning mid-prompt

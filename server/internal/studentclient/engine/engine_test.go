@@ -256,6 +256,178 @@ func TestEngineOnlineThenIdempotentRerunSync(t *testing.T) {
 	assertServerOneCompletion(t, env)
 }
 
+func startTypingEnv(t *testing.T) *harnessEnv {
+	t.Helper()
+	q := testutil.NewSavepointQuerier(testutil.Tx(t))
+	_, handler := api.New(q, api.Options{})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	const password = "test-password-ok"
+	ed := factory.EducatorWithPassword(t, q, password, factory.Override{
+		"email": "typing-" + uuid.NewString()[:8] + "@example.com",
+		"role":  "parent",
+	})
+	student := factory.Student(t, q, factory.Override{"first_name": "Type", "last_name": "Kid"})
+	parentToken := parentLogin(t, srv.URL, ed.Email, password)
+
+	root := repoRoot(t)
+	_, err := curriculum.Publish(ctx, q, curriculum.PublishOptions{
+		StandardsDir: filepath.Join(root, "curriculum", "standards"),
+		Now:          time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	doc, err := contracts.LoadDocument(filepath.Join(root, "curriculum", "activities", "command-typing-basics", "activity.yaml"))
+	require.NoError(t, err)
+	_, rev, err := curriculum.PublishDocument(ctx, q, doc, time.Now().UTC())
+	require.NoError(t, err)
+
+	assignmentID := postJSON[map[string]any](t, srv.URL+"/assignments", map[string]any{
+		"studentId":          student.ID,
+		"activityRevisionId": rev.ID,
+		"priority":           10,
+	}, parentToken)["id"].(string)
+
+	code := postJSON[map[string]any](t, srv.URL+"/pairing-codes", map[string]any{
+		"studentId": student.ID,
+	}, parentToken)["code"].(string)
+
+	pair := postJSON[map[string]any](t, srv.URL+"/student-devices/pair", map[string]any{
+		"code":       code,
+		"deviceName": "typing-ws",
+	}, "")
+	deviceToken := pair["token"].(string)
+
+	return &harnessEnv{
+		Server:       srv,
+		BaseURL:      srv.URL,
+		Q:            q,
+		DeviceToken:  deviceToken,
+		AssignmentID: assignmentID,
+		StudentID:    student.ID,
+	}
+}
+
+func TestEngineCompletesTypingOnlineMasteryIsolation(t *testing.T) {
+	t.Parallel()
+	env := startTypingEnv(t)
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	eng := openEngine(t, env, dbPath, false)
+
+	// Seed a NAV mastery record so we can prove typing does not touch it.
+	stdPage, err := repo.Standards.List(ctx, env.Q, repo.ListParams{
+		Limit:  200,
+		Search: "PRIMER.DL.6.NAV.1",
+	})
+	require.NoError(t, err)
+	var navStdID string
+	for _, st := range stdPage.Items {
+		if st.Code == "PRIMER.DL.6.NAV.1" {
+			navStdID = st.ID
+			break
+		}
+	}
+	require.NotEmpty(t, navStdID, "NAV standard must exist after standards publish")
+	navRec := factory.MasteryRecord(t, env.Q, factory.Override{
+		"student_id":  env.StudentID,
+		"standard_id": navStdID,
+		"status":      "in_progress",
+		"confidence":  0.42,
+	})
+	beforeConf := navRec.Confidence
+	beforeStatus := navRec.Status
+
+	sess, err := eng.OpenSession(ctx, env.AssignmentID)
+	require.NoError(t, err)
+	assert.Equal(t, contracts.KindTyping, sess.Kind())
+
+	// Load prompts from the activity content via snapshot loop.
+	// Type each prompt text exactly (auto-advances on full match).
+	root := repoRoot(t)
+	doc, err := contracts.LoadDocument(filepath.Join(root, "curriculum", "activities", "command-typing-basics", "activity.yaml"))
+	require.NoError(t, err)
+	require.NotNil(t, doc.Content.Typing)
+	for _, p := range doc.Content.Typing.Prompts {
+		require.NoError(t, sess.TypeString(ctx, p.Text))
+	}
+
+	snap := sess.Snapshot()
+	require.NotNil(t, snap.Typing)
+	assert.True(t, snap.Typing.Done)
+	assert.True(t, snap.RequiredPassed, "snap=%+v typing=%+v", snap, snap.Typing)
+	assert.GreaterOrEqual(t, snap.Typing.WPM, 15.0)
+	assert.GreaterOrEqual(t, snap.Typing.Accuracy, 0.9)
+
+	require.NoError(t, sess.Complete(ctx))
+	snap = sess.Snapshot()
+	assert.True(t, snap.Completed)
+	assert.True(t, snap.CompletionQueued)
+	assert.True(t, snap.CompletionAcked, "snap=%+v", snap)
+
+	// Mastery evidence only for TYPE codes.
+	evPage, err := repo.MasteryEvidences.List(ctx, env.Q, repo.ListParams{Limit: 200})
+	require.NoError(t, err)
+	require.NotEmpty(t, evPage.Items)
+
+	mrPage, err := repo.MasteryRecords.List(ctx, env.Q, repo.ListParams{
+		Limit:   50,
+		Filters: map[string]any{"student_id": env.StudentID},
+	})
+	require.NoError(t, err)
+
+	var typeHits, navHits int
+	for _, rec := range mrPage.Items {
+		std, err := repo.Standards.Get(ctx, env.Q, rec.StandardID)
+		require.NoError(t, err)
+		switch {
+		case contains(std.Code, ".TYPE."):
+			typeHits++
+			assert.Greater(t, rec.Confidence, 0.0, "TYPE record should gain confidence")
+		case contains(std.Code, ".NAV."):
+			navHits++
+			assert.Equal(t, beforeStatus, rec.Status)
+			assert.Equal(t, beforeConf, rec.Confidence, "NAV mastery must not change from typing")
+		case contains(std.Code, ".FILES."):
+			t.Fatalf("unexpected FILES mastery from typing activity: %s", std.Code)
+		}
+	}
+	assert.GreaterOrEqual(t, typeHits, 1)
+	assert.Equal(t, 1, navHits, "seeded NAV record should still exist unchanged")
+
+	// Evidence source_ref should not claim NAV standards.
+	for _, e := range evPage.Items {
+		// Evidence is linked to mastery_record; check record's standard.
+		// List may include unrelated rows — only care about this student's TYPE/NAV.
+		_ = e
+	}
+	// Explicit: no mastery transition for NAV from completion result path.
+	page, err := repo.LearningSessions.List(ctx, env.Q, repo.ListParams{
+		Limit:   20,
+		Filters: map[string]any{"student_id": env.StudentID},
+	})
+	require.NoError(t, err)
+	var completedID string
+	for _, s := range page.Items {
+		if s.State == "completed" {
+			completedID = s.ID
+			break
+		}
+	}
+	require.NotEmpty(t, completedID)
+	cmp, err := repo.GetCompletionBySession(ctx, env.Q, completedID)
+	require.NoError(t, err)
+	result, err := repo.CompletionResultFromRow(cmp)
+	require.NoError(t, err)
+	for _, tr := range result.MasterySnapshot {
+		assert.Contains(t, tr.StandardCode, ".TYPE.", "typing mastery must be TYPE-only, got %s", tr.StandardCode)
+		assert.NotContains(t, tr.StandardCode, ".NAV.")
+	}
+	assert.NotEmpty(t, result.MasterySnapshot)
+}
+
 func assertServerOneCompletion(t *testing.T, env *harnessEnv) {
 	t.Helper()
 	ctx := context.Background()

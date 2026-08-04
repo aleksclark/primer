@@ -36,10 +36,11 @@ func TestRunCurriculumSamples(t *testing.T) {
 		Materialize:   true,
 	})
 	require.NoError(t, err)
-	require.Len(t, results, 2)
+	require.GreaterOrEqual(t, len(results), 3)
 	assert.True(t, validatecmd.AllOK(results), stderr.String())
 	assert.Contains(t, stdout.String(), "basic-navigation")
 	assert.Contains(t, stdout.String(), "file-organization")
+	assert.Contains(t, stdout.String(), "command-typing-basics")
 	assert.Contains(t, stdout.String(), "OK")
 }
 

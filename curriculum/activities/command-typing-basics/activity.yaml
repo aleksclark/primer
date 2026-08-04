@@ -1,0 +1,88 @@
+schema_version: "1"
+slug: command-typing-basics
+title: Command Typing Basics
+summary: Build typing fluency on short Unix command strings without teaching command mastery.
+kind: typing
+subject_code: digital-literacy
+standards:
+  - code: PRIMER.DL.6.TYPE.1
+    role: primary
+    weight: 1.0
+  - code: PRIMER.DL.6.TYPE.2
+    role: reinforcement
+    weight: 0.5
+min_runner_version: "1"
+content:
+  objective: Type short command-like prompts accurately and at a steady pace.
+  instructions: |
+    This activity is typing practice only. Copy each prompt exactly as shown.
+    The strings look like Unix commands so your fingers learn common shapes;
+    finishing here does not mean you have mastered the commands themselves.
+  typing:
+    prompt_set_id: unix-command-basics-1
+    ordering: sequential
+    success_wpm: 15
+    success_accuracy: 0.9
+    prompts:
+      - id: p-ls
+        text: ls
+        category: listing
+      - id: p-pwd
+        text: pwd
+        category: navigation
+      - id: p-cd-up
+        text: cd ..
+        category: navigation
+      - id: p-mkdir-notes
+        text: mkdir notes
+        category: files
+      - id: p-cd-notes
+        text: cd notes
+        category: navigation
+      - id: p-touch-readme
+        text: touch readme.txt
+        category: files
+      - id: p-ls-la
+        text: ls -la
+        category: listing
+      - id: p-cat-readme
+        text: cat readme.txt
+        category: inspect
+      - id: p-cp
+        text: cp readme.txt backup.txt
+        category: files
+      - id: p-mv
+        text: mv backup.txt notes.bak
+        category: files
+  tasks:
+    - id: type-prompts
+      title: Type the prompt set
+      instructions: |
+        Type each prompt exactly. Backspace fixes mistakes. When every prompt
+        is done and your speed/accuracy meet the thresholds, complete the activity.
+      completion:
+        check_id: metrics-ok
+      hint_ids: [hint-accuracy]
+  checks:
+    - id: metrics-ok
+      kind: typing_metrics
+      params:
+        min_wpm: 15
+        min_accuracy: 0.9
+  hints:
+    - id: hint-accuracy
+      level: 1
+      text: Slow down if you miss keys — accuracy counts more than rushing.
+  tutor:
+    goal_summary: Student builds typing fluency on command-shaped strings.
+    misconceptions:
+      - Completing typing practice does not mean the student can use those commands.
+    constraints:
+      - Do not teach command semantics during a typing activity.
+      - Keep coaching focused on accuracy and rhythm.
+  progression:
+    allow_reset: true
+    resume_from_task: true
+    require_in_order: true
+  artifacts:
+    enabled: false

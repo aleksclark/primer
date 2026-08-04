@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -15,6 +16,7 @@ import (
 
 	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
+	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 	"github.com/aleksclark/primer/server/internal/studentclient/engine"
 	"github.com/aleksclark/primer/server/internal/studentclient/sync"
 )
@@ -261,9 +263,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snap = msg.snap
 		m.screen = ScreenActivity
 		m.cmdInput.SetValue("")
+		if msg.snap.Kind == contracts.KindTyping {
+			m.cmdInput.Blur()
+			m.focusCmd = false
+			m.activityMsg = "Type the prompt exactly. backspace fixes · ctrl+s complete · esc back"
+			return m, nil
+		}
 		m.cmdInput.Focus()
 		m.focusCmd = true
-		m.activityMsg = "Type a command and press Enter. v=verify  c=complete  h=hint  esc=back"
+		m.activityMsg = "Type a command and press Enter. verify/complete/hint as commands · esc=back"
 		return m, textinput.Blink
 
 	case cmdDoneMsg:
@@ -334,6 +342,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workList, cmd = m.workList.Update(msg)
 		return m, cmd
 	case ScreenActivity:
+		if m.snap.Kind == contracts.KindTyping {
+			return m, nil
+		}
 		if m.focusCmd && !m.busy {
 			var cmd tea.Cmd
 			m.cmdInput, cmd = m.cmdInput.Update(msg)
@@ -398,6 +409,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ScreenActivity:
+		if m.snap.Kind == contracts.KindTyping {
+			return m.handleTypingKey(msg)
+		}
 		// Global activity keys when not typing specials into input — use ctrl combos
 		// and single keys only when we intentionally intercept.
 		switch key {
@@ -573,6 +587,108 @@ func (m Model) runCmd(line string) tea.Cmd {
 	}
 }
 
+func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "esc":
+		if m.sess != nil {
+			_ = m.sess.Pause(context.Background())
+		}
+		m.sess = nil
+		m.screen = ScreenQueue
+		m.status = "Session paused"
+		return m, m.loadWorkCmd()
+	case "ctrl+s":
+		if m.busy || m.sess == nil {
+			return m, nil
+		}
+		if !m.snap.RequiredPassed {
+			m.activityMsg = "Keep typing until WPM and accuracy thresholds are met."
+			return m, nil
+		}
+		m.busy = true
+		return m, m.completeCmd()
+	case "ctrl+h":
+		if m.sess == nil {
+			return m, nil
+		}
+		return m, m.hintCmd()
+	case "ctrl+v":
+		if m.busy || m.sess == nil {
+			return m, nil
+		}
+		m.busy = true
+		return m, m.verifyCmd()
+	case "enter":
+		// Allow test-friendly complete when thresholds already met.
+		if m.snap.RequiredPassed && !m.busy && m.sess != nil {
+			m.busy = true
+			return m, m.completeCmd()
+		}
+		return m, nil
+	}
+
+	if m.busy || m.sess == nil {
+		return m, nil
+	}
+
+	// Typing input is applied synchronously so keystroke order is preserved
+	// (Bubble Tea runs Cmds concurrently, which would race TypeRune).
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if key == "backspace" {
+		if err := m.sess.TypeBackspace(ctx); err != nil {
+			m.activityMsg = err.Error()
+		} else {
+			m.activityMsg = ""
+		}
+		m.snap = m.sess.Snapshot()
+		if m.snap.RequiredPassed {
+			m.activityMsg = "Thresholds met — press enter or ctrl+s to finish."
+		}
+		return m, nil
+	}
+
+	var runes []rune
+	switch msg.Type {
+	case tea.KeyRunes:
+		runes = msg.Runes
+	case tea.KeySpace:
+		runes = []rune{' '}
+	case tea.KeyTab:
+		runes = []rune{'\t'}
+	default:
+		// Fallback for single printable characters reported only via String().
+		if key == " " {
+			runes = []rune{' '}
+		} else if rs := []rune(key); len(rs) == 1 && unicode.IsPrint(rs[0]) &&
+			!strings.HasPrefix(key, "ctrl+") && !strings.HasPrefix(key, "alt+") &&
+			!strings.HasPrefix(key, "shift+") {
+			runes = rs
+		}
+	}
+	if len(runes) == 0 {
+		return m, nil
+	}
+	for _, r := range runes {
+		if r == 0 || (!unicode.IsPrint(r) && r != '\t') {
+			continue
+		}
+		if err := m.sess.TypeRune(ctx, r); err != nil {
+			m.activityMsg = err.Error()
+			m.snap = m.sess.Snapshot()
+			return m, nil
+		}
+	}
+	m.snap = m.sess.Snapshot()
+	m.activityMsg = ""
+	if m.snap.RequiredPassed {
+		m.activityMsg = "Thresholds met — press enter or ctrl+s to finish."
+	}
+	return m, nil
+}
+
 func (m Model) verifyCmd() tea.Cmd {
 	sess := m.sess
 	return func() tea.Msg {
@@ -713,6 +829,108 @@ func (m Model) viewQueue() string {
 }
 
 func (m Model) viewActivity() string {
+	if m.snap.Kind == contracts.KindTyping {
+		return m.viewTypingActivity()
+	}
+	return m.viewTerminalActivity()
+}
+
+func (m Model) viewTypingActivity() string {
+	s := m.snap
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Primer student — " + s.ActivityTitle))
+	b.WriteString("\n")
+	b.WriteString(m.syncLine())
+	b.WriteString("\n")
+
+	instr := strings.TrimSpace(s.Instructions)
+	if s.CurrentTaskIdx >= 0 && s.CurrentTaskIdx < len(s.Tasks) {
+		t := s.Tasks[s.CurrentTaskIdx]
+		instr = fmt.Sprintf("%s\n\n%s", t.Title, strings.TrimSpace(t.Instructions))
+	} else if s.RequiredPassed {
+		instr = "All prompts complete. Thresholds met — press enter or ctrl+s to finish."
+	}
+	if s.TutorHint != "" {
+		instr += "\n\nHint: " + s.TutorHint
+	}
+
+	var metrics strings.Builder
+	fmt.Fprintf(&metrics, "Checks %d/%d", s.ChecksPassed, s.ChecksTotal)
+	if s.RequiredPassed {
+		metrics.WriteString("  ")
+		metrics.WriteString(okStyle.Render("REQUIRED PASS"))
+	} else {
+		metrics.WriteString("  ")
+		metrics.WriteString(warnStyle.Render("incomplete"))
+	}
+	metrics.WriteString("\n")
+	if ty := s.Typing; ty != nil {
+		fmt.Fprintf(&metrics, "WPM  %.1f\n", ty.WPM)
+		fmt.Fprintf(&metrics, "Acc  %.0f%%\n", ty.Accuracy*100)
+		fmt.Fprintf(&metrics, "Done %d/%d\n", ty.TotalPrompts-ty.RemainingPrompts, ty.TotalPrompts)
+		if ty.IncorrectChars > 0 {
+			fmt.Fprintf(&metrics, "Miss %d\n", ty.IncorrectChars)
+		}
+	}
+	for _, c := range s.Checks {
+		mark := "·"
+		style := dimStyle
+		if c.Passed {
+			mark = "✓"
+			style = okStyle
+		} else if !c.Optional {
+			mark = "✗"
+			style = errStyle
+		}
+		fmt.Fprintf(&metrics, "%s %s\n", style.Render(mark), c.ID)
+	}
+
+	w := m.width
+	if w < 60 {
+		w = 60
+	}
+	leftW := w * 3 / 5
+	if leftW < 30 {
+		leftW = 30
+	}
+	rightW := w - leftW - 4
+	if rightW < 20 {
+		rightW = 20
+	}
+	b.WriteString(lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		panelStyle.Width(leftW).Render(instr),
+		" ",
+		panelStyle.Width(rightW).Render(strings.TrimRight(metrics.String(), "\n")),
+	))
+	b.WriteString("\n")
+
+	prompt := ""
+	input := ""
+	if ty := s.Typing; ty != nil {
+		prompt = ty.PromptText
+		input = ty.Input
+		if ty.Done {
+			prompt = "(all prompts complete)"
+		}
+	}
+	body := fmt.Sprintf("Prompt:\n  %s\n\nYou typed:\n  %s█", prompt, input)
+	b.WriteString(panelStyle.Width(max(40, w-4)).Render(body))
+	b.WriteString("\n")
+	if m.busy {
+		b.WriteString(dimStyle.Render("Working…"))
+		b.WriteString("\n")
+	}
+	if m.activityMsg != "" {
+		b.WriteString(statusStyle.Render(m.activityMsg))
+		b.WriteString("\n")
+	}
+	b.WriteString(dimStyle.Render("type to match prompt · backspace · ctrl+s complete · esc back"))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func (m Model) viewTerminalActivity() string {
 	s := m.snap
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Primer student — " + s.ActivityTitle))

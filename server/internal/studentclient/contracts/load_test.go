@@ -22,7 +22,7 @@ func TestLoadCurriculumActivities(t *testing.T) {
 
 	docs, errs := contracts.LoadDocumentsDir(dir)
 	require.Empty(t, errs)
-	require.Len(t, docs, 2)
+	require.GreaterOrEqual(t, len(docs), 3)
 
 	bySlug := map[string]*contracts.ActivityDocument{}
 	for _, d := range docs {
@@ -39,6 +39,20 @@ func TestLoadCurriculumActivities(t *testing.T) {
 	files := bySlug["file-organization"]
 	require.NotNil(t, files)
 	assert.Equal(t, "PRIMER.DL.6.FILES.1", files.Standards[0].Code)
+
+	typingDoc := bySlug["command-typing-basics"]
+	require.NotNil(t, typingDoc)
+	assert.Equal(t, contracts.KindTyping, typingDoc.Kind)
+	assert.Equal(t, "PRIMER.DL.6.TYPE.1", typingDoc.Standards[0].Code)
+	for _, s := range typingDoc.Standards {
+		assert.Contains(t, s.Code, ".TYPE.")
+		assert.NotContains(t, s.Code, ".NAV.")
+		assert.NotContains(t, s.Code, ".FILES.")
+	}
+	require.NotNil(t, typingDoc.Content.Typing)
+	assert.NotEmpty(t, typingDoc.Content.Typing.Prompts)
+	require.NotEmpty(t, typingDoc.Content.Checks)
+	assert.Equal(t, contracts.CheckTypingMetrics, typingDoc.Content.Checks[0].Kind)
 }
 
 func TestLoadDocumentJSON(t *testing.T) {
