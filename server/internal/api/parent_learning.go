@@ -336,6 +336,271 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 			Created:    res.Created,
 		}}, nil
 	})
+
+	// Rotate device credential: revoke current token and issue a fresh pairing code.
+	// Parent must re-pair the workstation; plaintext device tokens are never re-issued.
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID:   "rotate-student-device-token",
+		Method:        http.MethodPost,
+		Path:          "/student-devices/{id}/rotate-token",
+		Summary:       "Rotate student device credential",
+		Description:   "Revokes the device token and returns a new one-time pairing code for the same student. Re-pair is required; the old token stops working immediately.",
+		Tags:          []string{"Devices"},
+		DefaultStatus: http.StatusOK,
+	}), func(ctx context.Context, in *getInput) (*rotateDeviceOutput, error) {
+		ed, err := parentEducator(ctx)
+		if err != nil {
+			return nil, err
+		}
+		dev, err := repo.StudentDevices.Get(ctx, q, in.ID)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		now := time.Now().UTC()
+		if dev.RevokedAt == nil {
+			if _, err := repo.RevokeStudentDevice(ctx, q, in.ID, now); err != nil {
+				return nil, MapError(err)
+			}
+			// Reload revoked view for response.
+			if d2, err := repo.StudentDevices.Get(ctx, q, in.ID); err == nil {
+				dev = d2
+			}
+		}
+		createdBy := ed.ID
+		code, row, err := repo.CreatePairingCode(ctx, q, dev.StudentID, &createdBy, now)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &rotateDeviceOutput{Body: RotateDeviceResponse{
+			Device:    *dev,
+			Code:      code,
+			ExpiresAt: row.ExpiresAt,
+			PairingID: row.ID,
+		}}, nil
+	})
+
+	// Cancel assignment
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "cancel-assignment",
+		Method:      http.MethodPost,
+		Path:        "/assignments/{id}/cancel",
+		Summary:     "Cancel an assignment",
+		Description: "Sets assignment state to cancelled. Completed work cannot be cancelled.",
+		Tags:        []string{"Assignments"},
+	}), func(ctx context.Context, in *getInput) (*itemOutput[domain.StudentAssignment], error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		asg, err := repo.CancelAssignment(ctx, q, in.ID)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &itemOutput[domain.StudentAssignment]{Body: *asg}, nil
+	})
+
+	// Retry assignment: new row for same revision
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID:   "retry-assignment",
+		Method:        http.MethodPost,
+		Path:          "/assignments/{id}/retry",
+		Summary:       "Retry an assignment",
+		Description:   "Creates a new available assignment for the same activity revision. Does not modify the original row; cancel first when replacing open work.",
+		Tags:          []string{"Assignments"},
+		DefaultStatus: http.StatusCreated,
+	}), func(ctx context.Context, in *retryAssignmentInput) (*itemOutput[domain.StudentAssignment], error) {
+		ed, err := parentEducator(ctx)
+		if err != nil {
+			return nil, err
+		}
+		by := ed.ID
+		reason := ""
+		if in.Body.Reason != nil {
+			reason = *in.Body.Reason
+		}
+		asg, err := repo.RetryAssignment(ctx, q, in.ID, &by, reason)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &itemOutput[domain.StudentAssignment]{Body: *asg}, nil
+	})
+
+	// List all assignments (parent diagnostics / SPA)
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "list-assignments",
+		Method:      http.MethodGet,
+		Path:        "/assignments",
+		Summary:     "List student assignments",
+		Tags:        []string{"Assignments"},
+	}), func(ctx context.Context, in *ListInput) (*listOutput[domain.StudentAssignment], error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		filters, err := ParseFilters(in.Filter)
+		if err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		page, err := repo.StudentAssignments.List(ctx, q, repo.ListParams{
+			Limit: in.Limit, Offset: in.Offset, Search: in.Q, Sort: in.Sort, Dir: repo.SortDir(in.Dir), Filters: filters,
+		})
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &listOutput[domain.StudentAssignment]{Body: PageBody[domain.StudentAssignment]{
+			Items: page.Items, TotalCount: page.TotalCount, Limit: page.Limit, Offset: page.Offset,
+		}}, nil
+	})
+
+	// List learning sessions
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "list-learning-sessions",
+		Method:      http.MethodGet,
+		Path:        "/learning-sessions",
+		Summary:     "List learning sessions",
+		Tags:        []string{"Sessions"},
+	}), func(ctx context.Context, in *ListInput) (*listOutput[domain.LearningSession], error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		filters, err := ParseFilters(in.Filter)
+		if err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		page, err := repo.LearningSessions.List(ctx, q, repo.ListParams{
+			Limit: in.Limit, Offset: in.Offset, Search: in.Q, Sort: in.Sort, Dir: repo.SortDir(in.Dir), Filters: filters,
+		})
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &listOutput[domain.LearningSession]{Body: PageBody[domain.LearningSession]{
+			Items: page.Items, TotalCount: page.TotalCount, Limit: page.Limit, Offset: page.Offset,
+		}}, nil
+	})
+
+	// Learning overview for one student
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "get-student-learning-overview",
+		Method:      http.MethodGet,
+		Path:        "/students/{id}/learning-overview",
+		Summary:     "Student learning overview",
+		Description: "Aggregate: devices, open assignments, recent sessions, mastery summary, tutor-off flag.",
+		Tags:        []string{"Students"},
+	}), func(ctx context.Context, in *getInput) (*learningOverviewOutput, error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		ov, err := repo.GetStudentLearningOverview(ctx, q, in.ID, 20)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		// Attach live tutor status (process-local failure counts).
+		tutorStatus := TutorStatusResponse{
+			Enabled:             opts.TutorEnabled && !ov.TutorNotesDisable,
+			Provider:            opts.TutorProviderName,
+			StudentNotesDisable: ov.TutorNotesDisable,
+		}
+		if tutorStatus.Provider == "" {
+			tutorStatus.Provider = "fake"
+		}
+		if ps, ok := opts.Tutor.(*tutor.PolicyService); ok {
+			tutorStatus.RecentFailureCount = ps.RecentFailureCount(in.ID)
+			if !ps.Enabled() {
+				tutorStatus.Enabled = false
+			}
+		}
+		return &learningOverviewOutput{Body: LearningOverviewResponse{
+			Student:           ov.Student,
+			Devices:           ov.Devices,
+			OpenAssignments:   ov.OpenAssignments,
+			RecentSessions:    ov.RecentSessions,
+			MasterySummary:    ov.MasterySummary,
+			Tutor:             tutorStatus,
+			TutorNotesDisable: ov.TutorNotesDisable,
+		}}, nil
+	})
+
+	// Toggle per-student tutor via notes marker
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "set-student-tutor",
+		Method:      http.MethodPost,
+		Path:        "/students/{id}/tutor",
+		Summary:     "Enable or disable tutoring for a student",
+		Description: "Toggles the tutor:off marker in student.notes. Does not change deployment-wide tutor config.",
+		Tags:        []string{"Tutor"},
+	}), func(ctx context.Context, in *setTutorInput) (*itemOutput[domain.Student], error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		st, err := repo.SetStudentTutorEnabled(ctx, q, in.ID, in.Body.Enabled)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &itemOutput[domain.Student]{Body: *st}, nil
+	})
+
+	// Parent correction: supersede mastery evidence
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID:   "supersede-mastery-evidence",
+		Method:        http.MethodPost,
+		Path:          "/mastery-evidence/{id}/supersede",
+		Summary:       "Supersede mastery evidence",
+		Description:   "Marks existing evidence with an audited superseded note and inserts replacement evidence. Does not rewrite device event history.",
+		Tags:          []string{"Mastery"},
+		DefaultStatus: http.StatusOK,
+	}), func(ctx context.Context, in *supersedeEvidenceInput) (*supersedeEvidenceOutput, error) {
+		ed, err := parentEducator(ctx)
+		if err != nil {
+			return nil, err
+		}
+		note := ""
+		if in.Body.Note != nil {
+			note = *in.Body.Note
+		}
+		orig, rep, err := repo.SupersedeMasteryEvidence(ctx, q, in.ID, note, ed.ID, time.Now().UTC())
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &supersedeEvidenceOutput{Body: SupersedeEvidenceResponse{
+			Original:    *orig,
+			Replacement: *rep,
+		}}, nil
+	})
+
+	// Household student-client metrics
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "get-student-metrics",
+		Method:      http.MethodGet,
+		Path:        "/ops/student-metrics",
+		Summary:     "Student client metrics",
+		Description: "Simple JSON counters for devices, open assignments, active sessions, and completions in the last 24h.",
+		Tags:        []string{"Ops"},
+	}), func(ctx context.Context, _ *struct{}) (*studentMetricsOutput, error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		m, err := repo.GetStudentClientMetrics(ctx, q, time.Now().UTC())
+		if err != nil {
+			return nil, MapError(err)
+		}
+		// Best-effort: sum process-local tutor failures across known students.
+		if ps, ok := opts.Tutor.(*tutor.PolicyService); ok {
+			page, err := repo.Students.List(ctx, q, repo.ListParams{Limit: 200})
+			if err == nil {
+				total := 0
+				for _, st := range page.Items {
+					total += ps.RecentFailureCount(st.ID)
+				}
+				m.TutorFailuresLast24h = total
+			}
+		}
+		return &studentMetricsOutput{Body: StudentMetricsResponse{
+			DevicesActive:        m.DevicesActive,
+			DevicesRevoked:       m.DevicesRevoked,
+			AssignmentsOpen:      m.AssignmentsOpen,
+			SessionsActive:       m.SessionsActive,
+			CompletionsLast24h:   m.CompletionsLast24h,
+			TutorFailuresLast24h: m.TutorFailuresLast24h,
+		}}, nil
+	})
 }
 
 type createPairingCodeInput struct {
@@ -419,4 +684,76 @@ type TutorStatusResponse struct {
 
 type tutorStatusOutput struct {
 	Body TutorStatusResponse
+}
+
+// RotateDeviceResponse is returned after revoke + new pairing code.
+type RotateDeviceResponse struct {
+	Device    domain.StudentDevice `json:"device"`
+	Code      string               `json:"code" doc:"One-time pairing code for re-pairing the workstation."`
+	ExpiresAt time.Time            `json:"expiresAt"`
+	PairingID string               `json:"pairingId" format:"uuid"`
+}
+
+type rotateDeviceOutput struct {
+	Body RotateDeviceResponse
+}
+
+type retryAssignmentInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		Reason *string `json:"reason,omitempty"`
+	}
+}
+
+// LearningOverviewResponse is the parent dashboard aggregate for one student.
+type LearningOverviewResponse struct {
+	Student           domain.Student             `json:"student"`
+	Devices           []domain.StudentDevice     `json:"devices"`
+	OpenAssignments   []domain.StudentAssignment `json:"openAssignments"`
+	RecentSessions    []domain.LearningSession   `json:"recentSessions"`
+	MasterySummary    []domain.MasteryRecord     `json:"masterySummary"`
+	Tutor             TutorStatusResponse        `json:"tutor"`
+	TutorNotesDisable bool                       `json:"tutorNotesDisable"`
+}
+
+type learningOverviewOutput struct {
+	Body LearningOverviewResponse
+}
+
+type setTutorInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		Enabled bool `json:"enabled"`
+	}
+}
+
+type supersedeEvidenceInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		Note *string `json:"note,omitempty" doc:"Parent correction note stored on replacement evidence."`
+	}
+}
+
+// SupersedeEvidenceResponse returns the marked original and the new evidence row.
+type SupersedeEvidenceResponse struct {
+	Original    domain.MasteryEvidence `json:"original"`
+	Replacement domain.MasteryEvidence `json:"replacement"`
+}
+
+type supersedeEvidenceOutput struct {
+	Body SupersedeEvidenceResponse
+}
+
+// StudentMetricsResponse is GET /ops/student-metrics.
+type StudentMetricsResponse struct {
+	DevicesActive        int `json:"devicesActive"`
+	DevicesRevoked       int `json:"devicesRevoked"`
+	AssignmentsOpen      int `json:"assignmentsOpen"`
+	SessionsActive       int `json:"sessionsActive"`
+	CompletionsLast24h   int `json:"completionsLast24h"`
+	TutorFailuresLast24h int `json:"tutorFailuresLast24h"`
+}
+
+type studentMetricsOutput struct {
+	Body StudentMetricsResponse
 }

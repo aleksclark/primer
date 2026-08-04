@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes, Navigate } from "react-router-dom";
 import {
+  Activity,
   BookOpen,
   Clapperboard,
   ClipboardCheck,
   ClipboardList,
   GraduationCap,
   Layers,
+  LayoutDashboard,
   Library,
   ListChecks,
   ListOrdered,
   MessageSquare,
+  MonitorSmartphone,
   Moon,
   Sun,
   Target,
@@ -19,6 +22,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ParentTokenGate } from "@/components/parent-token-gate";
 import {
   AssessmentAttemptsPage,
   AssessmentItemOptionsPage,
@@ -36,6 +40,12 @@ import {
   StudentsPage,
   SubjectsPage,
 } from "@/pages/resources";
+import {
+  LearningAssignmentsPage,
+  LearningOverviewPage,
+  LearningSessionsPage,
+  StudentDevicesPage,
+} from "@/pages/student-client";
 
 type Theme = "dark" | "light";
 
@@ -85,6 +95,51 @@ const nav = [
     section: "Instruction",
     links: [
       { to: "/instruction-logs", label: "Instruction Logs", icon: Clapperboard, page: <InstructionLogsPage /> },
+    ],
+  },
+  {
+    section: "Student client",
+    links: [
+      {
+        to: "/student-devices",
+        label: "Devices",
+        icon: MonitorSmartphone,
+        page: (
+          <ParentTokenGate>
+            <StudentDevicesPage />
+          </ParentTokenGate>
+        ),
+      },
+      {
+        to: "/learning-assignments",
+        label: "Assignments",
+        icon: ClipboardList,
+        page: (
+          <ParentTokenGate>
+            <LearningAssignmentsPage />
+          </ParentTokenGate>
+        ),
+      },
+      {
+        to: "/learning-sessions",
+        label: "Sessions",
+        icon: Activity,
+        page: (
+          <ParentTokenGate>
+            <LearningSessionsPage />
+          </ParentTokenGate>
+        ),
+      },
+      {
+        to: "/learning-overview",
+        label: "Overview",
+        icon: LayoutDashboard,
+        page: (
+          <ParentTokenGate>
+            <LearningOverviewPage />
+          </ParentTokenGate>
+        ),
+      },
     ],
   },
   {

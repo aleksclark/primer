@@ -1,5 +1,8 @@
 // Command primer-student-harness runs the Phase 2 headless student engine.
 //
+// TEST-ONLY: CI and scripts/student-acceptance.sh. Do not ship on workstations.
+// Prefer the packaged primer-student TUI/broker for real instruction.
+//
 //	primer-student-harness \
 //	  -base-url http://127.0.0.1:8080/api/v1 \
 //	  -token "$PRIMER_DEVICE_TOKEN" \

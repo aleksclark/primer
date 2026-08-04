@@ -1,4 +1,7 @@
 // Command primer-student-stub is a tiny work-queue TUI for Phase 1 demos/tests.
+//
+// TEST-ONLY: do not deploy to student workstations. Use primer-student (Nix
+// package) for household instruction once acceptance is recorded.
 package main
 
 import (

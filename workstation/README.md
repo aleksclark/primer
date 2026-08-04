@@ -2,6 +2,15 @@
 
 NixOS configuration for the Primer student workstation (Lenovo ThinkCentre M93p Tiny).
 
+
+## Relationship to command_teacher
+
+The standalone `command_teacher` prototype is **superseded** by `primer-student`
+once the physical acceptance matrix in
+`agent_docs/runbooks/student-client-ops.md` is recorded. Do not install the
+prototype on workstation images. Keep `primer-student-stub` /
+`primer-student-harness` off the image (test-only via Makefile).
+
 ## What This Does
 
 - **Impermanent root**: Every reboot wipes the system back to a clean state

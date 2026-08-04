@@ -11,7 +11,8 @@ COVER_MIN := 85
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
-	activity-validate activity-publish student-build student-deploy \
+	activity-validate activity-publish student-build student-deploy student-acceptance \
+	student-stub student-harness \
 	workstation-package workstation-check update-student-vendor-hash
 
 all: build openapi openapi-tv client tv-client
@@ -146,6 +147,20 @@ activity-validate:
 ## Requires DATABASE_URL (see server/internal/config).
 activity-publish:
 	cd server && go run ./cmd/activity-publish -activities ../curriculum/activities -standards ../curriculum/standards
+
+## TEST-ONLY: Phase 1 work-queue stub TUI. Do not deploy to workstations.
+## Prefer primer-student (packaged via workstation flake) for real instruction.
+student-stub:
+	cd server && go build -o ../bin/primer-student-stub ./cmd/primer-student-stub
+
+## TEST-ONLY: headless engine harness for CI/acceptance. Do not deploy.
+student-harness:
+	cd server && go build -o ../bin/primer-student-harness ./cmd/primer-student-harness
+
+## API + headless acceptance smoke (requires running LMS + parent credentials).
+## See scripts/student-acceptance.sh and agent_docs/runbooks/student-client-ops.md.
+student-acceptance:
+	./scripts/student-acceptance.sh
 
 ## Build the interactive student workstation TUI with version/commit ldflags.
 STUDENT_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
