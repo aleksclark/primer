@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
+	"github.com/aleksclark/primer/server/internal/studentclient/broker"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 	"github.com/aleksclark/primer/server/internal/studentclient/engine"
@@ -39,7 +40,11 @@ type Options struct {
 	Client        *studentapi.Client
 	WorkspaceRoot string
 	DeviceName    string
-	// AllowUnsandboxed runs commands without bubblewrap (default true for Phase 3).
+	// Broker is the privileged IPC client. When non-nil, the TUI never touches
+	// Store/Client token paths and all durable ops go through the broker.
+	Broker *broker.Client
+	// AllowUnsandboxed runs commands without bubblewrap.
+	// Production broker path never sets this; direct-mode tests may.
 	AllowUnsandboxed bool
 	// Offline skips network after cache is populated.
 	Offline bool
@@ -65,16 +70,31 @@ type Model struct {
 	work     []studentapi.WorkItem
 
 	// activity
-	sess        *engine.Session
-	snap        engine.SessionSnapshot
-	cmdInput    textinput.Model
-	busy        bool
-	focusCmd    bool
-	activityMsg string
+	sess            *engine.Session // direct mode only
+	brokerSessionID string          // broker mode session handle
+	snap            engine.SessionSnapshot
+	cmdInput        textinput.Model
+	busy            bool
+	focusCmd        bool
+	activityMsg     string
 
 	// summary
 	summaryTitle string
 	summaryBody  string
+}
+
+func (m Model) brokerMode() bool { return m.opts.Broker != nil }
+
+func (m Model) hasSession() bool {
+	if m.brokerMode() {
+		return m.brokerSessionID != ""
+	}
+	return m.sess != nil
+}
+
+func (m *Model) clearSession() {
+	m.sess = nil
+	m.brokerSessionID = ""
 }
 
 // NewModel builds the root model. Call Init via the tea program.
@@ -175,11 +195,23 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) boot() tea.Msg {
-	if m.opts.Store == nil {
-		return bootMsg{err: fmt.Errorf("cache store is required")}
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if m.brokerMode() {
+		prof, err := m.opts.Broker.Profile(ctx)
+		if err != nil {
+			// Fall back to health.paired.
+			h, herr := m.opts.Broker.Health(ctx)
+			if herr != nil {
+				return bootMsg{err: err}
+			}
+			return bootMsg{hasToken: h.Paired}
+		}
+		return bootMsg{hasToken: prof.Paired}
+	}
+	if m.opts.Store == nil {
+		return bootMsg{err: fmt.Errorf("cache store is required (or set Broker)")}
+	}
 	tok, err := m.opts.Store.DeviceToken(ctx)
 	if err != nil {
 		return bootMsg{err: err}
@@ -261,6 +293,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.sess = msg.sess
 		m.snap = msg.snap
+		if m.brokerMode() {
+			m.brokerSessionID = msg.snap.ClientSessionID
+			m.sess = nil
+		} else {
+			m.brokerSessionID = ""
+		}
 		m.screen = ScreenActivity
 		m.cmdInput.SetValue("")
 		if msg.snap.Kind == contracts.KindTyping {
@@ -320,7 +358,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case hintDoneMsg:
-		if m.sess != nil {
+		if m.brokerMode() {
+			// Snapshot already includes tutor hint from broker.
+			if msg.hint != "" {
+				m.snap.TutorHint = msg.hint
+			}
+		} else if m.sess != nil {
 			m.sess.SetTutorHint(msg.hint)
 			m.snap = m.sess.Snapshot()
 		}
@@ -416,21 +459,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// and single keys only when we intentionally intercept.
 		switch key {
 		case "esc":
-			if m.sess != nil {
-				_ = m.sess.Pause(context.Background())
-			}
-			m.sess = nil
-			m.screen = ScreenQueue
-			m.status = "Session paused"
-			return m, m.loadWorkCmd()
+			return m.pauseToQueue()
 		case "ctrl+v":
-			if m.busy || m.sess == nil {
+			if m.busy || !m.hasSession() {
 				return m, nil
 			}
 			m.busy = true
 			return m, m.verifyCmd()
 		case "ctrl+s":
-			if m.busy || m.sess == nil {
+			if m.busy || !m.hasSession() {
 				return m, nil
 			}
 			if !m.snap.RequiredPassed {
@@ -440,12 +477,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.busy = true
 			return m, m.completeCmd()
 		case "ctrl+h":
-			if m.sess == nil {
+			if !m.hasSession() {
 				return m, nil
 			}
 			return m, m.hintCmd()
 		case "enter":
-			if m.busy || m.sess == nil {
+			if m.busy || !m.hasSession() {
 				return m, nil
 			}
 			line := strings.TrimSpace(m.cmdInput.Value())
@@ -468,12 +505,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cmdInput.SetValue("")
 				return m, m.hintCmd()
 			case ":back", "back":
-				if m.sess != nil {
-					_ = m.sess.Pause(context.Background())
-				}
-				m.sess = nil
-				m.screen = ScreenQueue
-				return m, m.loadWorkCmd()
+				return m.pauseToQueue()
 			}
 			if line == "" {
 				return m, nil
@@ -490,7 +522,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenSummary:
 		switch key {
 		case "enter", "q", "esc":
-			m.sess = nil
+			m.clearSession()
 			m.screen = ScreenQueue
 			m.summaryBody = ""
 			return m, tea.Batch(m.syncCmd(), m.loadWorkCmd())
@@ -499,20 +531,39 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) pauseToQueue() (tea.Model, tea.Cmd) {
+	if m.brokerMode() && m.brokerSessionID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _ = m.opts.Broker.Pause(ctx, m.brokerSessionID)
+		cancel()
+	} else if m.sess != nil {
+		_ = m.sess.Pause(context.Background())
+	}
+	m.clearSession()
+	m.screen = ScreenQueue
+	m.status = "Session paused"
+	return m, m.loadWorkCmd()
+}
+
 // --- commands ----------------------------------------------------------------
 
 func (m Model) pairCmd(code string) tea.Cmd {
 	opts := m.opts
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if opts.Broker != nil {
+			_, err := opts.Broker.Pair(ctx, code, opts.DeviceName)
+			return pairedMsg{err: err}
+		}
 		if opts.Client == nil {
 			return pairedMsg{err: fmt.Errorf("API client not configured")}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
 		pair, err := opts.Client.Pair(ctx, code, opts.DeviceName)
 		if err != nil {
 			return pairedMsg{err: err}
 		}
+		// Direct mode (tests): store token locally. Production uses broker.
 		if err := opts.Store.SetDeviceToken(ctx, pair.Token); err != nil {
 			return pairedMsg{err: err}
 		}
@@ -527,11 +578,32 @@ func (m Model) pairCmd(code string) tea.Cmd {
 func (m Model) syncCmd() tea.Cmd {
 	opts := m.opts
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if opts.Broker != nil {
+			if opts.Offline {
+				return syncDoneMsg{res: sync.Result{Status: sync.StatusOffline}}
+			}
+			r, err := opts.Broker.SyncWork(ctx)
+			res := sync.Result{
+				Status:           broker.SyncStatus(r.Status),
+				WorkItems:        r.WorkItems,
+				EventsFlushed:    r.EventsFlushed,
+				CompletionsSent:  r.CompletionsSent,
+				ArtifactsSent:    r.ArtifactsSent,
+				PendingEvents:    r.PendingEvents,
+				PendingCompletes: r.PendingCompletes,
+			}
+			if err != nil {
+				res.Err = err
+			} else if r.Error != "" {
+				res.Err = fmt.Errorf("%s", r.Error)
+			}
+			return syncDoneMsg{res: res}
+		}
 		if opts.Offline || opts.Client == nil {
 			return syncDoneMsg{res: sync.Result{Status: sync.StatusOffline}}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
 		if tok, _ := opts.Store.DeviceToken(ctx); tok != "" {
 			opts.Client.SetToken(tok)
 		}
@@ -542,11 +614,15 @@ func (m Model) syncCmd() tea.Cmd {
 }
 
 func (m Model) loadWorkCmd() tea.Cmd {
-	store := m.opts.Store
+	opts := m.opts
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		items, err := store.ListWork(ctx)
+		if opts.Broker != nil {
+			items, err := opts.Broker.ListWork(ctx)
+			return workLoadedMsg{items: items, err: err}
+		}
+		items, err := opts.Store.ListWork(ctx)
 		return workLoadedMsg{items: items, err: err}
 	}
 }
@@ -556,6 +632,13 @@ func (m Model) openSessionCmd(assignmentID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		if opts.Broker != nil {
+			resp, err := opts.Broker.OpenSession(ctx, assignmentID)
+			if err != nil {
+				return sessionOpenedMsg{err: err}
+			}
+			return sessionOpenedMsg{snap: resp.Snapshot, err: nil}
+		}
 		if tok, _ := opts.Store.DeviceToken(ctx); tok != "" && opts.Client != nil {
 			opts.Client.SetToken(tok)
 		}
@@ -564,7 +647,8 @@ func (m Model) openSessionCmd(assignmentID string) tea.Cmd {
 			Store:            opts.Store,
 			WorkspaceRoot:    opts.WorkspaceRoot,
 			Offline:          opts.Offline,
-			AllowUnsandboxed: true, // Phase 3: command runner without required bwrap
+			UseSandbox:       !opts.AllowUnsandboxed,
+			AllowUnsandboxed: opts.AllowUnsandboxed,
 		})
 		if err != nil {
 			return sessionOpenedMsg{err: err}
@@ -578,10 +662,16 @@ func (m Model) openSessionCmd(assignmentID string) tea.Cmd {
 }
 
 func (m Model) runCmd(line string) tea.Cmd {
+	opts := m.opts
 	sess := m.sess
+	sid := m.brokerSessionID
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		if opts.Broker != nil {
+			snap, err := opts.Broker.RunCommand(ctx, sid, line)
+			return cmdDoneMsg{snap: snap, err: err}
+		}
 		err := sess.RunLine(ctx, line)
 		return cmdDoneMsg{snap: sess.Snapshot(), err: err}
 	}
@@ -591,15 +681,9 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
 	case "esc":
-		if m.sess != nil {
-			_ = m.sess.Pause(context.Background())
-		}
-		m.sess = nil
-		m.screen = ScreenQueue
-		m.status = "Session paused"
-		return m, m.loadWorkCmd()
+		return m.pauseToQueue()
 	case "ctrl+s":
-		if m.busy || m.sess == nil {
+		if m.busy || !m.hasSession() {
 			return m, nil
 		}
 		if !m.snap.RequiredPassed {
@@ -609,26 +693,26 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.busy = true
 		return m, m.completeCmd()
 	case "ctrl+h":
-		if m.sess == nil {
+		if !m.hasSession() {
 			return m, nil
 		}
 		return m, m.hintCmd()
 	case "ctrl+v":
-		if m.busy || m.sess == nil {
+		if m.busy || !m.hasSession() {
 			return m, nil
 		}
 		m.busy = true
 		return m, m.verifyCmd()
 	case "enter":
 		// Allow test-friendly complete when thresholds already met.
-		if m.snap.RequiredPassed && !m.busy && m.sess != nil {
+		if m.snap.RequiredPassed && !m.busy && m.hasSession() {
 			m.busy = true
 			return m, m.completeCmd()
 		}
 		return m, nil
 	}
 
-	if m.busy || m.sess == nil {
+	if m.busy || !m.hasSession() {
 		return m, nil
 	}
 
@@ -638,12 +722,22 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	defer cancel()
 
 	if key == "backspace" {
-		if err := m.sess.TypeBackspace(ctx); err != nil {
-			m.activityMsg = err.Error()
+		if m.brokerMode() {
+			snap, err := m.opts.Broker.TypeBackspace(ctx, m.brokerSessionID)
+			if err != nil {
+				m.activityMsg = err.Error()
+			} else {
+				m.activityMsg = ""
+			}
+			m.snap = snap
 		} else {
-			m.activityMsg = ""
+			if err := m.sess.TypeBackspace(ctx); err != nil {
+				m.activityMsg = err.Error()
+			} else {
+				m.activityMsg = ""
+			}
+			m.snap = m.sess.Snapshot()
 		}
-		m.snap = m.sess.Snapshot()
 		if m.snap.RequiredPassed {
 			m.activityMsg = "Thresholds met — press enter or ctrl+s to finish."
 		}
@@ -675,13 +769,26 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r == 0 || (!unicode.IsPrint(r) && r != '\t') {
 			continue
 		}
-		if err := m.sess.TypeRune(ctx, r); err != nil {
-			m.activityMsg = err.Error()
+		if m.brokerMode() {
+			snap, err := m.opts.Broker.TypeRune(ctx, m.brokerSessionID, r)
+			if err != nil {
+				m.activityMsg = err.Error()
+				m.snap = snap
+				return m, nil
+			}
+			m.snap = snap
+		} else {
+			if err := m.sess.TypeRune(ctx, r); err != nil {
+				m.activityMsg = err.Error()
+				m.snap = m.sess.Snapshot()
+				return m, nil
+			}
 			m.snap = m.sess.Snapshot()
-			return m, nil
 		}
 	}
-	m.snap = m.sess.Snapshot()
+	if !m.brokerMode() && m.sess != nil {
+		m.snap = m.sess.Snapshot()
+	}
 	m.activityMsg = ""
 	if m.snap.RequiredPassed {
 		m.activityMsg = "Thresholds met — press enter or ctrl+s to finish."
@@ -690,34 +797,54 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) verifyCmd() tea.Cmd {
+	opts := m.opts
 	sess := m.sess
+	sid := m.brokerSessionID
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if opts.Broker != nil {
+			snap, _ := opts.Broker.Verify(ctx, sid)
+			return verifyDoneMsg{snap: snap}
+		}
 		_ = sess.Verify(ctx)
 		return verifyDoneMsg{snap: sess.Snapshot()}
 	}
 }
 
 func (m Model) completeCmd() tea.Cmd {
+	opts := m.opts
 	sess := m.sess
+	sid := m.brokerSessionID
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		if opts.Broker != nil {
+			snap, err := opts.Broker.Complete(ctx, sid)
+			return completeDoneMsg{snap: snap, err: err}
+		}
 		err := sess.Complete(ctx)
 		return completeDoneMsg{snap: sess.Snapshot(), err: err}
 	}
 }
 
 func (m Model) hintCmd() tea.Cmd {
-	sess := m.sess
 	opts := m.opts
+	sess := m.sess
+	sid := m.brokerSessionID
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if opts.Broker != nil {
+			resp, err := opts.Broker.Tutor(ctx, sid, "Need a hint for the current task.")
+			if err != nil {
+				return hintDoneMsg{hint: ""}
+			}
+			return hintDoneMsg{hint: resp.Hint}
+		}
 		// Prefer server tutor stub when online + session id known.
 		snap := sess.Snapshot()
 		if !opts.Offline && opts.Client != nil && snap.ServerSessionID != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
 			if tok, _ := opts.Store.DeviceToken(ctx); tok != "" {
 				opts.Client.SetToken(tok)
 			}

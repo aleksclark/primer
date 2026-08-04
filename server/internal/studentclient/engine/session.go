@@ -21,59 +21,59 @@ import (
 
 // CheckStatus is one check row for the activity TUI.
 type CheckStatus struct {
-	ID       string
-	Passed   bool
-	Optional bool
-	Message  string
+	ID       string `json:"id"`
+	Passed   bool   `json:"passed"`
+	Optional bool   `json:"optional"`
+	Message  string `json:"message,omitempty"`
 }
 
 // TypingSnapshot is the typing-mode portion of a session view.
 type TypingSnapshot struct {
-	PromptID         string
-	PromptText       string
-	Input            string
-	PromptIndex      int
-	TotalPrompts     int
-	RemainingPrompts int
-	WPM              float64
-	Accuracy         float64
-	CorrectChars     int
-	IncorrectChars   int
-	Done             bool
-	ThresholdsMet    bool
+	PromptID         string  `json:"promptId,omitempty"`
+	PromptText       string  `json:"promptText,omitempty"`
+	Input            string  `json:"input,omitempty"`
+	PromptIndex      int     `json:"promptIndex"`
+	TotalPrompts     int     `json:"totalPrompts"`
+	RemainingPrompts int     `json:"remainingPrompts"`
+	WPM              float64 `json:"wpm"`
+	Accuracy         float64 `json:"accuracy"`
+	CorrectChars     int     `json:"correctChars"`
+	IncorrectChars   int     `json:"incorrectChars"`
+	Done             bool    `json:"done"`
+	ThresholdsMet    bool    `json:"thresholdsMet"`
 }
 
 // SessionSnapshot is a read-only view of an interactive activity session.
 type SessionSnapshot struct {
-	AssignmentID     string
-	ActivitySlug     string
-	ActivityTitle    string
-	Kind             string // terminal | typing
-	ClientSessionID  string
-	ServerSessionID  string
-	Workspace        string
-	Cwd              string // absolute path (terminal)
-	RelCwd           string // path relative to workspace (terminal)
-	Objective        string
-	Instructions     string
-	Tasks            []contracts.Task
-	CurrentTaskIdx   int
-	Checks           []CheckStatus
-	RequiredPassed   bool
-	ChecksPassed     int
-	ChecksTotal      int
-	CommandsRun      int
-	LastOutput       string
-	LastError        string
-	Message          string
-	Completed        bool
-	CompletionQueued bool
-	CompletionAcked  bool
-	Offline          bool
-	Sync             sync.Status
-	Hints            []contracts.Hint
-	TutorHint        string
-	Typing           *TypingSnapshot
+	AssignmentID     string           `json:"assignmentId"`
+	ActivitySlug     string           `json:"activitySlug"`
+	ActivityTitle    string           `json:"activityTitle"`
+	Kind             string           `json:"kind"` // terminal | typing
+	ClientSessionID  string           `json:"clientSessionId"`
+	ServerSessionID  string           `json:"serverSessionId,omitempty"`
+	Workspace        string           `json:"workspace,omitempty"`
+	Cwd              string           `json:"cwd,omitempty"`    // absolute path (terminal)
+	RelCwd           string           `json:"relCwd,omitempty"` // path relative to workspace (terminal)
+	Objective        string           `json:"objective,omitempty"`
+	Instructions     string           `json:"instructions,omitempty"`
+	Tasks            []contracts.Task `json:"tasks,omitempty"`
+	CurrentTaskIdx   int              `json:"currentTaskIdx"`
+	Checks           []CheckStatus    `json:"checks,omitempty"`
+	RequiredPassed   bool             `json:"requiredPassed"`
+	ChecksPassed     int              `json:"checksPassed"`
+	ChecksTotal      int              `json:"checksTotal"`
+	CommandsRun      int              `json:"commandsRun"`
+	LastOutput       string           `json:"lastOutput,omitempty"`
+	LastError        string           `json:"lastError,omitempty"`
+	Message          string           `json:"message,omitempty"`
+	Completed        bool             `json:"completed"`
+	CompletionQueued bool             `json:"completionQueued"`
+	CompletionAcked  bool             `json:"completionAcked"`
+	Offline          bool             `json:"offline"`
+	Sync             sync.Status      `json:"sync,omitempty"`
+	Hints            []contracts.Hint `json:"hints,omitempty"`
+	TutorHint        string           `json:"tutorHint,omitempty"`
+	Typing           *TypingSnapshot  `json:"typing,omitempty"`
 }
 
 // Session is an interactive terminal or typing activity session driven by the TUI.

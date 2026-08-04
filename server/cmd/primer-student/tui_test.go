@@ -49,6 +49,12 @@ func buildStudentBin(t *testing.T) string {
 	return bin
 }
 
+// directEnv enables legacy direct Store/Client mode for trifle TUI tests
+// (no broker process). Production launches use the broker socket.
+func directEnv() []string {
+	return append(os.Environ(), "PRIMER_STUDENT_DIRECT=1")
+}
+
 func TestStudentTUIPairingWhenNoToken(t *testing.T) {
 	trifle.SkipOnWindows(t)
 	bin := buildStudentBin(t)
@@ -56,6 +62,7 @@ func TestStudentTUIPairingWhenNoToken(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program:     bin,
+		Env:         directEnv(),
 		Args:        []string{"-db", dbPath, "-base-url", "http://127.0.0.1:1", "-offline"},
 		Rows:        24,
 		Cols:        80,
@@ -193,6 +200,7 @@ func TestStudentTUIWorkQueueAndComplete(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program: bin,
+		Env:         directEnv(),
 		Args: []string{
 			"-db", env.DBPath,
 			"-base-url", env.BaseURL,
@@ -271,6 +279,7 @@ func TestStudentTUICommandRunnerPath(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program: bin,
+		Env:         directEnv(),
 		Args: []string{
 			"-db", env.DBPath,
 			"-base-url", env.BaseURL,
@@ -414,6 +423,7 @@ func TestStudentTUITypingFlow(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program: bin,
+		Env:         directEnv(),
 		Args: []string{
 			"-db", env.DBPath,
 			"-base-url", env.BaseURL,
