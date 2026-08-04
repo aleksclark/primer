@@ -173,8 +173,9 @@ title matches land in `curriculum/content-review.yaml` for a human pick. See
 
 ```bash
 make ingest-build
-make ingest-plan    # diff + review candidates + report
-make ingest-apply   # resolve → acquire → sync → import → report
+make ingest-plan      # diff + review candidates + report
+make ingest-review    # interactive TUI to pick candidates in content-review.yaml
+make ingest-apply     # resolve → acquire → sync → import → report
 ```
 
 Config uses the `INGEST_` env prefix. Scheduling stays out of scope — this tool
