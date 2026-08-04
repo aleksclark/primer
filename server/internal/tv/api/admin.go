@@ -78,6 +78,7 @@ func (s *Server) registerAdminRoutes() {
 	s.registerDeviceAdmin()
 	s.registerJellyfinAdmin()
 	s.registerPrimerAdmin()
+	s.registerContentManifest()
 	s.registerMetrics()
 	s.registerRotation()
 	s.registerImageProxy()

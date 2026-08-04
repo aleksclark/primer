@@ -27,6 +27,7 @@ func TestMigrationsCreateEveryTable(t *testing.T) {
 		"play_grants",
 		"playback_sessions",
 		"primer_reports",
+		"content_manifest_entries",
 	}
 	for _, table := range tables {
 		var exists bool

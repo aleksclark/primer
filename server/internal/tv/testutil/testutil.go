@@ -47,6 +47,10 @@ type Options struct {
 	Primer *primer.Reporter
 	// ReleaseDir points at a published APK; empty switches self-update off.
 	ReleaseDir string
+	// ManifestFailMaxAttempts overrides the acquisition failure attempt threshold.
+	ManifestFailMaxAttempts int
+	// ManifestFailMaxDays overrides the acquisition failure day threshold.
+	ManifestFailMaxDays int
 }
 
 // API returns a humatest API wired to the full TV route set, plus the
@@ -65,14 +69,20 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, baserepo.Querier, jel
 
 	q := basetestutil.NewSavepointQuerier(Tx(t))
 	_, testAPI := humatest.New(t)
+	failAttempts, failDays := o.ManifestFailMaxAttempts, o.ManifestFailMaxDays
+	if failAttempts == 0 && failDays == 0 {
+		failAttempts, failDays = 10, 14
+	}
 	api.RegisterRoutes(testAPI, q, api.Options{
-		Jellyfin:        o.Jellyfin,
-		Now:             o.Now,
-		GrantTTL:        o.GrantTTL,
-		AdminKey:        o.AdminKey,
-		ChannelTimezone: o.ChannelTimezone,
-		Primer:          o.Primer,
-		ReleaseDir:      o.ReleaseDir,
+		Jellyfin:                o.Jellyfin,
+		Now:                     o.Now,
+		GrantTTL:                o.GrantTTL,
+		AdminKey:                o.AdminKey,
+		ChannelTimezone:         o.ChannelTimezone,
+		Primer:                  o.Primer,
+		ReleaseDir:              o.ReleaseDir,
+		ManifestFailMaxAttempts: failAttempts,
+		ManifestFailMaxDays:     failDays,
 	})
 	return testAPI, q, o.Jellyfin
 }

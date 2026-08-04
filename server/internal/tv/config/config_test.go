@@ -22,6 +22,8 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Contains(t, cfg.DatabaseURL, "primer_tv", "the TV schema uses its own database")
 	assert.Equal(t, "America/Chicago", cfg.ChannelTimezone, "the household keeps Central time")
 	assert.Equal(t, "0.0.0.0:8081", cfg.Addr())
+	assert.Equal(t, 10, cfg.ManifestFailMaxAttempts)
+	assert.Equal(t, 14, cfg.ManifestFailMaxDays)
 }
 
 func TestLoadFromEnvironment(t *testing.T) {
@@ -35,6 +37,8 @@ func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("TV_PAIRING_TTL", "2m")
 	t.Setenv("TV_CORS_ORIGINS", "http://a.test,http://b.test")
 	t.Setenv("TV_CHANNEL_TIMEZONE", "America/New_York")
+	t.Setenv("TV_MANIFEST_FAIL_MAX_ATTEMPTS", "5")
+	t.Setenv("TV_MANIFEST_FAIL_MAX_DAYS", "21")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -48,6 +52,8 @@ func TestLoadFromEnvironment(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, cfg.PairingTTL)
 	assert.Equal(t, []string{"http://a.test", "http://b.test"}, cfg.CORSOrigins)
 	assert.Equal(t, "America/New_York", cfg.ChannelTimezone)
+	assert.Equal(t, 5, cfg.ManifestFailMaxAttempts)
+	assert.Equal(t, 21, cfg.ManifestFailMaxDays)
 }
 
 func TestLoadRejectsMalformedValues(t *testing.T) {

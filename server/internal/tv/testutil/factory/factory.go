@@ -66,6 +66,19 @@ func PairedDevice(t *testing.T, q baserepo.Querier, overrides ...Override) (*dom
 	return device, token
 }
 
+// ContentManifestEntry creates a desired-state catalog row.
+func ContentManifestEntry(t *testing.T, q baserepo.Querier, overrides ...Override) *domain.ContentManifestEntry {
+	t.Helper()
+	i := n()
+	return create(t, q, tvrepo.ContentManifestEntries, merge(map[string]any{
+		"slug":   fmt.Sprintf("item-%d", i),
+		"title":  fmt.Sprintf("Manifest Item %d", i),
+		"kind":   domain.ManifestKindMovie,
+		"class":  domain.ClassEducational,
+		"status": domain.ManifestStatusMissing,
+	}, overrides))
+}
+
 // MediaItem creates a media item.
 func MediaItem(t *testing.T, q baserepo.Querier, overrides ...Override) *domain.MediaItem {
 	t.Helper()

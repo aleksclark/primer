@@ -22,6 +22,9 @@ jobs:
           - name: primer-tv
             file: Dockerfile.tv
             image: primer-tv
+          - name: content-ingest
+            file: Dockerfile.ingest
+            image: content-ingest
     steps:
       - uses: actions/checkout@v4
 

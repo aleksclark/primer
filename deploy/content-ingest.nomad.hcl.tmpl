@@ -1,0 +1,64 @@
+job "content-ingest" {
+  datacenters = ["home"]
+  type        = "batch"
+
+  periodic {
+    crons            = ["0 */6 * * *"]
+    prohibit_overlap = true
+    time_zone        = "America/Chicago"
+  }
+
+  group "content-ingest" {
+    count = 1
+
+    # yt-dlp writes into the shared media library; mount the same volume
+    # Radarr/Sonarr/Jellyfin already use.
+    volume "media" {
+      type      = "host"
+      source    = "media"
+      read_only = false
+    }
+
+    task "content-ingest" {
+      driver = "docker"
+
+      config {
+        image   = "ghcr.io/aleksclark/content-ingest:${IMAGE_TAG}"
+        command = "apply"
+      }
+
+      volume_mount {
+        volume      = "media"
+        destination = "/data/media"
+        read_only   = false
+      }
+
+      env {
+        INGEST_MANIFEST_PATH             = "/curriculum/content-manifest.yaml"
+        INGEST_REVIEW_PATH               = "/curriculum/content-review.yaml"
+        INGEST_REPORT_DIR                = "/alloc/logs"
+        INGEST_RADARR_BASE_URL           = "${INGEST_RADARR_BASE_URL}"
+        INGEST_RADARR_API_KEY            = "${INGEST_RADARR_API_KEY}"
+        INGEST_RADARR_ROOT_FOLDER        = "${INGEST_RADARR_ROOT_FOLDER}"
+        INGEST_RADARR_QUALITY_PROFILE_ID = "${INGEST_RADARR_QUALITY_PROFILE_ID}"
+        INGEST_SONARR_BASE_URL           = "${INGEST_SONARR_BASE_URL}"
+        INGEST_SONARR_API_KEY            = "${INGEST_SONARR_API_KEY}"
+        INGEST_SONARR_ROOT_FOLDER        = "${INGEST_SONARR_ROOT_FOLDER}"
+        INGEST_SONARR_QUALITY_PROFILE_ID = "${INGEST_SONARR_QUALITY_PROFILE_ID}"
+        INGEST_JELLYFIN_BASE_URL         = "${INGEST_JELLYFIN_BASE_URL}"
+        INGEST_JELLYFIN_API_KEY          = "${INGEST_JELLYFIN_API_KEY}"
+        INGEST_JELLYFIN_USER_ID          = "${INGEST_JELLYFIN_USER_ID}"
+        INGEST_TV_BASE_URL               = "${INGEST_TV_BASE_URL}"
+        INGEST_TV_ADMIN_KEY              = "${INGEST_TV_ADMIN_KEY}"
+        INGEST_YTDLP_OUTPUT_DIR          = "${INGEST_YTDLP_OUTPUT_DIR}"
+        INGEST_YTDLP_ARCHIVE_PATH        = "${INGEST_YTDLP_ARCHIVE_PATH}"
+        INGEST_YTDLP_PATH                = "yt-dlp"
+      }
+
+      resources {
+        cpu    = 500
+        memory = 512
+      }
+    }
+  }
+}

@@ -84,6 +84,56 @@ type MediaItem struct {
 // its availability window. Only entertainment is rationed.
 func (m MediaItem) ConsumesPlay() bool { return m.Class == ClassEntertainment }
 
+// Content-manifest acquisition statuses. missing is the default; present means
+// the title is in Jellyfin (and usually imported); failed means content-ingest
+// exhausted automatic attempts and a human must obtain the media (buy/rip).
+// manual is for DVD-rip entries that never go through automatic acquisition.
+const (
+	ManifestStatusMissing = "missing"
+	ManifestStatusPresent = "present"
+	ManifestStatusFailed  = "failed"
+	ManifestStatusManual  = "manual"
+)
+
+// Content-manifest kind values mirror the YAML desired-state document.
+const (
+	ManifestKindMovie           = "movie"
+	ManifestKindSeries          = "series"
+	ManifestKindYouTubeChannel  = "youtube_channel"
+	ManifestKindYouTubePlaylist = "youtube_playlist"
+	ManifestKindManual          = "manual"
+)
+
+// ContentManifestEntry is one desired-state title plus acquisition tracking.
+// The desired-state fields are mirrored from curriculum/content-manifest.yaml;
+// status/attempt counters are owned by the TV server and updated by content-ingest.
+type ContentManifestEntry struct {
+	ID              string     `json:"id" db:"id" format:"uuid"`
+	Slug            string     `json:"slug" db:"slug"`
+	Title           string     `json:"title" db:"title"`
+	Year            int        `json:"year" db:"year"`
+	Kind            string     `json:"kind" db:"kind" enum:"movie,series,youtube_channel,youtube_playlist,manual"`
+	TMDBID          int        `json:"tmdbId" db:"tmdb_id"`
+	TVDBID          int        `json:"tvdbId" db:"tvdb_id"`
+	URL             string     `json:"url" db:"url"`
+	Class           string     `json:"class" db:"class" enum:"educational,entertainment,mixed"`
+	SubjectTags     []string   `json:"subjectTags" db:"subject_tags"`
+	StandardCodes   []string   `json:"standardCodes" db:"standard_codes"`
+	Priority        int        `json:"priority" db:"priority"`
+	ExcludeEpisodes []string   `json:"excludeEpisodes" db:"exclude_episodes"`
+	MaxEpisodes     int        `json:"maxEpisodes" db:"max_episodes"`
+	Notes           string     `json:"notes" db:"notes"`
+	Status          string     `json:"status" db:"status" enum:"missing,present,failed,manual"`
+	AttemptCount    int        `json:"attemptCount" db:"attempt_count"`
+	FirstAttemptAt  *time.Time `json:"firstAttemptAt,omitempty" db:"first_attempt_at"`
+	LastAttemptAt   *time.Time `json:"lastAttemptAt,omitempty" db:"last_attempt_at"`
+	PresentAt       *time.Time `json:"presentAt,omitempty" db:"present_at"`
+	FailedAt        *time.Time `json:"failedAt,omitempty" db:"failed_at"`
+	LastError       string     `json:"lastError" db:"last_error"`
+	CreatedAt       time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updatedAt" db:"updated_at"`
+}
+
 // AvailabilityWindow is a span during which a media item may be played
 // on demand.
 type AvailabilityWindow struct {

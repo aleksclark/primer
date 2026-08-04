@@ -40,6 +40,61 @@ type MediaItem struct {
 	ImageTag       string   `json:"imageTag,omitempty"`
 }
 
+// Manifest entry acquisition statuses (mirror TV domain).
+const (
+	ManifestStatusMissing = "missing"
+	ManifestStatusPresent = "present"
+	ManifestStatusFailed  = "failed"
+	ManifestStatusManual  = "manual"
+)
+
+// ManifestEntry is one TV-persisted content-manifest row.
+type ManifestEntry struct {
+	ID           string `json:"id"`
+	Slug         string `json:"slug"`
+	Title        string `json:"title"`
+	Year         int    `json:"year,omitempty"`
+	Kind         string `json:"kind"`
+	TMDBID       int    `json:"tmdbId,omitempty"`
+	TVDBID       int    `json:"tvdbId,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Class        string `json:"class"`
+	SubjectTags  []string `json:"subjectTags,omitempty"`
+	StandardCodes []string `json:"standardCodes,omitempty"`
+	Priority     int    `json:"priority,omitempty"`
+	ExcludeEpisodes []string `json:"excludeEpisodes,omitempty"`
+	MaxEpisodes  int    `json:"maxEpisodes,omitempty"`
+	Notes        string `json:"notes,omitempty"`
+	Status       string `json:"status"`
+	AttemptCount int    `json:"attemptCount"`
+	LastError    string `json:"lastError,omitempty"`
+}
+
+// ManifestDesired is one desired-state item pushed by content-ingest.
+type ManifestDesired struct {
+	Slug            string   `json:"slug"`
+	Title           string   `json:"title"`
+	Year            int      `json:"year,omitempty"`
+	Kind            string   `json:"kind"`
+	TMDBID          int      `json:"tmdbId,omitempty"`
+	TVDBID          int      `json:"tvdbId,omitempty"`
+	URL             string   `json:"url,omitempty"`
+	Class           string   `json:"class"`
+	SubjectTags     []string `json:"subjectTags,omitempty"`
+	StandardCodes   []string `json:"standardCodes,omitempty"`
+	Priority        int      `json:"priority,omitempty"`
+	ExcludeEpisodes []string `json:"excludeEpisodes,omitempty"`
+	MaxEpisodes     int      `json:"maxEpisodes,omitempty"`
+	Notes           string   `json:"notes,omitempty"`
+}
+
+// ManifestSyncResult summarizes POST /content-manifest/sync.
+type ManifestSyncResult struct {
+	Created int `json:"created"`
+	Updated int `json:"updated"`
+	Total   int `json:"total"`
+}
+
 // MediaItemCreate is the body for POST /media-items.
 type MediaItemCreate struct {
 	JellyfinItemID string   `json:"jellyfinItemId"`
@@ -78,9 +133,11 @@ type SyncResult struct {
 }
 
 // listEnvelope is the generic list response from the TV admin API.
-type listEnvelope struct {
-	Items []MediaItem `json:"items"`
-	Total int         `json:"total"`
+type listEnvelope[T any] struct {
+	Items      []T `json:"items"`
+	TotalCount int `json:"totalCount"`
+	// Total is accepted for older fakes/tests that used the short name.
+	Total int `json:"total"`
 }
 
 // Client is the TV admin behaviour the reconciler depends on.
@@ -93,6 +150,14 @@ type Client interface {
 	UpdateMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error)
 	// SyncJellyfin refreshes cached metadata for already-imported items.
 	SyncJellyfin(ctx context.Context) (*SyncResult, error)
+	// SyncManifest upserts desired-state catalog rows from the YAML manifest.
+	SyncManifest(ctx context.Context, items []ManifestDesired) (*ManifestSyncResult, error)
+	// ListManifestEntries returns every content-manifest row (paged).
+	ListManifestEntries(ctx context.Context) ([]ManifestEntry, error)
+	// RecordManifestAttempt increments attempt counters for a missing slug.
+	RecordManifestAttempt(ctx context.Context, slug, lastError string) (*ManifestEntry, error)
+	// MarkManifestPresent records that the slug is available in Jellyfin.
+	MarkManifestPresent(ctx context.Context, slug string) (*ManifestEntry, error)
 }
 
 // Options configures an HTTP client.
@@ -136,23 +201,7 @@ func New(opts Options) (*HTTPClient, error) {
 
 // ListMediaItems pages through every media item.
 func (c *HTTPClient) ListMediaItems(ctx context.Context) ([]MediaItem, error) {
-	const pageSize = 200
-	var all []MediaItem
-	for page := 1; ; page++ {
-		q := url.Values{
-			"page":     {fmt.Sprintf("%d", page)},
-			"pageSize": {fmt.Sprintf("%d", pageSize)},
-		}
-		var env listEnvelope
-		if err := c.do(ctx, http.MethodGet, "/media-items", q, nil, &env); err != nil {
-			return nil, err
-		}
-		all = append(all, env.Items...)
-		if len(env.Items) < pageSize || (env.Total > 0 && len(all) >= env.Total) {
-			break
-		}
-	}
-	return all, nil
+	return listAll[MediaItem](ctx, c, "/media-items")
 }
 
 // CreateMediaItem imports a Jellyfin item.
@@ -180,6 +229,71 @@ func (c *HTTPClient) SyncJellyfin(ctx context.Context) (*SyncResult, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// SyncManifest upserts desired-state catalog rows.
+func (c *HTTPClient) SyncManifest(ctx context.Context, items []ManifestDesired) (*ManifestSyncResult, error) {
+	if items == nil {
+		items = []ManifestDesired{}
+	}
+	var out ManifestSyncResult
+	if err := c.do(ctx, http.MethodPost, "/content-manifest/sync", nil, map[string]any{"items": items}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListManifestEntries pages through every content-manifest row.
+func (c *HTTPClient) ListManifestEntries(ctx context.Context) ([]ManifestEntry, error) {
+	return listAll[ManifestEntry](ctx, c, "/content-manifest-entries")
+}
+
+// RecordManifestAttempt increments attempt counters for a missing slug.
+func (c *HTTPClient) RecordManifestAttempt(ctx context.Context, slug, lastError string) (*ManifestEntry, error) {
+	var out ManifestEntry
+	body := map[string]any{}
+	if lastError != "" {
+		body["error"] = lastError
+	}
+	path := "/content-manifest-entries/" + url.PathEscape(slug) + "/attempt"
+	if err := c.do(ctx, http.MethodPost, path, nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// MarkManifestPresent records that the slug is available in Jellyfin.
+func (c *HTTPClient) MarkManifestPresent(ctx context.Context, slug string) (*ManifestEntry, error) {
+	var out ManifestEntry
+	path := "/content-manifest-entries/" + url.PathEscape(slug) + "/present"
+	if err := c.do(ctx, http.MethodPost, path, nil, map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func listAll[T any](ctx context.Context, c *HTTPClient, path string) ([]T, error) {
+	const pageSize = 200
+	var all []T
+	for offset := 0; ; offset += pageSize {
+		q := url.Values{
+			"limit":  {fmt.Sprintf("%d", pageSize)},
+			"offset": {fmt.Sprintf("%d", offset)},
+		}
+		var env listEnvelope[T]
+		if err := c.do(ctx, http.MethodGet, path, q, nil, &env); err != nil {
+			return nil, err
+		}
+		all = append(all, env.Items...)
+		total := env.TotalCount
+		if total == 0 {
+			total = env.Total
+		}
+		if len(env.Items) < pageSize || (total > 0 && len(all) >= total) {
+			break
+		}
+	}
+	return all, nil
 }
 
 func (c *HTTPClient) do(ctx context.Context, method, path string, query url.Values, body any, out any) error {

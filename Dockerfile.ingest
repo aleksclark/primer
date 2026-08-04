@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+#
+# content-ingest reconciler. Periodic Nomad batch job that converges
+# Radarr/Sonarr/yt-dlp/Jellyfin/TV toward curriculum/content-manifest.yaml.
+# The curriculum YAML is baked into the image so the job needs no git checkout.
+
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY server/go.mod server/go.sum ./server/
+RUN cd server && go mod download
+COPY server/ ./server/
+RUN cd server && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /content-ingest ./cmd/content-ingest
+
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates yt-dlp ffmpeg
+COPY --from=build /content-ingest /usr/local/bin/content-ingest
+COPY curriculum/ /curriculum/
+
+ENV INGEST_MANIFEST_PATH=/curriculum/content-manifest.yaml
+ENV INGEST_REVIEW_PATH=/curriculum/content-review.yaml
+ENV INGEST_REPORT_DIR=/var/log/content-ingest
+ENV INGEST_YTDLP_PATH=yt-dlp
+ENV INGEST_YTDLP_ARCHIVE_PATH=/data/ytdlp-archive.txt
+
+WORKDIR /
+ENTRYPOINT ["content-ingest"]
+CMD ["apply"]
