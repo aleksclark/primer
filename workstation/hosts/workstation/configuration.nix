@@ -36,13 +36,22 @@
     cpu.intel.updateMicrocode = true;
   };
 
-  # Networking - wired only (M93p Tiny has Intel I217-LM)
+  # Networking - DHCP avoids coupling remote access to a specific interface name
   networking = {
-    useDHCP = false;
-    interfaces.eno1.useDHCP = true; # Intel ethernet
+    useDHCP = true;
     firewall = {
       enable = true;
-      allowedTCPPorts = [ 22 5900 ]; # SSH + VNC for parent
+      allowedTCPPorts = [ 22 ];
+    };
+  };
+
+  # Stable primer.local discovery on the LAN
+  services.avahi = {
+    enable = true;
+    nssmdns4 = true;
+    publish = {
+      enable = true;
+      addresses = true;
     };
   };
 
@@ -74,6 +83,11 @@
     settings = {
       PermitRootLogin = "prohibit-password";
       PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      X11Forwarding = false;
+      AllowAgentForwarding = false;
+      AllowTcpForwarding = true;
+      MaxAuthTries = 3;
     };
   };
 

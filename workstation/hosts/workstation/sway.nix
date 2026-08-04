@@ -143,19 +143,19 @@
     copy-on-select = clipboard
   '';
 
-  # VNC for parent remote viewing
+  # VNC is bound to loopback and reached through an authenticated SSH tunnel
   # wayvnc runs as a systemd user service
   environment.systemPackages = with pkgs; [
     wayvnc
   ];
 
-  # wayvnc autostart (parent can connect on port 5900)
+  # wayvnc autostart (parent tunnels local port 5900 over SSH)
   systemd.user.services.wayvnc = {
     description = "VNC server for remote viewing";
     after = [ "graphical-session.target" ];
     wantedBy = [ "graphical-session.target" ];
     serviceConfig = {
-      ExecStart = "${pkgs.wayvnc}/bin/wayvnc 0.0.0.0 5900";
+      ExecStart = "${pkgs.wayvnc}/bin/wayvnc 127.0.0.1 5900";
       Restart = "on-failure";
       RestartSec = 5;
     };

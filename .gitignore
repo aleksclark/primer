@@ -36,6 +36,8 @@ android/local.properties
 
 # NixOS
 workstation/result
+core
+core.*
 
 # Deployment secrets
 deploy/.env
