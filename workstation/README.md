@@ -8,7 +8,7 @@ NixOS configuration for the Primer student workstation (Lenovo ThinkCentre M93p 
 - **Persistent student work**: `~/projects` survives reboots (separate Btrfs subvolume)
 - **Minimal desktop**: Sway (tiling WM) + Ghostty (terminal). Nothing else.
 - **Activity monitoring**: Screenshots, process tracking, window focus logging
-- **Remote access**: SSH + VNC for parent oversight
+- **Remote access**: SSH administration + SSH-tunneled VNC for parent oversight
 
 ## Hardware Target
 
@@ -37,14 +37,14 @@ sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress
 sync
 ```
 
-### 2. Boot the M93p from USB
+### 3. Boot the M93p from USB
 
 - Plug in USB, connect ethernet
 - Power on, press F12 for boot menu, select USB
 - Wait ~30 seconds for boot
 - Console shows the IP address
 
-### 3. Deploy the real system (from your workstation)
+### 4. Deploy the real system (from your workstation)
 
 Option A: Using nixos-anywhere (formats disk + installs in one shot):
 ```bash
@@ -54,27 +54,50 @@ nix run github:nix-community/nixos-anywhere -- \
   root@<IP_FROM_CONSOLE>
 ```
 
-Option B: Manual (SSH in, partition with disko, install):
+Option B: Manual installation is intentionally not documented because the flake is on the build machine, not the installer. Use nixos-anywhere so partitioning and installation are driven and recorded from this checkout.
+
+The installer and installed system have different SSH host keys. After the first reboot, remove only the installer's temporary key, reconnect, and verify the new fingerprint against the fingerprint shown by `ssh-keygen -lf /persist/etc/ssh/ssh_host_ed25519_key.pub` on the workstation console:
+
 ```bash
-ssh root@<IP>
-# Then from the M93p:
-nix run github:nix-community/disko -- --mode disko ./hosts/workstation/disko.nix
-nixos-install --flake .#workstation --no-root-passwd
-reboot
+ssh-keygen -R <IP_FROM_CONSOLE>
+ssh root@<IP_FROM_CONSOLE>
 ```
 
-### 4. Ongoing management (after install)
+The installed host advertises itself as `primer.local` through mDNS. A DHCP reservation is still recommended so logs and router policy have a stable address.
+
+### 5. Ongoing management (after install)
+
+Use the guarded deployment wrapper. It evaluates and builds entirely on the management machine in an isolated Docker Nix store, bundles the completed closure, copies only build artifacts over SSH, activates with `test`, schedules a five-minute rollback on the host, switches, verifies SSH, and cancels the rollback only after the health check succeeds. Docker is required locally; the workstation does not build from source:
 
 ```bash
-# Rebuild remotely after config changes:
-nixos-rebuild switch --flake .#workstation --target-host root@primer
+cd workstation
+./deploy.sh root@primer.local
+```
 
-# VNC into the student's session:
-vncviewer primer:5900
+If your shell loses connectivity during deployment, do not retry immediately. Wait five minutes for the old generation to be restored. For manual recovery at the machine, select an older NixOS generation in the boot menu.
 
-# Check activity logs:
-ssh root@primer cat /persist/monitoring/windows/$(date +%Y-%m-%d).jsonl
-ssh root@primer ls /persist/monitoring/screenshots/$(date +%Y-%m-%d)/
+VNC is not exposed on the LAN. Forward it through SSH, leave the tunnel running, then connect the viewer to localhost:
+
+```bash
+ssh -N -L 5900:127.0.0.1:5900 root@primer.local
+vncviewer 127.0.0.1:5900
+```
+
+Check activity logs:
+
+```bash
+ssh root@primer.local cat /persist/monitoring/windows/$(date +%Y-%m-%d).jsonl
+ssh root@primer.local ls /persist/monitoring/screenshots/$(date +%Y-%m-%d)/
+```
+
+### 6. Pre-install validation
+
+Run these before writing the USB and after changing workstation configuration:
+
+```bash
+nix flake check
+nix build .#nixosConfigurations.workstation.config.system.build.toplevel
+nix build .#installer-iso
 ```
 
 ## Student Environment
@@ -123,4 +146,6 @@ Everything else is wiped. Browser cache, temp files, accidental config changes â
 - [ ] Add typing metrics daemon
 - [ ] Add break enforcement (screen lock after 45 min continuous use)
 - [ ] Wire monitoring into Primer tutor API
-- [ ] Add wayvnc TLS/password authentication
+- [ ] Restrict printer services to the actual management subnet and remove root/device-wide permissions
+- [ ] Add CI evaluation and boot tests for the workstation flake
+- [ ] Add encrypted storage if physical disk theft is in scope
