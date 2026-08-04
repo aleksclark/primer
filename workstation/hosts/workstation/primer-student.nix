@@ -249,8 +249,11 @@ in
       "d ${stateDir} 0700 primer-broker primer-broker -"
       "d ${stateDir}/workspaces 0700 primer-broker primer-broker -"
       "d ${stateDir}/bin 0750 root root -"
-      "d ${runDir} 0750 primer-broker students -"
-      "Z ${runDir} 0750 primer-broker students -"
+      # Runtime dir is world-traversable; broker.sock is 0666 and SO_PEERCRED
+      # authorizes clients. This avoids failures for long-lived Sway sessions
+      # that started before the student user gained the students group.
+      "d ${runDir} 0755 primer-broker students -"
+      "Z ${runDir} 0755 primer-broker students -"
     ];
 
     systemd.services.primer-student-broker = {
@@ -262,23 +265,18 @@ in
       serviceConfig = {
         Type = "simple";
         User = "primer-broker";
-        # Primary group students so RuntimeDirectory is primer-broker:students
-        # (0750). Student is in group students and can reach broker.sock.
         Group = "students";
         SupplementaryGroups = [ "primer-broker" ];
         StateDirectory = "primer-student";
-        # State must not be student-readable (token + SQLite). Mode 0700 is
-        # owner-only even when the primary group is students.
+        # State must not be student-readable (token + SQLite).
         StateDirectoryMode = "0700";
         RuntimeDirectory = "primer-student";
-        RuntimeDirectoryMode = "0750";
-        # Allow group rw on the socket; token/db still created 0600 via explicit modes.
-        UMask = "0007";
-        # Ensure runtime dir group stays students across restarts (systemd may
-        # recreate RuntimeDirectory as User:Group before ExecStart).
+        RuntimeDirectoryMode = "0755";
+        # Socket is chmod'd 0666 in the broker; keep umask from tightening it.
+        UMask = "0000";
         ExecStartPre = [
           "+${pkgs.coreutils}/bin/chgrp students ${runDir}"
-          "+${pkgs.coreutils}/bin/chmod 0750 ${runDir}"
+          "+${pkgs.coreutils}/bin/chmod 0755 ${runDir}"
         ];
         ExecStart = lib.concatStringsSep " " [
           primerStudentBin

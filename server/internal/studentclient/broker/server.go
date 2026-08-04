@@ -201,8 +201,10 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return fmt.Errorf("broker listen: %w", err)
 	}
-	// Group-readable/writable socket; owner is broker user.
-	if err := os.Chmod(s.opts.SocketPath, 0o660); err != nil {
+	// World-connectable socket: authorization is SO_PEERCRED, not filesystem
+	// ACLs. Stale login sessions often lack the students supplementary group
+	// until re-login; 0666 keeps the TUI reachable while peer checks remain.
+	if err := os.Chmod(s.opts.SocketPath, 0o666); err != nil {
 		_ = ln.Close()
 		return err
 	}
