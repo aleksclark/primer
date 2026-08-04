@@ -40,7 +40,9 @@ docker run --rm \
 docker run --rm -v "$cache_dir:/export" "$image" chmod -R a+rwX /export
 
 tar -C "$cache_dir" -czf - . | ssh "$host" "rm -rf '$remote_cache' && mkdir -p '$remote_cache' && tar -xzf - -C '$remote_cache'"
-ssh "$host" "nix copy --extra-experimental-features 'nix-command flakes' --from 'file://$remote_cache' '$system'"
+# Docker-built store paths are unsigned. Require signatures only for
+# substituters; accept the closed local cache without a trusted signature.
+ssh "$host" "nix copy --extra-experimental-features 'nix-command flakes' --option require-sigs false --from 'file://$remote_cache' '$system'"
 
 old_system="$(ssh "$host" 'readlink -f /run/current-system')"
 ssh "$host" "'$system/bin/switch-to-configuration' test"

@@ -23,7 +23,7 @@ in
 
   subPackages = [ "cmd/activity-validate" ];
 
-  vendorHash = "sha256-hcdrQx9TbQvwpp2jS/WAZXRyoIhbt2UVXdRHjh1XZF0=";
+  vendorHash = "sha256-WKaDIFOOAgp0/RubxLoKwPjljVJZ4vk1R+M0UoeBmr0=";
 
   ldflags = [ "-s" "-w" ];
 
