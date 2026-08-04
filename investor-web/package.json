@@ -9,12 +9,14 @@
     "lint": "oxlint .",
     "preview": "vite preview",
     "validate": "tsx scripts/validate-data.ts",
-    "test": "tsx scripts/validate-data.ts",
-    "typecheck": "tsc -b --pretty false"
+    "test": "tsx scripts/validate-data.ts && tsx scripts/check-system-c.ts",
+    "typecheck": "tsc -b --pretty false",
+    "check:system-c": "tsx scripts/check-system-c.ts"
   },
   "dependencies": {
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

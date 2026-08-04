@@ -1,22 +1,96 @@
-import { investorData } from "./data";
+import type { ReactNode } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { RouteAnnouncer } from "@/components/RouteAnnouncer";
+import { SiteFooter } from "@/components/SiteFooter";
+import { SiteHeader } from "@/components/SiteHeader";
+import { SkipLink } from "@/components/SkipLink";
+import { sections } from "@/data";
+import { HomePage } from "@/pages/HomePage";
+import { PlaceholderPage } from "@/pages/PlaceholderPage";
 
-/**
- * Minimal scaffold so Phase 1 can mount presentation components.
- * Phase 0 freezes structured claims only — no pitch UI yet.
- */
+function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="site-shell">
+      <SkipLink />
+      <SiteHeader sections={sections} />
+      <main id="main-content" className="site-main" tabIndex={-1}>
+        {children}
+      </main>
+      <SiteFooter />
+    </div>
+  );
+}
+
 export function App() {
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 720 }}>
-      <h1>Primer investor data package</h1>
-      <p>
-        Phase 0 content contract is loaded. {investorData.sections.length} sections,{" "}
-        {investorData.marketLayers.length} market layers, {investorData.sources.length}{" "}
-        sources.
-      </p>
-      <p style={{ color: "#555" }}>
-        Presentation components land in later phases. Run{" "}
-        <code>npm test</code> to validate claims.
-      </p>
-    </main>
+    <BrowserRouter>
+      <RouteAnnouncer />
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route
+            path="/demo"
+            element={
+              <PlaceholderPage
+                eyebrow="Product demo"
+                title="Current product surfaces"
+                description="Phase 4 will host truthful product surfaces, a tutor-flow prototype, and a product-state legend. Synthetic artifacts only — no student data."
+              />
+            }
+          />
+          <Route
+            path="/market"
+            element={
+              <PlaceholderPage
+                eyebrow="Market model"
+                title="Assumptions and expansion layers"
+                description="Interactive market calculator and non-summing expansion ladder land in Phase 3. Structured layer data is already validated in the data package."
+              />
+            }
+          />
+          <Route
+            path="/evidence"
+            element={
+              <PlaceholderPage
+                eyebrow="Evidence"
+                title="Research, claims, and source register"
+                description="Diligence-depth evidence pages and the full source register arrive in later phases. Core claims already carry citations on the primary page."
+              />
+            }
+          />
+          <Route
+            path="/schools"
+            element={
+              <PlaceholderPage
+                eyebrow="Schools"
+                title="Supplementary to primary LMS path"
+                description="LTI/Clever entry, SIS/SSO roadmap, and privacy/accessibility notes will expand here for institutional diligence."
+              />
+            }
+          />
+          <Route
+            path="/company"
+            element={
+              <PlaceholderPage
+                eyebrow="Company"
+                title="Founder story and team plan"
+                description="Extended founder timeline, hiring plan, and advisor notes expand here. Core founder claims are on the primary page."
+              />
+            }
+          />
+          <Route
+            path="/diligence"
+            element={
+              <PlaceholderPage
+                eyebrow="Diligence"
+                title="Product state, risks, and data room"
+                description="Risk register, compliance roadmap, and gated data-room link come after the public narrative is correct. No premature portal."
+              />
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppShell>
+    </BrowserRouter>
   );
 }

@@ -10,13 +10,22 @@ COVER_MIN := 85
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
-	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system
+	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
+	investor-web investor-web-dev
 
 all: build openapi openapi-tv client tv-client
 
 ## Generate and validate cross-platform design tokens and the review preview.
 design-system:
 	python3 design-system/build.py
+
+## Build the investor pitch site (regenerates design-system tokens first).
+investor-web: design-system
+	cd investor-web && npm run build
+
+## Run the investor pitch Vite dev server.
+investor-web-dev:
+	cd investor-web && npm run dev
 
 ## Build the server binaries.
 build:
