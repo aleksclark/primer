@@ -1,8 +1,9 @@
 // Command content-ingest converges Radarr/Sonarr/yt-dlp, Jellyfin, and the TV
 // server toward a curated content manifest. See agent_docs/plans/content-ingest.md.
 //
-//	content-ingest plan   # show the diff (no mutations except review.yaml)
-//	content-ingest apply  # resolve, acquire, sync, import, report
+//	content-ingest plan    # show the diff (no mutations except review.yaml)
+//	content-ingest review  # interactive TUI to pick candidates in review.yaml
+//	content-ingest apply   # resolve, acquire, sync, import, report
 package main
 
 import (
@@ -17,6 +18,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/ingest/manifest"
 	"github.com/aleksclark/primer/server/internal/ingest/radarr"
 	"github.com/aleksclark/primer/server/internal/ingest/reconcile"
+	"github.com/aleksclark/primer/server/internal/ingest/reviewtui"
 	"github.com/aleksclark/primer/server/internal/ingest/sonarr"
 	"github.com/aleksclark/primer/server/internal/ingest/tvclient"
 	"github.com/aleksclark/primer/server/internal/ingest/ytdlp"
@@ -32,21 +34,22 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: content-ingest <plan|apply>")
+		return fmt.Errorf("usage: content-ingest <plan|review|apply>")
 	}
 	cmd := os.Args[1]
-	var dryRun bool
 	switch cmd {
-	case "plan":
-		dryRun = true
-	case "apply":
-		dryRun = false
 	case "help", "-h", "--help":
 		fmt.Fprint(os.Stdout, `content-ingest — converge the media stack toward curriculum/content-manifest.yaml
 
 Commands:
-  plan   Show what would change (writes review.yaml candidates + a report)
-  apply  Resolve, acquire, sync, import, and write a report
+  plan    Show what would change (writes review.yaml candidates + a report)
+  review  Interactive TUI: pick the right candidate for each review.yaml entry
+  apply   Resolve, acquire, sync, import, and write a report
+
+Typical loop:
+  make ingest-plan
+  make ingest-review    # answer ambiguous matches
+  make ingest-apply
 
 Environment: INGEST_* (see internal/ingest/config). Key vars:
   INGEST_MANIFEST_PATH   default curriculum/content-manifest.yaml
@@ -62,10 +65,59 @@ Environment: INGEST_* (see internal/ingest/config). Key vars:
   INGEST_YTDLP_OUTPUT_DIR / INGEST_YTDLP_ARCHIVE_PATH / INGEST_YTDLP_PATH
 `)
 		return nil
+	case "review":
+		return runReview()
+	case "plan", "apply":
+		return runReconcile(cmd == "plan")
 	default:
-		return fmt.Errorf("unknown command %q (want plan or apply)", cmd)
+		return fmt.Errorf("unknown command %q (want plan, review, or apply)", cmd)
+	}
+}
+
+func runReview() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	review, err := manifest.LoadReview(cfg.ReviewPath)
+	if err != nil {
+		return err
+	}
+	pending := 0
+	for _, e := range review.Entries {
+		if e.ChosenTMDB == 0 && e.ChosenTVDB == 0 {
+			pending++
+		}
+	}
+	if pending == 0 {
+		fmt.Printf("No pending entries in %s\n", cfg.ReviewPath)
+		return nil
 	}
 
+	res, err := reviewtui.Run(review, cfg.ReviewPath)
+	if err != nil {
+		return err
+	}
+	if res.Chosen > 0 {
+		if err := manifest.SaveReview(cfg.ReviewPath, res.Review); err != nil {
+			return err
+		}
+		fmt.Printf("Saved %d choice(s) to %s\n", res.Chosen, cfg.ReviewPath)
+	} else {
+		fmt.Println("No choices made; review file unchanged.")
+	}
+	if res.Skipped > 0 {
+		fmt.Printf("Skipped %d entr(y/ies).\n", res.Skipped)
+	}
+	if res.QuitEarly {
+		fmt.Println("Quit early — remaining entries left unanswered.")
+	} else if res.Chosen > 0 {
+		fmt.Println("Next: make ingest-apply  (resolve will write picks into the manifest)")
+	}
+	return nil
+}
+
+func runReconcile(dryRun bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -98,6 +150,10 @@ Environment: INGEST_* (see internal/ingest/config). Key vars:
 		fmt.Fprintf(os.Stderr, "report written to %s\n", res.ReportPath)
 	}
 	if len(res.Report.Errors) > 0 {
+		cmd := "apply"
+		if dryRun {
+			cmd = "plan"
+		}
 		return fmt.Errorf("%d error(s) during %s", len(res.Report.Errors), cmd)
 	}
 	return nil
