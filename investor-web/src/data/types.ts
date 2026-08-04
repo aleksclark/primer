@@ -45,11 +45,22 @@ export interface Source {
   notes?: string;
 }
 
+/** Facets used by the product-state explorer filter. */
+export type ProductCapabilityCategory =
+  | "learner"
+  | "parent"
+  | "lms"
+  | "media"
+  | "school"
+  | "compliance";
+
 export interface ProductCapability {
   id: string;
   name: string;
   description: string;
   status: Extract<StatusLabel, "LIVE" | "IN_DEVELOPMENT" | "PLANNED">;
+  /** Optional explorer facets — filtering must not hide the status legend. */
+  categories?: ProductCapabilityCategory[];
   /** Required when status is LIVE — demonstrable artifact reference. */
   artifactUrl?: string;
   artifactLabel?: string;
@@ -66,6 +77,18 @@ export interface PricingTier {
   scope: string[];
   primaryBuyers: string[];
   includedUsage: string;
+  /** Subjects included at this tier. */
+  includedSubjects?: string;
+  /** Who owns planning and assessment. */
+  planningAssessment?: string;
+  /** Projects, content, and reporting posture. */
+  projectsContentReporting?: string;
+  /** Support model / human touch. */
+  supportLevel?: string;
+  /** Target COGS posture for the tier. */
+  cogsTarget?: string;
+  /** Expansion validation status for Core/Premier tests. */
+  expansionValidation?: string;
   cogsState: StatusLabel;
   status: StatusLabel;
   competitiveFrame: string;
@@ -115,10 +138,16 @@ export interface ResearchClaim {
   effectSizeSd?: number;
   population: string;
   study: string;
+  /** Study year or year range for explorer display. */
+  year?: string;
+  /** Study design summary (RCT, meta-analysis, historical, plan). */
+  design?: string;
   safeClaim: string;
   caveat: string;
   sourceIds: string[];
   status: StatusLabel;
+  /** When true, render in the distinct company-evidence panel. */
+  companyEvidence?: boolean;
 }
 
 export type CompetitorSupport = "yes" | "partial" | "no" | "unknown";

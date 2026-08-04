@@ -11,6 +11,8 @@ export const researchClaims: ResearchClaim[] = [
     effectSizeSd: 0.288,
     population: "89 randomized controlled trials, preK–12",
     study: "Nickow, Oreopoulos, and Quan, AERJ 2024",
+    year: "2024",
+    design: "Meta-analysis of randomized controlled trials",
     safeClaim:
       "Across 89 randomized preK–12 trials, tutoring produced an average effect of about 0.29 SD. This is prior research, not a Primer outcome.",
     caveat:
@@ -23,6 +25,8 @@ export const researchClaims: ResearchClaim[] = [
     effect: "Stronger results with sustained dosage and fidelity",
     population: "Modern tutoring reviews and design-principle syntheses",
     study: "EdResearch for Action / NSSA design principles; Kraft et al. scale analysis",
+    year: "2021–2024",
+    design: "Design-principle synthesis and scale analysis",
     safeClaim:
       "Tutoring effects are strongest with frequent, sustained, curriculum-aligned sessions, small groups, and implementation fidelity.",
     caveat:
@@ -36,6 +40,8 @@ export const researchClaims: ResearchClaim[] = [
     effectSizeSd: 0.18,
     population: "Roughly 5,300 high-school students across two RCTs",
     study: "Guryan et al., AER 2023 (Saga Education)",
+    year: "2023",
+    design: "Two randomized controlled trials",
     safeClaim:
       "Two Chicago randomized trials of intensive mathematics tutoring found effects ranging from about 0.18 to 0.40 SD with substantial reductions in course failure.",
     caveat: "Daily, intensive, usually 2:1 human tutoring — not an autonomous AI tutor.",
@@ -48,6 +54,8 @@ export const researchClaims: ResearchClaim[] = [
     effectSizeSd: 2.0,
     population: "Two short dissertation studies with narrow researcher-made tests",
     study: "Bloom, 1984; von Hippel reconstruction, 2024",
+    year: "1984 / 2024",
+    design: "Historical illustration with modern reconstruction",
     safeClaim:
       "Bloom posed the question of how to approximate individual tutoring at scale. Modern randomized evidence supports an average tutoring effect around 0.29 SD, not two sigma.",
     caveat:
@@ -61,6 +69,8 @@ export const researchClaims: ResearchClaim[] = [
     effectSizeSd: 0.52,
     population: "108 controlled evaluations (Kulik); stricter best-evidence subset (Slavin)",
     study: "Kulik, Kulik, and Bangert-Drowns 1990; Slavin 1987",
+    year: "1987 / 1990",
+    design: "Meta-analysis and best-evidence synthesis",
     safeClaim:
       "Mastery learning and corrective feedback have a positive evidence base, though broad standardized-test effects are smaller and disputed (Kulik ~0.52 SD mean; Slavin median ~0.25 SD on stricter criteria).",
     caveat:
@@ -74,6 +84,8 @@ export const researchClaims: ResearchClaim[] = [
     effectSizeSd: 0.37,
     population: "Indian lottery-based RCT (Mindspark); later government-school scale-up",
     study: "Muralidharan, Singh, and Ganimian, AER 2019",
+    year: "2019",
+    design: "Lottery-based randomized controlled trial",
     safeClaim:
       "Adaptive, level-appropriate instruction can produce meaningful gains (about 0.37 SD math / 0.23 SD Hindi over 4.5 months in the original study), with results tied to usage and adult supervision.",
     caveat:
@@ -86,11 +98,14 @@ export const researchClaims: ResearchClaim[] = [
     effect: "Primer learning outcomes on independent assessments",
     population: "Primer learners (none measured yet)",
     study: "Primer proof plan — not yet run",
+    year: "planned",
+    design: "Company proof plan (not yet executed)",
     safeClaim:
       "Primer's first failure test: if learners do not progress on independently scored, state-aligned standards, the system is not working. Company efficacy remains to be established.",
     caveat:
       "Current family use is discovery only (approximately 40 founder hours and $1,000 inputs). No outcome claim is supportable.",
     sourceIds: ["seed-readiness-internal", "product-state-internal"],
     status: "EVIDENCE_NEEDED",
+    companyEvidence: true,
   },
 ];

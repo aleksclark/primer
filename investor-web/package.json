@@ -9,9 +9,10 @@
     "lint": "oxlint .",
     "preview": "vite preview",
     "validate": "tsx scripts/validate-data.ts",
-    "test": "tsx scripts/validate-data.ts && tsx scripts/check-system-c.ts",
+    "test": "tsx scripts/validate-data.ts && tsx scripts/check-system-c.ts && tsx tests/marketMath.test.ts",
     "typecheck": "tsc -b --pretty false",
-    "check:system-c": "tsx scripts/check-system-c.ts"
+    "check:system-c": "tsx scripts/check-system-c.ts",
+    "test:unit": "tsx tests/marketMath.test.ts"
   },
   "dependencies": {
     "react": "^19.2.7",

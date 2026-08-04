@@ -252,4 +252,34 @@ export const seedScorecard: SeedScorecardMetric[] = [
     caveat: "Family evidence remains primary; school pilots must not distract from it.",
     status: "EVIDENCE_NEEDED",
   },
+  {
+    id: "core-expansion-test",
+    name: "Core expansion test",
+    unit: "percent",
+    floor: 10,
+    target: 15,
+    current: "NOT_YET_MEASURED",
+    definition:
+      "Share of eligible active Base families that accept a controlled Core $100/month offer.",
+    direction: "higher_is_better",
+    sourceIds: ["seed-readiness-internal"],
+    caveat:
+      "Validation target, not required Base scale. Expansion MRR reported separately from new-logo MRR.",
+    status: "EVIDENCE_NEEDED",
+  },
+  {
+    id: "premier-expansion-test",
+    name: "Premier expansion test",
+    unit: "learners",
+    floor: 20,
+    target: 40,
+    current: "NOT_YET_MEASURED",
+    definition:
+      "Paid Premier families validating the $300/month value proposition, or one elite-school design partner counted as the floor alternative.",
+    direction: "higher_is_better",
+    sourceIds: ["seed-readiness-internal"],
+    caveat:
+      "Design-partner path is an alternative to the family count, not additive. Do not blend institutional ACV into consumer ARR.",
+    status: "EVIDENCE_NEEDED",
+  },
 ];

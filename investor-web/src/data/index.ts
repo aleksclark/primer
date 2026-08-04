@@ -3,6 +3,7 @@ import { competitorCategories } from "./competitorCategories";
 import { founderProof } from "./founderProof";
 import { fundingPlan } from "./fundingPlan";
 import { instructionalLoop } from "./instructionalLoop";
+import { institutionalScenarios } from "./institutionalScenarios";
 import { marketLayers } from "./marketLayers";
 import { beachheadJobs, problemPoints } from "./problemPoints";
 import { pricingTiers } from "./pricingTiers";
@@ -24,6 +25,7 @@ export {
   founderProof,
   fundingPlan,
   instructionalLoop,
+  institutionalScenarios,
   marketLayers,
   pricingTiers,
   problemPoints,
