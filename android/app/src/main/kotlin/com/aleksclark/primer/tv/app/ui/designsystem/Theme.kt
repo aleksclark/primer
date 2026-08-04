@@ -46,6 +46,8 @@ object PrimerTheme {
 /**
  * Supplies Primer color, type, shape, and spacing tokens for the active
  * form factor, and bridges them into Material 3 components.
+ *
+ * Dark System C is the product default.
  */
 @Composable
 fun PrimerTvTheme(
@@ -62,6 +64,8 @@ fun PrimerTvTheme(
     val materialColors = darkColorScheme(
         primary = colors.brand,
         onPrimary = colors.onBrand,
+        primaryContainer = colors.brandHover,
+        onPrimaryContainer = colors.onBrand,
         secondary = colors.educational,
         onSecondary = colors.onBrand,
         tertiary = colors.entertainment,
@@ -75,6 +79,7 @@ fun PrimerTvTheme(
         error = colors.error,
         onError = colors.onError,
         outline = colors.outline,
+        outlineVariant = colors.outlineStrong,
     )
 
     CompositionLocalProvider(

@@ -2,6 +2,7 @@ package com.aleksclark.primer.tv.app.ui.scaffold
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -196,7 +197,12 @@ private fun TelevisionScaffold(
                 .width(railWidth)
                 .fillMaxHeight()
                 .animateContentSize(animationSpec = PrimerTheme.motion.railExpand)
-                .background(colors.surface, PrimerTheme.shapes.panel)
+                .background(colors.surfaceRaised, PrimerTheme.shapes.panel)
+                .border(
+                    width = spacing.ruleWidth,
+                    color = colors.outline,
+                    shape = PrimerTheme.shapes.panel,
+                )
                 .padding(vertical = spacing.sm)
                 .focusGroup()
                 .onFocusChanged { navFocused = it.hasFocus }
@@ -261,7 +267,7 @@ private fun TvNavItem(
             )
             if (expanded) {
                 Text(
-                    text = item.destination.label,
+                    text = item.destination.label.uppercase(),
                     style = PrimerTheme.typography.label,
                     color = when {
                         focused || selected -> colors.onSurface

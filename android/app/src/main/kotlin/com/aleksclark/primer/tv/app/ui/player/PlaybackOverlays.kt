@@ -201,7 +201,8 @@ private fun OverlayActionButton(
             modifier = Modifier
                 .background(
                     color = when {
-                        focused -> colors.focusBorder
+                        focused && emphasized -> colors.brandHover
+                        focused -> colors.surfaceRaised
                         emphasized -> colors.brand
                         else -> colors.surface
                     },
@@ -211,9 +212,13 @@ private fun OverlayActionButton(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = label,
+                text = label.uppercase(),
                 style = PrimerTheme.typography.button,
-                color = if (focused || emphasized) colors.onBrand else colors.onSurface,
+                color = if (emphasized || focused) {
+                    if (emphasized) colors.onBrand else colors.onSurface
+                } else {
+                    colors.onSurface
+                },
             )
         }
     }

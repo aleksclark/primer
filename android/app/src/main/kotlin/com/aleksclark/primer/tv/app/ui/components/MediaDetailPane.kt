@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aleksclark.primer.tv.app.ui.designsystem.PrimerTheme
@@ -143,7 +144,7 @@ private fun WideDetailLayout(
             imagePath = detail.backdropOrPosterPath,
             contentDescription = detail.title,
             kind = ArtworkKind.BACKDROP,
-            shape = RoundedCornerShape(0.dp),
+            shape = PrimerTheme.shapes.panel,
             showScrim = false,
             modifier = Modifier
                 .fillMaxSize()
@@ -310,7 +311,7 @@ private fun PrimaryDetailButton(
                 .background(
                     color = when {
                         !enabled -> colors.surface
-                        focused -> colors.focusBorder
+                        focused -> colors.brandHover
                         else -> colors.brand
                     },
                     shape = PrimerTheme.shapes.button,
@@ -319,13 +320,9 @@ private fun PrimaryDetailButton(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = label,
+                text = label.uppercase(),
                 style = PrimerTheme.typography.button,
-                color = if (enabled) {
-                    if (focused) colors.onBrand else colors.onBrand
-                } else {
-                    colors.onSurfaceMuted
-                },
+                color = if (enabled) colors.onBrand else colors.outlineStrong,
             )
         }
     }
@@ -338,6 +335,7 @@ private fun SecondaryDetailButton(
     requestFocus: Boolean = false,
 ) {
     val colors = PrimerTheme.colors
+    val spacing = PrimerTheme.spacing
     TvFocusSurface(
         onClick = onClick,
         requestFocus = requestFocus,
@@ -347,14 +345,19 @@ private fun SecondaryDetailButton(
         Box(
             modifier = Modifier
                 .background(
-                    color = if (focused) colors.focusBorder.copy(alpha = 0.25f) else colors.surface,
+                    color = if (focused) colors.surfaceRaised else Color.Transparent,
+                    shape = PrimerTheme.shapes.button,
+                )
+                .border(
+                    width = spacing.ruleWidth,
+                    color = if (focused) colors.onSurfaceMuted else colors.outline,
                     shape = PrimerTheme.shapes.button,
                 )
                 .padding(horizontal = PrimerTheme.spacing.lg, vertical = PrimerTheme.spacing.sm),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = label,
+                text = label.uppercase(),
                 style = PrimerTheme.typography.button,
                 color = colors.onSurface,
             )
@@ -365,11 +368,20 @@ private fun SecondaryDetailButton(
 @Composable
 private fun OneViewingCallout(text: String, watched: Boolean) {
     val colors = PrimerTheme.colors
-    val accent = if (watched) colors.onSurfaceMuted else colors.entertainment
+    val spacing = PrimerTheme.spacing
+    // Watched is muted; active one-viewing uses attention (System C review/error role).
+    val accent = if (watched) colors.onSurfaceMuted else colors.error
     Surface(
-        color = accent.copy(alpha = 0.14f),
+        color = Color.Transparent,
         contentColor = accent,
         shape = PrimerTheme.shapes.panel,
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = Modifier.border(
+            width = spacing.ruleWidth,
+            color = accent,
+            shape = PrimerTheme.shapes.panel,
+        ),
     ) {
         Text(
             text = text,
@@ -387,21 +399,29 @@ private fun OneViewingCallout(text: String, watched: Boolean) {
 private fun SubjectChipRow(tags: List<String>) {
     if (tags.isEmpty()) return
     val colors = PrimerTheme.colors
+    val spacing = PrimerTheme.spacing
     val scroll = rememberScrollState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(scroll),
-        horizontalArrangement = Arrangement.spacedBy(PrimerTheme.spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         tags.forEach { tag ->
             Surface(
-                color = colors.surfaceRaised,
+                color = Color.Transparent,
                 contentColor = colors.onSurfaceMuted,
                 shape = PrimerTheme.shapes.chip,
+                shadowElevation = 0.dp,
+                tonalElevation = 0.dp,
+                modifier = Modifier.border(
+                    width = spacing.ruleWidth,
+                    color = colors.outline,
+                    shape = PrimerTheme.shapes.chip,
+                ),
             ) {
                 Text(
-                    text = tag,
+                    text = tag.uppercase(),
                     style = PrimerTheme.typography.label,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     maxLines = 1,

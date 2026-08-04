@@ -3,23 +3,58 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
+/**
+ * System C buttons: primary / secondary (outline) / quiet (ghost).
+ * Monospace uppercase tracked type, zero radius, no shadows.
+ */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4",
+  [
+    "type-button inline-flex items-center justify-center gap-2 whitespace-nowrap",
+    "rounded-none transition-colors",
+    "focus-visible:outline focus-visible:outline-[length:var(--primer-focus-width)]",
+    "focus-visible:outline-offset-[var(--primer-focus-offset)] focus-visible:outline-ring",
+    "disabled:pointer-events-none",
+    "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  ].join(" "),
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
-        outline: "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        default: [
+          "bg-primary text-primary-foreground",
+          "hover:bg-accent-hover",
+          "disabled:bg-surface-raised disabled:text-rule-strong",
+        ].join(" "),
+        destructive: [
+          "border border-destructive bg-transparent text-destructive",
+          "hover:border-destructive hover:bg-transparent hover:text-destructive",
+          "disabled:border-border disabled:text-rule-strong",
+        ].join(" "),
+        outline: [
+          "border border-border bg-transparent text-foreground",
+          "hover:border-muted-foreground",
+          "disabled:border-border disabled:text-rule-strong",
+        ].join(" "),
+        secondary: [
+          "border border-border bg-transparent text-foreground",
+          "hover:border-muted-foreground",
+          "disabled:border-border disabled:text-rule-strong",
+        ].join(" "),
+        ghost: [
+          "bg-transparent text-muted-foreground",
+          "hover:text-foreground hover:underline hover:decoration-foreground hover:underline-offset-4",
+          "disabled:text-rule-strong disabled:no-underline",
+        ].join(" "),
+        link: [
+          "bg-transparent text-muted-foreground",
+          "hover:text-foreground hover:underline hover:decoration-foreground hover:underline-offset-4",
+          "disabled:text-rule-strong",
+        ].join(" "),
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        default: "h-10 px-5 py-3",
+        sm: "h-8 px-3 py-2 text-[0.6875rem]",
+        lg: "h-11 px-8 py-3",
+        icon: "h-9 w-9 p-0",
       },
     },
     defaultVariants: {

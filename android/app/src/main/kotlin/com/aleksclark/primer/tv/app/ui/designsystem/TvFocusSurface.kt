@@ -17,13 +17,16 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import com.aleksclark.primer.tv.core.domain.FormFactor
 
 /**
- * Standard TV focus treatment: scale, border, and soft glow. On phone/tablet
- * it behaves as a plain clickable surface without focus chrome.
+ * Standard TV focus treatment: scale + accent rule ring + soft accent glow.
+ * System C forbids elevation shadows — focus is contrast and outline only.
+ * On phone/tablet it behaves as a plain clickable surface without focus chrome.
  *
  * [selected] is exposed to [content] for styling but does not keep focus chrome
  * raised after D-pad focus moves away.
@@ -55,11 +58,6 @@ fun TvFocusSurface(
         animationSpec = motion.focus,
         label = "tv-focus-scale",
     )
-    val elevation by animateFloatAsState(
-        targetValue = if (showFocusChrome) 12f else 0f,
-        animationSpec = motion.focus,
-        label = "tv-focus-elevation",
-    )
 
     // One-shot restore: requestFocus is true only until the caller clears it.
     LaunchedEffect(requestFocus) {
@@ -72,21 +70,21 @@ fun TvFocusSurface(
         modifier = modifier
             .focusRequester(focusRequester)
             .scale(scale)
-            .graphicsLayer {
-                shadowElevation = elevation
-                this.shape = shape
-                clip = false
-            }
             .then(
                 if (showFocusChrome) {
                     Modifier
                         .drawBehind {
-                            // Glow is drawn before clip so it is not swallowed
-                            // by the content shape.
-                            val radius = size.minDimension * 0.08f
+                            // Soft accent wash behind the ring (no drop shadow).
+                            val glowPad = spacing.focusOffset.toPx()
                             drawRoundRect(
                                 color = colors.focusGlow,
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                                topLeft = Offset(-glowPad, -glowPad),
+                                size = Size(
+                                    width = size.width + glowPad * 2,
+                                    height = size.height + glowPad * 2,
+                                ),
+                                // Radius 0 — System C square language.
+                                cornerRadius = CornerRadius(0f, 0f),
                             )
                         }
                         .border(

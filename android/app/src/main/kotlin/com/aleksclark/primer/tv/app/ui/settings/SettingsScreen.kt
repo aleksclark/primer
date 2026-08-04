@@ -127,13 +127,20 @@ fun SettingsScreenContent(
                     containerColor = colors.error,
                     contentColor = colors.onError,
                 ),
+                elevation = ButtonDefaults.buttonElevation(
+                    defaultElevation = 0.dp,
+                    pressedElevation = 0.dp,
+                    focusedElevation = 0.dp,
+                    hoveredElevation = 0.dp,
+                    disabledElevation = 0.dp,
+                ),
                 shape = PrimerTheme.shapes.button,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = minHeight)
                     .semantics { contentDescription = "Unpair this device" },
             ) {
-                Text("Unpair", style = typography.button)
+                Text("UNPAIR", style = typography.button)
             }
         }
     }

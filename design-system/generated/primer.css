@@ -1,0 +1,80 @@
+:root, [data-theme="dark"] {
+  --primer-color-surface: #0E1013;
+  --primer-color-surface-raised: #15181C;
+  --primer-color-rule: #262A2F;
+  --primer-color-rule-strong: #3A3F45;
+  --primer-color-text-muted: #7C838C;
+  --primer-color-text: #FFFFFF;
+  --primer-color-accent: #5B8CFF;
+  --primer-color-accent-hover: #86A9FF;
+  --primer-color-on-accent: #0E1013;
+  --primer-color-attention: #FF8A6B;
+}
+
+[data-theme="light"] {
+  --primer-color-surface: #FFFFFF;
+  --primer-color-surface-raised: #F4F5F6;
+  --primer-color-rule: #DDE0E3;
+  --primer-color-rule-strong: #B8BDC2;
+  --primer-color-text-muted: #6A7178;
+  --primer-color-text: #0E1013;
+  --primer-color-accent: #2E62D8;
+  --primer-color-accent-hover: #174AAE;
+  --primer-color-on-accent: #FFFFFF;
+  --primer-color-attention: #B8431F;
+}
+
+:root {
+  --primer-font-content: Instrument Sans, Helvetica, Arial, sans-serif;
+  --primer-font-system: IBM Plex Mono, monospace;
+  --primer-type-display-size: 3rem;
+  --primer-type-display-weight: 500;
+  --primer-type-display-line-height: 1.05;
+  --primer-type-display-tracking: -0.024em;
+  --primer-type-h1-size: 2.125rem;
+  --primer-type-h1-weight: 500;
+  --primer-type-h1-line-height: 1.1;
+  --primer-type-h1-tracking: -0.022em;
+  --primer-type-h2-size: 1.5rem;
+  --primer-type-h2-weight: 500;
+  --primer-type-h2-line-height: 1.2;
+  --primer-type-h2-tracking: -0.02em;
+  --primer-type-h3-size: 1.125rem;
+  --primer-type-h3-weight: 600;
+  --primer-type-h3-line-height: 1.3;
+  --primer-type-h3-tracking: -0.015em;
+  --primer-type-body-size: 0.9375rem;
+  --primer-type-body-weight: 400;
+  --primer-type-body-line-height: 1.55;
+  --primer-type-body-tracking: normal;
+  --primer-type-small-size: 0.8125rem;
+  --primer-type-small-weight: 400;
+  --primer-type-small-line-height: 1.5;
+  --primer-type-small-tracking: normal;
+  --primer-type-label-size: 0.6875rem;
+  --primer-type-label-weight: 400;
+  --primer-type-label-line-height: 1.4;
+  --primer-type-label-tracking: 0.08em;
+  --primer-type-button-size: 0.75rem;
+  --primer-type-button-weight: 500;
+  --primer-type-button-line-height: 1.4;
+  --primer-type-button-tracking: 0.06em;
+  --primer-space-1: 4px;
+  --primer-space-2: 8px;
+  --primer-space-3: 12px;
+  --primer-space-4: 16px;
+  --primer-space-5: 20px;
+  --primer-space-6: 24px;
+  --primer-space-8: 32px;
+  --primer-space-12: 48px;
+  --primer-space-16: 64px;
+  --primer-radius-default: 0px;
+  --primer-rule-default: 1px;
+  --primer-rule-active: 2px;
+  --primer-rule-progress: 3px;
+  --primer-focus-width: 1px;
+  --primer-focus-offset: 2px;
+  --primer-motion-fast: 120ms;
+  --primer-motion-standard: 200ms;
+  --primer-motion-slow: 320ms;
+}

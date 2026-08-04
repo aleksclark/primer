@@ -1,24 +1,42 @@
 @import "tailwindcss";
+@import "../../design-system/generated/primer.css";
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.5rem;
+/*
+ * Map existing shadcn/Tailwind semantic tokens onto Primer System C.
+ * Components keep --background / --primary / etc.; values come only from
+ * generated --primer-* variables (dark default, light via data-theme).
+ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: var(--primer-color-surface);
+  --foreground: var(--primer-color-text);
+  --card: var(--primer-color-surface-raised);
+  --card-foreground: var(--primer-color-text);
+  --primary: var(--primer-color-accent);
+  --primary-foreground: var(--primer-color-on-accent);
+  --secondary: var(--primer-color-surface-raised);
+  --secondary-foreground: var(--primer-color-text);
+  --muted: var(--primer-color-surface-raised);
+  --muted-foreground: var(--primer-color-text-muted);
+  --accent: var(--primer-color-surface-raised);
+  --accent-foreground: var(--primer-color-text);
+  --destructive: var(--primer-color-attention);
+  --destructive-foreground: var(--primer-color-on-accent);
+  --border: var(--primer-color-rule);
+  --input: var(--primer-color-rule);
+  --ring: var(--primer-color-accent);
+  --radius: var(--primer-radius-default);
+
+  --rule-strong: var(--primer-color-rule-strong);
+  --surface-raised: var(--primer-color-surface-raised);
+  --attention: var(--primer-color-attention);
+  --accent-hover: var(--primer-color-accent-hover);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
 }
 
 @theme inline {
@@ -39,11 +57,120 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-rule-strong: var(--rule-strong);
+  --color-surface-raised: var(--surface-raised);
+  --color-attention: var(--attention);
+  --color-accent-hover: var(--accent-hover);
+
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: var(--radius);
+
+  --font-sans: var(--primer-font-content);
+  --font-mono: var(--primer-font-system);
 }
 
-body {
-  @apply bg-background text-foreground antialiased;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    background: var(--background);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--primer-font-content);
+    font-size: var(--primer-type-body-size);
+    font-weight: var(--primer-type-body-weight);
+    line-height: var(--primer-type-body-line-height);
+    letter-spacing: var(--primer-type-body-tracking);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* System C focus: 1px accent outline, 2px offset — no glow/shadow. */
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    outline: var(--primer-focus-width) solid var(--primer-color-accent);
+    outline-offset: var(--primer-focus-offset);
+  }
+
+  ::selection {
+    background: var(--primer-color-accent);
+    color: var(--primer-color-on-accent);
+  }
+}
+
+/* IBM Plex Mono system voice: labels, buttons, meta, state. */
+@layer utilities {
+  .font-system {
+    font-family: var(--primer-font-system);
+    font-weight: var(--primer-type-label-weight);
+    letter-spacing: var(--primer-type-label-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-label {
+    font-family: var(--primer-font-system);
+    font-size: var(--primer-type-label-size);
+    font-weight: var(--primer-type-label-weight);
+    line-height: var(--primer-type-label-line-height);
+    letter-spacing: var(--primer-type-label-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-button {
+    font-family: var(--primer-font-system);
+    font-size: var(--primer-type-button-size);
+    font-weight: var(--primer-type-button-weight);
+    line-height: var(--primer-type-button-line-height);
+    letter-spacing: var(--primer-type-button-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-h1 {
+    font-family: var(--primer-font-content);
+    font-size: var(--primer-type-h1-size);
+    font-weight: var(--primer-type-h1-weight);
+    line-height: var(--primer-type-h1-line-height);
+    letter-spacing: var(--primer-type-h1-tracking);
+  }
+
+  .type-h2 {
+    font-family: var(--primer-font-content);
+    font-size: var(--primer-type-h2-size);
+    font-weight: var(--primer-type-h2-weight);
+    line-height: var(--primer-type-h2-line-height);
+    letter-spacing: var(--primer-type-h2-tracking);
+  }
+
+  .type-h3 {
+    font-family: var(--primer-font-content);
+    font-size: var(--primer-type-h3-size);
+    font-weight: var(--primer-type-h3-weight);
+    line-height: var(--primer-type-h3-line-height);
+    letter-spacing: var(--primer-type-h3-tracking);
+  }
+
+  /* Theme-swapped logo marks from design-system assets. */
+  .logo-mark-light {
+    display: none;
+  }
+
+  [data-theme="light"] .logo-mark-dark {
+    display: none;
+  }
+
+  [data-theme="light"] .logo-mark-light {
+    display: block;
+  }
 }

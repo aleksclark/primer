@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -66,6 +66,7 @@ fun OnNowHeroSkeleton(modifier: Modifier = Modifier) {
             .aspectRatio(16f / 9f)
             .clip(PrimerTheme.shapes.panel)
             .background(colors.surfaceRaised)
+            .border(width = spacing.ruleWidth, color = colors.outline, shape = PrimerTheme.shapes.panel)
             .padding(spacing.lg),
         contentAlignment = Alignment.BottomStart,
     ) {
@@ -74,21 +75,21 @@ fun OnNowHeroSkeleton(modifier: Modifier = Modifier) {
                 Modifier
                     .widthIn(min = 64.dp)
                     .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(PrimerTheme.shapes.chip)
                     .background(colors.surface),
             )
             Box(
                 Modifier
                     .fillMaxWidth(0.55f)
                     .height(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(PrimerTheme.shapes.mediaCard)
                     .background(colors.surface),
             )
             Box(
                 Modifier
                     .fillMaxWidth(0.35f)
                     .height(16.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(PrimerTheme.shapes.mediaCard)
                     .background(colors.surface),
             )
             Box(
@@ -328,7 +329,7 @@ private fun WatchLiveButton(
                 .background(
                     color = when {
                         !enabled -> colors.surface
-                        focused -> colors.focusBorder
+                        focused -> colors.brandHover
                         else -> colors.brand
                     },
                     shape = PrimerTheme.shapes.button,
@@ -337,9 +338,9 @@ private fun WatchLiveButton(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = label,
+                text = label.uppercase(),
                 style = PrimerTheme.typography.button,
-                color = if (enabled) colors.onBrand else colors.onSurfaceMuted,
+                color = if (enabled) colors.onBrand else colors.outlineStrong,
             )
         }
     }

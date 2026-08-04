@@ -10,9 +10,13 @@ COVER_MIN := 85
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
-	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply
+	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system
 
 all: build openapi openapi-tv client tv-client
+
+## Generate and validate cross-platform design tokens and the review preview.
+design-system:
+	python3 design-system/build.py
 
 ## Build the server binaries.
 build:

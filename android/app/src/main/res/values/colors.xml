@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="surface">#FF0F1115</color>
-    <color name="accent">#FF6EA8FE</color>
+    <!-- Splash / system chrome only. Compose UI consumes PrimerTokens via Color.kt. -->
+    <color name="surface">#FF0E1013</color>
+    <color name="accent">#FF5B8CFF</color>
 </resources>

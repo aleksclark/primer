@@ -1,0 +1,117 @@
+{
+  "name": "Primer",
+  "system": "C \u2014 Record",
+  "version": "0.2.0",
+  "defaultTheme": "dark",
+  "themes": {
+    "dark": {
+      "surface": "#0E1013",
+      "surfaceRaised": "#15181C",
+      "rule": "#262A2F",
+      "ruleStrong": "#3A3F45",
+      "textMuted": "#7C838C",
+      "text": "#FFFFFF",
+      "accent": "#5B8CFF",
+      "accentHover": "#86A9FF",
+      "onAccent": "#0E1013",
+      "attention": "#FF8A6B"
+    },
+    "light": {
+      "surface": "#FFFFFF",
+      "surfaceRaised": "#F4F5F6",
+      "rule": "#DDE0E3",
+      "ruleStrong": "#B8BDC2",
+      "textMuted": "#6A7178",
+      "text": "#0E1013",
+      "accent": "#2E62D8",
+      "accentHover": "#174AAE",
+      "onAccent": "#FFFFFF",
+      "attention": "#B8431F"
+    }
+  },
+  "typography": {
+    "family": {
+      "content": "Instrument Sans, Helvetica, Arial, sans-serif",
+      "system": "IBM Plex Mono, monospace"
+    },
+    "style": {
+      "display": {
+        "family": "content",
+        "size": 48,
+        "weight": 500,
+        "lineHeight": 1.05,
+        "letterSpacing": "-0.024em"
+      },
+      "h1": {
+        "family": "content",
+        "size": 34,
+        "weight": 500,
+        "lineHeight": 1.1,
+        "letterSpacing": "-0.022em"
+      },
+      "h2": {
+        "family": "content",
+        "size": 24,
+        "weight": 500,
+        "lineHeight": 1.2,
+        "letterSpacing": "-0.02em"
+      },
+      "h3": {
+        "family": "content",
+        "size": 18,
+        "weight": 600,
+        "lineHeight": 1.3,
+        "letterSpacing": "-0.015em"
+      },
+      "body": {
+        "family": "content",
+        "size": 15,
+        "weight": 400,
+        "lineHeight": 1.55,
+        "letterSpacing": "normal"
+      },
+      "small": {
+        "family": "content",
+        "size": 13,
+        "weight": 400,
+        "lineHeight": 1.5,
+        "letterSpacing": "normal"
+      },
+      "label": {
+        "family": "system",
+        "size": 11,
+        "weight": 400,
+        "lineHeight": 1.4,
+        "letterSpacing": "0.08em",
+        "textTransform": "uppercase"
+      },
+      "button": {
+        "family": "system",
+        "size": 12,
+        "weight": 500,
+        "lineHeight": 1.4,
+        "letterSpacing": "0.06em",
+        "textTransform": "uppercase"
+      }
+    }
+  },
+  "spacingPx": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 20,
+    "6": 24,
+    "8": 32,
+    "12": 48,
+    "16": 64
+  },
+  "radiusPx": {
+    "default": 0
+  },
+  "rulesPx": {
+    "default": 1,
+    "active": 2,
+    "progress": 3
+  }
+}

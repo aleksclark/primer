@@ -1,6 +1,7 @@
 package com.aleksclark.primer.tv.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -17,8 +18,8 @@ import com.aleksclark.primer.tv.core.presentation.title
 
 /**
  * Reusable heading + content grouping for Settings (Device, Server, Updates,
- * Danger Zone). Danger Zone uses a slightly elevated surface so Unpair stays
- * visually separated from routine actions.
+ * Danger Zone). Square, ruled System C panel — no shadow elevation.
+ * Danger Zone uses attention color on the title and a stronger rule.
  */
 @Composable
 fun SettingsSection(
@@ -32,18 +33,20 @@ fun SettingsSection(
     val shapes = PrimerTheme.shapes
     val danger = id == SettingsSectionId.DANGER_ZONE
     val surface = if (danger) colors.surfaceRaised else colors.surface
+    val ruleColor = if (danger) colors.error else colors.outline
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(surface, shapes.panel)
+            .border(width = spacing.ruleWidth, color = ruleColor, shape = shapes.panel)
             .padding(spacing.md),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Text(
-            text = id.title(),
-            style = typography.railTitle,
-            color = if (danger) colors.error else colors.onSurface,
+            text = id.title().uppercase(),
+            style = typography.label,
+            color = if (danger) colors.error else colors.onSurfaceMuted,
             modifier = Modifier.semantics { heading() },
         )
         content()
@@ -62,7 +65,7 @@ fun SettingsInfoRow(
         verticalArrangement = Arrangement.spacedBy(PrimerTheme.spacing.xs),
     ) {
         Text(
-            text = label,
+            text = label.uppercase(),
             style = PrimerTheme.typography.label,
             color = PrimerTheme.colors.onSurfaceMuted,
         )

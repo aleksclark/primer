@@ -1,6 +1,7 @@
 package com.aleksclark.primer.tv.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,8 +39,8 @@ import com.aleksclark.primer.tv.core.domain.FormFactor
 
 /**
  * Centered onboarding surface: server URL, uppercase pairing code, inline error,
- * and Pair action. On TV the focus order is fixed URL → code → Pair and does not
- * escape the card while tabbing down through the fields.
+ * and Pair action. Square ruled System C panel. On TV the focus order is fixed
+ * URL → code → Pair and does not escape the card while tabbing down through the fields.
  */
 @Composable
 fun PairingCard(
@@ -85,13 +86,19 @@ fun PairingCard(
             modifier = Modifier
                 .widthIn(max = if (formFactor == FormFactor.TELEVISION) 720.dp else 480.dp)
                 .fillMaxWidth()
-                .background(colors.surface, shapes.panel)
+                .background(colors.surfaceRaised, shapes.panel)
+                .border(width = spacing.ruleWidth, color = colors.outline, shape = shapes.panel)
                 .padding(spacing.lg)
                 .focusGroup()
                 .semantics { contentDescription = "Pair this device" }
                 .testTag("pairing_card"),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
+            Text(
+                text = "PAIR THIS DEVICE",
+                style = typography.label,
+                color = colors.onSurfaceMuted,
+            )
             Text(
                 text = "Pair this device",
                 style = typography.screenTitle,
@@ -109,6 +116,7 @@ fun PairingCard(
                 label = { Text("Server address") },
                 singleLine = true,
                 enabled = !submitting,
+                shape = shapes.button,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { codeFocus.requestFocus() }),
                 colors = pairingFieldColors(),
@@ -130,6 +138,7 @@ fun PairingCard(
                 label = { Text("Pairing code") },
                 singleLine = true,
                 enabled = !submitting,
+                shape = shapes.button,
                 // Codes are uppercase-only; keep the software keyboard there too.
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Characters,
@@ -156,8 +165,8 @@ fun PairingCard(
 
             error?.let { message ->
                 Text(
-                    text = message,
-                    style = typography.body,
+                    text = message.uppercase(),
+                    style = typography.label,
                     color = colors.error,
                     modifier = Modifier
                         .testTag("pairing_error")
@@ -169,11 +178,18 @@ fun PairingCard(
                 onClick = onSubmit,
                 enabled = canSubmit,
                 shape = shapes.button,
+                elevation = ButtonDefaults.buttonElevation(
+                    defaultElevation = 0.dp,
+                    pressedElevation = 0.dp,
+                    focusedElevation = 0.dp,
+                    hoveredElevation = 0.dp,
+                    disabledElevation = 0.dp,
+                ),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.brand,
                     contentColor = colors.onBrand,
-                    disabledContainerColor = colors.surfaceRaised,
-                    disabledContentColor = colors.onSurfaceMuted,
+                    disabledContainerColor = colors.surface,
+                    disabledContentColor = colors.outlineStrong,
                 ),
                 modifier = Modifier
                     .heightIn(min = if (formFactor == FormFactor.TELEVISION) 56.dp else 48.dp)
@@ -202,7 +218,7 @@ fun PairingCard(
                         )
                     }
                     Text(
-                        text = if (submitting) "Pairing…" else "Pair",
+                        text = if (submitting) "PAIRING…" else "PAIR",
                         style = typography.button,
                     )
                 }
@@ -216,7 +232,7 @@ private fun pairingFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = PrimerTheme.colors.onSurface,
     unfocusedTextColor = PrimerTheme.colors.onSurface,
     disabledTextColor = PrimerTheme.colors.onSurfaceMuted,
-    focusedBorderColor = PrimerTheme.colors.focusBorder,
+    focusedBorderColor = PrimerTheme.colors.brand,
     unfocusedBorderColor = PrimerTheme.colors.outline,
     focusedLabelColor = PrimerTheme.colors.brand,
     unfocusedLabelColor = PrimerTheme.colors.onSurfaceMuted,
@@ -224,4 +240,7 @@ private fun pairingFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedContainerColor = PrimerTheme.colors.surfaceRaised,
     unfocusedContainerColor = PrimerTheme.colors.surfaceRaised,
     disabledContainerColor = PrimerTheme.colors.surface,
+    errorBorderColor = PrimerTheme.colors.error,
+    errorLabelColor = PrimerTheme.colors.error,
+    errorCursorColor = PrimerTheme.colors.error,
 )

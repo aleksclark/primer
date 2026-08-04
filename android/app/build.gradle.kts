@@ -4,6 +4,56 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// Bridge System C tokens into the app package. Source of truth is
+// design-system/generated/PrimerTokens.kt — never edit the generated output.
+abstract class GeneratePrimerTokensTask : DefaultTask() {
+    @get:InputFile
+    abstract val sourceFile: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Input
+    abstract val targetPackage: Property<String>
+
+    @TaskAction
+    fun generate() {
+        val source = sourceFile.get().asFile
+        check(source.exists()) {
+            "Missing ${source.absolutePath}. Run `make design-system` from the repo root."
+        }
+        val pkg = targetPackage.get()
+        val packagePath = pkg.replace('.', '/')
+        val outFile = outputDir.get().asFile.resolve("$packagePath/PrimerTokens.kt")
+        outFile.parentFile.mkdirs()
+        val rewritten = source.readText()
+            .replace(
+                Regex("""^package\s+[\w.]+""", RegexOption.MULTILINE),
+                "package $pkg",
+            )
+        outFile.writeText(
+            buildString {
+                appendLine("// GENERATED from design-system/generated/PrimerTokens.kt — do not edit.")
+                appendLine("// Regenerate via the generatePrimerTokens Gradle task (runs on preBuild).")
+                appendLine()
+                append(rewritten.trimStart())
+                if (!rewritten.endsWith("\n")) appendLine()
+            },
+        )
+    }
+}
+
+val primerTokensOutDir = layout.buildDirectory.dir("generated/primerTokens")
+val generatePrimerTokens by tasks.registering(GeneratePrimerTokensTask::class) {
+    group = "design system"
+    description = "Copy PrimerTokens.kt into the app package from design-system/generated"
+    sourceFile.set(
+        rootProject.layout.projectDirectory.file("../design-system/generated/PrimerTokens.kt"),
+    )
+    outputDir.set(primerTokensOutDir)
+    targetPackage.set("com.aleksclark.primer.tv.app.ui.designsystem")
+}
+
 android {
     namespace = "com.aleksclark.primer.tv"
     compileSdk = 35
@@ -50,6 +100,20 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    sourceSets {
+        getByName("main") {
+            kotlin.srcDir(primerTokensOutDir)
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generatePrimerTokens)
+}
+// Unit tests / IDE sync can compile without a full preBuild.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn(generatePrimerTokens)
 }
 
 kotlin {
