@@ -593,6 +593,190 @@ resume, reconnect, and report exactly one completion.
 - Replace temporary admin authoring forms with validated curriculum tooling if
   authoring volume warrants it.
 
+### Phase 7: reproducible Nix packaging and deployment closure
+
+Remove the prebuilt-binary escape hatch and make the workstation generation
+contain the exact student client and terminal tool closure it will run.
+
+- Give `workstation/packages/primer-student.nix` a real, reproducible
+  `vendorHash`; expose the package from the flake and set
+  `services.primer-student.package` by default.
+- Replace the broad `/usr` and `/bin` sandbox binds with named Nix runtime
+  profiles. Each activity revision references an allowlisted profile whose
+  immutable store paths are passed to bubblewrap read-only.
+- Make `nix flake check` build the student binary, validate all activity sources,
+  run package checks, evaluate the workstation, and exercise a NixOS VM test for
+  the launcher, state persistence, and sandbox health probe.
+- Remove `make student-deploy`, `/var/lib/primer-student/bin`, and launcher
+  fallback behavior after the packaged deployment passes on the physical host.
+- Include the application version and source revision in the binary, device
+  heartbeat, health output, and parent diagnostics.
+- Keep deployment rollback armed until `primer-student-health` proves the
+  packaged binary can open its state, reach the configured server when expected,
+  and launch the pinned sandbox profile.
+
+**Exit:** a clean flake build produces a complete workstation generation with no
+mutable application binary, no fake hash, and no runtime dependency on source or
+network fetches. Guarded deployment activates it and rolls back on a failed
+student-client health check.
+
+### Phase 8: privileged broker and credential isolation
+
+Implement the security boundary designed in Phase 0 so the unprivileged TUI no
+longer owns synchronization state or sees the device credential.
+
+- Split the executable into `primer-student broker`, `primer-student tui`, and
+  `primer-student health` subcommands while retaining one packaged executable.
+- Run the broker as a dedicated system user through a hardened systemd service.
+  It exclusively owns the root-readable device token, SQLite database, outbox,
+  workspaces, sandbox launch, API client, pairing exchange, token rotation, and
+  retention cleanup.
+- Define a versioned Unix-domain-socket protocol for profile, pair, work sync,
+  session lifecycle, command input, typing input, checks, completion, tutor
+  requests, status subscriptions, and health. Authenticate peers with socket
+  permissions and OS peer credentials; never accept a student identity or token
+  from IPC payloads.
+- Move pairing so the TUI submits the one-use code to the broker and receives
+  only non-secret device metadata. Migrate an existing student-owned database
+  atomically, extract/rotate its token, tighten ownership, and retain rollback
+  recovery for one release.
+- Make all durable writes broker-first: IPC success means the broker has stored
+  the operation. Add request IDs so reconnecting TUIs can safely retry commands
+  and subscriptions.
+- Apply systemd sandboxing, cgroup limits, rlimits, private temporary storage,
+  and explicit filesystem/device access to the broker and each activity scope.
+- Remove all production `AllowUnsandboxed` paths. A missing broker, bubblewrap,
+  runtime profile, or required namespace blocks terminal activity execution.
+
+**Exit:** tests run the TUI as the student user and prove it cannot read the
+credential or SQLite database, forge another peer's request, launch an
+unsandboxed command, or lose a queued event across broker/TUI restarts. Revoking
+and re-pairing rotates the broker-owned credential without rebuilding NixOS.
+
+### Phase 9: embedded PTY terminal and Bubble Tea v2
+
+Replace the line-oriented command box with the intended terminal experience and
+finish the UI framework decision recorded in Phase 0.
+
+- Migrate student-client TUI packages and helper TUIs from Bubble Tea v1 to v2
+  in one controlled change, updating Lip Gloss/Bubbles dependencies and removing
+  duplicate v1 code paths.
+- Add a maintained terminal emulator behind a small Primer-owned interface for
+  rendering ANSI/VT state. Use `creack/pty` for PTY lifecycle, process groups,
+  resize, cancellation, and clean shutdown; do not expose the PTY or process
+  handles to the TUI.
+- Have the broker create the PTY inside the mandatory pinned bubblewrap profile,
+  stream bounded screen updates over IPC, and accept explicit input/resize
+  messages. Preserve the dedicated authenticated control channel for command
+  completion observations instead of scraping visible screen text.
+- Restore the full three-pane design: live terminal, task/check instructions,
+  and tutor conversation, with keyboard focus, scrollback limits, status line,
+  pause/resume, and accessible narrow-terminal layouts.
+- Define session recovery semantics. A disconnected TUI may reconnect to a live
+  PTY; after broker or workstation restart, the shell process is gone but the
+  durable session, workspace policy, events, task state, and explanatory UI are
+  restored without claiming the shell survived.
+- Add bounded transcript redaction and TTL cleanup in the broker. Upload only the
+  recent excerpt explicitly included in a tutor request, never the full PTY
+  scrollback by default.
+- Expand Trifle suites to cover real shell input, ANSI output, pane focus,
+  resize, long output, Ctrl+C, process exit, TUI reconnect, and completion.
+
+**Exit:** on the packaged workstation, a student completes both terminal sample
+activities through a real isolated shell. Trifle drives the PTY end to end,
+resize and interruption are reliable, and no command runs through the former
+unsandboxed line executor.
+
+### Phase 10: durable runner state and complete runner abstraction
+
+Close restart and extensibility gaps before adding more activity kinds.
+
+- Replace engine kind switches with registered implementations of the shared
+  runner interface. Terminal and typing runners own validation, state encoding,
+  input handling, snapshots, events, completion observations, and cleanup.
+- Version and persist runner state through the broker. Terminal state includes
+  workspace/task/check history but not a fictitious live shell after reboot;
+  typing state includes prompt order, current prompt/input, corrected and
+  uncorrected character counts, elapsed active time, category errors, and
+  threshold observations.
+- Persist state before acknowledging input that affects evidence. Restore it
+  after broker or workstation restart and ensure replay cannot double-count
+  typing samples, commands, checks, or elapsed time.
+- Move scripted headless execution, interactive PTY execution, and TUI views onto
+  the same runner contracts. Remove terminal-only assumptions from
+  `RunAssignment` and completion handling.
+- Define runner capability/version negotiation in work responses. Unsupported
+  activity kinds or revisions remain cached but cannot start; the parent sees a
+  device compatibility diagnostic.
+- Add contract tests that every registered runner supports online, offline,
+  restart, completion retry, cancellation, and retention cleanup semantics.
+
+**Exit:** a typing activity interrupted mid-prompt and a terminal activity
+interrupted between tasks both resume with correct state and produce one result.
+Adding a test runner requires registration and contract implementation, not
+changes to the root engine or TUI state machine.
+
+### Phase 11: production tutor service
+
+Replace the static hint endpoint with server-owned, policy-constrained inference
+without giving the model authority over completion or workstation tools.
+
+- Introduce a tutor service interface with deterministic fake, Bedrock primary,
+  and configured fallback implementations. Provider credentials remain only on
+  the Primer server.
+- Build tutor context from the authenticated session, immutable activity
+  revision, current task/check results, bounded redacted observations, prior
+  graduated hints, relevant mastery, and recent conversation. Ignore client
+  attempts to supply system instructions, standards, or mastery state.
+- Enforce response length, discovery-oriented coaching, documentation-first
+  hints, age-appropriate safety, request/rate limits, timeouts, cancellation,
+  and per-session cost ceilings. The tutor has no filesystem, shell, assignment,
+  completion, evidence, or mastery mutation tools.
+- Record tutor request metadata and exchanges as separate retention-limited
+  session events. Never log provider credentials or raw transcript content in
+  operational logs.
+- Provide deterministic fallback hints from the activity revision when the
+  provider is unavailable, the device is offline, or a policy filter rejects a
+  response. The activity remains completable without inference.
+- Add parent-visible tutor diagnostics and an off switch per student/activity.
+  Make provider choice and model version observable to the parent without
+  exposing hidden prompts to the student.
+- Test prompt-injection attempts, forged context, provider timeout, malformed
+  responses, cancellation, offline fallback, retention cleanup, and confirmation
+  that tutor calls cannot create evidence or change mastery.
+
+**Exit:** a second run of basic navigation receives concise contextual coaching
+from the configured server model, falls back predictably during provider failure,
+and yields identical deterministic completion/mastery behavior with tutoring
+enabled or disabled.
+
+### Phase 12: parent operations and release readiness
+
+Complete the operational surfaces needed to replace the standalone prototype in
+normal household use.
+
+- Add parent SPA views for pairing codes, device versions/revocation, assignments,
+  sync lag, active and awaiting-sync sessions, event/check timelines, evidence,
+  mastery transitions, tutor diagnostics, and compatibility failures.
+- Add parent actions to cancel/reassign work, request a retry, supersede evidence
+  through an audited correction, rotate a device token, and disable tutoring.
+- Add server metrics and alerts for pairing failures, stale devices, old outbox
+  entries, event conflicts, completion latency, sandbox failures, broker health,
+  tutor failures/cost, and unsupported runner versions.
+- Run a physical-workstation acceptance matrix: fresh pair, online completion,
+  offline completion, reboot and resume for terminal and typing, server outage,
+  device revoke/re-pair, deploy rollback, and parent review.
+- Create backup/restore and incident procedures for server academic state and
+  workstation broker state. Verify that replacing a failed workstation does not
+  duplicate completion or mastery evidence.
+- Remove the old `command_teacher` deployment and temporary stub/harness binaries
+  only after acceptance evidence is recorded. Keep reusable headless harnesses
+  as test-only commands if they still add coverage.
+
+**Exit:** the physical workstation runs the packaged broker/TUI for a full
+student acceptance cycle, the parent can diagnose and control it through Primer,
+and the old prototype is no longer required for instruction or progress history.
+
 ## Testing strategy
 
 ### Server
@@ -679,9 +863,20 @@ Decisions for the initial implementation:
 - Bubblewrap on the pinned NixOS workstation is mandatory and fails closed.
 - No Bedrock, OpenAI, or OpenRouter credential is deployed to the workstation.
 
-Deferred until after the vertical slice:
+Scheduled follow-up work:
 
-- Automatic overseer-generated daily assignments.
+- Reproducible Nix packaging and removal of the mutable prebuilt binary path:
+  Phase 7.
+- Root-owned broker, credential isolation, mandatory sandboxing, and durable IPC:
+  Phase 8.
+- Bubble Tea v2 and a real embedded PTY terminal: Phase 9.
+- Restart-safe typing/terminal state and complete runner abstraction: Phase 10.
+- Production server-side tutor inference with deterministic fallback: Phase 11.
+- Parent operations, observability, physical acceptance, and prototype retirement:
+  Phase 12.
+
+Still deferred beyond this plan:
+
 - Offline/local tutor inference.
 - Collaborative or multi-student workstation sessions.
 - General-purpose coding containers or network-enabled exercises.
