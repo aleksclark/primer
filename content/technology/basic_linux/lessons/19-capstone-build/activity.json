@@ -1,0 +1,727 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-19-capstone-build",
+  "title": "Capstone build: system field report",
+  "summary": "Navigate a supplied Linux-like fixture and build a documented, executable field-report project whose bounded Bash script uses find, grep, text pipelines, and redirection to produce organized, reproducible reports.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.PROJECT.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.SCRIPT.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "19",
+    "runtime": "terminal/text-processing",
+    "capstone": "field-report",
+    "standardsStatus": "pending-scripting-standards"
+  },
+  "content": {
+    "objective": "Navigate and inspect a supplied safe Linux-like fixture, then create field-report/README.md and an executable field-report/report.sh that uses quoted relative variables, mkdir -p, bounded find searches, grep, sort, cut, uniq, wc, and deliberate > or >> redirection to replace four organized reports with exact reproducible content while preserving every source fixture.",
+    "instructions": "Work only in workspace/capstone-lab and complete the five tasks in order. The read-only fixture/system tree resembles a few ordinary Linux locations but is only lesson data; never search or change the real /etc, /var, /usr, /home, or /. First navigate into the fixture, report your location, and inventory it with a bounded find command. Then return to the capstone-lab root and build exactly one project directory named field-report containing README.md, report.sh, and script-generated reports/. The script must be run from field-report, use source_dir='../fixture/system' and report_dir='reports', quote both variable expansions, and use only the supplied bounded commands. It must inventory lowercase .conf regular files, extract uppercase ERROR lines from one named current log, derive distinct inventory categories, and summarize source/config/error counts. Use > to replace each generated report and >> only to finish the freshly replaced summary, so an unchanged second run is reproducible rather than cumulative. Treat every fixture path as immutable. Do not use sudo, absolute system paths, downloads, network commands, rm, mv, cp, recursive grep, find actions, wildcards as shell file operands, command substitution, eval, functions, unbounded loops, or writes outside field-report.",
+    "terminal": {
+      "runtimeProfile": "text-processing",
+      "initialCwd": "workspace/capstone-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/etc",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/etc/app",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/etc/app/main.conf",
+          "type": "file",
+          "mode": "0444",
+          "content": "mode=field\nworkers=2\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/etc/app/worker.conf",
+          "type": "file",
+          "mode": "0444",
+          "content": "queue=reports\nretry=3\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/etc/network.conf",
+          "type": "file",
+          "mode": "0444",
+          "content": "host=field-station\nlink=offline\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var/log",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var/log/operations.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "INFO startup complete\nERROR fan stalled\nWARNING temperature high\nERROR backup failed\nINFO shutdown scheduled\nerror lowercase decoy\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var/log/archive.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "ERROR archived test entry\nINFO archive closed\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var/lib",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var/lib/inventory",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/var/lib/inventory/assets.csv",
+          "type": "file",
+          "mode": "0444",
+          "content": "compass,navigation\nrope,equipment\nmap,navigation\nwater,provisions\nradio,equipment\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/usr",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/usr/share",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/usr/share/docs",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/usr/share/docs/runbook.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Inspect first. Preserve sources. Write reports only in the project.\n"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/home",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/home/operator",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/capstone-lab/fixture/system/home/operator/notes.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Field station training fixture. No real system data.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "survey-supplied-fixture",
+        "title": "Navigate and inventory the safe fixture",
+        "instructions": "Run cd fixture/system, then pwd. Explain each path component and confirm that this relative move entered lesson data rather than the real filesystem root. Next run find . -type f | sort. Read the pipeline left to right: find searches only the current fixture for regular files, and sort makes the eight printed relative paths deterministic. Identify the three .conf files, the named current and archive logs, the CSV, and the two text documents. Do not change anything.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "fixture-inventory-output"
+            },
+            {
+              "checkId": "cwd-inside-system-fixture"
+            },
+            {
+              "checkId": "main-config-preserved"
+            },
+            {
+              "checkId": "operations-log-preserved"
+            },
+            {
+              "checkId": "inventory-preserved"
+            },
+            {
+              "checkId": "project-not-yet-created"
+            }
+          ]
+        },
+        "hintIds": [
+          "survey-hint-1",
+          "survey-hint-2",
+          "survey-hint-3"
+        ]
+      },
+      {
+        "id": "create-project-brief",
+        "title": "Create and document the project",
+        "instructions": "Return to capstone-lab with cd ../... Create the project directory with mkdir field-report, enter it with cd field-report, and run exactly: printf '%s\\n' '# Field Report' '' 'Run from this directory:' './report.sh' '' 'The script reads ../fixture/system and replaces four organized files in reports/.' > README.md. Then run cat README.md. Explain why ../fixture/system points from field-report to the supplied fixture and why the README states both the run location and replacement behavior.",
+        "prerequisites": [
+          "survey-supplied-fixture"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "read-project-readme"
+            },
+            {
+              "checkId": "readme-exact"
+            },
+            {
+              "checkId": "project-is-directory"
+            },
+            {
+              "checkId": "script-not-yet-created"
+            },
+            {
+              "checkId": "reports-not-yet-created"
+            },
+            {
+              "checkId": "cwd-inside-field-report"
+            },
+            {
+              "checkId": "fixture-preserved"
+            }
+          ]
+        },
+        "hintIds": [
+          "brief-hint-1",
+          "brief-hint-2",
+          "brief-hint-3"
+        ]
+      },
+      {
+        "id": "build-and-inspect-script",
+        "title": "Build the bounded report script",
+        "instructions": "Create report.sh with the exact printf command given by the level-3 hint, then run cat report.sh. Inspect all fifteen lines before granting execution. Account for the Bash shebang and purpose comment; the two quoted relative variables; mkdir -p; the sorted .conf inventory; the one explicitly named current log searched with grep -n '^ERROR'; the category pipeline cut | sort | uniq; and the summary built by one replacing header followed by three labeled count pipelines. Explain why the quoted '*.conf' pattern belongs to find, why archive.log is deliberately outside the error scope, and why no report exists merely from writing the script.",
+        "prerequisites": [
+          "create-project-brief"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "read-project-script"
+            },
+            {
+              "checkId": "script-exact"
+            },
+            {
+              "checkId": "script-starts-nonexecutable"
+            },
+            {
+              "checkId": "reports-not-created-during-build"
+            },
+            {
+              "checkId": "readme-exact"
+            },
+            {
+              "checkId": "cwd-inside-field-report"
+            },
+            {
+              "checkId": "fixture-preserved"
+            }
+          ]
+        },
+        "hintIds": [
+          "script-hint-1",
+          "script-hint-2",
+          "script-hint-3"
+        ]
+      },
+      {
+        "id": "permission-and-run-capstone",
+        "title": "Permission and run the capstone",
+        "instructions": "Run chmod u+x report.sh, then execute ./report.sh. Predict before each command: chmod changes only report.sh mode from 0644 to 0744, while direct execution creates reports/ and replaces config-files.txt, errors.txt, categories.txt, and summary.txt. The script has no arguments and no uncontrolled loop. An unchanged second execution would recreate the same bytes rather than append another report.",
+        "prerequisites": [
+          "build-and-inspect-script"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ran-report-script"
+            },
+            {
+              "checkId": "script-executable"
+            },
+            {
+              "checkId": "script-exact-at-finish"
+            },
+            {
+              "checkId": "reports-is-directory"
+            },
+            {
+              "checkId": "config-report-exact"
+            },
+            {
+              "checkId": "error-report-exact"
+            },
+            {
+              "checkId": "category-report-exact"
+            },
+            {
+              "checkId": "summary-report-exact"
+            },
+            {
+              "checkId": "readme-exact"
+            },
+            {
+              "checkId": "fixture-preserved"
+            },
+            {
+              "checkId": "cwd-inside-field-report"
+            }
+          ]
+        },
+        "hintIds": [
+          "run-hint-1",
+          "run-hint-2",
+          "run-hint-3"
+        ]
+      },
+      {
+        "id": "inspect-organized-reports",
+        "title": "Inspect and explain the organized reports",
+        "instructions": "Run cat reports/config-files.txt reports/errors.txt reports/categories.txt reports/summary.txt. Use each section's known content to identify the source command and pipeline that produced it. Explain why config paths are sorted, why only two uppercase current-log errors appear, why category duplicates disappear only after sort groups them, why the summary counts eight source files, three configs, and two errors, and why > plus bounded >> operations make another run reproducible. Confirm that source data remained unchanged and that only README.md, report.sh, and four files under reports/ were built.",
+        "prerequisites": [
+          "permission-and-run-capstone"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "read-all-reports"
+            },
+            {
+              "checkId": "all-reports-output-exact"
+            },
+            {
+              "checkId": "script-executable"
+            },
+            {
+              "checkId": "script-exact-at-finish"
+            },
+            {
+              "checkId": "config-report-exact"
+            },
+            {
+              "checkId": "error-report-exact"
+            },
+            {
+              "checkId": "category-report-exact"
+            },
+            {
+              "checkId": "summary-report-exact"
+            },
+            {
+              "checkId": "readme-exact"
+            },
+            {
+              "checkId": "fixture-preserved"
+            },
+            {
+              "checkId": "cwd-inside-field-report"
+            }
+          ]
+        },
+        "hintIds": [
+          "inspect-hint-1",
+          "inspect-hint-2",
+          "inspect-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "fixture-inventory-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "./etc/app/main.conf\n./etc/app/worker.conf\n./etc/network.conf\n./home/operator/notes.txt\n./usr/share/docs/runbook.txt\n./var/lib/inventory/assets.csv\n./var/log/archive.log\n./var/log/operations.log\n"
+        }
+      },
+      {
+        "id": "cwd-inside-system-fixture",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/capstone-lab/fixture/system"
+        }
+      },
+      {
+        "id": "project-not-yet-created",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/capstone-lab/field-report"
+        }
+      },
+      {
+        "id": "project-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/capstone-lab/field-report",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "read-project-readme",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "README.md"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "readme-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/README.md",
+          "value": "# Field Report\n\nRun from this directory:\n./report.sh\n\nThe script reads ../fixture/system and replaces four organized files in reports/.\n"
+        }
+      },
+      {
+        "id": "script-not-yet-created",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/report.sh"
+        }
+      },
+      {
+        "id": "reports-not-yet-created",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports"
+        }
+      },
+      {
+        "id": "cwd-inside-field-report",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/capstone-lab/field-report"
+        }
+      },
+      {
+        "id": "read-project-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "report.sh"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/report.sh",
+          "value": "#!/bin/bash\n# Build deterministic reports from the supplied safe fixture.\nsource_dir='../fixture/system'\nreport_dir='reports'\nmkdir -p \"$report_dir\"\nfind \"$source_dir\" -type f -name '*.conf' | sort > \"$report_dir/config-files.txt\"\ngrep -n '^ERROR' \"$source_dir/var/log/operations.log\" > \"$report_dir/errors.txt\"\ncut -d ',' -f 2 \"$source_dir/var/lib/inventory/assets.csv\" | sort | uniq > \"$report_dir/categories.txt\"\nprintf 'Field Report\\n' > \"$report_dir/summary.txt\"\nprintf 'Source files: ' >> \"$report_dir/summary.txt\"\nfind \"$source_dir\" -type f | wc -l >> \"$report_dir/summary.txt\"\nprintf 'Config files: ' >> \"$report_dir/summary.txt\"\nfind \"$source_dir\" -type f -name '*.conf' | wc -l >> \"$report_dir/summary.txt\"\nprintf 'Error entries: ' >> \"$report_dir/summary.txt\"\ngrep '^ERROR' \"$source_dir/var/log/operations.log\" | wc -l >> \"$report_dir/summary.txt\"\n"
+        }
+      },
+      {
+        "id": "script-starts-nonexecutable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/report.sh",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "reports-not-created-during-build",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports"
+        }
+      },
+      {
+        "id": "ran-report-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "report.sh",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/report.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-exact-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/report.sh",
+          "value": "#!/bin/bash\n# Build deterministic reports from the supplied safe fixture.\nsource_dir='../fixture/system'\nreport_dir='reports'\nmkdir -p \"$report_dir\"\nfind \"$source_dir\" -type f -name '*.conf' | sort > \"$report_dir/config-files.txt\"\ngrep -n '^ERROR' \"$source_dir/var/log/operations.log\" > \"$report_dir/errors.txt\"\ncut -d ',' -f 2 \"$source_dir/var/lib/inventory/assets.csv\" | sort | uniq > \"$report_dir/categories.txt\"\nprintf 'Field Report\\n' > \"$report_dir/summary.txt\"\nprintf 'Source files: ' >> \"$report_dir/summary.txt\"\nfind \"$source_dir\" -type f | wc -l >> \"$report_dir/summary.txt\"\nprintf 'Config files: ' >> \"$report_dir/summary.txt\"\nfind \"$source_dir\" -type f -name '*.conf' | wc -l >> \"$report_dir/summary.txt\"\nprintf 'Error entries: ' >> \"$report_dir/summary.txt\"\ngrep '^ERROR' \"$source_dir/var/log/operations.log\" | wc -l >> \"$report_dir/summary.txt\"\n"
+        }
+      },
+      {
+        "id": "reports-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "config-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports/config-files.txt",
+          "value": "../fixture/system/etc/app/main.conf\n../fixture/system/etc/app/worker.conf\n../fixture/system/etc/network.conf\n"
+        }
+      },
+      {
+        "id": "error-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports/errors.txt",
+          "value": "2:ERROR fan stalled\n4:ERROR backup failed\n"
+        }
+      },
+      {
+        "id": "category-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports/categories.txt",
+          "value": "equipment\nnavigation\nprovisions\n"
+        }
+      },
+      {
+        "id": "summary-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/field-report/reports/summary.txt",
+          "value": "Field Report\nSource files: 8\nConfig files: 3\nError entries: 2\n"
+        }
+      },
+      {
+        "id": "read-all-reports",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "reports/config-files.txt",
+            "reports/errors.txt",
+            "reports/categories.txt",
+            "reports/summary.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "all-reports-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "../fixture/system/etc/app/main.conf\n../fixture/system/etc/app/worker.conf\n../fixture/system/etc/network.conf\n2:ERROR fan stalled\n4:ERROR backup failed\nequipment\nnavigation\nprovisions\nField Report\nSource files: 8\nConfig files: 3\nError entries: 2\n"
+        }
+      },
+      {
+        "id": "main-config-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/fixture/system/etc/app/main.conf",
+          "value": "mode=field\nworkers=2\n"
+        }
+      },
+      {
+        "id": "operations-log-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/fixture/system/var/log/operations.log",
+          "value": "INFO startup complete\nERROR fan stalled\nWARNING temperature high\nERROR backup failed\nINFO shutdown scheduled\nerror lowercase decoy\n"
+        }
+      },
+      {
+        "id": "inventory-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/fixture/system/var/lib/inventory/assets.csv",
+          "value": "compass,navigation\nrope,equipment\nmap,navigation\nwater,provisions\nradio,equipment\n"
+        }
+      },
+      {
+        "id": "fixture-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/capstone-lab/fixture/system/var/log/archive.log",
+          "value": "ERROR archived test entry\nINFO archive closed\n"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "survey-hint-1",
+        "level": 1,
+        "text": "Follow the named relative path one component at a time. Once inside system, search from dot for regular files and make the printed path order stable."
+      },
+      {
+        "id": "survey-hint-2",
+        "level": 2,
+        "text": "Use cd fixture/system, confirm location with pwd, then pipe find . -type f into sort. The scope is the fixture's current directory, never /."
+      },
+      {
+        "id": "survey-hint-3",
+        "level": 3,
+        "text": "Run: cd fixture/system ; then run: pwd ; then run: find . -type f | sort"
+      },
+      {
+        "id": "brief-hint-1",
+        "level": 1,
+        "text": "From fixture/system, two parent steps return to capstone-lab. Create one project directory, enter it, and write a short README that states how and where the script runs."
+      },
+      {
+        "id": "brief-hint-2",
+        "level": 2,
+        "text": "Run cd ../.., mkdir field-report, and cd field-report. Use the supplied printf format to write six README lines, then inspect the file with cat."
+      },
+      {
+        "id": "brief-hint-3",
+        "level": 3,
+        "text": "Run: cd ../.. ; then: mkdir field-report ; then: cd field-report ; then: printf '%s\\n' '# Field Report' '' 'Run from this directory:' './report.sh' '' 'The script reads ../fixture/system and replaces four organized files in reports/.' > README.md ; then: cat README.md"
+      },
+      {
+        "id": "script-hint-1",
+        "level": 1,
+        "text": "Write the complete script as literal lines. Keep source and destination in quoted variables, scope every search, sort path output, put sort before uniq, and replace every generated report on each run."
+      },
+      {
+        "id": "script-hint-2",
+        "level": 2,
+        "text": "The script has fifteen lines: shebang, purpose, two assignments, mkdir, three detailed reports, a replacing summary header, and three pairs of label plus count pipeline. After writing, inspect report.sh with cat."
+      },
+      {
+        "id": "script-hint-3",
+        "level": 3,
+        "text": "Run exactly: printf '%s\\n' '#!/bin/bash' '# Build deterministic reports from the supplied safe fixture.' \"source_dir='../fixture/system'\" \"report_dir='reports'\" 'mkdir -p \"$report_dir\"' 'find \"$source_dir\" -type f -name '\"'\"'*.conf'\"'\"' | sort > \"$report_dir/config-files.txt\"' 'grep -n '\"'\"'^ERROR'\"'\"' \"$source_dir/var/log/operations.log\" > \"$report_dir/errors.txt\"' 'cut -d '\"'\"','\"'\"' -f 2 \"$source_dir/var/lib/inventory/assets.csv\" | sort | uniq > \"$report_dir/categories.txt\"' \"printf 'Field Report\\\\n' > \\\"\\$report_dir/summary.txt\\\"\" \"printf 'Source files: ' >> \\\"\\$report_dir/summary.txt\\\"\" 'find \"$source_dir\" -type f | wc -l >> \"$report_dir/summary.txt\"' \"printf 'Config files: ' >> \\\"\\$report_dir/summary.txt\\\"\" 'find \"$source_dir\" -type f -name '\"'\"'*.conf'\"'\"' | wc -l >> \"$report_dir/summary.txt\"' \"printf 'Error entries: ' >> \\\"\\$report_dir/summary.txt\\\"\" 'grep '\"'\"'^ERROR'\"'\"' \"$source_dir/var/log/operations.log\" | wc -l >> \"$report_dir/summary.txt\"' > report.sh ; then run: cat report.sh"
+      },
+      {
+        "id": "run-hint-1",
+        "level": 1,
+        "text": "First add only the project owner's execute permission. Then directly run the inspected script from the current directory so its relative source path resolves correctly."
+      },
+      {
+        "id": "run-hint-2",
+        "level": 2,
+        "text": "Use chmod u+x on report.sh, followed by the dot-slash path to report.sh. Do not pass arguments."
+      },
+      {
+        "id": "run-hint-3",
+        "level": 3,
+        "text": "Run: chmod u+x report.sh ; then run: ./report.sh"
+      },
+      {
+        "id": "inspect-hint-1",
+        "level": 1,
+        "text": "Use one read-only command with the four generated report paths in the requested order. Compare each block to its producing pipeline rather than editing a mismatch by hand."
+      },
+      {
+        "id": "inspect-hint-2",
+        "level": 2,
+        "text": "Use cat with config-files.txt, errors.txt, categories.txt, and summary.txt, each under reports/."
+      },
+      {
+        "id": "inspect-hint-3",
+        "level": 3,
+        "text": "Run: cat reports/config-files.txt reports/errors.txt reports/categories.txt reports/summary.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student independently navigates a safe Linux-like fixture and builds a documented field-report project whose readable, bounded Bash script preserves sources while reproducibly generating an organized config inventory, current error extract, distinct category list, and count summary with find, grep, pipelines, text-processing tools, and deliberate redirection.",
+      "misconceptions": [
+        "fixture/system is ordinary lesson data under the workspace, not the machine's real root. A path that resembles etc or var has no special system power when it is inside this fixture.",
+        "Relative paths are interpreted from the current working directory. ../fixture/system is correct only because report.sh is intentionally run from field-report.",
+        "find searches names and path types in a bounded tree; grep searches lines inside named files. They are not interchangeable.",
+        "The starting point '$source_dir' limits every find command to the supplied fixture. Searching / would be broader, unsafe, noisy, and unrelated to the assignment.",
+        "The quoted '*.conf' is passed unchanged to find. If the shell expands it early, find may receive the wrong operands.",
+        "grep -n '^ERROR' searches only operations.log, adds source line numbers, and is case-sensitive. The lowercase decoy and archived log entry are intentionally excluded.",
+        "cut selects the second comma-separated field, sort groups equal categories, and uniq removes adjacent duplicates. uniq alone does not guarantee one copy of separated values.",
+        "A pipe carries stdout to the next command's stdin. Redirection at the pipeline end saves the final stage's stdout, not the original source file.",
+        "> replaces a generated destination. >> appends, but here it is used only after summary.txt was freshly replaced in the same run, so old summary content cannot accumulate.",
+        "wc -l counts the lines reaching it: all regular-file paths, matching config paths, or matching ERROR lines depending on the producer to its left.",
+        "mkdir -p reports is safe and repeatable for this fixed project destination; it does not erase an existing report directory.",
+        "chmod u+x changes permission metadata only. The reports appear when ./report.sh executes, not when the script is written, read, or permissioned.",
+        "Matching final files is necessary but not sufficient for mastery. The student must trace location, scope, every pipeline stage, every destination, and source preservation."
+      ],
+      "constraints": [
+        "Keep coaching to the exact safe fixture, field-report project, fifteen-line report.sh, README.md, and four generated report files defined by this activity.",
+        "Require the student to state the current directory and resolve each relative source or destination path before every navigation, write, chmod, or execution command.",
+        "Before each pipeline, require a left-to-right trace naming scope or input, each transformation, expected stdout, final destination, and whether that destination is replaced or extended.",
+        "Give hints in level order. Levels 1 and 2 should preserve planning and diagnosis; reveal the current task's exact commands only at level 3.",
+        "Do not permit work against real /, /etc, /var, /usr, /home, the workspace parent, or any absolute path. Never suggest sudo or privilege changes.",
+        "Do not suggest rm, mv, cp, find -delete, find -exec, xargs, recursive grep, sed, awk, perl, Python, command substitution, process substitution, eval, functions, arrays, background jobs, downloads, or network access.",
+        "Keep Bash limited to the shebang, comments, two simple assignments, quoted variable expansion, simple commands, fixed pipelines, and redirection. Do not add arguments, conditions, loops, or advanced expansion.",
+        "Require source_dir and report_dir expansions to remain double-quoted, '*.conf' and ^ERROR to remain quoted, operations.log to remain explicitly scoped, and sort to remain before uniq.",
+        "Do not hand-edit generated reports to satisfy checks. Diagnose the script, reset if necessary, and rerun it so report provenance remains valid.",
+        "Treat all fixture files and directories as immutable. Permit changes only beneath field-report: README.md, report.sh, and the script-created reports directory with its four named text files.",
+        "Use chmod u+x only; do not suggest chmod 777, chmod +x, or a broad numeric replacement.",
+        "Reset after fixture mutation, work outside capstone-lab, extra project files, changed required script or README text, broad permissions, alternate report destinations, or running from the wrong directory.",
+        "After deterministic checks pass, require an oral defense covering path resolution, find versus grep, each pipeline stage, > versus >>, the three summary counts, excluded decoys, repeatability, and source preservation before granting full mastery."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

@@ -202,19 +202,22 @@ func (r *TerminalRunner) runLineLocked(ctx context.Context, line string) error {
 	}
 
 	rel, _ := filepath.Rel(r.ws, r.cwd)
-	shell := &terminal.ShellState{
-		Cwd:        rel,
-		Executable: "/bin/sh",
-		Args:       []string{"-c", line},
-		ExitCode:   exitCode,
-		Stdout:     stdout,
-		Stderr:     stderr,
-	}
-	r.lastShell = shell
-	sr := &ShellResult{
-		Cwd: rel, Executable: "/bin/sh", Args: []string{"-c", line},
-		ExitCode: exitCode, Stdout: stdout, Stderr: stderr, CountCommand: true,
-	}
+			shell := &terminal.ShellState{
+				Cwd:                       rel,
+				Executable:                "/bin/sh",
+				Args:                      []string{"-c", line},
+				ExitCode:                  exitCode,
+				Stdout:                    stdout,
+				Stderr:                    stderr,
+				StructuredCommandEvidence: true,
+				Source:                    "structured",
+			}
+			r.lastShell = shell
+			sr := &ShellResult{
+				Cwd: rel, Executable: "/bin/sh", Args: []string{"-c", line},
+				ExitCode: exitCode, Stdout: stdout, Stderr: stderr, CountCommand: true,
+				Structured: true, Source: "structured",
+			}
 	if runErr != nil && exitCode == 0 {
 		// surface in payload via host
 	}
@@ -247,16 +250,34 @@ func (r *TerminalRunner) applyShellLocked(sr *ShellResult) error {
 		}
 	}
 	rel, _ := filepath.Rel(r.ws, r.cwd)
+	structured := sr.Structured
+	source := sr.Source
+	if source == "" {
+		if sr.Executable == "pty-shell" || !structured {
+			source = "pty-shell"
+			structured = false
+		} else {
+			source = "structured"
+		}
+	}
+	if sr.Executable == "pty-shell" {
+		structured = false
+		source = "pty-shell"
+	}
 	shell := &terminal.ShellState{
-		Cwd:        rel,
-		Executable: sr.Executable,
-		Args:       sr.Args,
-		ExitCode:   sr.ExitCode,
-		Stdout:     sr.Stdout,
-		Stderr:     sr.Stderr,
+		Cwd:                       rel,
+		Executable:                sr.Executable,
+		Args:                      sr.Args,
+		ExitCode:                  sr.ExitCode,
+		Stdout:                    sr.Stdout,
+		Stderr:                    sr.Stderr,
+		StructuredCommandEvidence: structured,
+		Source:                    source,
 	}
 	if shell.Executable == "" {
 		shell.Executable = "pty-shell"
+		shell.StructuredCommandEvidence = false
+		shell.Source = "pty-shell"
 	}
 	r.lastShell = shell
 	r.lastOutput = truncate(sr.Stdout, 4000)

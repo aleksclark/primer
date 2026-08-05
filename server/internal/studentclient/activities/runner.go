@@ -106,14 +106,18 @@ type Input struct {
 
 // ShellResult is a lightweight shell observation from PTY or scripted exec.
 type ShellResult struct {
-	Cwd        string `json:"cwd,omitempty"` // relative to workspace
-	Executable string `json:"executable,omitempty"`
+	Cwd        string   `json:"cwd,omitempty"` // relative to workspace
+	Executable string   `json:"executable,omitempty"`
 	Args       []string `json:"args,omitempty"`
-	ExitCode   int    `json:"exitCode"`
-	Stdout     string `json:"stdout,omitempty"`
-	Stderr     string `json:"stderr,omitempty"`
+	ExitCode   int      `json:"exitCode"`
+	Stdout     string   `json:"stdout,omitempty"`
+	Stderr     string   `json:"stderr,omitempty"`
 	// CountCommand increments CommandsRun when true.
 	CountCommand bool `json:"countCommand,omitempty"`
+	// Structured is true only for trusted command instrumentation (not PTY screen).
+	Structured bool `json:"structured,omitempty"`
+	// Source labels the observation origin (structured, pty-shell, …).
+	Source string `json:"source,omitempty"`
 }
 
 // CheckStatus is one check row for TUI / snapshots.

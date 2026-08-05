@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://primer.local/schemas/student-activity-v1.json",
+  "title": "Primer student activity document v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "slug", "title", "summary", "kind", "subjectCode", "standards", "content"],
+  "properties": {
+    "schemaVersion": {"const": "1"},
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "title": {"type": "string", "minLength": 1},
+    "summary": {"type": "string"},
+    "kind": {"enum": ["terminal", "typing"]},
+    "subjectCode": {"type": "string", "minLength": 1},
+    "standards": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/standardRef"}
+    },
+    "content": {"$ref": "#/$defs/content"},
+    "minRunnerVersion": {"type": "string"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "terminal"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "required": ["terminal"],
+            "not": {"required": ["typing"]}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "typing"}}},
+      "then": {
+        "properties": {
+          "content": {
+            "required": ["typing"],
+            "not": {"required": ["terminal"]}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "standardRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "role"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[A-Z0-9]+(?:\\.[A-Z0-9]+)+$"},
+        "role": {"enum": ["primary", "reinforcement"]},
+        "weight": {"type": "number"}
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "instructions", "tasks", "checks"],
+      "properties": {
+        "objective": {"type": "string", "minLength": 1},
+        "instructions": {"type": "string", "minLength": 1},
+        "terminal": {"$ref": "#/$defs/terminal"},
+        "typing": {"$ref": "#/$defs/typing"},
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/task"}
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "hints": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/hint"}
+        },
+        "tutor": {"$ref": "#/$defs/tutor"},
+        "progression": {"$ref": "#/$defs/progression"},
+        "artifacts": {"$ref": "#/$defs/artifacts"}
+      }
+    },
+    "terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtimeProfile", "fixtures"],
+      "properties": {
+        "runtimeProfile": {"enum": ["coreutils-basic", "text-processing"]},
+        "fixtures": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/fixture"}
+        },
+        "initialCwd": {"$ref": "#/$defs/safePath"},
+        "shell": {"type": "string"}
+      }
+    },
+    "typing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["promptSetId", "prompts"],
+      "properties": {
+        "promptSetId": {"type": "string", "minLength": 1},
+        "prompts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/typingPrompt"}
+        },
+        "ordering": {"type": "string"},
+        "timeLimitSec": {"type": "integer", "minimum": 0},
+        "successWpm": {"type": "number", "minimum": 0},
+        "successAccuracy": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "typingPrompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "text": {"type": "string", "minLength": 1},
+        "category": {"type": "string"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type"],
+      "properties": {
+        "path": {"$ref": "#/$defs/safePath"},
+        "type": {"enum": ["file", "directory"]},
+        "content": {"type": "string"},
+        "mode": {"type": "string", "pattern": "^[0-7]{3,4}$"}
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "instructions", "completion"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "instructions": {"type": "string", "minLength": 1},
+        "prerequisites": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "completion": {"$ref": "#/$defs/checkTree"},
+        "hintIds": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "optional": {"type": "boolean"}
+      }
+    },
+    "checkTree": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/checkTree"}
+        },
+        "any": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/checkTree"}
+        },
+        "checkId": {"$ref": "#/$defs/id"},
+        "optional": {"type": "boolean"}
+      },
+      "oneOf": [
+        {"required": ["all"]},
+        {"required": ["any"]},
+        {"required": ["checkId"]}
+      ]
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "params"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {
+          "enum": ["file_exists", "file_not_exists", "content_equals", "content_contains", "content_match", "path_type", "path_mode", "cwd", "command_properties", "pipeline_output", "typing_metrics"]
+        },
+        "optional": {"type": "boolean"},
+        "params": {"type": "object"}
+      }
+    },
+    "hint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "level", "text"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "level": {"type": "integer", "minimum": 1},
+        "text": {"type": "string", "minLength": 1}
+      }
+    },
+    "tutor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "misconceptions": {"type": "array", "items": {"type": "string"}},
+        "constraints": {"type": "array", "items": {"type": "string"}},
+        "goalSummary": {"type": "string"}
+      }
+    },
+    "progression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowReset", "resumeFromTask", "requireInOrder"],
+      "properties": {
+        "allowReset": {"type": "boolean"},
+        "maxAttempts": {"type": "integer", "minimum": 0},
+        "resumeFromTask": {"type": "boolean"},
+        "requireInOrder": {"type": "boolean"}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "maxFiles": {"type": "integer", "minimum": 0},
+        "maxBytesEach": {"type": "integer", "minimum": 0},
+        "maxBytesTotal": {"type": "integer", "minimum": 0},
+        "allowedTypes": {"type": "array", "items": {"type": "string"}},
+        "retainDays": {"type": "integer", "minimum": 0}
+      }
+    },
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"},
+    "safePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    }
+  }
+}

@@ -513,6 +513,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 			OpenAssignments:   ov.OpenAssignments,
 			RecentSessions:    ov.RecentSessions,
 			MasterySummary:    ov.MasterySummary,
+			EvidenceStatuses:  ov.EvidenceStatuses,
 			Tutor:             tutorStatus,
 			TutorNotesDisable: ov.TutorNotesDisable,
 		}}, nil
@@ -707,13 +708,14 @@ type retryAssignmentInput struct {
 
 // LearningOverviewResponse is the parent dashboard aggregate for one student.
 type LearningOverviewResponse struct {
-	Student           domain.Student             `json:"student"`
-	Devices           []domain.StudentDevice     `json:"devices"`
-	OpenAssignments   []domain.StudentAssignment `json:"openAssignments"`
-	RecentSessions    []domain.LearningSession   `json:"recentSessions"`
-	MasterySummary    []domain.MasteryRecord     `json:"masterySummary"`
-	Tutor             TutorStatusResponse        `json:"tutor"`
-	TutorNotesDisable bool                       `json:"tutorNotesDisable"`
+	Student           domain.Student                 `json:"student"`
+	Devices           []domain.StudentDevice         `json:"devices"`
+	OpenAssignments   []domain.StudentAssignment     `json:"openAssignments"`
+	RecentSessions    []domain.LearningSession       `json:"recentSessions"`
+	MasterySummary    []domain.MasteryRecord         `json:"masterySummary"`
+	EvidenceStatuses  []repo.StandardEvidenceStatus  `json:"evidenceStatuses"`
+	Tutor             TutorStatusResponse            `json:"tutor"`
+	TutorNotesDisable bool                           `json:"tutorNotesDisable"`
 }
 
 type learningOverviewOutput struct {

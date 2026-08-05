@@ -1,0 +1,303 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-14-process-text",
+  "title": "Process text",
+  "summary": "Use sort, uniq, cut, tr, and wc in short, readable pipelines to organize records, select fields, normalize text, remove adjacent duplicates, and count results.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.TEXT.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.PIPE.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "14",
+    "runtime": "terminal/text-processing",
+    "standardsStatus": "pending-new-standards"
+  },
+  "content": {
+    "objective": "Read a small comma-separated record file with short pipelines; use sort to order lines, cut to select one field, tr to make lowercase letters uppercase, uniq to collapse adjacent duplicate lines, and wc -l to count the final lines while explaining each stage from left to right.",
+    "instructions": "Work only in workspace/text-pipeline-lab and complete the four read-only tasks in order. The file supplies.csv has three comma-separated fields on every line: item,category,zone. Read each pipeline from left to right and say what one stage passes to the next. Use only the exact commands, options, delimiters, fields, and relative path requested. sort orders complete input lines. cut -d ',' -f N selects field N using comma as the delimiter. tr 'a-z' 'A-Z' changes lowercase letters to uppercase. uniq removes only repeated lines that are next to one another, so sort normally comes before uniq when equal values may be separated. wc -l counts the lines that reach the end of the pipeline. Do not redirect output or change any fixture.",
+    "terminal": {
+      "runtimeProfile": "text-processing",
+      "initialCwd": "workspace/text-pipeline-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/text-pipeline-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/text-pipeline-lab/supplies.csv",
+          "type": "file",
+          "mode": "0444",
+          "content": "map,navigation,west\nrope,equipment,north\ncompass,navigation,east\nwater,provisions,north\nlantern,equipment,south\nbiscuits,provisions,east\nradio,equipment,west\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "sort-complete-records",
+        "title": "Sort complete records",
+        "instructions": "Run sort supplies.csv. Predict that sort compares each complete line, so the item names at the beginning put the seven records in alphabetical order. Confirm that fields remain joined and that the source file itself keeps its original order.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "sorted-record-output"
+            },
+            {
+              "checkId": "source-remains-exact"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "sort-hint-1",
+          "sort-hint-2",
+          "sort-hint-3"
+        ]
+      },
+      {
+        "id": "select-sort-deduplicate",
+        "title": "List each category once",
+        "instructions": "Run cut -d ',' -f 2 supplies.csv | sort | uniq. Trace it: cut emits the second field from every record, sort brings equal categories together, and uniq keeps one line from each adjacent group. Confirm that the result has equipment, navigation, and provisions once each.",
+        "prerequisites": [
+          "sort-complete-records"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "unique-category-output"
+            },
+            {
+              "checkId": "source-remains-exact"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "category-hint-1",
+          "category-hint-2",
+          "category-hint-3"
+        ]
+      },
+      {
+        "id": "select-transform-deduplicate",
+        "title": "Normalize and list zones",
+        "instructions": "Run cut -d ',' -f 3 supplies.csv | tr 'a-z' 'A-Z' | sort | uniq. Trace the four stages: select each zone, change lowercase letters to uppercase, sort the transformed lines, then keep one copy of each adjacent duplicate. Confirm that the four unique zones appear in uppercase alphabetical order.",
+        "prerequisites": [
+          "select-sort-deduplicate"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "uppercase-zone-output"
+            },
+            {
+              "checkId": "source-remains-exact"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "zone-hint-1",
+          "zone-hint-2",
+          "zone-hint-3"
+        ]
+      },
+      {
+        "id": "count-distinct-categories",
+        "title": "Count distinct categories",
+        "instructions": "Run cut -d ',' -f 2 supplies.csv | sort | uniq | wc -l. Explain why wc receives three lines rather than all seven source records: cut selects seven category values, sort groups matches, uniq reduces them to three distinct lines, and wc -l counts those final lines. Confirm that the screen shows 3.",
+        "prerequisites": [
+          "select-transform-deduplicate"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "distinct-category-count-output"
+            },
+            {
+              "checkId": "source-remains-exact"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "count-hint-1",
+          "count-hint-2",
+          "count-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "sorted-record-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "biscuits,provisions,east\ncompass,navigation,east\nlantern,equipment,south\nmap,navigation,west\nradio,equipment,west\nrope,equipment,north\nwater,provisions,north\n"
+        }
+      },
+      {
+        "id": "unique-category-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "equipment\nnavigation\nprovisions\n"
+        }
+      },
+      {
+        "id": "uppercase-zone-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "EAST\nNORTH\nSOUTH\nWEST\n"
+        }
+      },
+      {
+        "id": "distinct-category-count-output",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "^[[:space:]]*3[[:space:]]*\\n?$"
+        }
+      },
+      {
+        "id": "source-remains-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/text-pipeline-lab/supplies.csv",
+          "value": "map,navigation,west\nrope,equipment,north\ncompass,navigation,east\nwater,provisions,north\nlantern,equipment,south\nbiscuits,provisions,east\nradio,equipment,west\n"
+        }
+      },
+      {
+        "id": "cwd-remains-lab",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/text-pipeline-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "sort-hint-1",
+        "level": 1,
+        "text": "Use the command that orders input lines. Give it the CSV file directly; no pipe is needed for this first task."
+      },
+      {
+        "id": "sort-hint-2",
+        "level": 2,
+        "text": "Place supplies.csv after sort. Because each line begins with an item, the item controls this ordering."
+      },
+      {
+        "id": "sort-hint-3",
+        "level": 3,
+        "text": "Run: sort supplies.csv"
+      },
+      {
+        "id": "category-hint-1",
+        "level": 1,
+        "text": "First select the category field. Then order those values so repeated categories touch, and finally collapse each adjacent group."
+      },
+      {
+        "id": "category-hint-2",
+        "level": 2,
+        "text": "Use cut with comma as the delimiter and field 2, followed by sort and then uniq."
+      },
+      {
+        "id": "category-hint-3",
+        "level": 3,
+        "text": "Run: cut -d ',' -f 2 supplies.csv | sort | uniq"
+      },
+      {
+        "id": "zone-hint-1",
+        "level": 1,
+        "text": "Select the third field, transform lowercase letters to uppercase, then sort before removing adjacent duplicates."
+      },
+      {
+        "id": "zone-hint-2",
+        "level": 2,
+        "text": "Use cut with field 3, pipe to tr with the ranges a-z and A-Z, then pipe to sort and uniq."
+      },
+      {
+        "id": "zone-hint-3",
+        "level": 3,
+        "text": "Run: cut -d ',' -f 3 supplies.csv | tr 'a-z' 'A-Z' | sort | uniq"
+      },
+      {
+        "id": "count-hint-1",
+        "level": 1,
+        "text": "Build the same distinct-category pipeline, then add one final stage that counts the lines it receives."
+      },
+      {
+        "id": "count-hint-2",
+        "level": 2,
+        "text": "Select field 2, sort it, remove adjacent duplicates, and send those remaining lines to wc -l."
+      },
+      {
+        "id": "count-hint-3",
+        "level": 3,
+        "text": "Run: cut -d ',' -f 2 supplies.csv | sort | uniq | wc -l"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student reads a consistent three-field CSV fixture, explains every stage of four short pipelines, selects only needed fields, orders records, normalizes letter case, deduplicates correctly by sorting before uniq, counts final lines, and preserves the source exactly.",
+      "misconceptions": [
+        "sort writes ordered lines to stdout in this activity; without redirection it does not rewrite supplies.csv.",
+        "Plain sort compares complete lines. Here the first CSV field controls record order because it appears at the beginning of each line.",
+        "cut -d ',' -f 2 means use comma as the field delimiter and emit field 2; field numbering begins at 1, not 0.",
+        "cut selects a field independently from each line; it does not sort, count, or remove duplicates.",
+        "tr 'a-z' 'A-Z' changes each lowercase ASCII letter it receives to the corresponding uppercase letter; it does not select fields or deduplicate lines.",
+        "uniq compares neighboring lines only. Equal values separated by another value remain separate unless sort first brings them together.",
+        "Plain uniq keeps one line from each adjacent repeated group; it does not mean globally unique unless the input has been grouped appropriately.",
+        "wc -l counts newline-terminated lines reaching its stdin. At the end of the final pipeline it counts distinct categories, not source records or words.",
+        "A pipe passes text between stages without creating an intermediate file, and each stage should have one clear purpose.",
+        "CSV can contain quoted commas and other complexities, but this fixture is deliberately simple: every comma is a field boundary and every record has exactly three fields."
+      ],
+      "constraints": [
+        "Keep coaching to plain sort, cut -d ',' -f 2 or -f 3, tr 'a-z' 'A-Z', plain uniq, wc -l, and the exact supplies.csv path.",
+        "Before execution, require the student to name each stage's input, transformation, and output in left-to-right order.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Do not suggest awk, sed, perl, Python, spreadsheets, regular expressions, shell loops, variables, command substitution, process substitution, xargs, paste, join, comm, or advanced sort, cut, tr, uniq, or wc options.",
+        "Do not add unnecessary cat stages; sort and cut can read supplies.csv directly.",
+        "Do not reorder or combine tasks, and do not extend a pipeline beyond the exact stages requested.",
+        "Do not suggest redirection or any command that creates, edits, renames, or removes files; all results must remain on stdout.",
+        "Require sort immediately before uniq in these pipelines and explain the adjacency reason rather than presenting the pair as an opaque formula.",
+        "Treat supplies.csv as an immutable structured fixture and reset if its content, name, mode, or location changes.",
+        "After completion, ask the student to explain what answer would change if sort were removed before uniq, without running an unrequested command."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

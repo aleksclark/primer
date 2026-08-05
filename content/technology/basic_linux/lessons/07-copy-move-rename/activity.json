@@ -1,0 +1,561 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-07-copy-move-rename",
+  "title": "Copy, move, and rename",
+  "summary": "Predict and verify how cp duplicates a file and mv relocates or renames a file in a small organized workspace.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "07",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Predict and use cp to duplicate a file, use mv to relocate and rename files, distinguish the source and destination paths, and verify both final locations and preserved contents.",
+    "instructions": "Work only in the supplied writable file-room and complete the tasks in order. Before each cp or mv command, name the source, name the destination, and predict which path or paths will exist afterward. Copy the checklist, move the field report, rename the draft, and then inspect the two finished files. Use the exact relative paths requested and create no extra entries.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/file-room",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/file-room",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/file-room/BRIEF.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "FINAL TREE\ninbox/\n  checklist.txt\narchive/\n  checklist.txt\ndrafts/\n  ridge-report.txt\npublished/\n\nThe copied checklist must exist in both inbox and archive.\nThe report must leave inbox, move to drafts, and be renamed there.\n"
+        },
+        {
+          "path": "workspace/file-room/inbox",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/file-room/inbox/checklist.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "rope\nwater\nmap\n"
+        },
+        {
+          "path": "workspace/file-room/inbox/field-report.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Ridge station clear.\nVisibility: 12 km.\n"
+        },
+        {
+          "path": "workspace/file-room/archive",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/file-room/drafts",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/file-room/published",
+          "type": "directory",
+          "mode": "0755"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "copy-checklist",
+        "title": "Copy the checklist into the archive",
+        "instructions": "Predict the result, then use cp with inbox/checklist.txt as the source and archive/checklist.txt as the destination. A copy must leave the original in inbox and create a second file with identical content in archive.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-cp-checklist"
+            },
+            {
+              "checkId": "original-checklist-remains"
+            },
+            {
+              "checkId": "archived-checklist-created"
+            },
+            {
+              "checkId": "original-checklist-content"
+            },
+            {
+              "checkId": "archived-checklist-content"
+            },
+            {
+              "checkId": "cwd-remains-file-room-after-copy"
+            }
+          ]
+        },
+        "hintIds": [
+          "copy-hint-1",
+          "copy-hint-2",
+          "copy-hint-3"
+        ]
+      },
+      {
+        "id": "move-report",
+        "title": "Move the report into drafts",
+        "instructions": "Predict the result, then use mv with inbox/field-report.txt as the source and drafts/field-report.txt as the destination. Moving must remove the source path while preserving the report's content at its new path.",
+        "prerequisites": [
+          "copy-checklist"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-mv-report-to-drafts"
+            },
+            {
+              "checkId": "inbox-report-gone"
+            },
+            {
+              "checkId": "draft-report-created"
+            },
+            {
+              "checkId": "draft-report-content"
+            },
+            {
+              "checkId": "copied-checklist-still-correct"
+            }
+          ]
+        },
+        "hintIds": [
+          "move-hint-1",
+          "move-hint-2",
+          "move-hint-3"
+        ]
+      },
+      {
+        "id": "rename-report",
+        "title": "Rename the draft precisely",
+        "instructions": "Within drafts, rename field-report.txt to ridge-report.txt by using mv with the old relative path and the new relative path. Predict that the parent directory and contents will stay the same while only the final name changes.",
+        "prerequisites": [
+          "move-report"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-mv-to-rename-report"
+            },
+            {
+              "checkId": "old-draft-name-gone"
+            },
+            {
+              "checkId": "renamed-report-created"
+            },
+            {
+              "checkId": "renamed-report-content"
+            },
+            {
+              "checkId": "cwd-remains-file-room-after-rename"
+            }
+          ]
+        },
+        "hintIds": [
+          "rename-hint-1",
+          "rename-hint-2",
+          "rename-hint-3"
+        ]
+      },
+      {
+        "id": "verify-final-files",
+        "title": "Verify the organized files",
+        "instructions": "Use one cat command to inspect archive/checklist.txt followed by drafts/ridge-report.txt. Compare the output with the originals, then confirm the final prediction: both checklist paths exist, only the renamed report path exists, and no file was placed in published.",
+        "prerequisites": [
+          "rename-report"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-final-content-check"
+            },
+            {
+              "checkId": "final-output-exact"
+            },
+            {
+              "checkId": "final-original-checklist-is-file"
+            },
+            {
+              "checkId": "final-archived-checklist-is-file"
+            },
+            {
+              "checkId": "final-renamed-report-is-file"
+            },
+            {
+              "checkId": "final-inbox-report-absent"
+            },
+            {
+              "checkId": "final-old-draft-name-absent"
+            },
+            {
+              "checkId": "final-checklist-content"
+            },
+            {
+              "checkId": "final-report-content"
+            },
+            {
+              "checkId": "brief-unchanged"
+            },
+            {
+              "checkId": "published-remains-directory"
+            },
+            {
+              "checkId": "cwd-remains-file-room-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "verify-hint-1",
+          "verify-hint-2",
+          "verify-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-cp-checklist",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cp",
+          "args": [
+            "inbox/checklist.txt",
+            "archive/checklist.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "original-checklist-remains",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/inbox/checklist.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "archived-checklist-created",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/archive/checklist.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "original-checklist-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/inbox/checklist.txt",
+          "value": "rope\nwater\nmap\n"
+        }
+      },
+      {
+        "id": "archived-checklist-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/archive/checklist.txt",
+          "value": "rope\nwater\nmap\n"
+        }
+      },
+      {
+        "id": "cwd-remains-file-room-after-copy",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/file-room"
+        }
+      },
+      {
+        "id": "used-mv-report-to-drafts",
+        "kind": "command_properties",
+        "params": {
+          "executable": "mv",
+          "args": [
+            "inbox/field-report.txt",
+            "drafts/field-report.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "inbox-report-gone",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/file-room/inbox/field-report.txt"
+        }
+      },
+      {
+        "id": "draft-report-created",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/drafts/field-report.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "draft-report-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/drafts/field-report.txt",
+          "value": "Ridge station clear.\nVisibility: 12 km.\n"
+        }
+      },
+      {
+        "id": "copied-checklist-still-correct",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/archive/checklist.txt",
+          "value": "rope\nwater\nmap\n"
+        }
+      },
+      {
+        "id": "used-mv-to-rename-report",
+        "kind": "command_properties",
+        "params": {
+          "executable": "mv",
+          "args": [
+            "drafts/field-report.txt",
+            "drafts/ridge-report.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "old-draft-name-gone",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/file-room/drafts/field-report.txt"
+        }
+      },
+      {
+        "id": "renamed-report-created",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/drafts/ridge-report.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "renamed-report-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/drafts/ridge-report.txt",
+          "value": "Ridge station clear.\nVisibility: 12 km.\n"
+        }
+      },
+      {
+        "id": "cwd-remains-file-room-after-rename",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/file-room"
+        }
+      },
+      {
+        "id": "used-final-content-check",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "archive/checklist.txt",
+            "drafts/ridge-report.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "final-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "rope\nwater\nmap\nRidge station clear.\nVisibility: 12 km.\n"
+        }
+      },
+      {
+        "id": "final-original-checklist-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/inbox/checklist.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "final-archived-checklist-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/archive/checklist.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "final-renamed-report-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/drafts/ridge-report.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "final-inbox-report-absent",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/file-room/inbox/field-report.txt"
+        }
+      },
+      {
+        "id": "final-old-draft-name-absent",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/file-room/drafts/field-report.txt"
+        }
+      },
+      {
+        "id": "final-checklist-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/archive/checklist.txt",
+          "value": "rope\nwater\nmap\n"
+        }
+      },
+      {
+        "id": "final-report-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/drafts/ridge-report.txt",
+          "value": "Ridge station clear.\nVisibility: 12 km.\n"
+        }
+      },
+      {
+        "id": "brief-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/file-room/BRIEF.txt",
+          "value": "FINAL TREE\ninbox/\n  checklist.txt\narchive/\n  checklist.txt\ndrafts/\n  ridge-report.txt\npublished/\n\nThe copied checklist must exist in both inbox and archive.\nThe report must leave inbox, move to drafts, and be renamed there.\n"
+        }
+      },
+      {
+        "id": "published-remains-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/file-room/published",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "cwd-remains-file-room-at-finish",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/file-room"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "copy-hint-1",
+        "level": 1,
+        "text": "Use the command whose name means copy. Its first path is the existing source; its second path is the new destination. Predict two checklist files afterward."
+      },
+      {
+        "id": "copy-hint-2",
+        "level": 2,
+        "text": "Use cp. The source is under inbox, and the destination uses the same filename under archive. Both parent directories already exist and are writable."
+      },
+      {
+        "id": "copy-hint-3",
+        "level": 3,
+        "text": "Run: cp inbox/checklist.txt archive/checklist.txt"
+      },
+      {
+        "id": "move-hint-1",
+        "level": 1,
+        "text": "Use the command that relocates a filesystem entry. Unlike copying, success leaves the file at the destination and no file at the old source path."
+      },
+      {
+        "id": "move-hint-2",
+        "level": 2,
+        "text": "Use mv with the report in inbox as the source and a path with the same filename under drafts as the destination."
+      },
+      {
+        "id": "move-hint-3",
+        "level": 3,
+        "text": "Run: mv inbox/field-report.txt drafts/field-report.txt"
+      },
+      {
+        "id": "rename-hint-1",
+        "level": 1,
+        "text": "Renaming is another use of mv. Keep both paths in drafts, but change the final path component from the old name to the requested new name."
+      },
+      {
+        "id": "rename-hint-2",
+        "level": 2,
+        "text": "The source is drafts/field-report.txt. The destination is in the same directory and ends in ridge-report.txt."
+      },
+      {
+        "id": "rename-hint-3",
+        "level": 3,
+        "text": "Run: mv drafts/field-report.txt drafts/ridge-report.txt"
+      },
+      {
+        "id": "verify-hint-1",
+        "level": 1,
+        "text": "Use the familiar short-text reader once with two paths. Put the archived checklist first and the renamed report second so the combined output has a predictable order."
+      },
+      {
+        "id": "verify-hint-2",
+        "level": 2,
+        "text": "Use cat followed by archive/checklist.txt and drafts/ridge-report.txt. Read all five output lines and compare them with the source material."
+      },
+      {
+        "id": "verify-hint-3",
+        "level": 3,
+        "text": "Run: cat archive/checklist.txt drafts/ridge-report.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student predicts source and destination state, uses cp to preserve an original while creating an identical copy, uses mv first to relocate and then to rename a file, and verifies final paths and exact contents.",
+      "misconceptions": [
+        "cp creates a second file and leaves the source path in place; it does not move the original.",
+        "mv leaves one resulting path, so the old source path no longer exists after a successful move or rename.",
+        "A rename is mv within the same parent directory with a different final path component.",
+        "The first operand is the source and the second is the destination; reversing them changes the requested operation or causes failure.",
+        "cp and mv preserve file contents in this lesson; changing a path is not editing the text inside the file.",
+        "An existing destination can be overwritten by basic cp or mv, so the student must inspect and predict before acting.",
+        "Silent success does not prove the final organization or contents; verification is a separate step."
+      ],
+      "constraints": [
+        "Keep coaching within cp, mv, source and destination paths, move-versus-rename reasoning, and read-only verification with cat.",
+        "Do not suggest rm, mkdir, touch, shell redirection, editors, wildcards, recursive options, force options, command chaining, or absolute paths.",
+        "Give each task's hints in level order and ask for a before-and-after path prediction before revealing the exact command at level 3.",
+        "Do not provide all commands as one pasteable sequence or complete a later task for the student.",
+        "Require exact spelling, capitalization, path order, final locations, and contents; do not accept an extra copy as equivalent to a move.",
+        "Warn that cp and mv may replace an existing destination, but explain that this fixed fixture begins with the requested destination paths absent.",
+        "If the student creates an incorrect state, direct them to reset and predict again rather than introducing removal commands.",
+        "Keep all work under workspace/file-room; every fixture directory is writable mode 0755 and source files are writable mode 0644.",
+        "After completion, ask why two checklist paths remain, why the inbox report path is absent, and why renaming did not alter the report text."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

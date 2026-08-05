@@ -1,0 +1,595 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-18-conditions-loops",
+  "title": "Conditions and loops",
+  "summary": "Use test and [ ] safely, choose between if branches, and process a fixed list of known files with a bounded, quoted for loop in a small Bash script.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.SCRIPT.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "18",
+    "runtime": "terminal/coreutils-basic",
+    "standardsStatus": "pending-scripting-standards"
+  },
+  "content": {
+    "objective": "Use test and its [ ] form to ask whether a quoted path names a regular file, explain how if selects exactly one branch from a command's exit status, and build, inspect, permission, run, and verify a bounded Bash script whose for loop visits exactly three known quoted paths and writes one deterministic report.",
+    "instructions": "Work only in workspace/condition-lab and complete the five tasks in order. test -f \"path\" succeeds when path is a regular file; [ -f \"path\" ] means the same thing, but [ is a command and therefore requires spaces around its arguments and before ]. if runs its then branch when the condition command succeeds and its else branch when it does not. A for loop repeats its body once for each listed word. This lesson uses an explicit list of exactly three known workspace-relative paths, not wildcards, recursive searches, user input, or an unbounded loop. Keep every path expansion quoted as \"$file\" so the path containing a space remains one argument. Create and edit only file-status.sh, add only its user execute permission, and allow the script to create only output/file-status.txt. Preserve README.txt and both supplied input files. Do not create the deliberately missing inputs/missing.txt, use while/until loops, modify source files, download anything, or work outside the supplied workspace.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/condition-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/condition-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/condition-lab/inputs",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/condition-lab/inputs/alpha.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "alpha ready\n"
+        },
+        {
+          "path": "workspace/condition-lab/inputs/field note.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "field note ready\n"
+        },
+        {
+          "path": "workspace/condition-lab/README.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Check only the three assigned paths. Keep this note and the inputs unchanged.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "practice-test-and-if",
+        "title": "Use test to choose one branch",
+        "instructions": "Run: bash -c 'if test -f \"inputs/field note.txt\"; then printf \"FOUND: %s\\n\" \"inputs/field note.txt\"; else printf \"MISSING: %s\\n\" \"inputs/field note.txt\"; fi'. Predict FOUND before running it. Explain that test returns success because the quoted two-word path is a regular file, so if runs the then branch and skips else. No files should change.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "test-if-command-used"
+            },
+            {
+              "checkId": "test-if-output-exact"
+            },
+            {
+              "checkId": "script-not-yet-created"
+            },
+            {
+              "checkId": "alpha-preserved"
+            },
+            {
+              "checkId": "field-note-preserved"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "missing-input-remains-absent"
+            },
+            {
+              "checkId": "cwd-remains-condition-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "test-hint-1",
+          "test-hint-2",
+          "test-hint-3"
+        ]
+      },
+      {
+        "id": "write-and-inspect-script",
+        "title": "Build and inspect a bounded loop",
+        "instructions": "Create the script by running exactly: printf '%s\\n' '#!/bin/bash' '# Report whether three known paths are regular files.' 'mkdir -p output' 'for file in \"inputs/alpha.txt\" \"inputs/field note.txt\" \"inputs/missing.txt\"' 'do' '  if [ -f \"$file\" ]; then' \"    printf 'FOUND: %s\\\\n' \\\"\\$file\\\"\" '  else' \"    printf 'MISSING: %s\\\\n' \\\"\\$file\\\"\" '  fi' 'done > output/file-status.txt' > file-status.sh. Then run cat file-status.sh. Identify the three-item loop list, the spaces required inside [ ], the quoted \"$file\" tests and prints, the two if branches, and the single bounded output path. Writing and reading the script must not run it or create the report.",
+        "prerequisites": [
+          "practice-test-and-if"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "inspected-script"
+            },
+            {
+              "checkId": "script-content-exact"
+            },
+            {
+              "checkId": "script-still-nonexecutable"
+            },
+            {
+              "checkId": "report-not-created-during-edit"
+            },
+            {
+              "checkId": "alpha-preserved"
+            },
+            {
+              "checkId": "field-note-preserved"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "missing-input-remains-absent"
+            },
+            {
+              "checkId": "cwd-remains-condition-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "write-hint-1",
+          "write-hint-2",
+          "write-hint-3"
+        ]
+      },
+      {
+        "id": "make-script-executable",
+        "title": "Add only user execute permission",
+        "instructions": "Run chmod u+x file-status.sh. This changes only permission metadata, from mode 0644 to 0744. It does not execute the loop, alter the script text, or create the report. Explain why chmod is separate from running the script.",
+        "prerequisites": [
+          "write-and-inspect-script"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "script-is-executable"
+            },
+            {
+              "checkId": "script-content-after-chmod"
+            },
+            {
+              "checkId": "report-not-created-by-chmod"
+            },
+            {
+              "checkId": "alpha-preserved"
+            },
+            {
+              "checkId": "field-note-preserved"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "missing-input-remains-absent"
+            },
+            {
+              "checkId": "cwd-remains-condition-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "chmod-hint-1",
+          "chmod-hint-2",
+          "chmod-hint-3"
+        ]
+      },
+      {
+        "id": "run-bounded-script",
+        "title": "Run exactly three loop iterations",
+        "instructions": "Run ./file-status.sh. The loop must visit its three listed paths once each and then stop. The first two [ -f \"$file\" ] conditions succeed; the deliberately absent third path fails and selects else. Because the complete loop's output is redirected with >, another unchanged run produces the same report instead of appending duplicates.",
+        "prerequisites": [
+          "make-script-executable"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ran-status-script"
+            },
+            {
+              "checkId": "generated-report-is-file"
+            },
+            {
+              "checkId": "generated-report-exact"
+            },
+            {
+              "checkId": "script-remains-executable"
+            },
+            {
+              "checkId": "script-content-at-finish"
+            },
+            {
+              "checkId": "alpha-preserved"
+            },
+            {
+              "checkId": "field-note-preserved"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "missing-input-remains-absent"
+            },
+            {
+              "checkId": "cwd-remains-condition-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "run-hint-1",
+          "run-hint-2",
+          "run-hint-3"
+        ]
+      },
+      {
+        "id": "verify-generated-report",
+        "title": "Read and explain the exact result",
+        "instructions": "Run cat output/file-status.txt. Verify three lines in loop-list order: two FOUND lines and one MISSING line. Explain why field note.txt remains one path, why the absent path selects else without being created, why the loop stops after three iterations, and why repeating the script is deterministic and does not modify either input.",
+        "prerequisites": [
+          "run-bounded-script"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "read-generated-report"
+            },
+            {
+              "checkId": "generated-report-is-file"
+            },
+            {
+              "checkId": "generated-report-exact"
+            },
+            {
+              "checkId": "generated-report-format-match"
+            },
+            {
+              "checkId": "script-remains-executable"
+            },
+            {
+              "checkId": "script-content-at-finish"
+            },
+            {
+              "checkId": "alpha-preserved"
+            },
+            {
+              "checkId": "field-note-preserved"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "missing-input-remains-absent"
+            },
+            {
+              "checkId": "cwd-remains-condition-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "verify-hint-1",
+          "verify-hint-2",
+          "verify-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "test-if-command-used",
+        "kind": "command_properties",
+        "params": {
+          "executable": "bash",
+          "args": [
+            "-c",
+            "if test -f \"inputs/field note.txt\"; then printf \"FOUND: %s\\n\" \"inputs/field note.txt\"; else printf \"MISSING: %s\\n\" \"inputs/field note.txt\"; fi"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "test-if-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "FOUND: inputs/field note.txt\n"
+        }
+      },
+      {
+        "id": "script-not-yet-created",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh"
+        }
+      },
+      {
+        "id": "inspected-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "file-status.sh"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-content-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh",
+          "value": "#!/bin/bash\n# Report whether three known paths are regular files.\nmkdir -p output\nfor file in \"inputs/alpha.txt\" \"inputs/field note.txt\" \"inputs/missing.txt\"\ndo\n  if [ -f \"$file\" ]; then\n    printf 'FOUND: %s\\n' \"$file\"\n  else\n    printf 'MISSING: %s\\n' \"$file\"\n  fi\ndone > output/file-status.txt\n"
+        }
+      },
+      {
+        "id": "script-still-nonexecutable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "report-not-created-during-edit",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/condition-lab/output/file-status.txt"
+        }
+      },
+      {
+        "id": "script-is-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-content-after-chmod",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh",
+          "value": "#!/bin/bash\n# Report whether three known paths are regular files.\nmkdir -p output\nfor file in \"inputs/alpha.txt\" \"inputs/field note.txt\" \"inputs/missing.txt\"\ndo\n  if [ -f \"$file\" ]; then\n    printf 'FOUND: %s\\n' \"$file\"\n  else\n    printf 'MISSING: %s\\n' \"$file\"\n  fi\ndone > output/file-status.txt\n"
+        }
+      },
+      {
+        "id": "report-not-created-by-chmod",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/condition-lab/output/file-status.txt"
+        }
+      },
+      {
+        "id": "ran-status-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "file-status.sh",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "generated-report-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/condition-lab/output/file-status.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "generated-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/output/file-status.txt",
+          "value": "FOUND: inputs/alpha.txt\nFOUND: inputs/field note.txt\nMISSING: inputs/missing.txt\n"
+        }
+      },
+      {
+        "id": "generated-report-format-match",
+        "kind": "content_match",
+        "params": {
+          "path": "workspace/condition-lab/output/file-status.txt",
+          "pattern": "^FOUND: inputs/alpha\\.txt\\nFOUND: inputs/field note\\.txt\\nMISSING: inputs/missing\\.txt\\n$"
+        }
+      },
+      {
+        "id": "read-generated-report",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "output/file-status.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-remains-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-content-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/file-status.sh",
+          "value": "#!/bin/bash\n# Report whether three known paths are regular files.\nmkdir -p output\nfor file in \"inputs/alpha.txt\" \"inputs/field note.txt\" \"inputs/missing.txt\"\ndo\n  if [ -f \"$file\" ]; then\n    printf 'FOUND: %s\\n' \"$file\"\n  else\n    printf 'MISSING: %s\\n' \"$file\"\n  fi\ndone > output/file-status.txt\n"
+        }
+      },
+      {
+        "id": "alpha-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/inputs/alpha.txt",
+          "value": "alpha ready\n"
+        }
+      },
+      {
+        "id": "field-note-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/inputs/field note.txt",
+          "value": "field note ready\n"
+        }
+      },
+      {
+        "id": "readme-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/condition-lab/README.txt",
+          "value": "Check only the three assigned paths. Keep this note and the inputs unchanged.\n"
+        }
+      },
+      {
+        "id": "missing-input-remains-absent",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/condition-lab/inputs/missing.txt"
+        }
+      },
+      {
+        "id": "cwd-remains-condition-lab",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/condition-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "test-hint-1",
+        "level": 1,
+        "text": "The condition asks whether one quoted path is a regular file. Predict which branch runs before copying the command."
+      },
+      {
+        "id": "test-hint-2",
+        "level": 2,
+        "text": "Use test -f with the entire field note path in quotes. A successful test makes if choose then."
+      },
+      {
+        "id": "test-hint-3",
+        "level": 3,
+        "text": "Run: bash -c 'if test -f \"inputs/field note.txt\"; then printf \"FOUND: %s\\n\" \"inputs/field note.txt\"; else printf \"MISSING: %s\\n\" \"inputs/field note.txt\"; fi'"
+      },
+      {
+        "id": "write-hint-1",
+        "level": 1,
+        "text": "Use the supplied outer printf to write eleven literal lines. The loop list has exactly three quoted paths, and the condition and both printf values quote $file."
+      },
+      {
+        "id": "write-hint-2",
+        "level": 2,
+        "text": "The structure is shebang, comment, mkdir, for/in, do, if/[ ], FOUND branch, else, MISSING branch, fi, and done with one report redirection. Then inspect with cat."
+      },
+      {
+        "id": "write-hint-3",
+        "level": 3,
+        "text": "Copy the exact printf command from the task, then run: cat file-status.sh"
+      },
+      {
+        "id": "chmod-hint-1",
+        "level": 1,
+        "text": "Add one permission to the file's user class without replacing the other mode bits."
+      },
+      {
+        "id": "chmod-hint-2",
+        "level": 2,
+        "text": "Use chmod with the symbolic change u+x and only the script filename."
+      },
+      {
+        "id": "chmod-hint-3",
+        "level": 3,
+        "text": "Run: chmod u+x file-status.sh"
+      },
+      {
+        "id": "run-hint-1",
+        "level": 1,
+        "text": "Directly execute the script in the current directory. It takes no arguments because its three paths are explicitly bounded inside it."
+      },
+      {
+        "id": "run-hint-2",
+        "level": 2,
+        "text": "Use dot-slash followed by file-status.sh."
+      },
+      {
+        "id": "run-hint-3",
+        "level": 3,
+        "text": "Run: ./file-status.sh"
+      },
+      {
+        "id": "verify-hint-1",
+        "level": 1,
+        "text": "Use the familiar read-only command on the generated report in output."
+      },
+      {
+        "id": "verify-hint-2",
+        "level": 2,
+        "text": "Read output/file-status.txt with cat and compare all three lines to the explicit loop order."
+      },
+      {
+        "id": "verify-hint-3",
+        "level": 3,
+        "text": "Run: cat output/file-status.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student relates test and [ ] to command success, uses if/then/else/fi to select one branch, builds a for/in/do/done loop over exactly three known paths, quotes every path expansion, and verifies exact script and generated report content without modifying source files.",
+      "misconceptions": [
+        "test -f path asks whether path names a regular file; it does not create, open for writing, or repair that file.",
+        "[ is a command form of test, not punctuation attached to the expression. Spaces are required after [ and before ].",
+        "if responds to the condition command's exit status: success selects then, while failure selects else. It does not compare printed words such as true or false.",
+        "Exactly one branch runs for each loop iteration; fi closes the conditional.",
+        "for file in ... assigns one listed word at a time to file. The explicit three-item list makes this loop bounded and predictable.",
+        "The quotes around inputs/field note.txt in the loop list keep it one item rather than two loop iterations.",
+        "Quoting \"$file\" in both [ -f \"$file\" ] and printf preserves each complete path as data. Unquoted expansions can split words or expand wildcards.",
+        "The missing path is intentional data for the else branch. Reporting MISSING must not create that file.",
+        "The redirection on done captures output from every loop iteration and > replaces the report on every run, so repeated runs remain deterministic.",
+        "A for loop over an explicit list terminates after its last item; it is safer here than an unbounded loop or an uncontrolled filesystem search.",
+        "chmod u+x changes mode only. The script's conditions and loop run only after ./file-status.sh is invoked.",
+        "Matching generated text alone is not mastery; the student must explain condition success, branch choice, loop bounds, quoting, preservation, and replacement output."
+      ],
+      "constraints": [
+        "Keep coaching to test -f, [ -f ], one if/then/else/fi, and one for/in/do/done loop over the exact three assigned relative paths.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Require a prediction before each command: branch selected, number and order of iterations, and whether script text, mode, sources, or report can change.",
+        "Explain [ ] as the test command form and require visible spaces; do not introduce [[ ]], (( )), arithmetic tests, string comparisons, compound conditions, case, functions, or negation.",
+        "Do not introduce while, until, select, brace expansion, globs, find, command substitution, recursion, user-supplied loop lists, or unbounded iteration.",
+        "Require double quotes around $file in every test and printf data position, and fixed printf formats with values supplied separately.",
+        "Do not alter the required #!/bin/bash shebang, exact three-item order, relative paths, branch labels, or output redirection.",
+        "Do not suggest chmod 777, chmod +x, or numeric replacement; add only user execute permission with chmod u+x.",
+        "Treat README.txt, inputs/alpha.txt, and inputs/field note.txt as immutable. Never create inputs/missing.txt. Permit changes only to file-status.sh and creation or replacement only of output/file-status.txt by the script.",
+        "Reset after unrelated filesystem changes, changed script text, broad permissions, source edits, creation of the missing fixture, or work outside workspace/condition-lab.",
+        "After deterministic checks pass, require an oral explanation of test versus [ ], spacing, exit-status branch choice, why three iterations occur, why quoting protects the spaced path, and why another run is identical."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

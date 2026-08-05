@@ -19,7 +19,15 @@ import (
 var ErrConflict = errors.New("conflict")
 
 // StartOrResumeSession creates a session for clientSessionID or returns the existing one.
-func StartOrResumeSession(ctx context.Context, q Querier, device *domain.StudentDevice, clientSessionID, assignmentID string, now time.Time) (*domain.LearningSession, error) {
+// capabilities lists runner capability flags (e.g. structured_command_evidence).
+// When omitted, structured command evidence is treated as unsupported.
+func StartOrResumeSession(ctx context.Context, q Querier, device *domain.StudentDevice, clientSessionID, assignmentID string, now time.Time, capabilities ...string) (*domain.LearningSession, error) {
+	caps := map[string]bool{}
+	for _, c := range capabilities {
+		if c != "" {
+			caps[c] = true
+		}
+	}
 	var session *domain.LearningSession
 	err := WithTx(ctx, q, func(tx Querier) error {
 		if existing, err := sessionByClientID(ctx, tx, device.ID, clientSessionID); err == nil {
@@ -41,6 +49,14 @@ func StartOrResumeSession(ctx context.Context, q Querier, device *domain.Student
 		}
 		if asg.State == domain.AssignmentCompleted {
 			return ErrBadRequest{Msg: "assignment is already completed"}
+		}
+
+		rev, err := GetRevision(ctx, tx, asg.ActivityRevisionID)
+		if err != nil {
+			return err
+		}
+		if err := RejectIncompatibleRevision(rev.Content, caps); err != nil {
+			return err
 		}
 
 		// Resume open session on another device for the same assignment.
@@ -83,6 +99,29 @@ func StartOrResumeSession(ctx context.Context, q Querier, device *domain.Student
 		return nil
 	})
 	return session, err
+}
+
+// RejectIncompatibleRevision returns ErrBadRequest when every required completion
+// path needs structured command evidence the runner lacks.
+func RejectIncompatibleRevision(contentMap map[string]any, capabilities map[string]bool) error {
+	raw, err := json.Marshal(contentMap)
+	if err != nil {
+		return fmt.Errorf("marshal content: %w", err)
+	}
+	var content contracts.ActivityContent
+	if err := json.Unmarshal(raw, &content); err != nil {
+		return fmt.Errorf("decode content: %w", err)
+	}
+	if err := contracts.RejectIncompatibleRevision(content, capabilities); err != nil {
+		return ErrBadRequest{Msg: err.Error()}
+	}
+	return nil
+}
+
+// RevisionRequiresStructuredCommand reports whether required completion cannot
+// succeed without structured command evidence (no filesystem-only path).
+func RevisionRequiresStructuredCommand(content contracts.ActivityContent) bool {
+	return contracts.RevisionRequiresStructuredCommand(content)
 }
 
 func sessionByClientID(ctx context.Context, q Querier, deviceID, clientSessionID string) (*domain.LearningSession, error) {

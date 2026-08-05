@@ -1,0 +1,326 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-08-remove-safely",
+  "title": "Remove safely",
+  "summary": "Preflight exact targets, remove one file and one empty directory, and use recursive removal only for one inspected disposable tree in a sandbox.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "08",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Treat command-line removal as irreversible, preflight exact target paths and types, use rm for one file, rmdir for one empty directory, use rm -r only for one inspected disposable tree, and verify both removal and preservation.",
+    "instructions": "Work only in the supplied removal-lab and complete the tasks in order. First list the complete cleanup-zone tree and identify each exact target. Then remove only cleanup-zone/stale-note.txt, cleanup-zone/empty-bin, and cleanup-zone/old-bundle with the narrowly specified command for each type. Recursive removal is authorized only for cleanup-zone/old-bundle. Never use a wildcard, broad target, absolute path, force option, or multiple removal operands. Finish with a read-only listing that proves the targets are absent and protected content remains.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/removal-lab",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab/BRIEF.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "DISPOSABLE TARGETS\ncleanup-zone/stale-note.txt\ncleanup-zone/empty-bin\ncleanup-zone/old-bundle\n\nPRESERVE\ncleanup-zone\nkeep/current.txt\nBRIEF.txt\n\nList first. Remove only one exact target at a time. Recursive removal is authorized only for cleanup-zone/old-bundle.\n"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone/stale-note.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Superseded practice note.\n"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone/empty-bin",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone/old-bundle",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone/old-bundle/draft.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Disposable draft.\n"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone/old-bundle/notes",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab/cleanup-zone/old-bundle/notes/obsolete.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Disposable nested note.\n"
+        },
+        {
+          "path": "workspace/removal-lab/keep",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/removal-lab/keep/current.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Current field record: preserve exactly.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "preflight-cleanup-zone",
+        "title": "Preflight every removal target",
+        "instructions": "Run ls -R cleanup-zone before removing anything. From the listing, identify stale-note.txt as a file, empty-bin as an empty directory, and old-bundle as a non-empty disposable tree containing draft.txt and notes/obsolete.txt. State the exact command form that fits each type, but do not remove anything yet.",
+        "completion": {
+          "all": [
+            {"checkId": "used-preflight-listing"},
+            {"checkId": "preflight-shows-stale-note"},
+            {"checkId": "preflight-shows-empty-bin"},
+            {"checkId": "preflight-shows-old-bundle"},
+            {"checkId": "preflight-shows-draft"},
+            {"checkId": "preflight-shows-notes"},
+            {"checkId": "preflight-shows-obsolete"},
+            {"checkId": "preflight-file-still-present"},
+            {"checkId": "preflight-empty-directory-still-present"},
+            {"checkId": "preflight-bundle-still-present"},
+            {"checkId": "cwd-remains-removal-lab-after-preflight"}
+          ]
+        },
+        "hintIds": ["preflight-hint-1", "preflight-hint-2", "preflight-hint-3"]
+      },
+      {
+        "id": "remove-stale-file",
+        "title": "Remove one precisely named file",
+        "instructions": "Re-read the exact relative target, predict that protected paths and both directory targets will remain, then use plain rm with the single operand cleanup-zone/stale-note.txt. Treat the removal as irreversible and do not add options.",
+        "prerequisites": ["preflight-cleanup-zone"],
+        "completion": {
+          "all": [
+            {"checkId": "used-rm-stale-file"},
+            {"checkId": "stale-file-absent"},
+            {"checkId": "empty-bin-remains-after-file"},
+            {"checkId": "old-bundle-remains-after-file"},
+            {"checkId": "protected-file-remains-after-file"},
+            {"checkId": "protected-content-remains-after-file"}
+          ]
+        },
+        "hintIds": ["file-hint-1", "file-hint-2", "file-hint-3"]
+      },
+      {
+        "id": "remove-empty-directory",
+        "title": "Remove one empty directory",
+        "instructions": "Use rmdir with the single exact target cleanup-zone/empty-bin. Its emptiness was established by preflight. Do not use recursive removal for this empty directory, and predict that old-bundle will remain untouched.",
+        "prerequisites": ["remove-stale-file"],
+        "completion": {
+          "all": [
+            {"checkId": "used-rmdir-empty-bin"},
+            {"checkId": "empty-bin-absent"},
+            {"checkId": "stale-file-still-absent"},
+            {"checkId": "old-bundle-remains-after-rmdir"},
+            {"checkId": "nested-note-remains-before-recursion"},
+            {"checkId": "protected-content-remains-after-rmdir"}
+          ]
+        },
+        "hintIds": ["empty-hint-1", "empty-hint-2", "empty-hint-3"]
+      },
+      {
+        "id": "remove-disposable-tree",
+        "title": "Remove one bounded disposable tree",
+        "instructions": "Re-read the preflight target and run rm -r with exactly one operand: cleanup-zone/old-bundle. This is the lesson's only authorized recursive removal. Do not name cleanup-zone, ., .., an absolute path, a wildcard, or any protected path.",
+        "prerequisites": ["remove-empty-directory"],
+        "completion": {
+          "all": [
+            {"checkId": "used-bounded-recursive-removal"},
+            {"checkId": "old-bundle-absent"},
+            {"checkId": "old-draft-absent"},
+            {"checkId": "old-notes-directory-absent"},
+            {"checkId": "old-nested-note-absent"},
+            {"checkId": "cleanup-zone-preserved"},
+            {"checkId": "keep-directory-preserved"},
+            {"checkId": "protected-content-remains-after-recursion"},
+            {"checkId": "brief-remains-after-recursion"}
+          ]
+        },
+        "hintIds": ["recursive-hint-1", "recursive-hint-2", "recursive-hint-3"]
+      },
+      {
+        "id": "verify-safe-removal",
+        "title": "Verify removal and preservation",
+        "instructions": "Run ls -R . to inspect the complete small removal-lab after the changes. Confirm that cleanup-zone remains and is empty, keep/current.txt remains, BRIEF.txt remains, and all three authorized targets are absent. Do not run another removal command.",
+        "prerequisites": ["remove-disposable-tree"],
+        "completion": {
+          "all": [
+            {"checkId": "used-final-verification"},
+            {"checkId": "final-output-shows-brief"},
+            {"checkId": "final-output-shows-cleanup-zone"},
+            {"checkId": "final-output-shows-keep"},
+            {"checkId": "final-output-shows-current-file"},
+            {"checkId": "final-stale-file-absent"},
+            {"checkId": "final-empty-bin-absent"},
+            {"checkId": "final-old-bundle-absent"},
+            {"checkId": "final-cleanup-zone-is-directory"},
+            {"checkId": "final-keep-is-directory"},
+            {"checkId": "final-protected-file-is-file"},
+            {"checkId": "final-protected-content-exact"},
+            {"checkId": "final-brief-content-exact"},
+            {"checkId": "cwd-remains-removal-lab-at-finish"}
+          ]
+        },
+        "hintIds": ["verify-hint-1", "verify-hint-2", "verify-hint-3"]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-preflight-listing",
+        "kind": "command_properties",
+        "params": {"executable": "ls", "args": ["-R", "cleanup-zone"], "exitCode": 0}
+      },
+      {"id": "preflight-shows-stale-note", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])stale-note\\.txt([[:space:]]|$)"}},
+      {"id": "preflight-shows-empty-bin", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])empty-bin([[:space:]]|$)"}},
+      {"id": "preflight-shows-old-bundle", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])old-bundle([[:space:]]|$)"}},
+      {"id": "preflight-shows-draft", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])draft\\.txt([[:space:]]|$)"}},
+      {"id": "preflight-shows-notes", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])notes([[:space:]]|$)"}},
+      {"id": "preflight-shows-obsolete", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])obsolete\\.txt([[:space:]]|$)"}},
+      {"id": "preflight-file-still-present", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/stale-note.txt", "type": "file"}},
+      {"id": "preflight-empty-directory-still-present", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/empty-bin", "type": "directory"}},
+      {"id": "preflight-bundle-still-present", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle", "type": "directory"}},
+      {"id": "cwd-remains-removal-lab-after-preflight", "kind": "cwd", "params": {"path": "workspace/removal-lab"}},
+
+      {
+        "id": "used-rm-stale-file",
+        "kind": "command_properties",
+        "params": {"executable": "rm", "args": ["cleanup-zone/stale-note.txt"], "exitCode": 0}
+      },
+      {"id": "stale-file-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/stale-note.txt"}},
+      {"id": "empty-bin-remains-after-file", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/empty-bin", "type": "directory"}},
+      {"id": "old-bundle-remains-after-file", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle", "type": "directory"}},
+      {"id": "protected-file-remains-after-file", "kind": "path_type", "params": {"path": "workspace/removal-lab/keep/current.txt", "type": "file"}},
+      {"id": "protected-content-remains-after-file", "kind": "content_equals", "params": {"path": "workspace/removal-lab/keep/current.txt", "value": "Current field record: preserve exactly.\n"}},
+
+      {
+        "id": "used-rmdir-empty-bin",
+        "kind": "command_properties",
+        "params": {"executable": "rmdir", "args": ["cleanup-zone/empty-bin"], "exitCode": 0}
+      },
+      {"id": "empty-bin-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/empty-bin"}},
+      {"id": "stale-file-still-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/stale-note.txt"}},
+      {"id": "old-bundle-remains-after-rmdir", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle", "type": "directory"}},
+      {"id": "nested-note-remains-before-recursion", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle/notes/obsolete.txt", "type": "file"}},
+      {"id": "protected-content-remains-after-rmdir", "kind": "content_equals", "params": {"path": "workspace/removal-lab/keep/current.txt", "value": "Current field record: preserve exactly.\n"}},
+
+      {
+        "id": "used-bounded-recursive-removal",
+        "kind": "command_properties",
+        "params": {"executable": "rm", "args": ["-r", "cleanup-zone/old-bundle"], "exitCode": 0}
+      },
+      {"id": "old-bundle-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle"}},
+      {"id": "old-draft-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle/draft.txt"}},
+      {"id": "old-notes-directory-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle/notes"}},
+      {"id": "old-nested-note-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle/notes/obsolete.txt"}},
+      {"id": "cleanup-zone-preserved", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone", "type": "directory"}},
+      {"id": "keep-directory-preserved", "kind": "path_type", "params": {"path": "workspace/removal-lab/keep", "type": "directory"}},
+      {"id": "protected-content-remains-after-recursion", "kind": "content_equals", "params": {"path": "workspace/removal-lab/keep/current.txt", "value": "Current field record: preserve exactly.\n"}},
+      {"id": "brief-remains-after-recursion", "kind": "path_type", "params": {"path": "workspace/removal-lab/BRIEF.txt", "type": "file"}},
+
+      {
+        "id": "used-final-verification",
+        "kind": "command_properties",
+        "params": {"executable": "ls", "args": ["-R", "."], "exitCode": 0}
+      },
+      {"id": "final-output-shows-brief", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])BRIEF\\.txt([[:space:]]|$)"}},
+      {"id": "final-output-shows-cleanup-zone", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])cleanup-zone([[:space:]]|$)"}},
+      {"id": "final-output-shows-keep", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])keep([[:space:]]|$)"}},
+      {"id": "final-output-shows-current-file", "kind": "pipeline_output", "params": {"pattern": "(?m)(^|[[:space:]])current\\.txt([[:space:]]|$)"}},
+      {"id": "final-stale-file-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/stale-note.txt"}},
+      {"id": "final-empty-bin-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/empty-bin"}},
+      {"id": "final-old-bundle-absent", "kind": "file_not_exists", "params": {"path": "workspace/removal-lab/cleanup-zone/old-bundle"}},
+      {"id": "final-cleanup-zone-is-directory", "kind": "path_type", "params": {"path": "workspace/removal-lab/cleanup-zone", "type": "directory"}},
+      {"id": "final-keep-is-directory", "kind": "path_type", "params": {"path": "workspace/removal-lab/keep", "type": "directory"}},
+      {"id": "final-protected-file-is-file", "kind": "path_type", "params": {"path": "workspace/removal-lab/keep/current.txt", "type": "file"}},
+      {"id": "final-protected-content-exact", "kind": "content_equals", "params": {"path": "workspace/removal-lab/keep/current.txt", "value": "Current field record: preserve exactly.\n"}},
+      {"id": "final-brief-content-exact", "kind": "content_equals", "params": {"path": "workspace/removal-lab/BRIEF.txt", "value": "DISPOSABLE TARGETS\ncleanup-zone/stale-note.txt\ncleanup-zone/empty-bin\ncleanup-zone/old-bundle\n\nPRESERVE\ncleanup-zone\nkeep/current.txt\nBRIEF.txt\n\nList first. Remove only one exact target at a time. Recursive removal is authorized only for cleanup-zone/old-bundle.\n"}},
+      {"id": "cwd-remains-removal-lab-at-finish", "kind": "cwd", "params": {"path": "workspace/removal-lab"}}
+    ],
+    "hints": [
+      {"id": "preflight-hint-1", "level": 1, "text": "Use a read-only listing before any removal. The recursive listing option is appropriate because the assigned cleanup zone is a small bounded tree and you must see descendants before choosing command scope."},
+      {"id": "preflight-hint-2", "level": 2, "text": "Use ls with uppercase -R and name only cleanup-zone. Read every heading and entry; do not run rm or rmdir during preflight."},
+      {"id": "preflight-hint-3", "level": 3, "text": "Run: ls -R cleanup-zone"},
+
+      {"id": "file-hint-1", "level": 1, "text": "The target is one regular file whose exact relative path was confirmed. Use the basic file-removal command with one operand and no options."},
+      {"id": "file-hint-2", "level": 2, "text": "Use rm followed only by the stale-note path under cleanup-zone. Check every path component before pressing Enter."},
+      {"id": "file-hint-3", "level": 3, "text": "Run: rm cleanup-zone/stale-note.txt"},
+
+      {"id": "empty-hint-1", "level": 1, "text": "Choose the command that removes only an empty directory. Its refusal on non-empty directories is useful protection, so do not replace it with recursive removal."},
+      {"id": "empty-hint-2", "level": 2, "text": "Use rmdir with exactly one operand: the empty-bin path under cleanup-zone."},
+      {"id": "empty-hint-3", "level": 3, "text": "Run: rmdir cleanup-zone/empty-bin"},
+
+      {"id": "recursive-hint-1", "level": 1, "text": "This is the only non-empty directory tree authorized for removal. Use rm's recursive option with exactly the inspected old-bundle path, and do not broaden the target."},
+      {"id": "recursive-hint-2", "level": 2, "text": "Use rm -r followed by cleanup-zone/old-bundle. The operand must end at old-bundle, not cleanup-zone, and there must be no second target."},
+      {"id": "recursive-hint-3", "level": 3, "text": "Run: rm -r cleanup-zone/old-bundle"},
+
+      {"id": "verify-hint-1", "level": 1, "text": "Use a read-only recursive listing of the current directory. Verification must show what remains as well as support checking what disappeared."},
+      {"id": "verify-hint-2", "level": 2, "text": "Use ls with uppercase -R and the exact current-directory path dot. Do not run any more removal command."},
+      {"id": "verify-hint-3", "level": 3, "text": "Run: ls -R ."}
+    ],
+    "tutor": {
+      "goalSummary": "Student treats terminal removal as irreversible, preflights exact relative targets, chooses rm for one file and rmdir for one empty directory, uses rm -r only for one inspected disposable tree, and verifies protected paths and contents as carefully as removed paths.",
+      "misconceptions": [
+        "rm and rmdir do not move activity data to a trash folder or provide undo; successful removal must be treated as irreversible.",
+        "Plain rm is used here for the precisely named file, while rmdir removes only the precisely named empty directory.",
+        "A refusal from rmdir is protective information that a directory is not empty, not a reason to escalate automatically.",
+        "Recursive removal includes the named directory and all descendants, so exact scope matters more than convenience.",
+        "Authorization for cleanup-zone/old-bundle does not authorize cleanup-zone, the current directory, a parent, an absolute path, or any wildcard-expanded set.",
+        "A silent successful command does not prove the correct target was removed; verification must establish both absence and preservation.",
+        "Disposable sandbox data makes reset possible but does not make broad or careless removal syntax acceptable."
+      ],
+      "constraints": [
+        "Keep coaching within ls -R for bounded preflight and verification, plain rm for cleanup-zone/stale-note.txt, rmdir for cleanup-zone/empty-bin, and rm -r solely for cleanup-zone/old-bundle.",
+        "Never suggest wildcards, glob patterns, absolute paths, dot or dot-dot targets, cleanup-zone as a removal target, force options, multiple removal operands, shell expansion, command chaining, aliases, or alternative deletion tools.",
+        "Give each task's hints in level order and require the student to state the exact target, target type, expected absence, and preserved paths before revealing the command at level 3.",
+        "Do not provide all removal commands as one pasteable sequence or complete a later task for the student.",
+        "Treat an unexpected refusal or state as a stop signal: direct the student to inspect and reset rather than adding power or improvising another removal command.",
+        "Require exact spelling, case, option, argument count, and path scope; do not accept a broad command merely because it happened to leave a similar visible tree.",
+        "Keep all work under workspace/removal-lab and repeatedly distinguish the resettable fixture from real files that may be unrecoverable.",
+        "Protect BRIEF.txt, cleanup-zone itself, keep, and keep/current.txt; preservation is part of the assessed craftsmanship.",
+        "After completion, ask why rmdir is protective, why rm -r was narrowly authorized, and what evidence proves current.txt remained exact."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

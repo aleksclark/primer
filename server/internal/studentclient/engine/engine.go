@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -61,6 +63,11 @@ type Options struct {
 	// RuntimeProfile is the activity terminal.runtime_profile name. When set,
 	// sandboxed commands bind the matching Nix tool closure (or host fallback).
 	RuntimeProfile string
+	// StructuredCommandEvidence advertises CapStructuredCommandEvidence when
+	// starting sessions. The headless harness/scripted RunShell path may set
+	// this true. Interactive PTY mode must leave it false: synthetic screen
+	// text is not structured command evidence.
+	StructuredCommandEvidence bool
 	// Sync is optional; when nil a Loop is created from Client+Store.
 	Sync *sync.Loop
 }
@@ -86,6 +93,32 @@ func New(opts Options) (*Engine, error) {
 		opts.Sync = sync.New(opts.Client, opts.Store)
 	}
 	return &Engine{opts: opts, status: Status{Phase: "init", Sync: sync.StatusIdle}}, nil
+}
+
+// sessionCapabilities lists runner flags advertised on StartSession.
+// Interactive PTY does not produce structured command evidence (Phase 2).
+func (e *Engine) sessionCapabilities() []string {
+	if e.opts.StructuredCommandEvidence {
+		return []string{contracts.CapStructuredCommandEvidence}
+	}
+	return nil
+}
+
+// isIncompatibleRevisionError reports server/local capability policy rejections.
+func isIncompatibleRevisionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var inv contracts.ErrIncompatibleRevision
+	if errors.As(err, &inv) {
+		return true
+	}
+	var httpErr *studentapi.ErrHTTP
+	if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusBadRequest {
+		return strings.Contains(httpErr.Body, "structured_command_evidence") ||
+			strings.Contains(httpErr.Error(), "structured_command_evidence")
+	}
+	return strings.Contains(err.Error(), "structured_command_evidence")
 }
 
 // Status returns a copy of the last known harness status.

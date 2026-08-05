@@ -150,7 +150,8 @@ func PublishActivityRevision(ctx context.Context, q Querier, doc *contracts.Acti
 			if role == "" {
 				role = contracts.StandardRolePrimary
 			}
-			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight); err != nil {
+			pol := resolveLinkPolicy(ref, doc.Kind)
+			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight, pol); err != nil {
 				return err
 			}
 		}
@@ -214,13 +215,14 @@ func nextRevisionNumber(ctx context.Context, q Querier, activityID string) (int,
 	return *max + 1, nil
 }
 
-func qCreateRevisionStandard(ctx context.Context, q Querier, revID, standardID, role string, weight float64) (*domain.LearningActivityRevisionStandard, error) {
+func qCreateRevisionStandard(ctx context.Context, q Querier, revID, standardID, role string, weight float64, policy contracts.EvidencePolicy) (*domain.LearningActivityRevisionStandard, error) {
+	pol := EvidencePolicyMap(policy)
 	const sqlStr = `
 INSERT INTO learning_activity_revision_standards
-    (activity_revision_id, standard_id, role, weight)
-VALUES ($1, $2, $3, $4)
-RETURNING id, activity_revision_id, standard_id, role, weight, mastery_criterion, created_at`
-	rows, err := q.Query(ctx, sqlStr, revID, standardID, role, weight)
+    (activity_revision_id, standard_id, role, weight, evidence_policy)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, activity_revision_id, standard_id, role, weight, mastery_criterion, evidence_policy, created_at`
+	rows, err := q.Query(ctx, sqlStr, revID, standardID, role, weight, pol)
 	if err != nil {
 		return nil, fmt.Errorf("insert revision standard: %w", err)
 	}
@@ -231,10 +233,62 @@ RETURNING id, activity_revision_id, standard_id, role, weight, mastery_criterion
 	return &link, nil
 }
 
+// EvidencePolicyMap converts a typed policy to JSONB map storage.
+func EvidencePolicyMap(p contracts.EvidencePolicy) map[string]any {
+	if p.Version == 0 {
+		p.Version = 1
+	}
+	req := map[string]any{}
+	for k, v := range p.StatusRequirements {
+		arr := make([]any, len(v))
+		for i, s := range v {
+			arr[i] = s
+		}
+		req[k] = arr
+	}
+	return map[string]any{
+		"version":            p.Version,
+		"statusRequirements": req,
+	}
+}
+
+// ParseEvidencePolicy decodes a stored policy map.
+func ParseEvidencePolicy(m map[string]any) (contracts.EvidencePolicy, bool) {
+	if len(m) == 0 {
+		return contracts.EvidencePolicy{}, false
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return contracts.EvidencePolicy{}, false
+	}
+	var p contracts.EvidencePolicy
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return contracts.EvidencePolicy{}, false
+	}
+	if p.Version == 0 || len(p.StatusRequirements) == 0 {
+		return contracts.EvidencePolicy{}, false
+	}
+	return p, true
+}
+
+func defaultPolicyForKind(kind string) contracts.EvidencePolicy {
+	if kind == contracts.KindTyping {
+		return contracts.DefaultTypingEvidencePolicy()
+	}
+	return contracts.DefaultTerminalEvidencePolicy()
+}
+
+func resolveLinkPolicy(ref contracts.StandardRef, activityKind string) contracts.EvidencePolicy {
+	if ref.EvidencePolicy != nil && ref.EvidencePolicy.Version > 0 && len(ref.EvidencePolicy.StatusRequirements) > 0 {
+		return *ref.EvidencePolicy
+	}
+	return defaultPolicyForKind(activityKind)
+}
+
 // ListRevisionStandards returns standards linked to a revision.
 func ListRevisionStandards(ctx context.Context, q Querier, revisionID string) ([]domain.LearningActivityRevisionStandard, error) {
 	const sqlStr = `
-SELECT id, activity_revision_id, standard_id, role, weight, mastery_criterion, created_at
+SELECT id, activity_revision_id, standard_id, role, weight, mastery_criterion, evidence_policy, created_at
 FROM learning_activity_revision_standards
 WHERE activity_revision_id = $1
 ORDER BY role, created_at`
@@ -324,7 +378,8 @@ func PublishDraftRevision(ctx context.Context, q Querier, activityID string, con
 			if role == "" {
 				role = contracts.StandardRolePrimary
 			}
-			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight); err != nil {
+			pol := resolveLinkPolicy(ref, act.Kind)
+			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight, pol); err != nil {
 				return err
 			}
 		}

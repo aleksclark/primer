@@ -1,0 +1,609 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-10-permissions-identity",
+  "title": "Permissions and identity",
+  "summary": "Interpret user, group, and other permission classes in ls -l output, distinguish file and directory rwx meanings, and make narrow symbolic chmod changes on disposable copies.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.PERM.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "10",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Explain that a process acts with an operating-system user identity and group memberships; read type, user/group/other rwx fields in ls -l; distinguish file execute from directory traversal; and use only narrow symbolic chmod changes on disposable practice copies.",
+    "instructions": "Work only in workspace/permission-lab and complete the five tasks in order. The lesson does not use whoami or id: identity is the concept that every process acts as a user with group memberships, and ls -l labels each path with an owner and group. Read permissions from left to right as type, user, group, and other. Copy supplied templates before changing modes, use only the exact symbolic chmod forms requested, and never change the read-only templates. Remember that x on a file permits execution, while x on a directory permits traversal to entries whose names are known.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/permission-lab",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/permission-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/permission-lab/owner-template.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Owner practice copy.\n"
+        },
+        {
+          "path": "workspace/permission-lab/team-template.txt",
+          "type": "file",
+          "mode": "0440",
+          "content": "Group practice copy.\n"
+        },
+        {
+          "path": "workspace/permission-lab/reference-shelf",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/permission-lab/reference-shelf/catalog.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "map\ncompass\nnotebook\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "inspect-permission-records",
+        "title": "Read long-list permission records",
+        "instructions": "Run ls -l with no path operand to inspect the lab. For each row, identify the first character as path type, split the next nine characters into user, group, and other triplets, and locate the owner and group columns. State that those names describe filesystem ownership; they do not require or reveal a typed student name.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-long-list"
+            },
+            {
+              "checkId": "owner-template-starts-read-only"
+            },
+            {
+              "checkId": "team-template-starts-group-readable"
+            },
+            {
+              "checkId": "reference-shelf-starts-traversable"
+            },
+            {
+              "checkId": "cwd-after-inspection"
+            }
+          ]
+        },
+        "hintIds": [
+          "inspect-hint-1",
+          "inspect-hint-2",
+          "inspect-hint-3"
+        ]
+      },
+      {
+        "id": "make-disposable-copies",
+        "title": "Make safe permission practice copies",
+        "instructions": "Preserve the supplied templates. First run cp owner-template.txt owner-draft.txt. Then run cp team-template.txt team-draft.txt. The copies provide disposable paths for permission changes and reinforce precise file organization. Verify that owner-draft begins as 0444 and team-draft begins as 0440.",
+        "prerequisites": [
+          "inspect-permission-records"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-second-safe-copy"
+            },
+            {
+              "checkId": "owner-draft-is-file"
+            },
+            {
+              "checkId": "team-draft-is-file"
+            },
+            {
+              "checkId": "owner-draft-copied-mode"
+            },
+            {
+              "checkId": "team-draft-copied-mode"
+            },
+            {
+              "checkId": "owner-template-unchanged"
+            },
+            {
+              "checkId": "team-template-unchanged"
+            }
+          ]
+        },
+        "hintIds": [
+          "copy-hint-1",
+          "copy-hint-2",
+          "copy-hint-3"
+        ]
+      },
+      {
+        "id": "add-narrow-file-permissions",
+        "title": "Add only the requested file permissions",
+        "instructions": "First run chmod u+w owner-draft.txt to add write only for the user class. Then run chmod g+w team-draft.txt to add write only for the group class. Read u as user/owner, g as group, + as add, and w as write. Do not use a numeric mode or broad permissions such as a+w or 777.",
+        "prerequisites": [
+          "make-disposable-copies"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-group-write-change"
+            },
+            {
+              "checkId": "owner-draft-user-write-added"
+            },
+            {
+              "checkId": "team-draft-group-write-added"
+            },
+            {
+              "checkId": "owner-draft-content-preserved"
+            },
+            {
+              "checkId": "team-draft-content-preserved"
+            },
+            {
+              "checkId": "templates-still-read-only"
+            }
+          ]
+        },
+        "hintIds": [
+          "file-mode-hint-1",
+          "file-mode-hint-2",
+          "file-mode-hint-3"
+        ]
+      },
+      {
+        "id": "observe-directory-execute",
+        "title": "Observe the directory execute distinction",
+        "instructions": "First run cp -R reference-shelf practice-shelf to make a disposable directory copy. Then run chmod a-x practice-shelf to remove directory execute from user, group, and other while leaving read bits. Finally run ls -l practice-shelf. It should fail with exit status 1: directory read can expose entry names, but without directory execute the process cannot traverse to catalog.txt to obtain its long-list metadata. Do not change reference-shelf.",
+        "prerequisites": [
+          "add-narrow-file-permissions"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "long-list-blocked-without-directory-execute"
+            },
+            {
+              "checkId": "practice-shelf-is-directory"
+            },
+            {
+              "checkId": "practice-shelf-has-no-execute"
+            },
+            {
+              "checkId": "reference-shelf-remains-traversable"
+            }
+          ]
+        },
+        "hintIds": [
+          "directory-hint-1",
+          "directory-hint-2",
+          "directory-hint-3"
+        ]
+      },
+      {
+        "id": "restore-user-traversal",
+        "title": "Restore only user traversal and verify",
+        "instructions": "Run chmod u+x practice-shelf to restore directory traversal only for the user class. Then run ls -l practice-shelf again. This time the command should succeed and show catalog.txt. Explain why x means traversal on this directory, whereas x on a regular script or program file means permission to execute it.",
+        "prerequisites": [
+          "observe-directory-execute"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "verified-after-user-traversal"
+            },
+            {
+              "checkId": "catalog-visible-after-restore"
+            },
+            {
+              "checkId": "practice-shelf-user-traversal-restored"
+            },
+            {
+              "checkId": "practice-catalog-preserved-after-restore"
+            },
+            {
+              "checkId": "owner-template-unchanged"
+            },
+            {
+              "checkId": "team-template-unchanged"
+            },
+            {
+              "checkId": "owner-template-starts-read-only"
+            },
+            {
+              "checkId": "team-template-starts-group-readable"
+            },
+            {
+              "checkId": "reference-shelf-remains-traversable"
+            },
+            {
+              "checkId": "all-source-fixtures-preserved"
+            },
+            {
+              "checkId": "cwd-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "restore-hint-1",
+          "restore-hint-2",
+          "restore-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-long-list",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-l"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "owner-template-starts-read-only",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/owner-template.txt",
+          "mode": "0444"
+        }
+      },
+      {
+        "id": "team-template-starts-group-readable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/team-template.txt",
+          "mode": "0440"
+        }
+      },
+      {
+        "id": "reference-shelf-starts-traversable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/reference-shelf",
+          "mode": "0755"
+        }
+      },
+      {
+        "id": "cwd-after-inspection",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/permission-lab"
+        }
+      },
+      {
+        "id": "used-second-safe-copy",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cp",
+          "args": [
+            "team-template.txt",
+            "team-draft.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "owner-draft-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/permission-lab/owner-draft.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "team-draft-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/permission-lab/team-draft.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "owner-draft-copied-mode",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/owner-draft.txt",
+          "mode": "0444"
+        }
+      },
+      {
+        "id": "team-draft-copied-mode",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/team-draft.txt",
+          "mode": "0440"
+        }
+      },
+      {
+        "id": "owner-template-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/permission-lab/owner-template.txt",
+          "value": "Owner practice copy.\n"
+        }
+      },
+      {
+        "id": "team-template-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/permission-lab/team-template.txt",
+          "value": "Group practice copy.\n"
+        }
+      },
+      {
+        "id": "used-group-write-change",
+        "kind": "command_properties",
+        "params": {
+          "executable": "chmod",
+          "args": [
+            "g+w",
+            "team-draft.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "owner-draft-user-write-added",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/owner-draft.txt",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "team-draft-group-write-added",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/team-draft.txt",
+          "mode": "0460"
+        }
+      },
+      {
+        "id": "owner-draft-content-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/permission-lab/owner-draft.txt",
+          "value": "Owner practice copy.\n"
+        }
+      },
+      {
+        "id": "team-draft-content-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/permission-lab/team-draft.txt",
+          "value": "Group practice copy.\n"
+        }
+      },
+      {
+        "id": "templates-still-read-only",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/owner-template.txt",
+          "mode": "0444"
+        }
+      },
+      {
+        "id": "long-list-blocked-without-directory-execute",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-l",
+            "practice-shelf"
+          ],
+          "exitCode": 1
+        }
+      },
+      {
+        "id": "practice-shelf-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/permission-lab/practice-shelf",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "practice-shelf-has-no-execute",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/practice-shelf",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "reference-shelf-remains-traversable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/reference-shelf",
+          "mode": "0755"
+        }
+      },
+      {
+        "id": "verified-after-user-traversal",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-l",
+            "practice-shelf"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "catalog-visible-after-restore",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)catalog\\.txt[[:space:]]*$"
+        }
+      },
+      {
+        "id": "practice-shelf-user-traversal-restored",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/permission-lab/practice-shelf",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "practice-catalog-preserved-after-restore",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/permission-lab/practice-shelf/catalog.txt",
+          "value": "map\ncompass\nnotebook\n"
+        }
+      },
+      {
+        "id": "all-source-fixtures-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/permission-lab/reference-shelf/catalog.txt",
+          "value": "map\ncompass\nnotebook\n"
+        }
+      },
+      {
+        "id": "cwd-at-finish",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/permission-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "inspect-hint-1",
+        "level": 1,
+        "text": "Use the listing form that shows metadata. Read the first ten characters as one type character followed by three rwx triplets."
+      },
+      {
+        "id": "inspect-hint-2",
+        "level": 2,
+        "text": "The long-list option is lowercase -l. The triplets after the type character belong to user, group, and other in that order."
+      },
+      {
+        "id": "inspect-hint-3",
+        "level": 3,
+        "text": "Run: ls -l"
+      },
+      {
+        "id": "copy-hint-1",
+        "level": 1,
+        "text": "Use the familiar copy command twice so permission experiments affect new draft paths rather than source templates."
+      },
+      {
+        "id": "copy-hint-2",
+        "level": 2,
+        "text": "Copy owner-template.txt to owner-draft.txt first, then team-template.txt to team-draft.txt."
+      },
+      {
+        "id": "copy-hint-3",
+        "level": 3,
+        "text": "Run: cp owner-template.txt owner-draft.txt\nThen run: cp team-template.txt team-draft.txt"
+      },
+      {
+        "id": "file-mode-hint-1",
+        "level": 1,
+        "text": "A symbolic chmod change names the class, operation, and permission. Add write to the owner copy's user class, then to the team copy's group class."
+      },
+      {
+        "id": "file-mode-hint-2",
+        "level": 2,
+        "text": "Use u+w for owner-draft.txt and g+w for team-draft.txt. The plus sign preserves all permission bits not named."
+      },
+      {
+        "id": "file-mode-hint-3",
+        "level": 3,
+        "text": "Run: chmod u+w owner-draft.txt\nThen run: chmod g+w team-draft.txt"
+      },
+      {
+        "id": "directory-hint-1",
+        "level": 1,
+        "text": "Make a recursive directory copy, remove execute from all three classes on the copy, then ask ls -l to inspect entries inside it."
+      },
+      {
+        "id": "directory-hint-2",
+        "level": 2,
+        "text": "Use cp -R for the shelf copy, chmod a-x to remove traversal, and ls -l practice-shelf to observe the failed metadata lookup."
+      },
+      {
+        "id": "directory-hint-3",
+        "level": 3,
+        "text": "Run: cp -R reference-shelf practice-shelf\nThen: chmod a-x practice-shelf\nThen: ls -l practice-shelf"
+      },
+      {
+        "id": "restore-hint-1",
+        "level": 1,
+        "text": "Add execute back only to the user class of the directory copy, then repeat the same long listing."
+      },
+      {
+        "id": "restore-hint-2",
+        "level": 2,
+        "text": "Use u+x on practice-shelf. On a directory this grants the owning user traversal, which lets ls obtain catalog.txt metadata."
+      },
+      {
+        "id": "restore-hint-3",
+        "level": 3,
+        "text": "Run: chmod u+x practice-shelf\nThen run: ls -l practice-shelf"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student understands identity as the user and group context carried by a process, decodes ls -l type and user/group/other rwx fields, changes only named bits on disposable copies, and demonstrates that directory execute controls traversal rather than file execution.",
+      "misconceptions": [
+        "Primer's paired student identity and the operating-system identity used for permission checks are related system concepts but are not discovered here by typing a name or running whoami/id.",
+        "In ls -l, the first character is path type; the following nine characters are three permission triplets for user, group, and other.",
+        "The user class means the file owner, group means the owning group, and other means identities that match neither class; the kernel does not simply choose whichever triplet is most generous.",
+        "A dash means that permission is absent, not that the path or identity class is absent.",
+        "For a regular file, r reads content, w changes content, and x permits execution; x does not mean the file is safe or valid to run.",
+        "For a directory, r permits listing entry names, w permits changing directory entries, and x permits traversal/search through the directory.",
+        "Directory read without execute may reveal names but prevents accessing entry metadata or contents by those names.",
+        "chmod changes permission bits, not file contents, owner identity, group ownership, or whether a path is a file or directory.",
+        "Symbolic + adds named permissions while preserving unnamed bits; broad modes such as 777 grant more authority than this lesson requires."
+      ],
+      "constraints": [
+        "Do not rely on or suggest whoami, id, groups, stat, chown, chgrp, getfacl, sudo, su, or unavailable account-management tools.",
+        "Keep identity instruction conceptual: processes act with a user identity and group memberships, while ls -l displays each path's owner and owning group.",
+        "Keep command coaching within ls -l, cp, cp -R, and the exact limited symbolic chmod forms u+w, g+w, a-x, and u+x.",
+        "Do not introduce numeric chmod operands, recursive chmod, setuid/setgid/sticky bits, ACLs, umask calculations, or chmod 777.",
+        "Require all permission changes to target owner-draft.txt, team-draft.txt, or practice-shelf; never direct changes to supplied templates or workspace ancestors.",
+        "Give hints in level order and ask the student to decode class, operation, and permission before revealing exact commands at level 3.",
+        "Explain the expected ls exit status 1 after directory execute removal as deliberate evidence, not a reason to broaden permissions or alter the source shelf.",
+        "Distinguish file execute from directory traversal every time x is discussed.",
+        "Keep all work in workspace/permission-lab and reset if source fixtures are changed or extra broad permissions are granted.",
+        "After completion, require the student to decode several sample mode strings orally and justify each chmod change by least privilege."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

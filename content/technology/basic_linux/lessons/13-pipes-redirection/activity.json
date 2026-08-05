@@ -1,0 +1,460 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-13-pipes-redirection",
+  "title": "Pipes and redirection",
+  "summary": "Follow standard input, output, and error through a pipeline; save output with >, append with >>, and capture errors separately with 2> while recognizing overwrite risk.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.PIPE.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "13",
+    "runtime": "terminal/text-processing",
+    "standardsStatus": "pending-new-standards"
+  },
+  "content": {
+    "objective": "Explain standard input, standard output, and standard error; connect one command's standard output to another command's standard input with |; deliberately replace a disposable destination with >; preserve existing output with >>; and capture standard error separately with 2>.",
+    "instructions": "Work only in workspace/streams-lab and complete the five tasks in order. Treat every command as having three standard streams: stdin is input (stream 0), stdout is ordinary output (stream 1), and stderr is diagnostic output (stream 2). A pipe | sends the command on its left's stdout into the command on its right's stdin. The operator > sends stdout to a file and replaces that file first; inspect and spell the destination before pressing Enter. The operator >> sends stdout to the end of a file without removing existing content. The operator 2> sends stderr, not stdout, to a file and also replaces that destination. Use only the exact commands and relative paths requested. The supplied source and helper files must remain unchanged; ready.txt and errors.txt are the only files you may create or change.",
+    "terminal": {
+      "runtimeProfile": "text-processing",
+      "initialCwd": "workspace/streams-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/streams-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/streams-lab/records.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "READY compass\nWAIT batteries\nREADY maps\nHOLD radio\nWAIT water\nREADY first-aid\n"
+        },
+        {
+          "path": "workspace/streams-lab/check-sensor",
+          "type": "file",
+          "mode": "0755",
+          "content": "#!/bin/sh\nprintf 'checking sensor\\n'\nprintf 'sensor unavailable\\n' >&2\nexit 1\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "count-through-pipe",
+        "title": "Send stdout through a pipe",
+        "instructions": "Run grep '^READY' records.txt | wc -l. Before running it, identify grep as the producer and wc -l as the consumer: grep reads records.txt and writes three selected lines to stdout; | carries those lines to wc's stdin; wc writes the count to its own stdout. Confirm that the screen shows 3 and that no file is created or changed.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "pipeline-count-output"
+            },
+            {
+              "checkId": "records-preserved-after-pipe"
+            },
+            {
+              "checkId": "ready-not-created-by-pipe"
+            },
+            {
+              "checkId": "cwd-after-pipe"
+            }
+          ]
+        },
+        "hintIds": [
+          "pipe-hint-1",
+          "pipe-hint-2",
+          "pipe-hint-3"
+        ]
+      },
+      {
+        "id": "redirect-with-overwrite",
+        "title": "Create a report from stdout",
+        "instructions": "Confirm that ready.txt does not yet exist, then run grep '^WAIT' records.txt > ready.txt. This sends grep's stdout to a newly created file instead of the screen. Verify that ready.txt contains exactly the two WAIT records. Remember that the same operator replaces content when its destination already exists.",
+        "prerequisites": [
+          "count-through-pipe"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ready-created-with-wait-lines"
+            },
+            {
+              "checkId": "records-preserved-after-overwrite"
+            },
+            {
+              "checkId": "cwd-after-overwrite"
+            }
+          ]
+        },
+        "hintIds": [
+          "overwrite-hint-1",
+          "overwrite-hint-2",
+          "overwrite-hint-3"
+        ]
+      },
+      {
+        "id": "overwrite-standard-output",
+        "title": "Replace a safe existing report",
+        "instructions": "ready.txt now contains two disposable WAIT lines. Predict that one > will erase them, then run grep '^READY' records.txt > ready.txt. Verify that ready.txt contains exactly the three READY records and no WAIT lines. The shell truncates an existing destination before the command writes its result, so never practice this on important data.",
+        "prerequisites": [
+          "redirect-with-overwrite"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ready-replaced-with-ready-lines"
+            },
+            {
+              "checkId": "records-preserved-after-overwrite"
+            },
+            {
+              "checkId": "cwd-after-overwrite"
+            }
+          ]
+        },
+        "hintIds": [
+          "replace-hint-1",
+          "replace-hint-2",
+          "replace-hint-3"
+        ]
+      },
+      {
+        "id": "append-standard-output",
+        "title": "Append without removing earlier output",
+        "instructions": "Run grep '^WAIT' records.txt >> ready.txt. The double operator appends grep's two WAIT lines after the three READY lines already in ready.txt. Verify that all five lines remain in that exact order. Explain why using > here would have destroyed the READY section instead of extending it.",
+        "prerequisites": [
+          "overwrite-standard-output"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ready-final-content"
+            },
+            {
+              "checkId": "records-preserved-after-append"
+            },
+            {
+              "checkId": "cwd-after-append"
+            }
+          ]
+        },
+        "hintIds": [
+          "append-hint-1",
+          "append-hint-2",
+          "append-hint-3"
+        ]
+      },
+      {
+        "id": "separate-standard-error",
+        "title": "Capture stderr separately",
+        "instructions": "The supplied check-sensor helper writes checking sensor to stdout, writes sensor unavailable to stderr, and exits with status 1. Run ./check-sensor 2> errors.txt. Confirm that checking sensor still appears on the screen because 2> does not redirect stdout, while errors.txt is replaced with exactly the diagnostic line. The nonzero status is expected and does not undo the redirection.",
+        "prerequisites": [
+          "append-standard-output"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-sensor-helper"
+            },
+            {
+              "checkId": "sensor-stdout-remained-visible"
+            },
+            {
+              "checkId": "stderr-captured-exactly"
+            },
+            {
+              "checkId": "ready-final-content-at-finish"
+            },
+            {
+              "checkId": "records-preserved-at-finish"
+            },
+            {
+              "checkId": "helper-preserved-at-finish"
+            },
+            {
+              "checkId": "cwd-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "stderr-hint-1",
+          "stderr-hint-2",
+          "stderr-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "pipeline-count-output",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "^[[:space:]]*3[[:space:]]*\\n?$"
+        }
+      },
+      {
+        "id": "records-preserved-after-pipe",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/records.txt",
+          "value": "READY compass\nWAIT batteries\nREADY maps\nHOLD radio\nWAIT water\nREADY first-aid\n"
+        }
+      },
+      {
+        "id": "ready-not-created-by-pipe",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/streams-lab/ready.txt"
+        }
+      },
+      {
+        "id": "cwd-after-pipe",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/streams-lab"
+        }
+      },
+      {
+        "id": "ready-created-with-wait-lines",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/ready.txt",
+          "value": "WAIT batteries\nWAIT water\n"
+        }
+      },
+      {
+        "id": "records-preserved-after-overwrite",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/records.txt",
+          "value": "READY compass\nWAIT batteries\nREADY maps\nHOLD radio\nWAIT water\nREADY first-aid\n"
+        }
+      },
+      {
+        "id": "cwd-after-overwrite",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/streams-lab"
+        }
+      },
+      {
+        "id": "ready-replaced-with-ready-lines",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/ready.txt",
+          "value": "READY compass\nREADY maps\nREADY first-aid\n"
+        }
+      },
+      {
+        "id": "ready-final-content",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/ready.txt",
+          "value": "READY compass\nREADY maps\nREADY first-aid\nWAIT batteries\nWAIT water\n"
+        }
+      },
+      {
+        "id": "records-preserved-after-append",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/records.txt",
+          "value": "READY compass\nWAIT batteries\nREADY maps\nHOLD radio\nWAIT water\nREADY first-aid\n"
+        }
+      },
+      {
+        "id": "cwd-after-append",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/streams-lab"
+        }
+      },
+      {
+        "id": "used-sensor-helper",
+        "kind": "command_properties",
+        "params": {
+          "executable": "check-sensor",
+          "args": [],
+          "exitCode": 1
+        }
+      },
+      {
+        "id": "sensor-stdout-remained-visible",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "checking sensor\n"
+        }
+      },
+      {
+        "id": "stderr-captured-exactly",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/errors.txt",
+          "value": "sensor unavailable\n"
+        }
+      },
+      {
+        "id": "ready-final-content-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/ready.txt",
+          "value": "READY compass\nREADY maps\nREADY first-aid\nWAIT batteries\nWAIT water\n"
+        }
+      },
+      {
+        "id": "records-preserved-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/records.txt",
+          "value": "READY compass\nWAIT batteries\nREADY maps\nHOLD radio\nWAIT water\nREADY first-aid\n"
+        }
+      },
+      {
+        "id": "helper-preserved-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/streams-lab/check-sensor",
+          "value": "#!/bin/sh\nprintf 'checking sensor\\n'\nprintf 'sensor unavailable\\n' >&2\nexit 1\n"
+        }
+      },
+      {
+        "id": "cwd-at-finish",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/streams-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "pipe-hint-1",
+        "level": 1,
+        "text": "Put the command that produces selected READY lines on the left and the command that counts input lines on the right. Connect stdout to stdin with one vertical bar."
+      },
+      {
+        "id": "pipe-hint-2",
+        "level": 2,
+        "text": "Use grep with the quoted beginning-of-line pattern ^READY and records.txt, then |, then wc -l."
+      },
+      {
+        "id": "pipe-hint-3",
+        "level": 3,
+        "text": "Run: grep '^READY' records.txt | wc -l"
+      },
+      {
+        "id": "overwrite-hint-1",
+        "level": 1,
+        "text": "Use the stdout redirection operator with one greater-than sign. Because ready.txt is absent, this first use creates it."
+      },
+      {
+        "id": "overwrite-hint-2",
+        "level": 2,
+        "text": "Select lines beginning with WAIT, then place > ready.txt after the grep command."
+      },
+      {
+        "id": "overwrite-hint-3",
+        "level": 3,
+        "text": "Run: grep '^WAIT' records.txt > ready.txt"
+      },
+      {
+        "id": "replace-hint-1",
+        "level": 1,
+        "text": "Use one greater-than sign again. This time ready.txt exists, so its two disposable lines will be removed before new stdout is written."
+      },
+      {
+        "id": "replace-hint-2",
+        "level": 2,
+        "text": "Select lines beginning with READY and redirect stdout with > to the existing ready.txt."
+      },
+      {
+        "id": "replace-hint-3",
+        "level": 3,
+        "text": "Run: grep '^READY' records.txt > ready.txt"
+      },
+      {
+        "id": "append-hint-1",
+        "level": 1,
+        "text": "Keep the READY lines already saved. Use the stdout operator with two greater-than signs to add new output at the end."
+      },
+      {
+        "id": "append-hint-2",
+        "level": 2,
+        "text": "Select lines beginning with WAIT from records.txt, then append stdout to ready.txt with >>."
+      },
+      {
+        "id": "append-hint-3",
+        "level": 3,
+        "text": "Run: grep '^WAIT' records.txt >> ready.txt"
+      },
+      {
+        "id": "stderr-hint-1",
+        "level": 1,
+        "text": "The diagnostic stream has descriptor number 2. Put that number immediately before the overwrite redirection operator."
+      },
+      {
+        "id": "stderr-hint-2",
+        "level": 2,
+        "text": "Run the relative executable ./check-sensor and redirect only descriptor 2 to errors.txt."
+      },
+      {
+        "id": "stderr-hint-3",
+        "level": 3,
+        "text": "Run: ./check-sensor 2> errors.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student traces stdin, stdout, and stderr; composes one bounded pipeline; distinguishes screen output from redirected output; chooses > versus >> intentionally; captures stderr with 2>; and preserves immutable sources while producing exact final report files.",
+      "misconceptions": [
+        "Standard input is stream 0, ordinary standard output is stream 1, and standard error is stream 2; they are separate channels even when stdout and stderr normally appear in the same terminal.",
+        "A pipe carries only the left command's stdout to the right command's stdin by default; it does not automatically send stderr through the pipe.",
+        "The right side of a pipeline processes the left side's output rather than rereading the left side's original file unless explicitly told to do so.",
+        "> redirects stdout and truncates an existing destination before output is written; a typo can destroy useful content even if the command later fails.",
+        ">> redirects stdout by appending at the destination's end; it does not sort, merge, or remove duplicates.",
+        "2> redirects stderr because 2 names the stderr file descriptor; it does not redirect ordinary stdout.",
+        "Redirection operators are shell syntax, not ordinary arguments passed to grep or the helper program.",
+        "A command may write useful stdout, write a diagnostic to stderr, and return a nonzero status in the same run.",
+        "Redirection changes where a stream goes; it does not change the source file being read.",
+        "An empty screen after > can be expected because stdout went to a file, but the destination must still be inspected and verified."
+      ],
+      "constraints": [
+        "Keep coaching to stdin, stdout, stderr, one simple pipe, >, >>, and 2> using only the exact supplied commands and paths.",
+        "Before every command, require the student to name each producer, consumer, stream, destination, and whether an existing destination will be replaced or extended.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Do not suggest tee, 2>&1, &>, <, here-documents, here-strings, process substitution, command substitution, xargs, shell variables, loops, command chaining, or background execution.",
+        "Do not combine the create, overwrite, and append tasks, reorder tasks, or redirect to any path other than ready.txt and errors.txt.",
+        "Do not suggest cat as an unnecessary first stage such as cat records.txt | grep; grep can read the named source directly.",
+        "Require the exact quoted grep patterns ^READY and ^WAIT and preserve the supplied record order.",
+        "Treat records.txt and check-sensor as immutable fixtures; reset if either changes or if an unrequested file is created.",
+        "Emphasize that > is practiced only on an explicitly disposable fixture and must never be aimed at important data without checking the path and consequences.",
+        "After the final task, require an oral trace of all three streams and a comparison of |, >, >>, and 2>."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

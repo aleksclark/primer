@@ -1,0 +1,373 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-02-list-and-inspect",
+  "title": "List and inspect",
+  "summary": "List ordinary and hidden names, read long-list metadata, distinguish files from directories, and print a short text file.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "02",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Use ls, ls -a, ls -l, and cat to inspect a directory without changing it, including hidden names, file-versus-directory metadata, and short text contents.",
+    "instructions": "Inspect the supplied workspace in order. First list ordinary names, then reveal hidden names, read the long metadata listing for field-notes, and finally print observations.txt. Do not create, rename, or remove anything.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/README.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Survey workspace\nUse listing commands before reading a short text file.\n"
+        },
+        {
+          "path": "workspace/.manifest.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "hidden-name: .manifest.txt\nstatus: ready\n"
+        },
+        {
+          "path": "workspace/field-notes",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-notes/archive",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-notes/observations.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Creek level: low\nTrail marker: blue\nNest count: 3\n"
+        },
+        {
+          "path": "workspace/field-notes/supplies.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "compass\nnotebook\nwater\n"
+        },
+        {
+          "path": "workspace/field-notes/.draft.txt",
+          "type": "file",
+          "mode": "0600",
+          "content": "Unreviewed field note.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "list-ordinary-names",
+        "title": "List the ordinary names",
+        "instructions": "Run plain ls in the current workspace. Its output should include README.txt and field-notes. Notice that the dot-prefixed manifest is not shown by this ordinary listing.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-plain-ls"
+            },
+            {
+              "checkId": "plain-list-has-readme"
+            },
+            {
+              "checkId": "plain-list-has-field-notes"
+            }
+          ]
+        },
+        "hintIds": [
+          "ordinary-hint-1",
+          "ordinary-hint-2",
+          "ordinary-hint-3"
+        ]
+      },
+      {
+        "id": "reveal-hidden-name",
+        "title": "Reveal the hidden manifest",
+        "instructions": "List all names in the current workspace, including dot-prefixed names. Find .manifest.txt in the output.",
+        "prerequisites": [
+          "list-ordinary-names"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-ls-all"
+            },
+            {
+              "checkId": "all-list-has-manifest"
+            }
+          ]
+        },
+        "hintIds": [
+          "hidden-hint-1",
+          "hidden-hint-2",
+          "hidden-hint-3"
+        ]
+      },
+      {
+        "id": "inspect-entry-types",
+        "title": "Distinguish files from a directory",
+        "instructions": "Request a long listing of field-notes. Use the first character of each entry line to confirm that archive is a directory while observations.txt and supplies.txt are regular files. Exact owners, sizes, and times are not important.",
+        "prerequisites": [
+          "reveal-hidden-name"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-long-list"
+            },
+            {
+              "checkId": "long-list-shows-archive-directory"
+            },
+            {
+              "checkId": "long-list-shows-observations-file"
+            },
+            {
+              "checkId": "long-list-shows-supplies-file"
+            }
+          ]
+        },
+        "hintIds": [
+          "metadata-hint-1",
+          "metadata-hint-2",
+          "metadata-hint-3"
+        ]
+      },
+      {
+        "id": "read-observations",
+        "title": "Read the observations",
+        "instructions": "Use cat with the relative path field-notes/observations.txt. Read the three lines printed to the terminal and leave the fixture unchanged.",
+        "prerequisites": [
+          "inspect-entry-types"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-cat-observations"
+            },
+            {
+              "checkId": "cat-output-matches-observations"
+            },
+            {
+              "checkId": "observations-still-exact"
+            }
+          ]
+        },
+        "hintIds": [
+          "cat-hint-1",
+          "cat-hint-2",
+          "cat-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-plain-ls",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "plain-list-has-readme",
+        "kind": "pipeline_output",
+        "params": {
+          "contains": "README.txt"
+        }
+      },
+      {
+        "id": "plain-list-has-field-notes",
+        "kind": "pipeline_output",
+        "params": {
+          "contains": "field-notes"
+        }
+      },
+      {
+        "id": "used-ls-all",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-a"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "all-list-has-manifest",
+        "kind": "pipeline_output",
+        "params": {
+          "contains": ".manifest.txt"
+        }
+      },
+      {
+        "id": "used-long-list",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-l",
+            "field-notes"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "long-list-shows-archive-directory",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)^d[^\\n]*[[:space:]]archive$"
+        }
+      },
+      {
+        "id": "long-list-shows-observations-file",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)^-[^\\n]*[[:space:]]observations\\.txt$"
+        }
+      },
+      {
+        "id": "long-list-shows-supplies-file",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)^-[^\\n]*[[:space:]]supplies\\.txt$"
+        }
+      },
+      {
+        "id": "used-cat-observations",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "field-notes/observations.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "cat-output-matches-observations",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "Creek level: low\nTrail marker: blue\nNest count: 3\n"
+        }
+      },
+      {
+        "id": "observations-still-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/field-notes/observations.txt",
+          "value": "Creek level: low\nTrail marker: blue\nNest count: 3\n"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "ordinary-hint-1",
+        "level": 1,
+        "text": "Use the listing command from the lesson with no option and no path."
+      },
+      {
+        "id": "ordinary-hint-2",
+        "level": 2,
+        "text": "The command is two letters long. Check the final names in its output."
+      },
+      {
+        "id": "ordinary-hint-3",
+        "level": 3,
+        "text": "Run: ls"
+      },
+      {
+        "id": "hidden-hint-1",
+        "level": 1,
+        "text": "Ordinary listings omit names whose first character is a dot. Add the option meaning all."
+      },
+      {
+        "id": "hidden-hint-2",
+        "level": 2,
+        "text": "The all option is -a; keep the command focused on the current directory."
+      },
+      {
+        "id": "hidden-hint-3",
+        "level": 3,
+        "text": "Run: ls -a"
+      },
+      {
+        "id": "metadata-hint-1",
+        "level": 1,
+        "text": "Ask ls for its long format and give field-notes as the path to inspect."
+      },
+      {
+        "id": "metadata-hint-2",
+        "level": 2,
+        "text": "Use -l. In the output, d begins a directory line and - begins a regular-file line."
+      },
+      {
+        "id": "metadata-hint-3",
+        "level": 3,
+        "text": "Run: ls -l field-notes"
+      },
+      {
+        "id": "cat-hint-1",
+        "level": 1,
+        "text": "Use the read-only command that prints a short text file, followed by the file's relative path."
+      },
+      {
+        "id": "cat-hint-2",
+        "level": 2,
+        "text": "The command is cat, and the path starts with field-notes/."
+      },
+      {
+        "id": "cat-hint-3",
+        "level": 3,
+        "text": "Run: cat field-notes/observations.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student independently selects ls, ls -a, ls -l, and cat to inspect fixed workspace names, metadata, and short text while explaining hidden-name and entry-type cues.",
+      "misconceptions": [
+        "ls lists a directory but does not enter it or change the current working directory.",
+        "A leading dot makes a name hidden from ordinary ls output; it does not encrypt or protect the entry.",
+        "In ls -l output, the first character is an entry-type marker: d is a directory and - is a regular file.",
+        "Long-list sizes and timestamps are metadata, not file contents, and a directory size is not a recursive total.",
+        "cat prints bytes from a file; it is appropriate here only because the target is known short text."
+      ],
+      "constraints": [
+        "Keep coaching within ls, ls -a, ls -l, hidden names, basic long-list metadata, and cat.",
+        "Do not suggest commands that create, edit, rename, copy, move, or delete workspace entries.",
+        "Give hints in level order and ask the student to predict output before revealing an exact command at level 3.",
+        "Do not provide all four command lines as a pasteable sequence or complete later tasks for the student.",
+        "Judge variable owner names, spacing, sizes, and timestamps as incidental; focus on the leading type character and final entry name.",
+        "After success, ask the student to explain why .manifest.txt was hidden and how archive was identified as a directory."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

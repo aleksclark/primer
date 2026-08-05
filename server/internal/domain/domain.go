@@ -118,16 +118,29 @@ type MasteryRecord struct {
 	UpdatedAt           time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
+// Evidence class constants for mastery evidence taxonomy.
+const (
+	EvidenceProceduralContinuous = "procedural_continuous"
+	EvidenceConceptualResponse   = "conceptual_response"
+	EvidenceParentAttestation    = "parent_attestation"
+	EvidenceFormalAssessment     = "formal_assessment"
+	EvidencePortfolio            = "portfolio"
+)
+
 // MasteryEvidence is a single piece of evidence backing a mastery record.
 type MasteryEvidence struct {
-	ID              string    `json:"id" db:"id" format:"uuid"`
-	MasteryRecordID string    `json:"masteryRecordId" db:"mastery_record_id" format:"uuid"`
-	Kind            string    `json:"kind" db:"kind" enum:"continuous,formal,project,portfolio"`
-	OccurredOn      time.Time `json:"occurredOn" db:"occurred_on"`
-	Context         string    `json:"context" db:"context"`
-	SourceRef       string    `json:"sourceRef" db:"source_ref"`
-	CreatedAt       time.Time `json:"createdAt" db:"created_at"`
-	UpdatedAt       time.Time `json:"updatedAt" db:"updated_at"`
+	ID              string         `json:"id" db:"id" format:"uuid"`
+	MasteryRecordID string         `json:"masteryRecordId" db:"mastery_record_id" format:"uuid"`
+	Kind            string         `json:"kind" db:"kind" enum:"continuous,formal,project,portfolio"`
+	EvidenceClass   string         `json:"evidenceClass" db:"evidence_class" enum:"procedural_continuous,conceptual_response,parent_attestation,formal_assessment,portfolio"`
+	Provenance      map[string]any `json:"provenance,omitempty" db:"provenance"`
+	PolicyVersion   int            `json:"policyVersion" db:"policy_version"`
+	MigrationNote   string         `json:"migrationNote,omitempty" db:"migration_note"`
+	OccurredOn      time.Time      `json:"occurredOn" db:"occurred_on"`
+	Context         string         `json:"context" db:"context"`
+	SourceRef       string         `json:"sourceRef" db:"source_ref"`
+	CreatedAt       time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt       time.Time      `json:"updatedAt" db:"updated_at"`
 }
 
 // Instruction log sources. Machine producers carry a stable SourceRef so a
@@ -284,13 +297,14 @@ type LearningActivityRevision struct {
 
 // LearningActivityRevisionStandard links a revision to a standard.
 type LearningActivityRevisionStandard struct {
-	ID                 string    `json:"id" db:"id" format:"uuid"`
-	ActivityRevisionID string    `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
-	StandardID         string    `json:"standardId" db:"standard_id" format:"uuid"`
-	Role               string    `json:"role" db:"role" enum:"primary,reinforcement"`
-	Weight             float64   `json:"weight" db:"weight"`
-	MasteryCriterion   string    `json:"masteryCriterion" db:"mastery_criterion"`
-	CreatedAt          time.Time `json:"createdAt" db:"created_at"`
+	ID                 string         `json:"id" db:"id" format:"uuid"`
+	ActivityRevisionID string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	StandardID         string         `json:"standardId" db:"standard_id" format:"uuid"`
+	Role               string         `json:"role" db:"role" enum:"primary,reinforcement"`
+	Weight             float64        `json:"weight" db:"weight"`
+	MasteryCriterion   string         `json:"masteryCriterion" db:"mastery_criterion"`
+	EvidencePolicy     map[string]any `json:"evidencePolicy,omitempty" db:"evidence_policy"`
+	CreatedAt          time.Time      `json:"createdAt" db:"created_at"`
 }
 
 // StudentAssignment is a concrete work item for a student.

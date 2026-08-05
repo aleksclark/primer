@@ -139,6 +139,11 @@ func PublishDocument(ctx context.Context, q repo.Querier, doc *contracts.Activit
 			"description": ref.Code,
 		})
 		if err != nil {
+			var id string
+			if err2 := q.QueryRow(ctx, `SELECT id FROM standards WHERE source = $1 AND code = $2`, "custom", ref.Code).Scan(&id); err2 == nil {
+				codeToID[ref.Code] = id
+				continue
+			}
 			return nil, nil, err
 		}
 		codeToID[ref.Code] = std.ID
@@ -197,6 +202,13 @@ func ensureSubject(ctx context.Context, q repo.Querier, code string, cache map[s
 		"name": code,
 	})
 	if err != nil {
+		page, err2 := repo.Subjects.List(ctx, q, repo.ListParams{
+			Limit: 1, Filters: map[string]any{"code": code},
+		})
+		if err2 == nil && page.TotalCount > 0 {
+			cache[code] = page.Items[0].ID
+			return page.Items[0].ID, nil
+		}
 		return "", err
 	}
 	cache[code] = s.ID
@@ -261,6 +273,11 @@ func upsertStandard(ctx context.Context, q repo.Querier, s StandardSeed, subject
 	}
 	std, err := repo.Standards.Create(ctx, q, values)
 	if err != nil {
+		// Concurrent insert of the same code: re-select.
+		err2 := q.QueryRow(ctx, sqlStr, source, s.Code).Scan(&id)
+		if err2 == nil {
+			return id, nil
+		}
 		return "", err
 	}
 	return std.ID, nil

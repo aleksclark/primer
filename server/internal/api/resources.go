@@ -160,19 +160,25 @@ type MasteryRecordUpdate struct {
 
 // MasteryEvidenceCreate attaches evidence to a mastery record.
 type MasteryEvidenceCreate struct {
-	MasteryRecordID string     `json:"masteryRecordId" db:"mastery_record_id" format:"uuid"`
-	Kind            string     `json:"kind" db:"kind" enum:"continuous,formal,project,portfolio"`
-	OccurredOn      *time.Time `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
-	Context         *string    `json:"context,omitempty" db:"context" required:"false"`
-	SourceRef       *string    `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
+	MasteryRecordID string          `json:"masteryRecordId" db:"mastery_record_id" format:"uuid"`
+	Kind            string          `json:"kind" db:"kind" enum:"continuous,formal,project,portfolio"`
+	EvidenceClass   *string         `json:"evidenceClass,omitempty" db:"evidence_class" enum:"procedural_continuous,conceptual_response,parent_attestation,formal_assessment,portfolio" required:"false"`
+	Provenance      *map[string]any `json:"provenance,omitempty" db:"provenance" required:"false"`
+	PolicyVersion   *int            `json:"policyVersion,omitempty" db:"policy_version" required:"false"`
+	OccurredOn      *time.Time      `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
+	Context         *string         `json:"context,omitempty" db:"context" required:"false"`
+	SourceRef       *string         `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
 }
 
 // MasteryEvidenceUpdate updates evidence.
 type MasteryEvidenceUpdate struct {
-	Kind       *string    `json:"kind,omitempty" db:"kind" enum:"continuous,formal,project,portfolio" required:"false"`
-	OccurredOn *time.Time `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
-	Context    *string    `json:"context,omitempty" db:"context" required:"false"`
-	SourceRef  *string    `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
+	Kind          *string         `json:"kind,omitempty" db:"kind" enum:"continuous,formal,project,portfolio" required:"false"`
+	EvidenceClass *string         `json:"evidenceClass,omitempty" db:"evidence_class" enum:"procedural_continuous,conceptual_response,parent_attestation,formal_assessment,portfolio" required:"false"`
+	Provenance    *map[string]any `json:"provenance,omitempty" db:"provenance" required:"false"`
+	PolicyVersion *int            `json:"policyVersion,omitempty" db:"policy_version" required:"false"`
+	OccurredOn    *time.Time      `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
+	Context       *string         `json:"context,omitempty" db:"context" required:"false"`
+	SourceRef     *string         `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
 }
 
 // AssessmentCreate creates an assessment definition.

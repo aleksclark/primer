@@ -210,14 +210,30 @@ func (e *Engine) openFreshSession(ctx context.Context, item *studentapi.WorkItem
 		WorkspacePath:      workspace,
 	}
 
+	// Capability policy is enforced locally first so offline mode and network
+	// failures cannot bypass structured-command gates (Phase 0 honesty).
+	caps := e.sessionCapabilities()
+	capSet := map[string]bool{}
+	for _, c := range caps {
+		capSet[c] = true
+	}
+	if err := contracts.RejectIncompatibleRevision(content, capSet); err != nil {
+		_ = runner.Close()
+		return nil, err
+	}
+
 	offline := e.opts.Offline
 	var serverSessionID string
 	if !e.opts.Offline && e.opts.Client != nil {
 		if tok, _ := e.opts.Store.DeviceToken(ctx); tok != "" {
 			e.opts.Client.SetToken(tok)
 		}
-		serverSess, err := e.opts.Client.StartSession(ctx, clientSessionID, item.Assignment.ID)
+		serverSess, err := e.opts.Client.StartSession(ctx, clientSessionID, item.Assignment.ID, caps...)
 		if err != nil {
+			if isIncompatibleRevisionError(err) {
+				_ = runner.Close()
+				return nil, err
+			}
 			offline = true
 		} else {
 			serverSessionID = serverSess.ID
@@ -329,6 +345,17 @@ func (e *Engine) resumeSession(
 		return nil, err
 	}
 	if err := runner.RestoreState(rs.StateJSON); err != nil {
+		_ = runner.Close()
+		return nil, err
+	}
+
+	// Re-check capability policy on resume (content may have been cached offline).
+	caps := e.sessionCapabilities()
+	capSet := map[string]bool{}
+	for _, c := range caps {
+		capSet[c] = true
+	}
+	if err := contracts.RejectIncompatibleRevision(content, capSet); err != nil {
 		_ = runner.Close()
 		return nil, err
 	}
@@ -567,6 +594,8 @@ func (s *Session) idleVerify() {
 			ExitCode:     0,
 			Stdout:       screen,
 			CountCommand: true,
+			Structured:   false,
+			Source:       "pty-shell",
 		},
 	})
 	// applyRunnerEvents records command_finished + checks once (no second enqueue).

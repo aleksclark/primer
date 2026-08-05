@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aleksclark/primer/server/internal/domain"
+	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
 
 // TutorOffMarker is appended to student.notes to disable tutoring.
@@ -127,9 +129,21 @@ func SupersedeMasteryEvidence(ctx context.Context, q Querier, evidenceID, note s
 			repNote = note + " (supersedes " + evidenceID + ")"
 		}
 		sourceRef := fmt.Sprintf("parent-supersede:%s:%d", evidenceID, now.UnixNano())
+		class := ev.EvidenceClass
+		if class == "" {
+			class = domain.EvidenceProceduralContinuous
+		}
+		prov := map[string]any{
+			"supersedes": evidenceID,
+			"educatorId": educatorID,
+			"note":       note,
+		}
 		rep, err := MasteryEvidences.Create(ctx, tx, map[string]any{
 			"mastery_record_id": ev.MasteryRecordID,
 			"kind":              ev.Kind,
+			"evidence_class":    class,
+			"provenance":        prov,
+			"policy_version":    ev.PolicyVersion,
 			"occurred_on":       now.UTC(),
 			"context":           repNote,
 			"source_ref":        sourceRef,
@@ -143,14 +157,40 @@ func SupersedeMasteryEvidence(ctx context.Context, q Querier, evidenceID, note s
 	return original, replacement, err
 }
 
+// EvidenceStatus values for parent-visible mastery evidence reporting.
+const (
+	EvidenceStatusNotIntroduced          = "not_introduced"
+	EvidenceStatusActivityCompleted      = "activity_completed"
+	EvidenceStatusProceduralAccepted     = "procedural_accepted"
+	EvidenceStatusAdditionalEvidenceReq  = "additional_evidence_required"
+	EvidenceStatusFormalMastery          = "formal_mastery"
+)
+
+// StandardEvidenceStatus is parent-visible evidence mix for one standard.
+type StandardEvidenceStatus struct {
+	StandardID            string   `json:"standardId"`
+	StandardCode          string   `json:"standardCode"`
+	MasteryRecordID       string   `json:"masteryRecordId,omitempty"`
+	MasteryStatus         string   `json:"masteryStatus"`
+	Confidence            float64  `json:"confidence"`
+	AcceptedEvidenceClasses []string `json:"acceptedEvidenceClasses"`
+	MissingEvidenceClasses  []string `json:"missingEvidenceClasses"`
+	EvidenceStatus        string   `json:"evidenceStatus"`
+	ActivityCompleted     bool     `json:"activityCompleted"`
+	ProceduralAccepted    bool     `json:"proceduralAccepted"`
+	AdditionalEvidenceRequired bool `json:"additionalEvidenceRequired"`
+	FormalMastery         bool     `json:"formalMastery"`
+}
+
 // StudentLearningOverview aggregates parent-facing learning state for one student.
 type StudentLearningOverview struct {
-	Student          domain.Student            `json:"student"`
-	Devices          []domain.StudentDevice    `json:"devices"`
-	OpenAssignments  []domain.StudentAssignment `json:"openAssignments"`
-	RecentSessions   []domain.LearningSession  `json:"recentSessions"`
-	MasterySummary   []domain.MasteryRecord    `json:"masterySummary"`
-	TutorNotesDisable bool                     `json:"tutorNotesDisable"`
+	Student            domain.Student             `json:"student"`
+	Devices            []domain.StudentDevice     `json:"devices"`
+	OpenAssignments    []domain.StudentAssignment `json:"openAssignments"`
+	RecentSessions     []domain.LearningSession   `json:"recentSessions"`
+	MasterySummary     []domain.MasteryRecord     `json:"masterySummary"`
+	EvidenceStatuses   []StandardEvidenceStatus   `json:"evidenceStatuses"`
+	TutorNotesDisable  bool                       `json:"tutorNotesDisable"`
 }
 
 // GetStudentLearningOverview loads devices, open work, recent sessions, and mastery.
@@ -178,6 +218,10 @@ func GetStudentLearningOverview(ctx context.Context, q Querier, studentID string
 	if err != nil {
 		return nil, err
 	}
+	evidence, err := ListEvidenceStatusesForStudent(ctx, q, studentID)
+	if err != nil {
+		return nil, err
+	}
 	if devices == nil {
 		devices = []domain.StudentDevice{}
 	}
@@ -190,14 +234,169 @@ func GetStudentLearningOverview(ctx context.Context, q Querier, studentID string
 	if mastery == nil {
 		mastery = []domain.MasteryRecord{}
 	}
+	if evidence == nil {
+		evidence = []StandardEvidenceStatus{}
+	}
 	return &StudentLearningOverview{
 		Student:           *st,
 		Devices:           devices,
 		OpenAssignments:   open,
 		RecentSessions:    sessions,
 		MasterySummary:    mastery,
+		EvidenceStatuses:  evidence,
 		TutorNotesDisable: strings.Contains(strings.ToLower(st.Notes), TutorOffMarker),
 	}, nil
+}
+
+// ListEvidenceStatusesForStudent builds parent-visible accepted/missing evidence classes.
+func ListEvidenceStatusesForStudent(ctx context.Context, q Querier, studentID string) ([]StandardEvidenceStatus, error) {
+	const sqlStr = `
+SELECT mr.id, mr.standard_id, mr.status, mr.confidence,
+       s.code AS standard_code,
+       COALESCE((
+           SELECT array_agg(DISTINCT me.evidence_class ORDER BY me.evidence_class)
+           FROM mastery_evidence me
+           WHERE me.mastery_record_id = mr.id
+             AND me.context NOT ILIKE '%superseded by parent%'
+       ), '{}') AS accepted
+FROM mastery_records mr
+JOIN standards s ON s.id = mr.standard_id
+WHERE mr.student_id = $1
+ORDER BY mr.updated_at DESC`
+	rows, err := q.Query(ctx, sqlStr, studentID)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence statuses: %w", err)
+	}
+
+	type rowData struct {
+		recID, stdID, status, code string
+		conf                       float64
+		accepted                   []string
+	}
+	// Collect first so nested policy lookups do not share the open row connection
+	// (pgx/single-conn queriers return "conn busy" otherwise).
+	var raw []rowData
+	for rows.Next() {
+		var r rowData
+		if err := rows.Scan(&r.recID, &r.stdID, &r.status, &r.conf, &r.code, &r.accepted); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan evidence status: %w", err)
+		}
+		if r.accepted == nil {
+			r.accepted = []string{}
+		}
+		raw = append(raw, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	// Default terminal policy for missing-class reporting when no link policy is available.
+	defaultPol := contracts.DefaultTerminalEvidencePolicy()
+	var out []StandardEvidenceStatus
+	for _, r := range raw {
+		pol := defaultPol
+		if strings.Contains(r.code, ".TYPE.") {
+			pol = contracts.DefaultTypingEvidencePolicy()
+		}
+		// Pull the newest revision-standard policy for this standard if present.
+		if p, ok, err := latestPolicyForStandard(ctx, q, r.stdID); err == nil && ok {
+			pol = p
+		} else if err != nil {
+			return nil, err
+		}
+		missing := missingClassesForNext(r.status, r.accepted, pol)
+		procedural := containsString(r.accepted, domain.EvidenceProceduralContinuous)
+		formal := r.status == "mastered" && len(missingClassesForStatus("mastered", r.accepted, pol)) == 0
+		additional := len(missing) > 0 && procedural
+		evStatus := EvidenceStatusNotIntroduced
+		switch {
+		case formal:
+			evStatus = EvidenceStatusFormalMastery
+		case additional:
+			evStatus = EvidenceStatusAdditionalEvidenceReq
+		case procedural:
+			evStatus = EvidenceStatusProceduralAccepted
+		case r.status != "not_introduced":
+			evStatus = EvidenceStatusActivityCompleted
+		}
+		out = append(out, StandardEvidenceStatus{
+			StandardID:                 r.stdID,
+			StandardCode:               r.code,
+			MasteryRecordID:            r.recID,
+			MasteryStatus:              r.status,
+			Confidence:                 r.conf,
+			AcceptedEvidenceClasses:    r.accepted,
+			MissingEvidenceClasses:     missing,
+			EvidenceStatus:             evStatus,
+			ActivityCompleted:          r.status != "not_introduced" || procedural,
+			ProceduralAccepted:         procedural,
+			AdditionalEvidenceRequired: additional,
+			FormalMastery:              formal,
+		})
+	}
+	return out, nil
+}
+
+func latestPolicyForStandard(ctx context.Context, q Querier, standardID string) (contracts.EvidencePolicy, bool, error) {
+	const sqlStr = `
+SELECT evidence_policy
+FROM learning_activity_revision_standards
+WHERE standard_id = $1
+ORDER BY created_at DESC
+LIMIT 1`
+	var m map[string]any
+	err := q.QueryRow(ctx, sqlStr, standardID).Scan(&m)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return contracts.EvidencePolicy{}, false, nil
+		}
+		return contracts.EvidencePolicy{}, false, fmt.Errorf("latest policy: %w", err)
+	}
+	p, ok := ParseEvidencePolicy(m)
+	return p, ok, nil
+}
+
+func missingClassesForNext(current string, accepted []string, pol contracts.EvidencePolicy) []string {
+	order := []string{"in_progress", "approaching", "mastered"}
+	rank := map[string]int{"not_introduced": 0, "": 0, "in_progress": 1, "approaching": 2, "mastered": 3}
+	cur := rank[current]
+	for _, st := range order {
+		if rank[st] <= cur {
+			continue
+		}
+		miss := missingClassesForStatus(st, accepted, pol)
+		if len(miss) > 0 {
+			return miss
+		}
+	}
+	return []string{}
+}
+
+func missingClassesForStatus(status string, accepted []string, pol contracts.EvidencePolicy) []string {
+	req := pol.StatusRequirements[status]
+	have := map[string]bool{}
+	for _, a := range accepted {
+		have[a] = true
+	}
+	var missing []string
+	for _, need := range req {
+		if !have[need] {
+			missing = append(missing, need)
+		}
+	}
+	return missing
+}
+
+func containsString(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ListOpenAssignmentsForStudent returns available/in_progress assignments.

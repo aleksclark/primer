@@ -93,12 +93,14 @@ func run() error {
 	}
 
 	eng, err := engine.New(engine.Options{
-		Client:           cl,
-		Store:            store,
-		Offline:          *offline,
-		UseSandbox:       *useSandbox,
-		AllowUnsandboxed: !*useSandbox,
-		WorkspaceRoot:    filepath.Join(filepath.Dir(absPath(*dbPath)), "workspaces"),
+		Client:                    cl,
+		Store:                     store,
+		Offline:                   *offline,
+		UseSandbox:                *useSandbox,
+		AllowUnsandboxed:          !*useSandbox,
+		// Harness uses scripted RunShell with structured command observations.
+		StructuredCommandEvidence: true,
+		WorkspaceRoot:             filepath.Join(filepath.Dir(absPath(*dbPath)), "workspaces"),
 	})
 	if err != nil {
 		return err

@@ -22,6 +22,12 @@ type ShellState struct {
 	ExitCode   int
 	Stdout     string
 	Stderr     string
+	// StructuredCommandEvidence is true only when the observation came from
+	// trusted command instrumentation. Synthetic PTY screen text must leave
+	// this false so command_properties / pipeline_output cannot pass.
+	StructuredCommandEvidence bool
+	// Source labels the observation origin (e.g. "structured", "pty-shell").
+	Source string
 }
 
 // VerifyCheck evaluates one check against workspace root and optional shell state.
@@ -278,6 +284,13 @@ func evalCheck(root string, check contracts.Check, shell *ShellState) (bool, str
 		if shell == nil {
 			return false, "no command observation available", nil, nil
 		}
+		details["source"] = shell.Source
+		details["structuredCommandEvidence"] = shell.StructuredCommandEvidence
+		if !shell.StructuredCommandEvidence || shell.Executable == "pty-shell" || shell.Source == "pty-shell" || shell.Source == "synthetic-pty" {
+			details["capability"] = ""
+			return false, "structured command evidence unavailable", details, nil
+		}
+		details["capability"] = contracts.CapStructuredCommandEvidence
 		exe, err := stringParam(params, "executable")
 		if err != nil {
 			return false, "", nil, err
@@ -312,6 +325,13 @@ func evalCheck(root string, check contracts.Check, shell *ShellState) (bool, str
 		if shell == nil {
 			return false, "no pipeline observation available", nil, nil
 		}
+		details["source"] = shell.Source
+		details["structuredCommandEvidence"] = shell.StructuredCommandEvidence
+		if !shell.StructuredCommandEvidence || shell.Executable == "pty-shell" || shell.Source == "pty-shell" || shell.Source == "synthetic-pty" {
+			details["capability"] = ""
+			return false, "structured command evidence unavailable", details, nil
+		}
+		details["capability"] = contracts.CapStructuredCommandEvidence
 		out := normalizeOutput(shell.Stdout)
 		details["stdoutNorm"] = truncate(out, 256)
 		if want, ok := params["value"].(string); ok {

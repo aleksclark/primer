@@ -71,9 +71,9 @@ var MasteryRecords = NewResource[domain.MasteryRecord](ListConfig{
 // MasteryEvidences is the mastery evidence repository.
 var MasteryEvidences = NewResource[domain.MasteryEvidence](ListConfig{
 	Table:             "mastery_evidence",
-	SearchColumns:     []string{"context", "source_ref"},
-	SortableColumns:   []string{"kind", "occurred_on", "created_at", "updated_at"},
-	FilterableColumns: []string{"mastery_record_id", "kind"},
+	SearchColumns:     []string{"context", "source_ref", "migration_note"},
+	SortableColumns:   []string{"kind", "evidence_class", "occurred_on", "created_at", "updated_at"},
+	FilterableColumns: []string{"mastery_record_id", "kind", "evidence_class"},
 })
 
 // InstructionLogs is the instruction log repository. Instructional time

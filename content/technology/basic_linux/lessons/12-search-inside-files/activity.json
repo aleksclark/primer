@@ -1,0 +1,497 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-12-search-inside-files",
+  "title": "Search inside files",
+  "summary": "Use grep to search text files for literal text and simple line patterns, add line numbers with -n, and interpret filename-prefixed results from multiple files.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.SEARCH.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "12",
+    "runtime": "terminal/text-processing"
+  },
+  "content": {
+    "objective": "Use grep with quoted literal text and simple anchored patterns, add -n when locations matter, search one or several explicitly named relative file paths, and interpret each matching line without changing the supplied logs or documents.",
+    "instructions": "Work only in workspace/grep-lab and complete the four read-only searches in order. Read grep commands as grep OPTIONS 'PATTERN' FILE... . Quote each pattern, match capitalization exactly, and name only the supplied files requested by the task. A literal phrase searches for those adjacent characters anywhere in a line; ^ at the start of a pattern requires the text to begin the line. Use -n when asked for line numbers. With one file, grep normally prints each matching line; with multiple files, it prefixes each match with filename and line number when -n is present. Do not use recursive search, wildcards for file operands, pipes, redirection, command substitution, editing commands, or options not taught here. Leave every fixture unchanged.",
+    "terminal": {
+      "runtimeProfile": "text-processing",
+      "initialCwd": "workspace/grep-lab",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/grep-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/grep-lab/logs",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/grep-lab/logs/sensor.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "08:00 sensor online\n08:05 calibration started\n08:07 calibration complete\n08:15 battery nominal\n08:30 calibration complete\n"
+        },
+        {
+          "path": "workspace/grep-lab/logs/system.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "INFO startup complete\nERROR fan stalled\nWARNING temperature high\nERROR backup failed\nINFO shutdown scheduled\nerror lowercase decoy\n"
+        },
+        {
+          "path": "workspace/grep-lab/logs/app.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "09:00 app started\n09:04 request timeout after 30s\n09:05 retry succeeded\n09:20 user signed out\n"
+        },
+        {
+          "path": "workspace/grep-lab/logs/network.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "09:01 link up\n09:03 gateway timeout\n09:06 link stable\n09:18 timeout counter reset\n"
+        },
+        {
+          "path": "workspace/grep-lab/logs/archive.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "08:40 archived timeout report\n"
+        },
+        {
+          "path": "workspace/grep-lab/docs",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/grep-lab/docs/field-guide.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Field Guide\nTODO: label spare batteries\nKeep lenses dry.\nA TODO: inside a sentence is not a task marker.\nTODO: pack the compass\n"
+        },
+        {
+          "path": "workspace/grep-lab/docs/maintenance.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Maintenance Notes\nDONE: clean the fan\nTODO: replace the filter\nReminder: TODO: confirm delivery\nTODO: test the alarm\n"
+        },
+        {
+          "path": "workspace/grep-lab/docs/readme.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Search only the files named in each task.\nTODO: this file is an out-of-scope decoy.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "search-literal-phrase",
+        "title": "Find a literal phrase in one log",
+        "instructions": "Search logs/sensor.log for the literal phrase calibration complete. Run grep with the quoted phrase and that one relative file path. Predict two matching lines, and explain that grep prints the complete lines containing the phrase rather than only the matching words.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-literal-phrase-search"
+            },
+            {
+              "checkId": "literal-phrase-output"
+            },
+            {
+              "checkId": "sensor-log-preserved"
+            },
+            {
+              "checkId": "cwd-after-literal-search"
+            }
+          ]
+        },
+        "hintIds": [
+          "literal-hint-1",
+          "literal-hint-2",
+          "literal-hint-3"
+        ]
+      },
+      {
+        "id": "search-anchored-errors",
+        "title": "Locate lines that begin with a marker",
+        "instructions": "Search logs/system.log for uppercase ERROR only when it begins a line, and show line numbers. Use -n and the quoted pattern ^ERROR. Explain why the lowercase error line does not match and why ^ prevents matching ERROR later in a line.",
+        "prerequisites": [
+          "search-literal-phrase"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-numbered-anchored-search"
+            },
+            {
+              "checkId": "numbered-error-output"
+            },
+            {
+              "checkId": "system-log-preserved"
+            },
+            {
+              "checkId": "cwd-after-error-search"
+            }
+          ]
+        },
+        "hintIds": [
+          "anchor-hint-1",
+          "anchor-hint-2",
+          "anchor-hint-3"
+        ]
+      },
+      {
+        "id": "search-multiple-logs",
+        "title": "Search the same literal in two files",
+        "instructions": "Search for the literal text timeout in exactly logs/app.log and logs/network.log, with line numbers. Put the two file operands after the quoted pattern in that order. Read each output record as filename:line-number:matching-line, and explain why logs/archive.log is excluded even though it contains timeout.",
+        "prerequisites": [
+          "search-anchored-errors"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-two-file-timeout-search"
+            },
+            {
+              "checkId": "two-file-timeout-output"
+            },
+            {
+              "checkId": "app-log-preserved"
+            },
+            {
+              "checkId": "network-log-preserved"
+            },
+            {
+              "checkId": "archive-log-preserved"
+            }
+          ]
+        },
+        "hintIds": [
+          "multiple-hint-1",
+          "multiple-hint-2",
+          "multiple-hint-3"
+        ]
+      },
+      {
+        "id": "search-numbered-task-markers",
+        "title": "Combine an anchored pattern with multiple documents",
+        "instructions": "Search exactly docs/field-guide.txt and docs/maintenance.txt for lines beginning with TODO:, including line numbers. Use the quoted pattern ^TODO: and list the files in that order. Verify that sentence-internal TODO: text is excluded and that docs/readme.txt is outside the named scope.",
+        "prerequisites": [
+          "search-multiple-logs"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-two-document-marker-search"
+            },
+            {
+              "checkId": "task-marker-output"
+            },
+            {
+              "checkId": "field-guide-preserved"
+            },
+            {
+              "checkId": "maintenance-preserved"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "marker-hint-1",
+          "marker-hint-2",
+          "marker-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-literal-phrase-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "grep",
+          "args": [
+            "calibration complete",
+            "logs/sensor.log"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "literal-phrase-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "08:07 calibration complete\n08:30 calibration complete\n"
+        }
+      },
+      {
+        "id": "sensor-log-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/logs/sensor.log",
+          "value": "08:00 sensor online\n08:05 calibration started\n08:07 calibration complete\n08:15 battery nominal\n08:30 calibration complete\n"
+        }
+      },
+      {
+        "id": "cwd-after-literal-search",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/grep-lab"
+        }
+      },
+      {
+        "id": "used-numbered-anchored-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "grep",
+          "args": [
+            "-n",
+            "^ERROR",
+            "logs/system.log"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "numbered-error-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "2:ERROR fan stalled\n4:ERROR backup failed\n"
+        }
+      },
+      {
+        "id": "system-log-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/logs/system.log",
+          "value": "INFO startup complete\nERROR fan stalled\nWARNING temperature high\nERROR backup failed\nINFO shutdown scheduled\nerror lowercase decoy\n"
+        }
+      },
+      {
+        "id": "cwd-after-error-search",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/grep-lab"
+        }
+      },
+      {
+        "id": "used-two-file-timeout-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "grep",
+          "args": [
+            "-n",
+            "timeout",
+            "logs/app.log",
+            "logs/network.log"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "two-file-timeout-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "logs/app.log:2:09:04 request timeout after 30s\nlogs/network.log:2:09:03 gateway timeout\nlogs/network.log:4:09:18 timeout counter reset\n"
+        }
+      },
+      {
+        "id": "app-log-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/logs/app.log",
+          "value": "09:00 app started\n09:04 request timeout after 30s\n09:05 retry succeeded\n09:20 user signed out\n"
+        }
+      },
+      {
+        "id": "network-log-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/logs/network.log",
+          "value": "09:01 link up\n09:03 gateway timeout\n09:06 link stable\n09:18 timeout counter reset\n"
+        }
+      },
+      {
+        "id": "archive-log-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/logs/archive.log",
+          "value": "08:40 archived timeout report\n"
+        }
+      },
+      {
+        "id": "used-two-document-marker-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "grep",
+          "args": [
+            "-n",
+            "^TODO:",
+            "docs/field-guide.txt",
+            "docs/maintenance.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "task-marker-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "docs/field-guide.txt:2:TODO: label spare batteries\ndocs/field-guide.txt:5:TODO: pack the compass\ndocs/maintenance.txt:3:TODO: replace the filter\ndocs/maintenance.txt:5:TODO: test the alarm\n"
+        }
+      },
+      {
+        "id": "field-guide-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/docs/field-guide.txt",
+          "value": "Field Guide\nTODO: label spare batteries\nKeep lenses dry.\nA TODO: inside a sentence is not a task marker.\nTODO: pack the compass\n"
+        }
+      },
+      {
+        "id": "maintenance-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/docs/maintenance.txt",
+          "value": "Maintenance Notes\nDONE: clean the fan\nTODO: replace the filter\nReminder: TODO: confirm delivery\nTODO: test the alarm\n"
+        }
+      },
+      {
+        "id": "readme-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/grep-lab/docs/readme.txt",
+          "value": "Search only the files named in each task.\nTODO: this file is an out-of-scope decoy.\n"
+        }
+      },
+      {
+        "id": "cwd-at-finish",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/grep-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "literal-hint-1",
+        "level": 1,
+        "text": "Use grep when the question asks which lines contain text. The two words must remain one pattern argument."
+      },
+      {
+        "id": "literal-hint-2",
+        "level": 2,
+        "text": "Place the quoted phrase calibration complete before the single relative path logs/sensor.log."
+      },
+      {
+        "id": "literal-hint-3",
+        "level": 3,
+        "text": "Run: grep 'calibration complete' logs/sensor.log"
+      },
+      {
+        "id": "anchor-hint-1",
+        "level": 1,
+        "text": "Add line numbers, and use the pattern anchor that means beginning of line before the uppercase marker."
+      },
+      {
+        "id": "anchor-hint-2",
+        "level": 2,
+        "text": "Use grep -n with the quoted pattern ^ERROR and the path logs/system.log."
+      },
+      {
+        "id": "anchor-hint-3",
+        "level": 3,
+        "text": "Run: grep -n '^ERROR' logs/system.log"
+      },
+      {
+        "id": "multiple-hint-1",
+        "level": 1,
+        "text": "One grep command can apply one pattern to several named files. Put every file operand after the pattern."
+      },
+      {
+        "id": "multiple-hint-2",
+        "level": 2,
+        "text": "Use -n, then the quoted literal timeout, then app.log and network.log with their logs/ paths in the requested order."
+      },
+      {
+        "id": "multiple-hint-3",
+        "level": 3,
+        "text": "Run: grep -n 'timeout' logs/app.log logs/network.log"
+      },
+      {
+        "id": "marker-hint-1",
+        "level": 1,
+        "text": "Combine the beginning-of-line anchor with the marker text, then explicitly name only the two assigned documents."
+      },
+      {
+        "id": "marker-hint-2",
+        "level": 2,
+        "text": "Use -n and the quoted pattern ^TODO:, followed by field-guide.txt and maintenance.txt with their docs/ paths."
+      },
+      {
+        "id": "marker-hint-3",
+        "level": 3,
+        "text": "Run: grep -n '^TODO:' docs/field-guide.txt docs/maintenance.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student reads grep as a read-only line filter, distinguishes a literal phrase from a simple anchored pattern, requests useful line numbers, scopes searches through explicit relative file operands, and interprets one-file and multiple-file output while preserving all source text.",
+      "misconceptions": [
+        "grep searches file contents, while find from the prior lesson searches filesystem paths and names; they answer different questions.",
+        "grep normally prints each complete matching line, not only the matching characters and not the whole file.",
+        "A phrase containing a space must be passed as one argument; quoting makes that intent explicit and reliable.",
+        "Plain grep matching is case-sensitive, so ERROR and error are different unless a different option is deliberately used.",
+        "The caret ^ is a pattern anchor meaning beginning of line; it is not part of the text being sought.",
+        "The -n option reports a line's location in its source file; it does not limit the number of matches.",
+        "With one file, the requested output has line-number:text when -n is used; with multiple files it has filename:line-number:text.",
+        "Only named file operands are searched in these tasks; a matching line in a sibling or decoy file is out of scope.",
+        "Exit status 0 means at least one line matched, status 1 means no line matched, and a status greater than 1 indicates an error; no-match is not permission to edit the source.",
+        "grep is read-only in these forms, but output redirection or a separate editing command would create or change files and is outside this lesson."
+      ],
+      "constraints": [
+        "Keep coaching to grep, optional -n, quoted literal text, the ^ beginning-of-line anchor, and the exact supplied relative file paths.",
+        "Ask the student to state the pattern, capitalization, file scope, and expected output fields before each command.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Do not suggest -r, -R, -i, -v, -c, -l, -o, -E, -F, context options, wildcard file operands, directory operands, standard input, or environment searches.",
+        "Do not introduce regex operators beyond the ^ anchor; especially avoid dot, star, bracket expressions, alternation, grouping, repetition, or escaping lessons here.",
+        "Do not suggest pipes, redirection, tee, command substitution, shell loops, aliases, command chaining, sed, awk, find, cat as a substitute, or any editing or removal command.",
+        "Require exact option placement, pattern capitalization, file order, and relative paths because output prefixes and deterministic checks depend on them.",
+        "Treat quote characters as shell syntax: grep receives the protected pattern without the quotes, although the student must type the quoted form requested.",
+        "Keep all work in workspace/grep-lab and reset if any fixture is modified, renamed, copied, or removed.",
+        "After each result, ask the student to identify the source file, line number when present, matching text, and at least one deliberate nonmatch or out-of-scope decoy."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

@@ -56,6 +56,120 @@ standards:
       - Can read a text file with cat or equivalent
       - Can verify a file exists at an expected path
 
+  - code: PRIMER.DL.6.OS.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: operating-system
+    cluster: filesystem-organization
+    description: >
+      Explain the roles of common Linux filesystem locations such as /, /home,
+      /etc, /var, /tmp, /usr, and /bin using a safe model workspace.
+    mastery_criteria:
+      - Can identify the filesystem root versus a simulated model of it
+      - Can connect common top-level directories to their ordinary roles
+      - Can inspect role cards or fixtures without leaving the assigned workspace
+
+  - code: PRIMER.DL.6.PERM.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: permissions
+    cluster: identity-and-mode
+    description: >
+      Interpret user, group, and other permission classes, distinguish file
+      execute from directory traversal, and apply narrow symbolic chmod changes
+      on disposable practice paths.
+    mastery_criteria:
+      - Can read type and rwx triplets from ls -l output
+      - Can explain that processes act with an operating-system identity
+      - Can apply limited symbolic chmod changes without widening permissions broadly
+
+  - code: PRIMER.DL.6.SEARCH.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: search
+    cluster: file-and-content-search
+    description: >
+      Locate files by name or type and search inside text files with scoped
+      find and grep commands without opening every file by hand.
+    mastery_criteria:
+      - Can run find from a safe starting path with name or type predicates
+      - Can search file contents with grep for literals or simple patterns
+      - Can explain why search scope matters
+
+  - code: PRIMER.DL.6.PIPE.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: pipelines
+    cluster: pipes-and-redirection
+    description: >
+      Explain standard input, output, and error and combine commands with pipes
+      and redirection without losing important data.
+    mastery_criteria:
+      - Can connect commands with |
+      - Can redirect stdout with > or >> and stderr with 2>
+      - Can predict whether a redirection overwrites or appends
+
+  - code: PRIMER.DL.6.TEXT.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: text-processing
+    cluster: filter-and-summarize
+    description: >
+      Use short text-processing pipelines with tools such as sort, uniq, cut,
+      tr, and wc to answer questions about structured text.
+    mastery_criteria:
+      - Can sort and deduplicate lines
+      - Can extract fields or transform characters in a pipeline
+      - Can count lines, words, or bytes relevant to a prompt
+
+  - code: PRIMER.DL.6.PROC.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: processes
+    cluster: environment-and-exit-status
+    description: >
+      Distinguish shell builtins from external programs, inspect environment
+      variables, and reason about process listings and exit status.
+    mastery_criteria:
+      - Can explain success versus failure using exit status
+      - Can inspect selected environment variables
+      - Can relate ps output to running processes in the workspace context
+
+  - code: PRIMER.DL.6.SCRIPT.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: scripting
+    cluster: introductory-bash
+    description: >
+      Create and run safe introductory Bash scripts with a shebang, comments,
+      variables or arguments, and simple conditions or bounded loops.
+    mastery_criteria:
+      - Can create an executable script with a shebang
+      - Can use variables or positional arguments with safe quoting
+      - Can apply a simple condition or bounded loop on known files
+
+  - code: PRIMER.DL.6.PROJECT.1
+    source: custom
+    subject_code: digital-literacy
+    grade_level: 6
+    domain: projects
+    cluster: verification-and-explanation
+    description: >
+      Build, verify, and explain a small multi-step CLI project from a clean
+      fixture, comparing expected and actual outputs and justifying command
+      choices.
+    mastery_criteria:
+      - Can reproduce project output from a clean starting state
+      - Can compare expected and actual artifacts
+      - Can explain filesystem, pipeline, permission, or scripting choices used
+
   - code: PRIMER.DL.6.TYPE.1
     source: custom
     subject_code: digital-literacy

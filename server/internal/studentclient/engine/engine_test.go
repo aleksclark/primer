@@ -145,11 +145,13 @@ func openEngineWS(t *testing.T, env *harnessEnv, dbPath, wsRoot string, offline 
 
 	cl := studentapi.New(env.BaseURL, env.DeviceToken)
 	eng, err := engine.New(engine.Options{
-		Client:           cl,
-		Store:            store,
-		WorkspaceRoot:    wsRoot,
-		Offline:          offline,
-		AllowUnsandboxed: true,
+		Client:                    cl,
+		Store:                     store,
+		WorkspaceRoot:             wsRoot,
+		Offline:                   offline,
+		AllowUnsandboxed:          true,
+		// Headless scripted RunShell produces structured command evidence.
+		StructuredCommandEvidence: true,
 	})
 	require.NoError(t, err)
 	return eng
@@ -190,7 +192,7 @@ func TestEngineDisconnectRestartResume(t *testing.T) {
 	cl := studentapi.New(env.BaseURL, env.DeviceToken)
 	eng, err := engine.New(engine.Options{
 		Client: cl, Store: store, WorkspaceRoot: filepath.Join(dir, "ws"),
-		AllowUnsandboxed: true,
+		AllowUnsandboxed: true, StructuredCommandEvidence: true,
 	})
 	require.NoError(t, err)
 
@@ -202,7 +204,7 @@ func TestEngineDisconnectRestartResume(t *testing.T) {
 	// Run with a mid-script "disconnect": complete offline so completion stays in outbox.
 	engOffline, err := engine.New(engine.Options{
 		Client: cl, Store: store, WorkspaceRoot: filepath.Join(dir, "ws2"),
-		Offline: true, AllowUnsandboxed: true,
+		Offline: true, AllowUnsandboxed: true, StructuredCommandEvidence: true,
 	})
 	require.NoError(t, err)
 	err = engOffline.RunAssignment(ctx, env.AssignmentID, engine.BasicNavigationScript())
@@ -223,7 +225,7 @@ func TestEngineDisconnectRestartResume(t *testing.T) {
 	t.Cleanup(func() { _ = store2.Close() })
 	cl2 := studentapi.New(env.BaseURL, env.DeviceToken)
 	eng2, err := engine.New(engine.Options{
-		Client: cl2, Store: store2, AllowUnsandboxed: true,
+		Client: cl2, Store: store2, AllowUnsandboxed: true, StructuredCommandEvidence: true,
 	})
 	require.NoError(t, err)
 
@@ -234,7 +236,7 @@ func TestEngineDisconnectRestartResume(t *testing.T) {
 		sess, err := store2.GetSession(ctx, csid)
 		require.NoError(t, err)
 		if sess.ServerSessionID == "" {
-			serverSess, err := cl2.StartSession(ctx, sess.ClientSessionID, sess.AssignmentID)
+			serverSess, err := cl2.StartSession(ctx, sess.ClientSessionID, sess.AssignmentID, contracts.CapStructuredCommandEvidence)
 			require.NoError(t, err)
 			require.NoError(t, store2.BindServerSession(ctx, sess.ClientSessionID, serverSess.ID))
 		}
@@ -677,4 +679,61 @@ func TestSessionPTYWriteAndResize(t *testing.T) {
 	require.NoError(t, sess.RunLine(ctx, "pwd"))
 	snap = sess.Snapshot()
 	assert.GreaterOrEqual(t, snap.CommandsRun, 1)
+}
+
+func TestLocalCapabilityGateRejectsCommandOnlyRevision(t *testing.T) {
+	t.Parallel()
+	// Offline open must still refuse revisions that require structured command
+	// evidence when the runner does not advertise the capability.
+	q := testutil.Tx(t)
+	ctx := context.Background()
+	store, err := cache.Open(filepath.Join(t.TempDir(), "cap.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	student := factory.Student(t, q)
+	subj := factory.Subject(t, q, factory.Override{"code": "digital-literacy-local-cap"})
+	std := factory.Standard(t, q, factory.Override{"code": "PRIMER.DL.6.PIPE.LOCAL", "subject_id": subj.ID})
+	act, err := repo.CreateDraftActivity(ctx, q, "cmd-only-local-"+uuid.NewString()[:8], "cmd only", "", contracts.KindTerminal, &subj.ID)
+	require.NoError(t, err)
+	content := contracts.ActivityContent{
+		Objective:    "run a command",
+		Instructions: "run ls",
+		Terminal: &contracts.TerminalContent{
+			RuntimeProfile: contracts.RuntimeCoreutilsBasic,
+			Fixtures:       []contracts.FixtureEntry{{Path: "home", Type: "directory"}},
+		},
+		Tasks: []contracts.Task{{
+			ID: "t1", Title: "ls", Instructions: "ls",
+			Completion: contracts.CheckTree{CheckID: "c-ls"},
+		}},
+		Checks: []contracts.Check{{
+			ID: "c-ls", Kind: contracts.CheckCommandProperties,
+			Params: map[string]any{"executable": "ls", "exitCode": 0},
+		}},
+	}
+	rev, err := repo.PublishDraftRevision(ctx, q, act.ID, content, "1", []contracts.StandardRef{{
+		Code: std.Code, Role: contracts.StandardRolePrimary, Weight: 1,
+	}}, map[string]string{std.Code: std.ID}, time.Now().UTC())
+	require.NoError(t, err)
+	asg, err := repo.CreateAssignment(ctx, q, student.ID, rev.ID, nil, 1, "test")
+	require.NoError(t, err)
+
+	// Seed local work cache without going through the API.
+	require.NoError(t, store.SaveWork(ctx, []studentapi.WorkItem{{
+		Assignment: *asg,
+		Revision:   *rev,
+		Activity:   *act,
+	}}))
+
+	eng, err := engine.New(engine.Options{
+		Store:                     store,
+		Offline:                   true,
+		AllowUnsandboxed:          true,
+		StructuredCommandEvidence: false, // interactive/PTY honesty default
+	})
+	require.NoError(t, err)
+	_, err = eng.OpenSession(ctx, asg.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "structured_command_evidence")
 }
