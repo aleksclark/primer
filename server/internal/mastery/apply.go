@@ -4,7 +4,6 @@ package mastery
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -247,15 +246,185 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 }
 
 func decodeContent(m map[string]any) (contracts.ActivityContent, error) {
-	raw, err := json.Marshal(m)
-	if err != nil {
-		return contracts.ActivityContent{}, err
+	return repo.DecodeActivityContent(m)
+}
+
+// ApplyConceptualResponse records conceptual_response evidence for a newly
+// submitted student response. Does not invent parent attestation. Idempotent
+// via source_ref on mastery_evidence.
+func ApplyConceptualResponse(ctx context.Context, q repo.Querier, resp *domain.StudentResponse, now time.Time) ([]string, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("response is nil")
 	}
-	var c contracts.ActivityContent
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return contracts.ActivityContent{}, fmt.Errorf("decode activity content: %w", err)
+	var evidenceIDs []string
+	err := repo.WithTx(ctx, q, func(tx repo.Querier) error {
+		rev, err := repo.GetRevision(ctx, tx, resp.ActivityRevisionID)
+		if err != nil {
+			return err
+		}
+		act, err := repo.LearningActivities.Get(ctx, tx, rev.ActivityID)
+		if err != nil {
+			return err
+		}
+		links, err := repo.ListRevisionStandards(ctx, tx, rev.ID)
+		if err != nil {
+			return err
+		}
+		for _, link := range links {
+			std, err := repo.Standards.Get(ctx, tx, link.StandardID)
+			if err != nil {
+				return err
+			}
+			if !standardEligibleForActivity(act.Kind, std.Code) {
+				continue
+			}
+			policy := policyFromLink(link, act.Kind)
+			rec, _, err := upsertMasteryRecord(ctx, tx, resp.StudentID, link.StandardID)
+			if err != nil {
+				return err
+			}
+			sourceRef := fmt.Sprintf("conceptual-response:%s:%s", resp.ID, std.ID)
+			prov := map[string]any{
+				"responseId":   resp.ID,
+				"submissionId": resp.SubmissionID,
+				"sessionId":    resp.SessionID,
+				"taskId":       resp.TaskID,
+				"attempt":      resp.Attempt,
+				"bodySha256":   resp.BodySHA256,
+				"standardCode": std.Code,
+				"role":         link.Role,
+				"source":       "student_response",
+			}
+			evID, inserted, err := insertEvidence(ctx, tx, rec.ID, sourceRef, contracts.EvidenceConceptualResponse, prov, policy.Version, now, resp.SessionID, resp.TaskID)
+			if err != nil {
+				return err
+			}
+			evidenceIDs = append(evidenceIDs, evID)
+			if !inserted {
+				continue
+			}
+			// Recording conceptual evidence does not auto-jump to mastered;
+			// apply the same policy ladder as completions with this class present.
+			accepted, err := listAcceptedEvidenceClasses(ctx, tx, rec.ID)
+			if err != nil {
+				return err
+			}
+			accepted = addClass(accepted, contracts.EvidenceConceptualResponse)
+			fromStatus := rec.Status
+			fromConf := rec.Confidence
+			candidateStatus, candidateConf := proposedStatus(fromStatus, fromConf, link.Role, link.Weight)
+			allowedStatus, _, _ := highestAllowedStatus(fromStatus, candidateStatus, accepted, policy)
+			newStatus := fromStatus
+			newConf := fromConf
+			if statusRank(allowedStatus) > statusRank(fromStatus) {
+				if statusRank(allowedStatus) >= statusRank(candidateStatus) {
+					newStatus = candidateStatus
+					newConf = candidateConf
+				} else {
+					newStatus = allowedStatus
+					newConf = confForStatus(allowedStatus, fromConf, link.Weight)
+				}
+			} else if statusRank(allowedStatus) >= statusRank(candidateStatus) && candidateConf > fromConf {
+				newStatus = candidateStatus
+				newConf = candidateConf
+			}
+			if newStatus != fromStatus || newConf != fromConf {
+				if err := updateMasteryAggregate(ctx, tx, rec.ID, newStatus, newConf, now); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return evidenceIDs, err
+}
+
+// ApplyParentAttestation records parent_attestation evidence after a parent
+// accepts a conceptual response. Idempotent via source_ref.
+func ApplyParentAttestation(ctx context.Context, q repo.Querier, resp *domain.StudentResponse, educatorID string, now time.Time) ([]string, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("response is nil")
 	}
-	return c, nil
+	var evidenceIDs []string
+	err := repo.WithTx(ctx, q, func(tx repo.Querier) error {
+		rev, err := repo.GetRevision(ctx, tx, resp.ActivityRevisionID)
+		if err != nil {
+			return err
+		}
+		act, err := repo.LearningActivities.Get(ctx, tx, rev.ActivityID)
+		if err != nil {
+			return err
+		}
+		links, err := repo.ListRevisionStandards(ctx, tx, rev.ID)
+		if err != nil {
+			return err
+		}
+		for _, link := range links {
+			std, err := repo.Standards.Get(ctx, tx, link.StandardID)
+			if err != nil {
+				return err
+			}
+			if !standardEligibleForActivity(act.Kind, std.Code) {
+				continue
+			}
+			policy := policyFromLink(link, act.Kind)
+			rec, _, err := upsertMasteryRecord(ctx, tx, resp.StudentID, link.StandardID)
+			if err != nil {
+				return err
+			}
+			sourceRef := fmt.Sprintf("parent-attestation:%s:%s", resp.ID, std.ID)
+			prov := map[string]any{
+				"responseId":   resp.ID,
+				"submissionId": resp.SubmissionID,
+				"sessionId":    resp.SessionID,
+				"taskId":       resp.TaskID,
+				"educatorId":   educatorID,
+				"standardCode": std.Code,
+				"role":         link.Role,
+				"source":       "parent_review",
+			}
+			evID, inserted, err := insertEvidence(ctx, tx, rec.ID, sourceRef, contracts.EvidenceParentAttestation, prov, policy.Version, now, resp.SessionID, resp.TaskID)
+			if err != nil {
+				return err
+			}
+			evidenceIDs = append(evidenceIDs, evID)
+			if !inserted {
+				continue
+			}
+			accepted, err := listAcceptedEvidenceClasses(ctx, tx, rec.ID)
+			if err != nil {
+				return err
+			}
+			// Count only real evidence rows. Do not fabricate conceptual_response
+			// here — submission already recorded it via ApplyConceptualResponse.
+			accepted = addClass(accepted, contracts.EvidenceParentAttestation)
+			fromStatus := rec.Status
+			fromConf := rec.Confidence
+			candidateStatus, candidateConf := proposedStatus(fromStatus, fromConf, link.Role, link.Weight)
+			allowedStatus, _, _ := highestAllowedStatus(fromStatus, candidateStatus, accepted, policy)
+			newStatus := fromStatus
+			newConf := fromConf
+			if statusRank(allowedStatus) > statusRank(fromStatus) {
+				if statusRank(allowedStatus) >= statusRank(candidateStatus) {
+					newStatus = candidateStatus
+					newConf = candidateConf
+				} else {
+					newStatus = allowedStatus
+					newConf = confForStatus(allowedStatus, fromConf, link.Weight)
+				}
+			} else if statusRank(allowedStatus) >= statusRank(candidateStatus) && candidateConf > fromConf {
+				newStatus = candidateStatus
+				newConf = candidateConf
+			}
+			if newStatus != fromStatus || newConf != fromConf {
+				if err := updateMasteryAggregate(ctx, tx, rec.ID, newStatus, newConf, now); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return evidenceIDs, err
 }
 
 func validateRequiredChecks(content contracts.ActivityContent, obs []contracts.Observation) error {

@@ -83,6 +83,10 @@
       "properties": {
         "objective": {"type": "string", "minLength": 1},
         "instructions": {"type": "string", "minLength": 1},
+        "blocks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/instructionBlock"}
+        },
         "terminal": {"$ref": "#/$defs/terminal"},
         "typing": {"$ref": "#/$defs/typing"},
         "tasks": {
@@ -164,6 +168,7 @@
         "id": {"$ref": "#/$defs/id"},
         "title": {"type": "string", "minLength": 1},
         "instructions": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["action", "short_response"]},
         "prerequisites": {
           "type": "array",
           "items": {"$ref": "#/$defs/id"}
@@ -173,7 +178,94 @@
           "type": "array",
           "items": {"$ref": "#/$defs/id"}
         },
-        "optional": {"type": "boolean"}
+        "optional": {"type": "boolean"},
+        "response": {"$ref": "#/$defs/responseTask"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "short_response"}}, "required": ["kind"]},
+          "then": {"required": ["response"]}
+        }
+      ]
+    },
+    "responseTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "rubric"],
+      "properties": {
+        "prompt": {"type": "string", "minLength": 1, "maxLength": 8000},
+        "maxChars": {"type": "integer", "minimum": 1, "maximum": 8000},
+        "parentReviewRequired": {"type": "boolean"},
+        "rubric": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/rubricCriterion"}
+        }
+      }
+    },
+    "rubricCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "description": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"}
+      }
+    },
+    "instructionBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {
+          "enum": ["prose", "vocabulary", "example", "warning", "question", "practice", "parent_note", "resource"]
+        },
+        "title": {"type": "string"},
+        "text": {"type": "string", "maxLength": 8000},
+        "terms": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/vocabularyTerm"}
+        },
+        "input": {"type": "string", "maxLength": 8000},
+        "output": {"type": "string", "maxLength": 8000},
+        "explanation": {"type": "string", "maxLength": 8000},
+        "resource": {"$ref": "#/$defs/resourceRef"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"enum": ["prose", "warning", "question", "practice", "parent_note"]}}},
+          "then": {"required": ["text"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "vocabulary"}}},
+          "then": {"required": ["terms"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "resource"}}},
+          "then": {"required": ["resource"]}
+        }
+      ]
+    },
+    "vocabularyTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["term", "definition"],
+      "properties": {
+        "term": {"type": "string", "minLength": 1},
+        "definition": {"type": "string", "minLength": 1}
+      }
+    },
+    "resourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "mediaType", "label"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "mediaType": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "byteSize": {"type": "integer", "minimum": 0, "maximum": 262144}
       }
     },
     "checkTree": {
@@ -206,7 +298,7 @@
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "kind": {
-          "enum": ["file_exists", "file_not_exists", "content_equals", "content_contains", "content_match", "path_type", "path_mode", "cwd", "command_properties", "pipeline_output", "typing_metrics"]
+          "enum": ["file_exists", "file_not_exists", "content_equals", "content_contains", "content_match", "path_type", "path_mode", "cwd", "command_properties", "pipeline_output", "typing_metrics", "response_submitted"]
         },
         "optional": {"type": "boolean"},
         "params": {"type": "object"},
@@ -266,8 +358,21 @@
         {
           "if": {"properties": {"kind": {"const": "typing_metrics"}}},
           "then": {"properties": {"params": {"$ref": "#/$defs/paramsTypingMetrics"}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "response_submitted"}}},
+          "then": {"properties": {"params": {"$ref": "#/$defs/paramsResponseSubmitted"}}}
         }
       ]
+    },
+    "paramsResponseSubmitted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId"],
+      "properties": {
+        "taskId": {"$ref": "#/$defs/id"},
+        "task_id": {"$ref": "#/$defs/id"}
+      }
     },
     "paramsPathOnly": {
       "type": "object",

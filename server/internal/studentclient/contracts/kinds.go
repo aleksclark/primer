@@ -55,6 +55,9 @@ const (
 	CheckCommandProperties = "command_properties"
 	CheckPipelineOutput    = "pipeline_output"
 	CheckTypingMetrics     = "typing_metrics"
+	// CheckResponseSubmitted passes when the student has submitted a durable
+	// constructed response for params.taskId in the current session.
+	CheckResponseSubmitted = "response_submitted"
 )
 
 // Path types for path_type checks and fixtures.
@@ -72,15 +75,42 @@ const (
 
 // Event types for the session audit stream.
 const (
-	EventSessionStarted   = "session_started"
-	EventTaskViewed       = "task_viewed"
-	EventCommandFinished  = "command_finished"
-	EventCheckEvaluated   = "check_evaluated"
-	EventHintRequested    = "hint_requested"
-	EventTutorMessage     = "tutor_message"
-	EventTypingSample     = "typing_sample"
-	EventSessionPaused    = "session_paused"
-	EventSessionCompleted = "session_completed"
+	EventSessionStarted     = "session_started"
+	EventTaskViewed         = "task_viewed"
+	EventCommandFinished    = "command_finished"
+	EventCheckEvaluated     = "check_evaluated"
+	EventHintRequested      = "hint_requested"
+	EventTutorMessage       = "tutor_message"
+	EventTypingSample       = "typing_sample"
+	EventSessionPaused      = "session_paused"
+	EventSessionCompleted   = "session_completed"
+	EventResponseSubmitted  = "response_submitted"
+	EventResponseReturned   = "response_returned"
+)
+
+// Response submission / review status values.
+const (
+	ResponseStatusDraft     = "draft"
+	ResponseStatusSubmitted = "submitted"
+	ResponseStatusAccepted  = "accepted"
+	ResponseStatusReturned  = "returned"
+)
+
+// Parent review decisions.
+const (
+	ReviewDecisionAccept = "accept"
+	ReviewDecisionReturn = "return"
+)
+
+// Payload schema version for conceptual response submissions.
+const ResponseSchemaVersion = "1"
+
+// Default / bounds for short responses.
+const (
+	DefaultResponseMaxChars = 2000
+	MaxResponseMaxChars     = 8000
+	MaxInstructionBlockText = 8000
+	MaxResourceBytes        = 256 * 1024
 )
 
 // Payload schema versions for observations/events/completions/artifacts.

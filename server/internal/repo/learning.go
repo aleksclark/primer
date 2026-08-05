@@ -500,6 +500,9 @@ LIMIT $4`
 		); err != nil {
 			return nil, "", fmt.Errorf("scan student work: %w", err)
 		}
+		// Student devices must never receive parent_note blocks (hidden authoring notes).
+		// ContentSHA256 remains the published digest; payload is a student-safe projection.
+		r.Content = StudentSafeRevisionContent(r.Content)
 		items = append(items, StudentWorkItem{Assignment: a, Revision: r, Activity: la})
 		cursor = a.UpdatedAt.UTC().Format(time.RFC3339Nano) + "|" + a.ID
 	}
@@ -521,4 +524,34 @@ func splitCursor(s string) []string {
 // GetRevision returns a revision by id.
 func GetRevision(ctx context.Context, q Querier, id string) (*domain.LearningActivityRevision, error) {
 	return LearningActivityRevisions.Get(ctx, q, id)
+}
+
+// StudentSafeRevisionContent returns revision content safe for student devices:
+// parent_note instructional blocks are removed. The published content_sha256 is
+// unchanged and still identifies the full authoring revision server-side.
+func StudentSafeRevisionContent(content map[string]any) map[string]any {
+	if content == nil {
+		return nil
+	}
+	c, err := DecodeActivityContent(content)
+	if err != nil {
+		return content
+	}
+	if len(c.Blocks) == 0 {
+		return content
+	}
+	safe := contracts.StudentBlocks(c.Blocks)
+	if len(safe) == len(c.Blocks) {
+		return content
+	}
+	c.Blocks = safe
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return content
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return content
+	}
+	return out
 }

@@ -35,6 +35,8 @@ type ShellState struct {
 	TaskIndex int
 	// ManifestDigest is the latest workspace manifest digest when captured.
 	ManifestDigest string
+	// SubmittedTasks maps task IDs with a durable local/server conceptual response.
+	SubmittedTasks map[string]bool
 }
 
 // VerifyCheck evaluates one check against workspace root and optional shell state.
@@ -413,6 +415,21 @@ func evalCheck(root string, check contracts.Check, shell *ShellState) (bool, str
 			return false, "output mismatch", details, nil
 		}
 		return true, "output ok", details, nil
+
+	case contracts.CheckResponseSubmitted:
+		taskID, err := stringParam(params, "taskId")
+		if err != nil {
+			// Accept snake_case alias used in some authored content.
+			taskID, err = stringParam(params, "task_id")
+			if err != nil {
+				return false, "", nil, err
+			}
+		}
+		details["taskId"] = taskID
+		if shell != nil && shell.SubmittedTasks != nil && shell.SubmittedTasks[taskID] {
+			return true, "response submitted", details, nil
+		}
+		return false, "response not submitted", details, nil
 
 	default:
 		return false, "", nil, fmt.Errorf("unknown check kind %q", check.Kind)

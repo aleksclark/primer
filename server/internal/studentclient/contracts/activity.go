@@ -63,16 +63,67 @@ func DefaultTypingEvidencePolicy() EvidencePolicy {
 
 // ActivityContent is the versioned revision body stored as JSONB later.
 type ActivityContent struct {
-	Objective    string            `json:"objective" yaml:"objective"`
-	Instructions string            `json:"instructions" yaml:"instructions"`
-	Terminal     *TerminalContent  `json:"terminal,omitempty" yaml:"terminal,omitempty"`
-	Typing       *TypingContent    `json:"typing,omitempty" yaml:"typing,omitempty"`
-	Tasks        []Task            `json:"tasks" yaml:"tasks"`
-	Checks       []Check           `json:"checks" yaml:"checks"`
-	Hints        []Hint            `json:"hints,omitempty" yaml:"hints,omitempty"`
-	Tutor        *TutorContext     `json:"tutor,omitempty" yaml:"tutor,omitempty"`
-	Progression  *ProgressionPolicy `json:"progression,omitempty" yaml:"progression,omitempty"`
-	Artifacts    *ArtifactPolicy   `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
+	Objective    string              `json:"objective" yaml:"objective"`
+	Instructions string              `json:"instructions" yaml:"instructions"`
+	// Blocks are ordered typed instructional material delivered with the
+	// immutable revision. Parent-note blocks are authoring/parent-only.
+	Blocks       []InstructionBlock  `json:"blocks,omitempty" yaml:"blocks,omitempty"`
+	Terminal     *TerminalContent    `json:"terminal,omitempty" yaml:"terminal,omitempty"`
+	Typing       *TypingContent      `json:"typing,omitempty" yaml:"typing,omitempty"`
+	Tasks        []Task              `json:"tasks" yaml:"tasks"`
+	Checks       []Check             `json:"checks" yaml:"checks"`
+	Hints        []Hint              `json:"hints,omitempty" yaml:"hints,omitempty"`
+	Tutor        *TutorContext       `json:"tutor,omitempty" yaml:"tutor,omitempty"`
+	Progression  *ProgressionPolicy  `json:"progression,omitempty" yaml:"progression,omitempty"`
+	Artifacts    *ArtifactPolicy     `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
+}
+
+// Instruction block kinds (typed teaching material, not free-form HTML).
+const (
+	BlockProse       = "prose"
+	BlockVocabulary  = "vocabulary"
+	BlockExample     = "example"
+	BlockWarning     = "warning"
+	BlockQuestion    = "question"
+	BlockPractice    = "practice"
+	BlockParentNote  = "parent_note"
+	BlockResource    = "resource"
+)
+
+// InstructionBlock is one ordered teaching unit inside ActivityContent.
+// Exactly the fields for Kind should be populated; validation enforces this.
+type InstructionBlock struct {
+	ID    string `json:"id" yaml:"id"`
+	Kind  string `json:"kind" yaml:"kind"`
+	Title string `json:"title,omitempty" yaml:"title,omitempty"`
+	// Text is used by prose, warning, question, practice, and parent_note.
+	Text string `json:"text,omitempty" yaml:"text,omitempty"`
+	// Terms is used by vocabulary blocks.
+	Terms []VocabularyTerm `json:"terms,omitempty" yaml:"terms,omitempty"`
+	// Example fields (example blocks).
+	Input       string `json:"input,omitempty" yaml:"input,omitempty"`
+	Output      string `json:"output,omitempty" yaml:"output,omitempty"`
+	Explanation string `json:"explanation,omitempty" yaml:"explanation,omitempty"`
+	// Resource is used by resource blocks (content-addressed local attachment).
+	Resource *ResourceRef `json:"resource,omitempty" yaml:"resource,omitempty"`
+}
+
+// VocabularyTerm is one term/definition pair.
+type VocabularyTerm struct {
+	Term       string `json:"term" yaml:"term"`
+	Definition string `json:"definition" yaml:"definition"`
+}
+
+// ResourceRef points at an approved content-addressed attachment.
+type ResourceRef struct {
+	// SHA256 is the hex digest of the attachment bytes.
+	SHA256   string `json:"sha256" yaml:"sha256"`
+	// MediaType is a simple type such as text/plain or image/png.
+	MediaType string `json:"mediaType" yaml:"media_type"`
+	// Label is a short student-visible name.
+	Label string `json:"label" yaml:"label"`
+	// ByteSize bounds the attachment (validated at authoring time).
+	ByteSize int64 `json:"byteSize,omitempty" yaml:"byte_size,omitempty"`
 }
 
 // TerminalContent configures a terminal activity revision.
@@ -108,15 +159,46 @@ type FixtureEntry struct {
 	Mode    string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
+// Task kinds. Empty / "action" means ordinary terminal/typing work.
+const (
+	TaskKindAction        = "action"
+	TaskKindShortResponse = "short_response"
+)
+
 // Task is one ordered learning step inside an activity.
 type Task struct {
-	ID             string   `json:"id" yaml:"id"`
-	Title          string   `json:"title" yaml:"title"`
-	Instructions   string   `json:"instructions" yaml:"instructions"`
-	Prerequisites  []string `json:"prerequisites,omitempty" yaml:"prerequisites,omitempty"`
-	Completion     CheckTree `json:"completion" yaml:"completion"`
-	HintIDs        []string `json:"hintIds,omitempty" yaml:"hint_ids,omitempty"`
-	Optional       bool     `json:"optional,omitempty" yaml:"optional,omitempty"`
+	ID            string    `json:"id" yaml:"id"`
+	Title         string    `json:"title" yaml:"title"`
+	Instructions  string    `json:"instructions" yaml:"instructions"`
+	// Kind selects the interaction model. Empty defaults to action.
+	Kind          string    `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Prerequisites []string  `json:"prerequisites,omitempty" yaml:"prerequisites,omitempty"`
+	Completion    CheckTree `json:"completion" yaml:"completion"`
+	HintIDs       []string  `json:"hintIds,omitempty" yaml:"hint_ids,omitempty"`
+	Optional      bool      `json:"optional,omitempty" yaml:"optional,omitempty"`
+	// Response configures short constructed-response tasks.
+	Response *ResponseTaskSpec `json:"response,omitempty" yaml:"response,omitempty"`
+}
+
+// ResponseTaskSpec authors a short constructed-response task with rubric criteria.
+type ResponseTaskSpec struct {
+	// Prompt is shown to the student (may mirror or extend task.instructions).
+	Prompt string `json:"prompt" yaml:"prompt"`
+	// MaxChars bounds the submitted body (default 2000 when zero).
+	MaxChars int `json:"maxChars,omitempty" yaml:"max_chars,omitempty"`
+	// Rubric is the explicit criteria parents review against.
+	Rubric []RubricCriterion `json:"rubric" yaml:"rubric"`
+	// ParentReviewRequired forces parent decision before conceptual evidence is fully accepted
+	// for gates that require parent_attestation. Submission still records conceptual_response.
+	ParentReviewRequired bool `json:"parentReviewRequired,omitempty" yaml:"parent_review_required,omitempty"`
+}
+
+// RubricCriterion is one named review criterion on a response task.
+type RubricCriterion struct {
+	ID          string `json:"id" yaml:"id"`
+	Description string `json:"description" yaml:"description"`
+	// Required means the parent must accept (or mark N/A with reason) this criterion.
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // CheckTree is an all/any tree over check IDs or nested trees.

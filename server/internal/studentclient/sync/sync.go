@@ -129,6 +129,10 @@ func (l *Loop) SyncOnce(ctx context.Context) Result {
 	}
 	res.CompletionsSent = cmps
 
+	if _, err := l.flushResponses(ctx); err != nil {
+		return l.handleErr(ctx, res, err)
+	}
+
 	pending, err := l.Store.GetPendingSync(ctx)
 	if err != nil {
 		res.Err = err
@@ -138,6 +142,10 @@ func (l *Loop) SyncOnce(ctx context.Context) Result {
 	res.PendingCompletes = pending.CompleteCount
 	status := StatusOnline
 	if pending.EventCount > 0 || pending.CompleteCount > 0 || pending.ArtifactCount > 0 {
+		status = StatusAwaiting
+	}
+	// Pending responses also mean awaiting sync.
+	if rs, err := l.Store.ListPendingResponses(ctx); err == nil && len(rs) > 0 {
 		status = StatusAwaiting
 	}
 	return l.set(status, res)
@@ -300,6 +308,36 @@ func (l *Loop) flushArtifacts(ctx context.Context) (int, error) {
 			return sent, err
 		}
 		if err := l.Store.MarkArtifactAcked(ctx, a.ArtifactID); err != nil {
+			return sent, err
+		}
+		sent++
+	}
+	return sent, nil
+}
+
+func (l *Loop) flushResponses(ctx context.Context) (int, error) {
+	pending, err := l.Store.ListPendingResponses(ctx)
+	if err != nil {
+		return 0, err
+	}
+	sent := 0
+	for _, r := range pending {
+		serverID := r.ServerSessionID
+		if serverID == "" {
+			sess, err := l.Store.GetSession(ctx, r.ClientSessionID)
+			if err != nil {
+				return sent, err
+			}
+			serverID = sess.ServerSessionID
+		}
+		if serverID == "" {
+			continue
+		}
+		result, err := l.Client.SubmitResponse(ctx, serverID, r.Request)
+		if err != nil {
+			return sent, err
+		}
+		if err := l.Store.MarkResponseAcked(ctx, r.SubmissionID, *result); err != nil {
 			return sent, err
 		}
 		sent++

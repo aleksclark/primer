@@ -253,6 +253,16 @@ func (c *Client) TutorMessage(ctx context.Context, sessionID, message string) (*
 	return &out, nil
 }
 
+// SubmitResponse posts an idempotent conceptual response submission.
+func (c *Client) SubmitResponse(ctx context.Context, sessionID string, req contracts.ResponseSubmission) (*contracts.ResponseSubmissionResult, error) {
+	var out contracts.ResponseSubmissionResult
+	path := "/student/sessions/" + url.PathEscape(sessionID) + "/responses"
+	if err := c.doJSON(ctx, http.MethodPost, path, true, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, auth bool, body any, out any) error {
 	var rdr io.Reader
 	if body != nil {

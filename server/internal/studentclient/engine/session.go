@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	stdsync "sync"
 	"time"
 
@@ -42,6 +43,8 @@ type SessionSnapshot struct {
 	RelCwd           string           `json:"relCwd,omitempty"` // path relative to workspace (terminal)
 	Objective        string           `json:"objective,omitempty"`
 	Instructions     string           `json:"instructions,omitempty"`
+	// Blocks are student-visible instructional blocks (parent_note excluded).
+	Blocks           []contracts.InstructionBlock `json:"blocks,omitempty"`
 	Tasks            []contracts.Task `json:"tasks,omitempty"`
 	CurrentTaskIdx   int              `json:"currentTaskIdx"`
 	Checks           []CheckStatus    `json:"checks,omitempty"`
@@ -64,6 +67,10 @@ type SessionSnapshot struct {
 	TerminalScreen string `json:"terminalScreen,omitempty"`
 	// HasTerminal is true when a PTY shell is available for this session.
 	HasTerminal bool `json:"hasTerminal,omitempty"`
+	// ResponseDraft is the durable draft body for the current short_response task.
+	ResponseDraft string `json:"responseDraft,omitempty"`
+	// ResponseQueued is true when a conceptual response is awaiting sync.
+	ResponseQueued bool `json:"responseQueued,omitempty"`
 }
 
 // Session is an interactive activity session driven by the TUI.
@@ -267,6 +274,7 @@ func (e *Engine) openFreshSession(ctx context.Context, item *studentapi.WorkItem
 		offline:         offline,
 		syncStatus:      sync.StatusIdle,
 	}
+	s.restoreSubmittedResponses(ctx)
 	if offline {
 		s.syncStatus = sync.StatusOffline
 		s.message = "working offline"
@@ -392,6 +400,7 @@ func (e *Engine) resumeSession(
 		restored:        true,
 		message:         "resumed session",
 	}
+	s.restoreSubmittedResponses(ctx)
 	if offline {
 		s.syncStatus = sync.StatusOffline
 	}
@@ -612,6 +621,7 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 		RelCwd:           rs.RelCwd,
 		Objective:        s.content.Objective,
 		Instructions:     s.content.Instructions,
+		Blocks:           contracts.StudentBlocks(s.content.Blocks),
 		Tasks:            tasks,
 		CurrentTaskIdx:   rs.CurrentTaskIdx,
 		Checks:           rs.Checks,
@@ -638,7 +648,121 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 			snap.LastOutput = truncate(snap.TerminalScreen, 4000)
 		}
 	}
+	// Surface draft for current short_response task when store is available.
+	if rs.CurrentTaskIdx >= 0 && rs.CurrentTaskIdx < len(tasks) {
+		t := tasks[rs.CurrentTaskIdx]
+		if contracts.TaskKindOrDefault(t) == contracts.TaskKindShortResponse && s.eng != nil && s.eng.opts.Store != nil {
+			if body, err := s.eng.opts.Store.GetResponseDraft(context.Background(), s.clientSessionID, t.ID); err == nil {
+				snap.ResponseDraft = body
+			}
+			if pending, err := s.eng.opts.Store.ListPendingResponses(context.Background()); err == nil {
+				for _, p := range pending {
+					if p.ClientSessionID == s.clientSessionID && p.TaskID == t.ID {
+						snap.ResponseQueued = true
+						break
+					}
+				}
+			}
+		}
+	}
 	return snap
+}
+
+// SaveResponseDraft persists a local draft for a short_response task.
+func (s *Session) SaveResponseDraft(ctx context.Context, taskID, body string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.eng == nil || s.eng.opts.Store == nil {
+		return fmt.Errorf("no local store")
+	}
+	return s.eng.opts.Store.SaveResponseDraft(ctx, s.clientSessionID, taskID, body)
+}
+
+// SubmitResponse queues an idempotent conceptual response and marks the task submitted.
+// Body must be the student's own text — never tutor-generated coaching.
+func (s *Session) SubmitResponse(ctx context.Context, taskID, body string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.completed {
+		return fmt.Errorf("session already completed")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("response body is required")
+	}
+	var task *contracts.Task
+	for i := range s.content.Tasks {
+		if s.content.Tasks[i].ID == taskID {
+			task = &s.content.Tasks[i]
+			break
+		}
+	}
+	if task == nil {
+		return fmt.Errorf("unknown task %q", taskID)
+	}
+	if contracts.TaskKindOrDefault(*task) != contracts.TaskKindShortResponse || task.Response == nil {
+		return fmt.Errorf("task %q is not a short_response task", taskID)
+	}
+	max := task.Response.MaxChars
+	if max <= 0 {
+		max = contracts.DefaultResponseMaxChars
+	}
+	if len([]rune(body)) > max {
+		return fmt.Errorf("response exceeds %d characters", max)
+	}
+	if s.eng == nil || s.eng.opts.Store == nil {
+		return fmt.Errorf("no local store")
+	}
+
+	req := contracts.ResponseSubmission{
+		SchemaVersion: contracts.ResponseSchemaVersion,
+		SubmissionID:  uuid.NewString(),
+		TaskID:        taskID,
+		Body:          body,
+		ClientTime:    time.Now().UTC(),
+	}
+	if err := s.eng.opts.Store.SaveResponseIntent(ctx, s.clientSessionID, s.serverSessionID, req); err != nil {
+		return err
+	}
+	_ = s.eng.opts.Store.SaveResponseDraft(ctx, s.clientSessionID, taskID, body)
+
+	if tr, ok := s.runner.(*activities.TerminalRunner); ok {
+		tr.MarkResponseSubmitted(taskID)
+		s.applyRunnerEvents(ctx)
+		_ = s.persistRunnerState(ctx)
+	}
+
+	// Best-effort immediate flush when online.
+	if !s.offline && s.eng.opts.Sync != nil && s.serverSessionID != "" {
+		go func() {
+			_ = s.eng.SyncOnce(context.Background())
+		}()
+	} else {
+		s.message = "Response saved — awaiting sync"
+	}
+	return nil
+}
+
+// ContentBlocks returns student-visible instructional blocks.
+func (s *Session) ContentBlocks() []contracts.InstructionBlock {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return contracts.StudentBlocks(s.content.Blocks)
+}
+
+func (s *Session) restoreSubmittedResponses(ctx context.Context) {
+	if s.eng == nil || s.eng.opts.Store == nil {
+		return
+	}
+	ids, err := s.eng.opts.Store.ListAckedResponseTaskIDs(ctx, s.clientSessionID)
+	if err != nil || len(ids) == 0 {
+		return
+	}
+	if tr, ok := s.runner.(*activities.TerminalRunner); ok {
+		for id := range ids {
+			tr.MarkResponseSubmitted(id)
+		}
+	}
 }
 
 // WriteTerminal sends raw bytes to the live PTY (keystrokes).
