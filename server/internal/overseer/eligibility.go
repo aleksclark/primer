@@ -24,6 +24,8 @@ const (
 	BlockIncompatibleOpen     = "incompatible_open_assignment"
 	BlockNoActiveEnrollment   = "no_active_enrollment"
 	BlockNoEligibleActivity   = "no_eligible_activity"
+	// BlockMissingRuntimeProfile: device capability report lacks the activity's runtime profile.
+	BlockMissingRuntimeProfile = "missing_runtime_profile"
 )
 
 // ActivityStatus is one membership row evaluated for a student.
@@ -93,6 +95,11 @@ func EvaluateEnrollmentEligibility(ctx context.Context, q repo.Querier, enrollme
 	if err != nil {
 		return nil, err
 	}
+	deviceCaps, _, err := repo.LatestDeviceCapabilitiesForStudent(ctx, q, en.StudentID)
+	if err != nil {
+		return nil, err
+	}
+	deviceProfiles := runtimeProfilesFromCaps(deviceCaps)
 
 	prereqByAct := map[string][]domain.CurriculumActivityPrerequisite{}
 	for _, p := range prereqs {
@@ -116,6 +123,14 @@ func EvaluateEnrollmentEligibility(ctx context.Context, q repo.Querier, enrollme
 	for _, m := range membership {
 		st := evaluateMembership(m, *en, prereqByAct[m.ActivitySlug], gatesByAct[m.ActivitySlug],
 			completed, openSlugs, pendingReview, masteryByCode, override)
+		// Runtime profile gate: only when we have a device report and a resolved revision.
+		if st.Eligible || st.Status == "blocked" {
+			if reason := blockMissingRuntime(ctx, q, m, deviceProfiles); reason != nil {
+				st.Eligible = false
+				st.Status = "blocked"
+				st.BlockingReasons = append(st.BlockingReasons, *reason)
+			}
+		}
 		out.Activities = append(out.Activities, st)
 		if st.Eligible {
 			out.Eligible = append(out.Eligible, st)
@@ -296,6 +311,79 @@ func hasCode(blocks []BlockReason, code string) bool {
 		}
 	}
 	return false
+}
+
+func runtimeProfilesFromCaps(caps map[string]any) map[string]bool {
+	out := map[string]bool{}
+	if caps == nil {
+		return out
+	}
+	raw, ok := caps["runtimeProfiles"]
+	if !ok {
+		return out
+	}
+	switch v := raw.(type) {
+	case []any:
+		for _, x := range v {
+			if s, ok := x.(string); ok && s != "" {
+				out[s] = true
+			}
+		}
+	case []string:
+		for _, s := range v {
+			if s != "" {
+				out[s] = true
+			}
+		}
+	}
+	return out
+}
+
+// blockMissingRuntime returns a block reason when the activity requires a
+// runtime profile the student's devices have not reported. When no device
+// report exists, we do not block (offline-first / not yet heartbeated).
+func blockMissingRuntime(ctx context.Context, q repo.Querier, m domain.CurriculumActivity, deviceProfiles map[string]bool) *BlockReason {
+	if len(deviceProfiles) == 0 {
+		return nil
+	}
+	if m.ActivityRevisionID == nil || *m.ActivityRevisionID == "" {
+		return nil
+	}
+	rev, err := repo.GetRevision(ctx, q, *m.ActivityRevisionID)
+	if err != nil {
+		return nil
+	}
+	profile := runtimeProfileFromContent(rev.Content)
+	if profile == "" {
+		return nil
+	}
+	if deviceProfiles[profile] {
+		return nil
+	}
+	return &BlockReason{
+		Code:        BlockMissingRuntimeProfile,
+		Message:     fmt.Sprintf("device missing runtime profile %q", profile),
+		Activity:    m.ActivitySlug,
+		Requirement: profile,
+	}
+}
+
+func runtimeProfileFromContent(content map[string]any) string {
+	if content == nil {
+		return ""
+	}
+	// content.terminal.runtimeProfile (JSON) or runtime_profile
+	term, _ := content["terminal"].(map[string]any)
+	if term == nil {
+		return ""
+	}
+	if s, ok := term["runtimeProfile"].(string); ok {
+		return strings.TrimSpace(s)
+	}
+	if s, ok := term["runtime_profile"].(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
 }
 
 func dedupeBlockReasons(in []BlockReason) []BlockReason {

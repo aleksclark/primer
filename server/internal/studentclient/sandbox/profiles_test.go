@@ -108,3 +108,38 @@ func TestApplyProfileUnknown(t *testing.T) {
 	err := sandbox.ApplyProfile(&cfg, "nope")
 	require.Error(t, err)
 }
+
+func TestProfilesDirPreferredOverProfileDir(t *testing.T) {
+	parent := t.TempDir()
+	named := filepath.Join(parent, "coreutils-basic")
+	require.NoError(t, os.MkdirAll(named, 0o755))
+	singular := t.TempDir()
+	t.Setenv(sandbox.EnvRuntimeProfilesDir, parent)
+	t.Setenv(sandbox.EnvRuntimeProfileDir, singular)
+	dir, err := sandbox.ResolveProfileDir("coreutils-basic")
+	require.NoError(t, err)
+	assert.Equal(t, named, dir)
+	assert.False(t, sandbox.UsingSingularProfileFallback())
+}
+
+func TestVerifyProfileBinaries(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "sh"), []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "ls"), []byte("x"), 0o755))
+	missing, err := sandbox.VerifyProfileBinaries("coreutils-basic", root)
+	require.NoError(t, err)
+	assert.NotEmpty(t, missing)
+	assert.NotContains(t, missing, "sh")
+	assert.NotContains(t, missing, "ls")
+	assert.Contains(t, missing, "bash")
+}
+
+func TestKnownProfilesIncludeWhoami(t *testing.T) {
+	t.Parallel()
+	p, err := sandbox.LookupProfile("coreutils-basic")
+	require.NoError(t, err)
+	assert.Contains(t, p.Binaries, "whoami")
+	assert.Contains(t, p.Binaries, "id")
+}

@@ -201,8 +201,96 @@ func (s *Store) SetDeviceIdentity(ctx context.Context, deviceID, studentID, devi
 
 // --- work cache ------------------------------------------------------------
 
-// SaveWork upserts work queue items from the API.
-func (s *Store) SaveWork(ctx context.Context, items []studentapi.WorkItem) error {
+// Work-sync meta keys (broker SQLite device_meta).
+const (
+	MetaWorkCursor           = "work_sync_cursor"
+	MetaWorkSyncMode         = "work_sync_mode" // last completed mode: snapshot|incremental
+	MetaWorkLastFullSync     = "work_sync_last_full_at"
+	MetaWorkPageCursor       = "work_sync_page_cursor" // in-progress pagination cursor
+	MetaWorkPageMode         = "work_sync_page_mode"   // snapshot|incremental for in-progress
+	MetaWorkPageSeenIDs      = "work_sync_page_seen"   // JSON []assignmentID during snapshot
+	MetaWorkInProgress       = "work_sync_in_progress" // "1" while multi-page sync runs
+)
+
+// WorkSyncState is durable work reconciliation progress.
+type WorkSyncState struct {
+	// Cursor is the last fully applied server cursor (empty = need full snapshot).
+	Cursor string
+	// Mode is the last completed response mode ("snapshot" or "incremental").
+	Mode string
+	// LastFullSyncAt is when a full snapshot last completed (RFC3339Nano).
+	LastFullSyncAt string
+	// PageCursor is the continuation cursor for an in-progress multi-page sync.
+	PageCursor string
+	// PageMode is the mode of the in-progress sync.
+	PageMode string
+	// InProgress is true while a multi-page sync has not finished.
+	InProgress bool
+	// SnapshotSeenIDs lists assignment IDs observed during an in-progress snapshot.
+	SnapshotSeenIDs []string
+}
+
+// GetWorkSyncState loads durable work-sync metadata.
+func (s *Store) GetWorkSyncState(ctx context.Context) (WorkSyncState, error) {
+	var st WorkSyncState
+	var err error
+	if st.Cursor, err = s.GetMeta(ctx, MetaWorkCursor); err != nil {
+		return st, err
+	}
+	if st.Mode, err = s.GetMeta(ctx, MetaWorkSyncMode); err != nil {
+		return st, err
+	}
+	if st.LastFullSyncAt, err = s.GetMeta(ctx, MetaWorkLastFullSync); err != nil {
+		return st, err
+	}
+	if st.PageCursor, err = s.GetMeta(ctx, MetaWorkPageCursor); err != nil {
+		return st, err
+	}
+	if st.PageMode, err = s.GetMeta(ctx, MetaWorkPageMode); err != nil {
+		return st, err
+	}
+	flag, err := s.GetMeta(ctx, MetaWorkInProgress)
+	if err != nil {
+		return st, err
+	}
+	st.InProgress = flag == "1"
+	raw, err := s.GetMeta(ctx, MetaWorkPageSeenIDs)
+	if err != nil {
+		return st, err
+	}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &st.SnapshotSeenIDs); err != nil {
+			return st, fmt.Errorf("decode work_sync_page_seen: %w", err)
+		}
+	}
+	return st, nil
+}
+
+// BeginWorkPage marks multi-page work sync in progress with the active mode.
+func (s *Store) BeginWorkPage(ctx context.Context, mode string) error {
+	if err := s.SetMeta(ctx, MetaWorkInProgress, "1"); err != nil {
+		return err
+	}
+	if err := s.SetMeta(ctx, MetaWorkPageMode, mode); err != nil {
+		return err
+	}
+	// Fresh snapshot page walk resets seen IDs when starting without a page cursor.
+	if mode == studentapi.WorkModeSnapshot {
+		st, err := s.GetWorkSyncState(ctx)
+		if err != nil {
+			return err
+		}
+		if st.PageCursor == "" {
+			return s.SetMeta(ctx, MetaWorkPageSeenIDs, "[]")
+		}
+	}
+	return nil
+}
+
+// ApplyWorkPage upserts one page of work items and records pagination progress.
+// For snapshot mode, assignment IDs are accumulated for end-of-snapshot reconcile.
+// The durable (committed) cursor is NOT advanced here.
+func (s *Store) ApplyWorkPage(ctx context.Context, items []studentapi.WorkItem, pageCursor, mode string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -220,6 +308,7 @@ ON CONFLICT(assignment_id) DO UPDATE SET
 	defer stmt.Close()
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	pageIDs := make([]string, 0, len(items))
 	for _, it := range items {
 		raw, err := json.Marshal(it)
 		if err != nil {
@@ -232,8 +321,185 @@ ON CONFLICT(assignment_id) DO UPDATE SET
 		if _, err := stmt.ExecContext(ctx, it.Assignment.ID, string(raw), updated); err != nil {
 			return err
 		}
+		pageIDs = append(pageIDs, it.Assignment.ID)
+	}
+
+	// Merge snapshot seen IDs.
+	if mode == studentapi.WorkModeSnapshot && len(pageIDs) > 0 {
+		var prevRaw string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM device_meta WHERE key = ?`, MetaWorkPageSeenIDs).Scan(&prevRaw)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		seen := map[string]struct{}{}
+		if prevRaw != "" {
+			var prev []string
+			if err := json.Unmarshal([]byte(prevRaw), &prev); err == nil {
+				for _, id := range prev {
+					seen[id] = struct{}{}
+				}
+			}
+		}
+		for _, id := range pageIDs {
+			seen[id] = struct{}{}
+		}
+		merged := make([]string, 0, len(seen))
+		for id := range seen {
+			merged = append(merged, id)
+		}
+		raw, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO device_meta(key, value) VALUES(?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value`, MetaWorkPageSeenIDs, string(raw)); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO device_meta(key, value) VALUES(?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value`, MetaWorkPageCursor, pageCursor); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO device_meta(key, value) VALUES(?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value`, MetaWorkPageMode, mode); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO device_meta(key, value) VALUES(?, '1')
+ON CONFLICT(key) DO UPDATE SET value = excluded.value`, MetaWorkInProgress); err != nil {
+		return err
 	}
 	return tx.Commit()
+}
+
+// CommitWorkSync advances the durable cursor after all pages were applied.
+// For snapshot mode, marks cached rows not present in the snapshot as cancelled
+// without deleting local session/evidence rows.
+func (s *Store) CommitWorkSync(ctx context.Context, finalCursor, mode string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	if mode == studentapi.WorkModeSnapshot {
+		var seenRaw string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM device_meta WHERE key = ?`, MetaWorkPageSeenIDs).Scan(&seenRaw)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		seen := map[string]struct{}{}
+		if seenRaw != "" {
+			var ids []string
+			if err := json.Unmarshal([]byte(seenRaw), &ids); err == nil {
+				for _, id := range ids {
+					seen[id] = struct{}{}
+				}
+			}
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT assignment_id, payload_json FROM work_items`)
+		if err != nil {
+			return err
+		}
+		type row struct {
+			id  string
+			raw string
+		}
+		var all []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.id, &r.raw); err != nil {
+				rows.Close()
+				return err
+			}
+			all = append(all, r)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, r := range all {
+			if _, ok := seen[r.id]; ok {
+				continue
+			}
+			// Soft-reconcile: mark absent snapshot rows cancelled; keep payload for evidence.
+			var it studentapi.WorkItem
+			if err := json.Unmarshal([]byte(r.raw), &it); err != nil {
+				continue
+			}
+			if it.Assignment.State == "cancelled" || it.Assignment.State == "completed" {
+				continue
+			}
+			it.Assignment.State = "cancelled"
+			it.Assignment.UpdatedAt = time.Now().UTC()
+			raw, err := json.Marshal(it)
+			if err != nil {
+				return err
+			}
+			updated := it.Assignment.UpdatedAt.UTC().Format(time.RFC3339Nano)
+			if _, err := tx.ExecContext(ctx, `
+UPDATE work_items SET payload_json = ?, updated_at = ? WHERE assignment_id = ?`,
+				string(raw), updated, r.id); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO device_meta(key, value) VALUES(?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value`, MetaWorkLastFullSync, now); err != nil {
+			return err
+		}
+	}
+
+	setMeta := func(k, v string) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO device_meta(key, value) VALUES(?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value`, k, v)
+		return err
+	}
+	if err := setMeta(MetaWorkCursor, finalCursor); err != nil {
+		return err
+	}
+	if err := setMeta(MetaWorkSyncMode, mode); err != nil {
+		return err
+	}
+	if err := setMeta(MetaWorkPageCursor, ""); err != nil {
+		return err
+	}
+	if err := setMeta(MetaWorkPageMode, ""); err != nil {
+		return err
+	}
+	if err := setMeta(MetaWorkPageSeenIDs, ""); err != nil {
+		return err
+	}
+	if err := setMeta(MetaWorkInProgress, "0"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ResetWorkSyncCursor clears the durable cursor so the next sync is a full snapshot.
+// Used when the server reports cursor expiry.
+func (s *Store) ResetWorkSyncCursor(ctx context.Context) error {
+	for _, k := range []string{
+		MetaWorkCursor, MetaWorkPageCursor, MetaWorkPageMode, MetaWorkPageSeenIDs, MetaWorkInProgress,
+	} {
+		if err := s.SetMeta(ctx, k, ""); err != nil {
+			return err
+		}
+	}
+	return s.SetMeta(ctx, MetaWorkInProgress, "0")
+}
+
+// SaveWork upserts work queue items from the API (single-page helper / tests).
+// Prefer ApplyWorkPage + CommitWorkSync for production sync.
+func (s *Store) SaveWork(ctx context.Context, items []studentapi.WorkItem) error {
+	return s.ApplyWorkPage(ctx, items, "", "")
 }
 
 // ListWork returns cached work items ordered by updated_at.

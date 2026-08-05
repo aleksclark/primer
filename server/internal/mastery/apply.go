@@ -78,9 +78,30 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 		if asg.StudentID != device.StudentID {
 			return repo.ErrNotFound
 		}
-		// Cancelled assignments never create mastery evidence.
+		// Cancelled assignments never create mastery. Offline completion after cancel
+		// is recorded as an explicit rejected result so clients can ack and retain evidence.
 		if asg.State == domain.AssignmentCancelled {
-			return repo.ErrBadRequest{Msg: "assignment is cancelled"}
+			result = contracts.CompletionResult{
+				SchemaVersion: contracts.CompletionSchemaVersion,
+				CompletionID:  req.CompletionID,
+				Accepted:      false,
+				RequestDigest: req.RequestDigest,
+				Observations:  req.Observations,
+				Message:       "assignment cancelled; evidence retained for parent review (cancelled-after-work)",
+				AssignmentCompletion: &contracts.AssignmentCompletion{
+					AssignmentID: session.AssignmentID,
+					SessionID:    session.ID,
+					State:        domain.AssignmentCancelled,
+					Summary:      "cancelled-after-work",
+				},
+			}
+			// Persist rejection so retries are idempotent; do not mark assignment completed
+			// and do not write mastery evidence.
+			if _, err := repo.InsertCompletion(ctx, tx, session.ID, req.CompletionID, req.RequestDigest, result); err != nil {
+				return err
+			}
+			// Leave session open/abandoned path: label via summary event is optional MVP.
+			return nil
 		}
 
 		rev, err := repo.GetRevision(ctx, tx, session.ActivityRevisionID)

@@ -109,11 +109,24 @@ type PairResponse struct {
 }
 
 // StudentProfile is GET /student/profile.
+// When deviceCapabilities is set on the request body variant, servers may
+// accept a POST heartbeat; GET still returns identity only.
 type StudentProfile struct {
 	Student    domain.Student `json:"student"`
 	DeviceID   string         `json:"deviceId"`
 	DeviceName string         `json:"deviceName"`
 }
+
+// ReportCapabilitiesRequest is POST /student/device/capabilities (and optional profile heartbeat).
+type ReportCapabilitiesRequest struct {
+	DeviceCapabilities DeviceCapabilities `json:"deviceCapabilities"`
+}
+
+// Work response modes from GET /student/work.
+const (
+	WorkModeIncremental = "incremental"
+	WorkModeSnapshot    = "snapshot"
+)
 
 // WorkItem is one assignment plus revision payload in the work queue.
 type WorkItem struct {
@@ -123,16 +136,39 @@ type WorkItem struct {
 }
 
 // WorkResponse is GET /student/work.
+//
+// Mode is "snapshot" when the server returns a full authoritative page stream
+// (no cursor / expired cursor) and "incremental" for upserts since a valid cursor.
+// HasMore is true when another page follows; clients must not advance the durable
+// cursor until HasMore is false.
 type WorkResponse struct {
-	Items  []WorkItem `json:"items"`
-	Cursor string     `json:"cursor,omitempty"`
+	Items   []WorkItem `json:"items"`
+	Cursor  string     `json:"cursor,omitempty"`
+	Mode    string     `json:"mode,omitempty"`
+	HasMore bool       `json:"hasMore,omitempty"`
+}
+
+// DeviceCapabilities is the structured capability report from a student device.
+// Stored server-side for eligibility diagnostics; not an authorization boundary.
+type DeviceCapabilities struct {
+	// RuntimeProfiles lists installed profile names (e.g. coreutils-basic).
+	RuntimeProfiles []string `json:"runtimeProfiles,omitempty"`
+	// ProfileDigests maps profile name -> optional content/version digest.
+	ProfileDigests map[string]string `json:"profileDigests,omitempty"`
+	// RunnerVersion is the student client version string.
+	RunnerVersion string `json:"runnerVersion,omitempty"`
+	// Capabilities lists runner flags (e.g. structured_command_evidence).
+	Capabilities []string `json:"capabilities,omitempty"`
+	// ReportedAt is set by the server when stored.
+	ReportedAt *time.Time `json:"reportedAt,omitempty"`
 }
 
 // StartSessionRequest is POST /student/sessions.
 type StartSessionRequest struct {
-	ClientSessionID string   `json:"clientSessionId"`
-	AssignmentID    string   `json:"assignmentId"`
-	Capabilities    []string `json:"capabilities,omitempty"`
+	ClientSessionID string              `json:"clientSessionId"`
+	AssignmentID    string              `json:"assignmentId"`
+	Capabilities    []string            `json:"capabilities,omitempty"`
+	DeviceCaps      *DeviceCapabilities `json:"deviceCapabilities,omitempty"`
 }
 
 // EventsRequest is POST /student/sessions/{id}/events.
@@ -170,6 +206,7 @@ func (c *Client) Profile(ctx context.Context) (*StudentProfile, error) {
 }
 
 // Work returns the student work queue. after is an opaque cursor from a prior response.
+// An empty after requests a full snapshot. Limit defaults server-side when <= 0.
 func (c *Client) Work(ctx context.Context, after string, limit int) (*WorkResponse, error) {
 	q := url.Values{}
 	if after != "" {
@@ -186,17 +223,37 @@ func (c *Client) Work(ctx context.Context, after string, limit int) (*WorkRespon
 	if err := c.doJSON(ctx, http.MethodGet, path, true, nil, &out); err != nil {
 		return nil, err
 	}
+	if out.Mode == "" {
+		if after == "" {
+			out.Mode = WorkModeSnapshot
+		} else {
+			out.Mode = WorkModeIncremental
+		}
+	}
 	return &out, nil
+}
+
+// ReportCapabilities posts the device's installed runtime profiles and runner flags.
+func (c *Client) ReportCapabilities(ctx context.Context, caps DeviceCapabilities) error {
+	return c.doJSON(ctx, http.MethodPost, "/student/device/capabilities", true, ReportCapabilitiesRequest{
+		DeviceCapabilities: caps,
+	}, &struct{}{})
 }
 
 // StartSession starts or resumes a learning session.
 // capabilities lists runner flags (e.g. contracts.CapStructuredCommandEvidence).
 func (c *Client) StartSession(ctx context.Context, clientSessionID, assignmentID string, capabilities ...string) (*domain.LearningSession, error) {
+	return c.StartSessionWithCaps(ctx, clientSessionID, assignmentID, capabilities, nil)
+}
+
+// StartSessionWithCaps starts a session and optionally reports device capabilities.
+func (c *Client) StartSessionWithCaps(ctx context.Context, clientSessionID, assignmentID string, capabilities []string, deviceCaps *DeviceCapabilities) (*domain.LearningSession, error) {
 	var out domain.LearningSession
 	if err := c.doJSON(ctx, http.MethodPost, "/student/sessions", true, StartSessionRequest{
 		ClientSessionID: clientSessionID,
 		AssignmentID:    assignmentID,
 		Capabilities:    capabilities,
+		DeviceCaps:      deviceCaps,
 	}, &out); err != nil {
 		return nil, err
 	}
