@@ -459,6 +459,51 @@ func TestJellyfinSyncBlocksUnsupportedDirectPlay(t *testing.T) {
 	assert.Equal(t, "audio codec truehd", got.QualityNotes)
 }
 
+func TestJellyfinSyncPreservesBlankWithholdAcrossTrueHDThenEAC3(t *testing.T) {
+	t.Parallel()
+	// Multi-sync regression: curator blank withhold must not be laundered into
+	// a repairable auto note by an intermediate unsupported-codec sync.
+	//   1) blank notes + false
+	//   2) truehd sync writes "audio codec truehd"
+	//   3) eac3 sync must leave direct_play_ok false
+	fake := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-multi-sync", Name: "Withheld Multi", SortName: "Withheld Multi",
+		Runtime: time.Hour, Container: "mkv", VideoCodec: "h264",
+		AudioCodec: "truehd", ImageTag: "tag-1", Overview: "Same.",
+	})
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: fake})
+	item := factory.MediaItem(t, q, factory.Override{
+		"jellyfin_item_id": "jf-multi-sync",
+		"title":            "Withheld Multi",
+		"sort_title":       "Withheld Multi",
+		"overview":         "Same.",
+		"runtime_seconds":  3600,
+		"container":        "mkv",
+		"video_codec":      "h264",
+		"audio_codec":      "aac",
+		"image_tag":        "tag-1",
+		"direct_play_ok":   false,
+		"quality_notes":    "",
+	})
+
+	resp1 := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp1.Code, resp1.Body.String())
+	afterTrueHD := decode[domain.MediaItem](t, h.Get("/media-items/"+item.ID).Body.Bytes())
+	require.False(t, afterTrueHD.DirectPlayOK)
+	require.Equal(t, "truehd", afterTrueHD.AudioCodec)
+	require.Equal(t, "audio codec truehd", afterTrueHD.QualityNotes)
+
+	// Upstream audio flips to allowlisted eac3 on a later sync.
+	fake.Items[0].AudioCodec = "eac3"
+	resp2 := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp2.Code, resp2.Body.String())
+
+	afterEAC3 := decode[domain.MediaItem](t, h.Get("/media-items/"+item.ID).Body.Bytes())
+	assert.Equal(t, "eac3", afterEAC3.AudioCodec)
+	assert.False(t, afterEAC3.DirectPlayOK,
+		"blank curator withhold must survive truehd auto-note then eac3 sync")
+}
+
 func TestJellyfinSyncCoversTheWholeLibrary(t *testing.T) {
 	t.Parallel()
 	// More items than a single page holds: stopping after one page would leave
