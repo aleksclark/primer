@@ -25,11 +25,11 @@ func TestContentManifestSyncAndAttempt(t *testing.T) {
 	resp := h.Post("/content-manifest/sync", objMap{
 		"items": []objMap{
 			{
-				"slug":  "matrix",
-				"title": "The Matrix",
-				"kind":  domain.ManifestKindMovie,
-				"class": domain.ClassEntertainment,
-				"year":  1999,
+				"slug":   "matrix",
+				"title":  "The Matrix",
+				"kind":   domain.ManifestKindMovie,
+				"class":  domain.ClassEntertainment,
+				"year":   1999,
 				"tmdbId": 603,
 			},
 			{
@@ -53,10 +53,10 @@ func TestContentManifestSyncAndAttempt(t *testing.T) {
 	resp = h.Post("/content-manifest/sync", objMap{
 		"items": []objMap{
 			{
-				"slug":  "matrix",
-				"title": "The Matrix (4K)",
-				"kind":  domain.ManifestKindMovie,
-				"class": domain.ClassEntertainment,
+				"slug":   "matrix",
+				"title":  "The Matrix (4K)",
+				"kind":   domain.ManifestKindMovie,
+				"class":  domain.ClassEntertainment,
 				"tmdbId": 603,
 			},
 		},
@@ -92,7 +92,7 @@ func TestContentManifestSyncAndAttempt(t *testing.T) {
 	resp = h.Get("/content-manifest-entries?filter=status:manual")
 	require.Equal(t, http.StatusOK, resp.Code)
 	page := decode[struct {
-		TotalCount int `json:"totalCount"`
+		TotalCount int                           `json:"totalCount"`
 		Items      []domain.ContentManifestEntry `json:"items"`
 	}](t, resp.Body.Bytes())
 	assert.Equal(t, 1, page.TotalCount)

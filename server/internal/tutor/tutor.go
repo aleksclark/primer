@@ -51,12 +51,12 @@ type Request struct {
 
 // Response is a short coaching reply plus provenance for diagnostics/events.
 type Response struct {
-	Reply      string
-	Provider   string
-	Fallback   bool
-	Filtered   bool
+	Reply       string
+	Provider    string
+	Fallback    bool
+	Filtered    bool
 	RateLimited bool
-	Disabled   bool
+	Disabled    bool
 }
 
 // DefaultFallback is used when activity content has no usable hint.

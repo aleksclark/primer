@@ -50,24 +50,24 @@ const (
 
 // ManifestEntry is one TV-persisted content-manifest row.
 type ManifestEntry struct {
-	ID           string `json:"id"`
-	Slug         string `json:"slug"`
-	Title        string `json:"title"`
-	Year         int    `json:"year,omitempty"`
-	Kind         string `json:"kind"`
-	TMDBID       int    `json:"tmdbId,omitempty"`
-	TVDBID       int    `json:"tvdbId,omitempty"`
-	URL          string `json:"url,omitempty"`
-	Class        string `json:"class"`
-	SubjectTags  []string `json:"subjectTags,omitempty"`
-	StandardCodes []string `json:"standardCodes,omitempty"`
-	Priority     int    `json:"priority,omitempty"`
+	ID              string   `json:"id"`
+	Slug            string   `json:"slug"`
+	Title           string   `json:"title"`
+	Year            int      `json:"year,omitempty"`
+	Kind            string   `json:"kind"`
+	TMDBID          int      `json:"tmdbId,omitempty"`
+	TVDBID          int      `json:"tvdbId,omitempty"`
+	URL             string   `json:"url,omitempty"`
+	Class           string   `json:"class"`
+	SubjectTags     []string `json:"subjectTags,omitempty"`
+	StandardCodes   []string `json:"standardCodes,omitempty"`
+	Priority        int      `json:"priority,omitempty"`
 	ExcludeEpisodes []string `json:"excludeEpisodes,omitempty"`
-	MaxEpisodes  int    `json:"maxEpisodes,omitempty"`
-	Notes        string `json:"notes,omitempty"`
-	Status       string `json:"status"`
-	AttemptCount int    `json:"attemptCount"`
-	LastError    string `json:"lastError,omitempty"`
+	MaxEpisodes     int      `json:"maxEpisodes,omitempty"`
+	Notes           string   `json:"notes,omitempty"`
+	Status          string   `json:"status"`
+	AttemptCount    int      `json:"attemptCount"`
+	LastError       string   `json:"lastError,omitempty"`
 }
 
 // ManifestDesired is one desired-state item pushed by content-ingest.

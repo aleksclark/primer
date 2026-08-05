@@ -13,13 +13,13 @@ import (
 
 // Result is the outcome for one activity document.
 type Result struct {
-	Slug    string
-	Path    string
-	Title   string
-	OK      bool
-	Error   string
-	Checks  int
-	Tasks   int
+	Slug     string
+	Path     string
+	Title    string
+	OK       bool
+	Error    string
+	Checks   int
+	Tasks    int
 	Fixtures int
 }
 

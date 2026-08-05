@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/activities"
+	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"
@@ -878,4 +878,3 @@ func (s *Session) persistRunnerState(ctx context.Context) error {
 	}
 	return s.eng.opts.Store.SaveRunnerState(ctx, s.clientSessionID, s.kind, raw)
 }
-

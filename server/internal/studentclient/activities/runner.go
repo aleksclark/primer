@@ -106,12 +106,12 @@ type Input struct {
 
 // ShellResult is a lightweight shell observation from PTY or scripted exec.
 type ShellResult struct {
-	Cwd        string `json:"cwd,omitempty"` // relative to workspace
-	Executable string `json:"executable,omitempty"`
+	Cwd        string   `json:"cwd,omitempty"` // relative to workspace
+	Executable string   `json:"executable,omitempty"`
 	Args       []string `json:"args,omitempty"`
-	ExitCode   int    `json:"exitCode"`
-	Stdout     string `json:"stdout,omitempty"`
-	Stderr     string `json:"stderr,omitempty"`
+	ExitCode   int      `json:"exitCode"`
+	Stdout     string   `json:"stdout,omitempty"`
+	Stderr     string   `json:"stderr,omitempty"`
 	// CountCommand increments CommandsRun when true.
 	CountCommand bool `json:"countCommand,omitempty"`
 }

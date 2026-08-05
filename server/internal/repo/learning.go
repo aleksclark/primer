@@ -101,10 +101,10 @@ func PublishActivityRevision(ctx context.Context, q Querier, doc *contracts.Acti
 			}
 		} else {
 			act, err = LearningActivities.Update(ctx, tx, act.ID, map[string]any{
-				"title":   doc.Title,
-				"summary": doc.Summary,
-				"kind":    doc.Kind,
-				"status":  domain.ActivityStatusPublished,
+				"title":      doc.Title,
+				"summary":    doc.Summary,
+				"kind":       doc.Kind,
+				"status":     domain.ActivityStatusPublished,
 				"subject_id": subjectID,
 			})
 			if err != nil {
@@ -127,12 +127,12 @@ func PublishActivityRevision(ctx context.Context, q Querier, doc *contracts.Acti
 			return err
 		}
 		rev, err := LearningActivityRevisions.Create(ctx, tx, map[string]any{
-			"activity_id":     act.ID,
-			"revision":        next,
-			"schema_version":  doc.SchemaVersion,
-			"content":         contentMap,
-			"content_sha256":  digest,
-			"published_at":    now,
+			"activity_id":    act.ID,
+			"revision":       next,
+			"schema_version": doc.SchemaVersion,
+			"content":        contentMap,
+			"content_sha256": digest,
+			"published_at":   now,
 		})
 		if err != nil {
 			return err

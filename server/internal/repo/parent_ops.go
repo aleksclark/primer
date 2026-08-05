@@ -145,12 +145,12 @@ func SupersedeMasteryEvidence(ctx context.Context, q Querier, evidenceID, note s
 
 // StudentLearningOverview aggregates parent-facing learning state for one student.
 type StudentLearningOverview struct {
-	Student          domain.Student            `json:"student"`
-	Devices          []domain.StudentDevice    `json:"devices"`
-	OpenAssignments  []domain.StudentAssignment `json:"openAssignments"`
-	RecentSessions   []domain.LearningSession  `json:"recentSessions"`
-	MasterySummary   []domain.MasteryRecord    `json:"masterySummary"`
-	TutorNotesDisable bool                     `json:"tutorNotesDisable"`
+	Student           domain.Student             `json:"student"`
+	Devices           []domain.StudentDevice     `json:"devices"`
+	OpenAssignments   []domain.StudentAssignment `json:"openAssignments"`
+	RecentSessions    []domain.LearningSession   `json:"recentSessions"`
+	MasterySummary    []domain.MasteryRecord     `json:"masterySummary"`
+	TutorNotesDisable bool                       `json:"tutorNotesDisable"`
 }
 
 // GetStudentLearningOverview loads devices, open work, recent sessions, and mastery.
@@ -260,12 +260,12 @@ ORDER BY updated_at DESC`
 
 // StudentClientMetrics are simple household counters for ops dashboards.
 type StudentClientMetrics struct {
-	DevicesActive         int `json:"devicesActive"`
-	DevicesRevoked        int `json:"devicesRevoked"`
-	AssignmentsOpen       int `json:"assignmentsOpen"`
-	SessionsActive        int `json:"sessionsActive"`
-	CompletionsLast24h    int `json:"completionsLast24h"`
-	TutorFailuresLast24h  int `json:"tutorFailuresLast24h"`
+	DevicesActive        int `json:"devicesActive"`
+	DevicesRevoked       int `json:"devicesRevoked"`
+	AssignmentsOpen      int `json:"assignmentsOpen"`
+	SessionsActive       int `json:"sessionsActive"`
+	CompletionsLast24h   int `json:"completionsLast24h"`
+	TutorFailuresLast24h int `json:"tutorFailuresLast24h"`
 }
 
 // GetStudentClientMetrics counts active devices, open work, and recent completions.

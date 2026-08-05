@@ -200,7 +200,7 @@ func TestStudentTUIWorkQueueAndComplete(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program: bin,
-		Env:         directEnv(),
+		Env:     directEnv(),
 		Args: []string{
 			"-db", env.DBPath,
 			"-base-url", env.BaseURL,
@@ -280,7 +280,7 @@ func TestStudentTUICommandRunnerPath(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program: bin,
-		Env:         directEnv(),
+		Env:     directEnv(),
 		Args: []string{
 			"-db", env.DBPath,
 			"-base-url", env.BaseURL,
@@ -495,7 +495,7 @@ func TestStudentTUITypingFlow(t *testing.T) {
 
 	suite := trifle.NewSuite(t).Use(trifle.TestConfig{
 		Program: bin,
-		Env:         directEnv(),
+		Env:     directEnv(),
 		Args: []string{
 			"-db", env.DBPath,
 			"-base-url", env.BaseURL,

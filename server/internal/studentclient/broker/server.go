@@ -18,8 +18,8 @@ import (
 
 	"github.com/google/uuid"
 
-	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/activities"
+	studentapi "github.com/aleksclark/primer/server/internal/studentclient/api"
 	"github.com/aleksclark/primer/server/internal/studentclient/cache"
 	"github.com/aleksclark/primer/server/internal/studentclient/engine"
 	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"

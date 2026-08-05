@@ -10,9 +10,9 @@ import (
 type Fake struct {
 	mu sync.Mutex
 
-	Items     []MediaItem
-	Manifest  []ManifestEntry
-	Err       error
+	Items    []MediaItem
+	Manifest []ManifestEntry
+	Err      error
 	// NextID is assigned to newly created items.
 	NextID int
 

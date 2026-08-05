@@ -66,9 +66,9 @@ type LoginRequest struct {
 
 // LoginResponse returns the session token for API clients/tests.
 type LoginResponse struct {
-	Token    string          `json:"token" doc:"Opaque session token; present as Authorization Bearer."`
-	Educator domain.Educator `json:"educator"`
-	ExpiresAt time.Time      `json:"expiresAt"`
+	Token     string          `json:"token" doc:"Opaque session token; present as Authorization Bearer."`
+	Educator  domain.Educator `json:"educator"`
+	ExpiresAt time.Time       `json:"expiresAt"`
 }
 
 type loginInput struct {
@@ -98,14 +98,14 @@ func registerParentAuth(h huma.API, q repo.Querier) {
 	}
 
 	huma.Register(h, huma.Operation{
-		OperationID: "parent-login",
-		Method:      http.MethodPost,
-		Path:        "/auth/login",
-		Summary:     "Parent login",
-		Description: "Authenticate an educator with email and password. Returns a session token for parent-guarded routes.",
-		Tags:        []string{"Auth"},
+		OperationID:   "parent-login",
+		Method:        http.MethodPost,
+		Path:          "/auth/login",
+		Summary:       "Parent login",
+		Description:   "Authenticate an educator with email and password. Returns a session token for parent-guarded routes.",
+		Tags:          []string{"Auth"},
 		DefaultStatus: http.StatusOK,
-		Errors:      []int{http.StatusUnauthorized},
+		Errors:        []int{http.StatusUnauthorized},
 	}, func(ctx context.Context, in *loginInput) (*loginOutput, error) {
 		ed, err := repo.EducatorByEmail(ctx, q, in.Body.Email)
 		if err != nil {
