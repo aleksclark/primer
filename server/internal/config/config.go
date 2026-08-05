@@ -35,6 +35,10 @@ type Config struct {
 	TutorBedrockAPIKey string `envconfig:"TUTOR_BEDROCK_API_KEY"`
 	// TutorBedrockModel is recorded for diagnostics / proxy routing.
 	TutorBedrockModel string `envconfig:"TUTOR_BEDROCK_MODEL"`
+
+	// ArtifactStoreDir is the filesystem root for session evidence bytes and
+	// approved fixture bundles. Empty disables byte upload (metadata-only).
+	ArtifactStoreDir string `envconfig:"ARTIFACT_STORE_DIR" default:""`
 }
 
 // Load reads configuration from the environment.

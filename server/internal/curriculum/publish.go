@@ -16,16 +16,16 @@ import (
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
 
-// StandardSeed is one row from curriculum/standards/*.yaml.
+// StandardSeed is one row from curriculum/standards/*.yaml or an import bundle.
 type StandardSeed struct {
-	Code        string   `yaml:"code"`
-	Source      string   `yaml:"source"`
-	SubjectCode string   `yaml:"subject_code"`
-	GradeLevel  *int     `yaml:"grade_level"`
-	Domain      string   `yaml:"domain"`
-	Cluster     string   `yaml:"cluster"`
-	Description string   `yaml:"description"`
-	Criteria    []string `yaml:"mastery_criteria"`
+	Code        string   `json:"code" yaml:"code"`
+	Source      string   `json:"source,omitempty" yaml:"source"`
+	SubjectCode string   `json:"subjectCode,omitempty" yaml:"subject_code"`
+	GradeLevel  *int     `json:"gradeLevel,omitempty" yaml:"grade_level" required:"false"`
+	Domain      string   `json:"domain,omitempty" yaml:"domain"`
+	Cluster     string   `json:"cluster,omitempty" yaml:"cluster"`
+	Description string   `json:"description,omitempty" yaml:"description"`
+	Criteria    []string `json:"masteryCriteria,omitempty" yaml:"mastery_criteria" required:"false"`
 }
 
 type standardsFile struct {

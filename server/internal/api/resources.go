@@ -312,6 +312,7 @@ func registerAll(h huma.API, q repo.Querier, opts Options) {
 	registerParentLearning(h, q, opts)
 	registerParentCourse(h, q)
 	registerStudentAPI(h, q, opts)
+	registerArtifactsAndImport(h, q, opts)
 }
 
 func normalizeOptions(opts Options) Options {

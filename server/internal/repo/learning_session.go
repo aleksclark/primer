@@ -280,25 +280,6 @@ func CountSessionEvents(ctx context.Context, q Querier, sessionID string) (int, 
 	return n, err
 }
 
-// UpsertSessionArtifact stores artifact metadata idempotently by artifact_id.
-func UpsertSessionArtifact(ctx context.Context, q Querier, sessionID string, meta contracts.ArtifactMeta) (*domain.LearningSessionArtifact, error) {
-	const sqlStr = `
-INSERT INTO learning_session_artifacts
-    (session_id, artifact_id, filename, media_type, byte_size, sha256)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (artifact_id) DO UPDATE SET filename = EXCLUDED.filename
-RETURNING id, session_id, artifact_id, filename, media_type, byte_size, sha256, storage_path, created_at`
-	rows, err := q.Query(ctx, sqlStr, sessionID, meta.ArtifactID, meta.Filename, meta.MediaType, meta.ByteSize, meta.SHA256)
-	if err != nil {
-		return nil, fmt.Errorf("upsert artifact: %w", err)
-	}
-	art, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByNameLax[domain.LearningSessionArtifact])
-	if err != nil {
-		return nil, fmt.Errorf("scan artifact: %w", err)
-	}
-	return &art, nil
-}
-
 // GetCompletionBySession returns the completion row if present.
 func GetCompletionBySession(ctx context.Context, q Querier, sessionID string) (*domain.LearningSessionCompletion, error) {
 	const sqlStr = `

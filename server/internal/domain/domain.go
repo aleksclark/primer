@@ -481,17 +481,106 @@ type LearningSessionCompletion struct {
 	CreatedAt     time.Time      `json:"createdAt" db:"created_at"`
 }
 
-// LearningSessionArtifact is metadata for optional evidence uploads.
+// Artifact storage status values.
+const (
+	ArtifactStatusMetadataOnly = "metadata_only"
+	ArtifactStatusReserved     = "reserved"
+	ArtifactStatusUploaded     = "uploaded"
+	ArtifactStatusRejected     = "rejected"
+)
+
+// Portfolio / fixture destination values.
+const (
+	PortfolioDestinationPortfolio     = "portfolio"
+	PortfolioDestinationFixtureBundle = "fixture_bundle"
+)
+
+// Portfolio item status values.
+const (
+	PortfolioStatusActive    = "active"
+	PortfolioStatusWithdrawn = "withdrawn"
+)
+
+// LearningSessionArtifact is metadata (and optional stored bytes) for evidence uploads.
 type LearningSessionArtifact struct {
-	ID          string    `json:"id" db:"id" format:"uuid"`
-	SessionID   string    `json:"sessionId" db:"session_id" format:"uuid"`
-	ArtifactID  string    `json:"artifactId" db:"artifact_id" format:"uuid"`
-	Filename    string    `json:"filename" db:"filename"`
-	MediaType   string    `json:"mediaType" db:"media_type"`
-	ByteSize    int64     `json:"byteSize" db:"byte_size"`
-	SHA256      string    `json:"sha256" db:"sha256"`
-	StoragePath string    `json:"storagePath,omitempty" db:"storage_path"`
-	CreatedAt   time.Time `json:"createdAt" db:"created_at"`
+	ID                 string     `json:"id" db:"id" format:"uuid"`
+	SessionID          string     `json:"sessionId" db:"session_id" format:"uuid"`
+	ArtifactID         string     `json:"artifactId" db:"artifact_id" format:"uuid"`
+	Filename           string     `json:"filename" db:"filename"`
+	MediaType          string     `json:"mediaType" db:"media_type"`
+	ByteSize           int64      `json:"byteSize" db:"byte_size"`
+	SHA256             string     `json:"sha256" db:"sha256"`
+	StoragePath        string     `json:"storagePath,omitempty" db:"storage_path"`
+	Status             string     `json:"status,omitempty" db:"status"`
+	StudentID          *string    `json:"studentId,omitempty" db:"student_id" format:"uuid"`
+	ActivityRevisionID *string    `json:"activityRevisionId,omitempty" db:"activity_revision_id" format:"uuid"`
+	BytesStored        bool       `json:"bytesStored" db:"bytes_stored"`
+	RetentionUntil     *time.Time `json:"retentionUntil,omitempty" db:"retention_until"`
+	CreatedAt          time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt          time.Time  `json:"updatedAt,omitempty" db:"updated_at"`
+}
+
+// PortfolioItem is a parent-promoted artifact with provenance.
+type PortfolioItem struct {
+	ID                 string         `json:"id" db:"id" format:"uuid"`
+	StudentID          string         `json:"studentId" db:"student_id" format:"uuid"`
+	SourceArtifactID   string         `json:"sourceArtifactId" db:"source_artifact_id" format:"uuid"`
+	SessionID          string         `json:"sessionId" db:"session_id" format:"uuid"`
+	ActivityRevisionID string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	Title              string         `json:"title" db:"title"`
+	MediaType          string         `json:"mediaType" db:"media_type"`
+	ByteSize           int64          `json:"byteSize" db:"byte_size"`
+	SHA256             string         `json:"sha256" db:"sha256"`
+	StoragePath        string         `json:"storagePath,omitempty" db:"storage_path"`
+	PromotedBy         *string        `json:"promotedBy,omitempty" db:"promoted_by" format:"uuid"`
+	Status             string         `json:"status" db:"status" enum:"active,withdrawn"`
+	Destination        string         `json:"destination" db:"destination" enum:"portfolio,fixture_bundle"`
+	Provenance         map[string]any `json:"provenance,omitempty" db:"provenance"`
+	CreatedAt          time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt          time.Time      `json:"updatedAt" db:"updated_at"`
+}
+
+// ApprovedFixtureBundle is an immutable parent-approved workspace input.
+type ApprovedFixtureBundle struct {
+	ID                     string         `json:"id" db:"id" format:"uuid"`
+	StudentID              string         `json:"studentId" db:"student_id" format:"uuid"`
+	SourcePortfolioItemID  *string        `json:"sourcePortfolioItemId,omitempty" db:"source_portfolio_item_id" format:"uuid"`
+	SourceArtifactID       string         `json:"sourceArtifactId" db:"source_artifact_id" format:"uuid"`
+	Digest                 string         `json:"digest" db:"digest"`
+	Label                  string         `json:"label" db:"label"`
+	Entries                []map[string]any `json:"entries,omitempty" db:"entries"`
+	StorageRoot            string         `json:"storageRoot,omitempty" db:"storage_root"`
+	ApprovedBy             *string        `json:"approvedBy,omitempty" db:"approved_by" format:"uuid"`
+	Status                 string         `json:"status" db:"status" enum:"approved,withdrawn"`
+	Provenance             map[string]any `json:"provenance,omitempty" db:"provenance"`
+	CreatedAt              time.Time      `json:"createdAt" db:"created_at"`
+}
+
+// AssignmentContinuityBinding records how an assignment materializes its workspace.
+type AssignmentContinuityBinding struct {
+	ID             string    `json:"id" db:"id" format:"uuid"`
+	AssignmentID   string    `json:"assignmentId" db:"assignment_id" format:"uuid"`
+	StudentID      string    `json:"studentId" db:"student_id" format:"uuid"`
+	ContinuityMode string    `json:"continuityMode" db:"continuity_mode" enum:"fresh,optional_previous,required_project,portfolio_review"`
+	BundleID       *string   `json:"bundleId,omitempty" db:"bundle_id" format:"uuid"`
+	DecidedBy      *string   `json:"decidedBy,omitempty" db:"decided_by" format:"uuid"`
+	Notes          string    `json:"notes,omitempty" db:"notes"`
+	DecidedAt      time.Time `json:"decidedAt" db:"decided_at"`
+}
+
+// CurriculumImportRun is a durable plan/apply audit record.
+type CurriculumImportRun struct {
+	ID             string         `json:"id" db:"id" format:"uuid"`
+	BundleDigest   string         `json:"bundleDigest" db:"bundle_digest"`
+	ActorID        *string        `json:"actorId,omitempty" db:"actor_id" format:"uuid"`
+	SourceLabel    string         `json:"sourceLabel" db:"source_label"`
+	Mode           string         `json:"mode" db:"mode" enum:"plan,apply"`
+	Status         string         `json:"status" db:"status" enum:"planned,applied,failed,rejected"`
+	Plan           map[string]any `json:"plan,omitempty" db:"plan"`
+	ResultManifest map[string]any `json:"resultManifest,omitempty" db:"result_manifest"`
+	ErrorMessage   string         `json:"errorMessage,omitempty" db:"error_message"`
+	CreatedAt      time.Time      `json:"createdAt" db:"created_at"`
+	AppliedAt      *time.Time     `json:"appliedAt,omitempty" db:"applied_at"`
 }
 
 // Student response status values.
