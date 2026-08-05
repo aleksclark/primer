@@ -17,20 +17,20 @@ const contentManifestTag = "Content Manifest"
 // ContentManifestEntryCreate is the body for a single desired-state upsert
 // (used by bulk sync and optional single create).
 type ContentManifestEntryCreate struct {
-	Slug            string   `json:"slug" db:"slug" minLength:"1"`
-	Title           string   `json:"title" db:"title" minLength:"1"`
-	Year            *int     `json:"year,omitempty" db:"year" minimum:"0" required:"false"`
-	Kind            string   `json:"kind" db:"kind" enum:"movie,series,youtube_channel,youtube_playlist,manual"`
-	TMDBID          *int     `json:"tmdbId,omitempty" db:"tmdb_id" minimum:"0" required:"false"`
-	TVDBID          *int     `json:"tvdbId,omitempty" db:"tvdb_id" minimum:"0" required:"false"`
-	URL             *string  `json:"url,omitempty" db:"url" required:"false"`
-	Class           string   `json:"class" db:"class" enum:"educational,entertainment,mixed"`
+	Slug            string    `json:"slug" db:"slug" minLength:"1"`
+	Title           string    `json:"title" db:"title" minLength:"1"`
+	Year            *int      `json:"year,omitempty" db:"year" minimum:"0" required:"false"`
+	Kind            string    `json:"kind" db:"kind" enum:"movie,series,youtube_channel,youtube_playlist,manual"`
+	TMDBID          *int      `json:"tmdbId,omitempty" db:"tmdb_id" minimum:"0" required:"false"`
+	TVDBID          *int      `json:"tvdbId,omitempty" db:"tvdb_id" minimum:"0" required:"false"`
+	URL             *string   `json:"url,omitempty" db:"url" required:"false"`
+	Class           string    `json:"class" db:"class" enum:"educational,entertainment,mixed"`
 	SubjectTags     *[]string `json:"subjectTags,omitempty" db:"subject_tags" required:"false"`
 	StandardCodes   *[]string `json:"standardCodes,omitempty" db:"standard_codes" required:"false"`
-	Priority        *int     `json:"priority,omitempty" db:"priority" minimum:"0" required:"false"`
+	Priority        *int      `json:"priority,omitempty" db:"priority" minimum:"0" required:"false"`
 	ExcludeEpisodes *[]string `json:"excludeEpisodes,omitempty" db:"exclude_episodes" required:"false"`
-	MaxEpisodes     *int     `json:"maxEpisodes,omitempty" db:"max_episodes" minimum:"0" required:"false"`
-	Notes           *string  `json:"notes,omitempty" db:"notes" required:"false"`
+	MaxEpisodes     *int      `json:"maxEpisodes,omitempty" db:"max_episodes" minimum:"0" required:"false"`
+	Notes           *string   `json:"notes,omitempty" db:"notes" required:"false"`
 }
 
 // ContentManifestEntryUpdate patches desired-state fields or operator notes.

@@ -30,7 +30,7 @@ func peerCredFromConn(c net.Conn) (*PeerCred, error) {
 		return nil, fmt.Errorf("peercred: syscall conn: %w", err)
 	}
 	var (
-		cred *unix.Ucred
+		cred  *unix.Ucred
 		opErr error
 	)
 	err = raw.Control(func(fd uintptr) {

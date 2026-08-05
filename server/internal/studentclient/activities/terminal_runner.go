@@ -37,8 +37,8 @@ type TerminalRunner struct {
 	lastError      string
 
 	// one-shot host flags
-	emitChecks  bool
-	emitCommand bool
+	emitChecks   bool
+	emitCommand  bool
 	pendingShell *ShellResult
 }
 
@@ -294,17 +294,17 @@ func (r *TerminalRunner) Observations() []contracts.Observation {
 
 // terminalDurable is the JSON shape for EncodeState (no live PTY).
 type terminalDurable struct {
-	V              int                    `json:"v"`
-	Kind           string                 `json:"kind"`
-	RelCwd         string                 `json:"relCwd"`
-	CommandsRun    int                    `json:"commandsRun"`
-	CurrentTaskIdx int                    `json:"currentTaskIdx"`
-	RequiredPassed bool                   `json:"requiredPassed"`
-	ChecksPassed   int                    `json:"checksPassed"`
-	Checks         []CheckStatus          `json:"checks,omitempty"`
+	V              int                     `json:"v"`
+	Kind           string                  `json:"kind"`
+	RelCwd         string                  `json:"relCwd"`
+	CommandsRun    int                     `json:"commandsRun"`
+	CurrentTaskIdx int                     `json:"currentTaskIdx"`
+	RequiredPassed bool                    `json:"requiredPassed"`
+	ChecksPassed   int                     `json:"checksPassed"`
+	Checks         []CheckStatus           `json:"checks,omitempty"`
 	Observations   []contracts.Observation `json:"observations,omitempty"`
-	LastOutput     string                 `json:"lastOutput,omitempty"`
-	LastError      string                 `json:"lastError,omitempty"`
+	LastOutput     string                  `json:"lastOutput,omitempty"`
+	LastError      string                  `json:"lastError,omitempty"`
 	// LastShellCwd is relative cwd from last shell observation.
 	LastShellCwd string `json:"lastShellCwd,omitempty"`
 	LastShellExe string `json:"lastShellExe,omitempty"`
@@ -540,5 +540,3 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
-
-

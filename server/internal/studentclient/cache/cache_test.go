@@ -165,10 +165,10 @@ func TestRunnerStateDurable(t *testing.T) {
 
 	sid := uuid.NewString()
 	require.NoError(t, s.SaveSession(ctx, cache.Session{
-		ClientSessionID: sid,
-		AssignmentID:    "asg-rs",
-		State:           "started",
-		NextSequence:    0,
+		ClientSessionID:   sid,
+		AssignmentID:      "asg-rs",
+		State:             "started",
+		NextSequence:      0,
 		LastAckedSequence: -1,
 	}))
 	require.NoError(t, s.SaveRunnerState(ctx, sid, "typing", []byte(`{"v":1,"kind":"typing"}`)))

@@ -19,11 +19,11 @@ const VerifierVersion = "1"
 
 // Metrics is a snapshot of typing performance for the current session.
 type Metrics struct {
-	CorrectChars    int
-	IncorrectChars  int
-	TotalKeystrokes int
+	CorrectChars     int
+	IncorrectChars   int
+	TotalKeystrokes  int
 	CompletedPrompts int
-	TotalPrompts    int
+	TotalPrompts     int
 	// Elapsed is wall time since the first keystroke (zero before any input).
 	Elapsed time.Duration
 	// WPM is net words-per-minute using (correctChars/5) / minutes.
@@ -281,14 +281,14 @@ func (s *Session) SetClock(now func() time.Time) {
 // DurableState is the restart-safe typing progress payload.
 // ElapsedMs freezes active time so restore does not re-count wall clock gaps.
 type DurableState struct {
-	Version      int    `json:"v"`
-	PromptIdx    int    `json:"promptIdx"`
-	Input        string `json:"input"`
-	Correct      int    `json:"correct"`
-	Incorrect    int    `json:"incorrect"`
-	Keys         int    `json:"keys"`
-	ElapsedMs    int64  `json:"elapsedMs"`
-	HasStarted   bool   `json:"hasStarted"`
+	Version    int    `json:"v"`
+	PromptIdx  int    `json:"promptIdx"`
+	Input      string `json:"input"`
+	Correct    int    `json:"correct"`
+	Incorrect  int    `json:"incorrect"`
+	Keys       int    `json:"keys"`
+	ElapsedMs  int64  `json:"elapsedMs"`
+	HasStarted bool   `json:"hasStarted"`
 }
 
 // EncodeState serializes prompt progress and metrics counters.

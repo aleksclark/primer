@@ -634,9 +634,9 @@ type createActivityInput struct {
 type publishRevisionInput struct {
 	ID   string `path:"id" format:"uuid"`
 	Body struct {
-		SchemaVersion string                     `json:"schemaVersion,omitempty"`
-		Content       contracts.ActivityContent  `json:"content"`
-		Standards     []contracts.StandardRef    `json:"standards,omitempty"`
+		SchemaVersion string                    `json:"schemaVersion,omitempty"`
+		Content       contracts.ActivityContent `json:"content"`
+		Standards     []contracts.StandardRef   `json:"standards,omitempty"`
 	}
 }
 

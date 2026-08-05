@@ -45,8 +45,8 @@ const (
 
 // Runtime profiles for terminal activities.
 const (
-	RuntimeCoreutilsBasic  = "coreutils-basic"
-	RuntimeTextProcessing  = "text-processing"
+	RuntimeCoreutilsBasic = "coreutils-basic"
+	RuntimeTextProcessing = "text-processing"
 )
 
 // Event types for the session audit stream.

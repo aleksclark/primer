@@ -24,16 +24,16 @@ type StandardRef struct {
 
 // ActivityContent is the versioned revision body stored as JSONB later.
 type ActivityContent struct {
-	Objective    string            `json:"objective" yaml:"objective"`
-	Instructions string            `json:"instructions" yaml:"instructions"`
-	Terminal     *TerminalContent  `json:"terminal,omitempty" yaml:"terminal,omitempty"`
-	Typing       *TypingContent    `json:"typing,omitempty" yaml:"typing,omitempty"`
-	Tasks        []Task            `json:"tasks" yaml:"tasks"`
-	Checks       []Check           `json:"checks" yaml:"checks"`
-	Hints        []Hint            `json:"hints,omitempty" yaml:"hints,omitempty"`
-	Tutor        *TutorContext     `json:"tutor,omitempty" yaml:"tutor,omitempty"`
+	Objective    string             `json:"objective" yaml:"objective"`
+	Instructions string             `json:"instructions" yaml:"instructions"`
+	Terminal     *TerminalContent   `json:"terminal,omitempty" yaml:"terminal,omitempty"`
+	Typing       *TypingContent     `json:"typing,omitempty" yaml:"typing,omitempty"`
+	Tasks        []Task             `json:"tasks" yaml:"tasks"`
+	Checks       []Check            `json:"checks" yaml:"checks"`
+	Hints        []Hint             `json:"hints,omitempty" yaml:"hints,omitempty"`
+	Tutor        *TutorContext      `json:"tutor,omitempty" yaml:"tutor,omitempty"`
 	Progression  *ProgressionPolicy `json:"progression,omitempty" yaml:"progression,omitempty"`
-	Artifacts    *ArtifactPolicy   `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
+	Artifacts    *ArtifactPolicy    `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
 }
 
 // TerminalContent configures a terminal activity revision.
@@ -71,13 +71,13 @@ type FixtureEntry struct {
 
 // Task is one ordered learning step inside an activity.
 type Task struct {
-	ID             string   `json:"id" yaml:"id"`
-	Title          string   `json:"title" yaml:"title"`
-	Instructions   string   `json:"instructions" yaml:"instructions"`
-	Prerequisites  []string `json:"prerequisites,omitempty" yaml:"prerequisites,omitempty"`
-	Completion     CheckTree `json:"completion" yaml:"completion"`
-	HintIDs        []string `json:"hintIds,omitempty" yaml:"hint_ids,omitempty"`
-	Optional       bool     `json:"optional,omitempty" yaml:"optional,omitempty"`
+	ID            string    `json:"id" yaml:"id"`
+	Title         string    `json:"title" yaml:"title"`
+	Instructions  string    `json:"instructions" yaml:"instructions"`
+	Prerequisites []string  `json:"prerequisites,omitempty" yaml:"prerequisites,omitempty"`
+	Completion    CheckTree `json:"completion" yaml:"completion"`
+	HintIDs       []string  `json:"hintIds,omitempty" yaml:"hint_ids,omitempty"`
+	Optional      bool      `json:"optional,omitempty" yaml:"optional,omitempty"`
 }
 
 // CheckTree is an all/any tree over check IDs or nested trees.
@@ -113,10 +113,10 @@ type TutorContext struct {
 
 // ProgressionPolicy controls attempt/reset/resume behavior.
 type ProgressionPolicy struct {
-	AllowReset       bool `json:"allowReset" yaml:"allow_reset"`
-	MaxAttempts      int  `json:"maxAttempts,omitempty" yaml:"max_attempts,omitempty"`
-	ResumeFromTask   bool `json:"resumeFromTask" yaml:"resume_from_task"`
-	RequireInOrder   bool `json:"requireInOrder" yaml:"require_in_order"`
+	AllowReset     bool `json:"allowReset" yaml:"allow_reset"`
+	MaxAttempts    int  `json:"maxAttempts,omitempty" yaml:"max_attempts,omitempty"`
+	ResumeFromTask bool `json:"resumeFromTask" yaml:"resume_from_task"`
+	RequireInOrder bool `json:"requireInOrder" yaml:"require_in_order"`
 }
 
 // ArtifactPolicy bounds optional evidence uploads for a revision.
