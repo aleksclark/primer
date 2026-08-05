@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aleksclark/primer/server/internal/api"
+	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/config"
 	"github.com/aleksclark/primer/server/internal/db"
 	"github.com/aleksclark/primer/server/internal/spa"
@@ -65,12 +66,25 @@ func run() error {
 	}
 	slog.Info("tutor configured", "provider", tutorSvc.ProviderName(), "enabled", tutorSvc.Enabled())
 
+	var artStore *artifacts.Store
+	if cfg.ArtifactStoreDir != "" {
+		s, err := artifacts.NewStore(cfg.ArtifactStoreDir)
+		if err != nil {
+			return fmt.Errorf("artifact store: %w", err)
+		}
+		artStore = s
+		slog.Info("artifact store configured", "root", s.Root)
+	} else {
+		slog.Warn("ARTIFACT_STORE_DIR is not set; artifact byte upload is disabled")
+	}
+
 	_, handler := api.New(pool, api.Options{
 		CORSOrigins:       cfg.CORSOrigins,
 		ServiceToken:      cfg.ServiceToken,
 		Tutor:             tutorSvc,
 		TutorProviderName: tutorSvc.ProviderName(),
 		TutorEnabled:      tutorSvc.Enabled(),
+		ArtifactStore:     artStore,
 	})
 
 	mux := http.NewServeMux()
