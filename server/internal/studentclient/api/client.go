@@ -130,8 +130,9 @@ type WorkResponse struct {
 
 // StartSessionRequest is POST /student/sessions.
 type StartSessionRequest struct {
-	ClientSessionID string `json:"clientSessionId"`
-	AssignmentID    string `json:"assignmentId"`
+	ClientSessionID string   `json:"clientSessionId"`
+	AssignmentID    string   `json:"assignmentId"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 }
 
 // EventsRequest is POST /student/sessions/{id}/events.
@@ -189,11 +190,13 @@ func (c *Client) Work(ctx context.Context, after string, limit int) (*WorkRespon
 }
 
 // StartSession starts or resumes a learning session.
-func (c *Client) StartSession(ctx context.Context, clientSessionID, assignmentID string) (*domain.LearningSession, error) {
+// capabilities lists runner flags (e.g. contracts.CapStructuredCommandEvidence).
+func (c *Client) StartSession(ctx context.Context, clientSessionID, assignmentID string, capabilities ...string) (*domain.LearningSession, error) {
 	var out domain.LearningSession
 	if err := c.doJSON(ctx, http.MethodPost, "/student/sessions", true, StartSessionRequest{
 		ClientSessionID: clientSessionID,
 		AssignmentID:    assignmentID,
+		Capabilities:    capabilities,
 	}, &out); err != nil {
 		return nil, err
 	}

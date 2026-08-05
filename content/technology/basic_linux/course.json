@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1",
+  "slug": "basic-linux",
+  "title": "Linux and CLI Fundamentals",
+  "subjectCode": "digital-literacy",
+  "pacingReference": {
+    "nominalWeeks": 4,
+    "nominalDaysPerWeek": 5,
+    "nominalMinutesPerDay": 60,
+    "masteryBased": true
+  },
+  "activities": [
+    {"order": 1, "slug": "linux-cli-01-meet-command-line", "file": "lessons/01-meet-command-line/activity.json"},
+    {"order": 2, "slug": "linux-cli-02-list-and-inspect", "file": "lessons/02-list-and-inspect/activity.json"},
+    {"order": 3, "slug": "linux-cli-03-paths-and-movement", "file": "lessons/03-paths-and-movement/activity.json"},
+    {"order": 4, "slug": "linux-cli-04-filesystem-structure", "file": "lessons/04-filesystem-structure/activity.json"},
+    {"order": 5, "slug": "linux-cli-05-navigation-challenge", "file": "lessons/05-navigation-challenge/activity.json"},
+    {"order": 6, "slug": "linux-cli-06-create-files-directories", "file": "lessons/06-create-files-directories/activity.json"},
+    {"order": 7, "slug": "linux-cli-07-copy-move-rename", "file": "lessons/07-copy-move-rename/activity.json"},
+    {"order": 8, "slug": "linux-cli-08-remove-safely", "file": "lessons/08-remove-safely/activity.json"},
+    {"order": 9, "slug": "linux-cli-09-read-compare-text", "file": "lessons/09-read-compare-text/activity.json"},
+    {"order": 10, "slug": "linux-cli-10-permissions-identity", "file": "lessons/10-permissions-identity/activity.json"},
+    {"order": 11, "slug": "linux-cli-11-find-files", "file": "lessons/11-find-files/activity.json"},
+    {"order": 12, "slug": "linux-cli-12-search-inside-files", "file": "lessons/12-search-inside-files/activity.json"},
+    {"order": 13, "slug": "linux-cli-13-pipes-redirection", "file": "lessons/13-pipes-redirection/activity.json"},
+    {"order": 14, "slug": "linux-cli-14-process-text", "file": "lessons/14-process-text/activity.json"},
+    {"order": 15, "slug": "linux-cli-15-processes-exit-status", "file": "lessons/15-processes-exit-status/activity.json"},
+    {"order": 16, "slug": "linux-cli-16-first-bash-script", "file": "lessons/16-first-bash-script/activity.json"},
+    {"order": 17, "slug": "linux-cli-17-variables-arguments", "file": "lessons/17-variables-arguments/activity.json"},
+    {"order": 18, "slug": "linux-cli-18-conditions-loops", "file": "lessons/18-conditions-loops/activity.json"},
+    {"order": 19, "slug": "linux-cli-19-capstone-build", "file": "lessons/19-capstone-build/activity.json"},
+    {"order": 20, "slug": "linux-cli-20-capstone-verification", "file": "lessons/20-capstone-verification/activity.json"}
+  ]
+}

@@ -114,6 +114,10 @@ type ShellResult struct {
 	Stderr     string   `json:"stderr,omitempty"`
 	// CountCommand increments CommandsRun when true.
 	CountCommand bool `json:"countCommand,omitempty"`
+	// Structured is true only for trusted command instrumentation (not PTY screen).
+	Structured bool `json:"structured,omitempty"`
+	// Source labels the observation origin (structured, pty-shell, …).
+	Source string `json:"source,omitempty"`
 }
 
 // CheckStatus is one check row for TUI / snapshots.

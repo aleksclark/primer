@@ -1,0 +1,290 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-09-read-compare-text",
+  "title": "Read and compare text",
+  "summary": "Choose cat, head, tail, wc, or diff according to the exact question, and interpret each command's focused output without changing the source files.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "09",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Choose and use the smallest useful read-only tool for a text question: cat for a complete short file, head for its beginning, tail for its end, wc -l for a line count, and diff for line-by-line differences between two versions.",
+    "instructions": "Work only in the supplied text-lab and complete the five investigations in order. Before each command, name the information requested and choose the tool whose output is limited to that information. Use the exact relative paths and forms requested. Read every result, leave all fixture files unchanged, and remember that diff exit status 1 means the compared files differ rather than that the comparison failed.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/text-lab",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/text-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/text-lab/notice.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Observatory closes at dusk.\nReturn the key to the red box.\n"
+        },
+        {
+          "path": "workspace/text-lab/journal.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "06:00 gate opened\n06:15 lens uncovered\n06:30 sky clear\n06:45 first observation\n07:00 clouds approaching\n07:15 session paused\n"
+        },
+        {
+          "path": "workspace/text-lab/specimens.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "quartz\nbasalt\nslate\ngranite\nlimestone\n"
+        },
+        {
+          "path": "workspace/text-lab/checklist-old.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "camera\nfilter: blue\nnotebook\nwater\n"
+        },
+        {
+          "path": "workspace/text-lab/checklist-new.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "camera\nfilter: green\nnotebook\nwater\ntripod\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "read-complete-short-file",
+        "title": "Read one complete short notice",
+        "instructions": "The question is: What does the entire two-line notice say? Choose the tool for printing a complete short file and run it on notice.txt. Do not use a tool that deliberately shows only one end.",
+        "completion": {
+          "all": [
+            {"checkId": "used-cat-notice"},
+            {"checkId": "cat-notice-output"},
+            {"checkId": "notice-remains-exact"},
+            {"checkId": "cwd-after-cat"}
+          ]
+        },
+        "hintIds": ["cat-hint-1", "cat-hint-2", "cat-hint-3"]
+      },
+      {
+        "id": "inspect-journal-opening",
+        "title": "Inspect only the journal opening",
+        "instructions": "The question is: What are the first three journal entries? Choose the tool that reads from the head of a file and request exactly three lines from journal.txt. A complete-file display would answer more than was asked.",
+        "prerequisites": ["read-complete-short-file"],
+        "completion": {
+          "all": [
+            {"checkId": "used-head-three"},
+            {"checkId": "head-three-output"},
+            {"checkId": "journal-remains-exact-after-head"}
+          ]
+        },
+        "hintIds": ["head-hint-1", "head-hint-2", "head-hint-3"]
+      },
+      {
+        "id": "inspect-journal-ending",
+        "title": "Inspect only the journal ending",
+        "instructions": "The question is: What are the final two journal entries? Choose the tool that reads from the tail of a file and request exactly two lines from journal.txt. Explain why head would inspect the wrong end.",
+        "prerequisites": ["inspect-journal-opening"],
+        "completion": {
+          "all": [
+            {"checkId": "used-tail-two"},
+            {"checkId": "tail-two-output"},
+            {"checkId": "journal-remains-exact-after-tail"}
+          ]
+        },
+        "hintIds": ["tail-hint-1", "tail-hint-2", "tail-hint-3"]
+      },
+      {
+        "id": "count-specimen-lines",
+        "title": "Count records without printing them all",
+        "instructions": "The question is: How many lines are in specimens.txt? Choose the counting tool with its lines-only option. Read the number and filename in the output; do not count a complete cat display by eye.",
+        "prerequisites": ["inspect-journal-ending"],
+        "completion": {
+          "all": [
+            {"checkId": "used-wc-lines"},
+            {"checkId": "wc-reports-five-lines"},
+            {"checkId": "specimens-remain-exact"}
+          ]
+        },
+        "hintIds": ["wc-hint-1", "wc-hint-2", "wc-hint-3"]
+      },
+      {
+        "id": "compare-checklist-versions",
+        "title": "Compare two checklist versions",
+        "instructions": "The question is: Which lines changed between the old and new checklists? Use the comparison tool with checklist-old.txt first and checklist-new.txt second. Read < as text from the old file, > as text from the new file, and the separator between replacements. Exit status 1 is expected because the files differ; do not alter either file to make the command silent.",
+        "prerequisites": ["count-specimen-lines"],
+        "completion": {
+          "all": [
+            {"checkId": "used-diff-old-new"},
+            {"checkId": "diff-output-exact"},
+            {"checkId": "old-checklist-remains-exact"},
+            {"checkId": "new-checklist-remains-exact"},
+            {"checkId": "cwd-at-finish"}
+          ]
+        },
+        "hintIds": ["diff-hint-1", "diff-hint-2", "diff-hint-3"]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-cat-notice",
+        "kind": "command_properties",
+        "params": {"executable": "cat", "args": ["notice.txt"], "exitCode": 0}
+      },
+      {
+        "id": "cat-notice-output",
+        "kind": "pipeline_output",
+        "params": {"value": "Observatory closes at dusk.\nReturn the key to the red box.\n"}
+      },
+      {
+        "id": "notice-remains-exact",
+        "kind": "content_equals",
+        "params": {"path": "workspace/text-lab/notice.txt", "value": "Observatory closes at dusk.\nReturn the key to the red box.\n"}
+      },
+      {
+        "id": "cwd-after-cat",
+        "kind": "cwd",
+        "params": {"path": "workspace/text-lab"}
+      },
+      {
+        "id": "used-head-three",
+        "kind": "command_properties",
+        "params": {"executable": "head", "args": ["-n", "3", "journal.txt"], "exitCode": 0}
+      },
+      {
+        "id": "head-three-output",
+        "kind": "pipeline_output",
+        "params": {"value": "06:00 gate opened\n06:15 lens uncovered\n06:30 sky clear\n"}
+      },
+      {
+        "id": "journal-remains-exact-after-head",
+        "kind": "content_equals",
+        "params": {"path": "workspace/text-lab/journal.txt", "value": "06:00 gate opened\n06:15 lens uncovered\n06:30 sky clear\n06:45 first observation\n07:00 clouds approaching\n07:15 session paused\n"}
+      },
+      {
+        "id": "used-tail-two",
+        "kind": "command_properties",
+        "params": {"executable": "tail", "args": ["-n", "2", "journal.txt"], "exitCode": 0}
+      },
+      {
+        "id": "tail-two-output",
+        "kind": "pipeline_output",
+        "params": {"value": "07:00 clouds approaching\n07:15 session paused\n"}
+      },
+      {
+        "id": "journal-remains-exact-after-tail",
+        "kind": "content_equals",
+        "params": {"path": "workspace/text-lab/journal.txt", "value": "06:00 gate opened\n06:15 lens uncovered\n06:30 sky clear\n06:45 first observation\n07:00 clouds approaching\n07:15 session paused\n"}
+      },
+      {
+        "id": "used-wc-lines",
+        "kind": "command_properties",
+        "params": {"executable": "wc", "args": ["-l", "specimens.txt"], "exitCode": 0}
+      },
+      {
+        "id": "wc-reports-five-lines",
+        "kind": "pipeline_output",
+        "params": {"pattern": "^[[:space:]]*5[[:space:]]+specimens\\.txt\\n?$"}
+      },
+      {
+        "id": "specimens-remain-exact",
+        "kind": "content_equals",
+        "params": {"path": "workspace/text-lab/specimens.txt", "value": "quartz\nbasalt\nslate\ngranite\nlimestone\n"}
+      },
+      {
+        "id": "used-diff-old-new",
+        "kind": "command_properties",
+        "params": {"executable": "diff", "args": ["checklist-old.txt", "checklist-new.txt"], "exitCode": 1}
+      },
+      {
+        "id": "diff-output-exact",
+        "kind": "pipeline_output",
+        "params": {"value": "2c2\n< filter: blue\n---\n> filter: green\n4a5\n> tripod\n"}
+      },
+      {
+        "id": "old-checklist-remains-exact",
+        "kind": "content_equals",
+        "params": {"path": "workspace/text-lab/checklist-old.txt", "value": "camera\nfilter: blue\nnotebook\nwater\n"}
+      },
+      {
+        "id": "new-checklist-remains-exact",
+        "kind": "content_equals",
+        "params": {"path": "workspace/text-lab/checklist-new.txt", "value": "camera\nfilter: green\nnotebook\nwater\ntripod\n"}
+      },
+      {
+        "id": "cwd-at-finish",
+        "kind": "cwd",
+        "params": {"path": "workspace/text-lab"}
+      }
+    ],
+    "hints": [
+      {"id": "cat-hint-1", "level": 1, "text": "The file is short and the question asks for all of it, so use the whole-file display tool rather than selecting an end."},
+      {"id": "cat-hint-2", "level": 2, "text": "Use cat with the single relative path notice.txt."},
+      {"id": "cat-hint-3", "level": 3, "text": "Run: cat notice.txt"},
+      {"id": "head-hint-1", "level": 1, "text": "The requested records are at the beginning. Use the tool named for that end and specify a line count."},
+      {"id": "head-hint-2", "level": 2, "text": "Use head with -n, then 3, then journal.txt."},
+      {"id": "head-hint-3", "level": 3, "text": "Run: head -n 3 journal.txt"},
+      {"id": "tail-hint-1", "level": 1, "text": "The requested records are at the end. Use the tool named for that end and specify exactly two lines."},
+      {"id": "tail-hint-2", "level": 2, "text": "Use tail with -n, then 2, then journal.txt."},
+      {"id": "tail-hint-3", "level": 3, "text": "Run: tail -n 2 journal.txt"},
+      {"id": "wc-hint-1", "level": 1, "text": "The question asks for a count, not the text itself. Use the word-count family with the option that reports lines only."},
+      {"id": "wc-hint-2", "level": 2, "text": "The lines-only option is -l. Give specimens.txt as the one file operand."},
+      {"id": "wc-hint-3", "level": 3, "text": "Run: wc -l specimens.txt"},
+      {"id": "diff-hint-1", "level": 1, "text": "Use the tool that compares two files line by line. Operand order matters because it determines which text is marked old and new."},
+      {"id": "diff-hint-2", "level": 2, "text": "Place checklist-old.txt before checklist-new.txt. Differences produce useful output and exit status 1."},
+      {"id": "diff-hint-3", "level": 3, "text": "Run: diff checklist-old.txt checklist-new.txt"}
+    ],
+    "tutor": {
+      "goalSummary": "Student translates a precise text question into the narrowest useful read-only command, interprets focused output from cat, head, tail, wc -l, and diff, and preserves every source file exactly.",
+      "misconceptions": [
+        "cat is useful for a complete short file, but printing a long file is not the smallest useful response when only its beginning, end, or count is requested.",
+        "head reads the beginning and tail reads the end; neither command summarizes or sorts the text.",
+        "The -n value in head and tail is a requested line count, not a line number to jump to.",
+        "wc -l counts newline-terminated lines; it does not print the records or count visually wrapped screen rows.",
+        "diff compares two operands in order and reports changes; it does not merge, edit, or choose the better file.",
+        "In normal diff output, < belongs to the first file and > belongs to the second file.",
+        "diff exit status 1 means differences were found, while a status greater than 1 indicates a comparison problem.",
+        "Read-only commands still require exact paths and deliberate scope; harmlessness does not excuse imprecision."
+      ],
+      "constraints": [
+        "Keep coaching within cat, head -n, tail -n, wc -l, and plain two-file diff using the exact supplied relative paths.",
+        "Ask the student to restate the question and justify the smallest useful tool before revealing syntax.",
+        "Give each task's hints in level order and reveal only the current task's exact command at level 3.",
+        "Do not suggest pipes, redirection, command substitution, grep, sed, awk, less, sort, shell loops, aliases, or command chaining; those belong to later lessons.",
+        "Do not accept cat plus visual counting as equivalent to wc -l, or complete-file output as equivalent to a requested head or tail selection.",
+        "Require exact option spelling, argument order, line count, relative paths, and expected output scope.",
+        "Explain diff status 1 as an expected differences-found result, never as a reason to modify fixtures or force status 0.",
+        "Keep all work in workspace/text-lab and require every fixture's content to remain unchanged.",
+        "After completion, ask the student to choose a tool for five new questions and justify each choice before giving any command."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

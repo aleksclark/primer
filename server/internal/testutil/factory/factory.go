@@ -61,6 +61,17 @@ func Student(t *testing.T, q repo.Querier, overrides ...Override) *domain.Studen
 	}, overrides))
 }
 
+// StudentDevice creates a paired student device row.
+func StudentDevice(t *testing.T, q repo.Querier, overrides ...Override) *domain.StudentDevice {
+	i := n()
+	merged := merge(map[string]any{
+		"name":       fmt.Sprintf("device-%d", i),
+		"token_hash": fmt.Sprintf("token-hash-%d-%d", i, time.Now().UnixNano()),
+	}, overrides)
+	ensureFK(merged, "student_id", func() string { return Student(t, q).ID })
+	return create(t, q, repo.StudentDevices, merged)
+}
+
 // Subject creates a subject.
 func Subject(t *testing.T, q repo.Querier, overrides ...Override) *domain.Subject {
 	i := n()
@@ -134,9 +145,12 @@ func MasteryRecord(t *testing.T, q repo.Querier, overrides ...Override) *domain.
 // mastery_record_id is provided.
 func MasteryEvidence(t *testing.T, q repo.Querier, overrides ...Override) *domain.MasteryEvidence {
 	merged := merge(map[string]any{
-		"kind":        "continuous",
-		"occurred_on": time.Now().UTC().Truncate(24 * time.Hour),
-		"context":     "Solved 5/5 practice problems",
+		"kind":           "continuous",
+		"evidence_class": domain.EvidenceProceduralContinuous,
+		"provenance":     map[string]any{"source": "factory"},
+		"policy_version": 1,
+		"occurred_on":    time.Now().UTC().Truncate(24 * time.Hour),
+		"context":        "Solved 5/5 practice problems",
 	}, overrides)
 	ensureFK(merged, "mastery_record_id", func() string { return MasteryRecord(t, q).ID })
 	return create(t, q, repo.MasteryEvidences, merged)

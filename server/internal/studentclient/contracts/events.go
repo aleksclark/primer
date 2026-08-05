@@ -37,7 +37,7 @@ type CommandFinishedPayload struct {
 
 // CheckEvaluatedPayload is the payload for EventCheckEvaluated.
 type CheckEvaluatedPayload struct {
-	ActivityDigest  string      `json:"activityDigest"`
+	ActivityDigest string       `json:"activityDigest"`
 	VerifierVersion string      `json:"verifierVersion"`
 	WorkspaceDigest string      `json:"workspaceDigest,omitempty"`
 	Observation     Observation `json:"observation"`
@@ -45,35 +45,50 @@ type CheckEvaluatedPayload struct {
 
 // CompletionRequest is the client completion intent (idempotent by CompletionID).
 type CompletionRequest struct {
-	SchemaVersion   string            `json:"schemaVersion"`
-	CompletionID    string            `json:"completionId"`
-	RequestDigest   string            `json:"requestDigest"`
-	Observations    []Observation     `json:"observations"`
-	ArtifactIDs     []string          `json:"artifactIds,omitempty"`
+	SchemaVersion  string         `json:"schemaVersion"`
+	CompletionID   string         `json:"completionId"`
+	RequestDigest  string         `json:"requestDigest"`
+	Observations   []Observation  `json:"observations"`
+	ArtifactIDs    []string       `json:"artifactIds,omitempty"`
 	ArtifactDigests map[string]string `json:"artifactDigests,omitempty"`
-	ClientTime      time.Time         `json:"clientTime"`
-	Summary         string            `json:"summary,omitempty"`
+	ClientTime     time.Time      `json:"clientTime"`
+	Summary        string         `json:"summary,omitempty"`
 }
 
 // CompletionResult is the immutable server (or local preview) completion outcome.
 type CompletionResult struct {
-	SchemaVersion   string              `json:"schemaVersion"`
-	CompletionID    string              `json:"completionId"`
-	Accepted        bool                `json:"accepted"`
-	RequestDigest   string              `json:"requestDigest"`
-	Observations    []Observation       `json:"observations"`
-	EvidenceIDs     []string            `json:"evidenceIds,omitempty"`
-	MasterySnapshot []MasteryTransition `json:"masterySnapshot,omitempty"`
-	Message         string              `json:"message,omitempty"`
+	SchemaVersion         string               `json:"schemaVersion"`
+	CompletionID          string               `json:"completionId"`
+	Accepted              bool                 `json:"accepted"`
+	RequestDigest         string               `json:"requestDigest"`
+	Observations          []Observation        `json:"observations"`
+	EvidenceIDs           []string             `json:"evidenceIds,omitempty"`
+	MasterySnapshot       []MasteryTransition  `json:"masterySnapshot,omitempty"`
+	AssignmentCompletion  *AssignmentCompletion `json:"assignmentCompletion,omitempty"`
+	MasteryTransitions    []MasteryTransition  `json:"masteryTransitions,omitempty"`
+	Message               string               `json:"message,omitempty"`
+}
+
+// AssignmentCompletion is the assignment/session outcome independent of mastery.
+type AssignmentCompletion struct {
+	AssignmentID string `json:"assignmentId"`
+	SessionID    string `json:"sessionId"`
+	State        string `json:"state"`
+	Summary      string `json:"summary,omitempty"`
 }
 
 // MasteryTransition is a server-computed mastery change snapshot (never client-set).
 type MasteryTransition struct {
-	StandardCode string  `json:"standardCode"`
-	FromStatus   string  `json:"fromStatus"`
-	ToStatus     string  `json:"toStatus"`
-	Confidence   float64 `json:"confidence,omitempty"`
-	Reason       string  `json:"reason,omitempty"`
+	StandardCode          string   `json:"standardCode"`
+	FromStatus            string   `json:"fromStatus"`
+	ToStatus              string   `json:"toStatus"`
+	Confidence            float64  `json:"confidence,omitempty"`
+	Reason                string   `json:"reason,omitempty"`
+	EvidenceClass         string   `json:"evidenceClass,omitempty"`
+	AcceptedEvidence      []string `json:"acceptedEvidence,omitempty"`
+	MissingEvidence       []string `json:"missingEvidence,omitempty"`
+	PolicySatisfied       bool     `json:"policySatisfied,omitempty"`
+	StatusChanged         bool     `json:"statusChanged,omitempty"`
 }
 
 // ArtifactMeta describes an uploaded or reserved evidence artifact.

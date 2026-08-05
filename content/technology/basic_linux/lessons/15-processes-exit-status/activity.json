@@ -1,0 +1,386 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-15-processes-exit-status",
+  "title": "Commands, processes, and exit status",
+  "summary": "Distinguish shell builtins from external programs, explain how PATH and environment variables affect command lookup, model parent and child processes, and interpret success, failure, and the immediately previous exit status in $?.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.PROC.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "15",
+    "runtime": "terminal/coreutils-basic",
+    "standardsStatus": "pending-new-standards"
+  },
+  "content": {
+    "objective": "Distinguish a Bash builtin from an external program; explain that the shell uses PATH from its environment to locate external commands; describe a process as a running instance with a parent, environment, current directory, and exit status; and prove that 0 conventionally means success, nonzero means failure, and $? reports only the immediately previous command's status.",
+    "instructions": "Work only in workspace/process-lab and complete the four tasks in order. Bash builtins execute as part of the current Bash process; external programs are executable files that Bash locates by searching the directories named in PATH. Environment variables are named text values inherited by a child process unless deliberately replaced. A process is a running instance of a program or shell; the current shell can start a child process and wait for it to finish. When a command finishes, it returns an integer exit status: 0 conventionally means success and a nonzero value means failure. In Bash, $? expands to the status of the immediately previous command, so inspect or save it before another command replaces it. ps is unavailable in this runtime: discuss process tables and process identifiers conceptually, but do not try to run ps. Use only the exact bash, env, sh, true, and false commands shown. The supplied note is immutable; create only command-kinds.txt, path-report.txt, process-report.txt, and status-report.txt.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/process-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/process-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/process-lab/README.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Process lesson workspace. Keep this file unchanged.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "classify-builtins-and-programs",
+        "title": "Classify command names",
+        "instructions": "Run bash -c 'type -t cd; type -t true; type -t env' > command-kinds.txt. Read the three lines in order: cd is a builtin, true resolves to Bash's builtin even though an external true program also exists, and env resolves to an external file. Explain that a builtin is implemented by Bash itself, while an external command requires an executable file; command lookup rules decide which implementation a name uses.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-bash-command-classification"
+            },
+            {
+              "checkId": "command-kinds-exact"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "classify-hint-1",
+          "classify-hint-2",
+          "classify-hint-3"
+        ]
+      },
+      {
+        "id": "observe-path-environment",
+        "title": "Give a child a controlled environment",
+        "instructions": "Run env -i PATH=/lesson/bin /bin/sh -c 'printf \"PATH=%s\\n\" \"$PATH\"' > path-report.txt. Here env is an external program; -i begins with an empty environment, PATH=/lesson/bin supplies one named value, and env starts sh by its explicit path as another process. The child sh expands its inherited PATH value and writes the exact report. Explain that a normal shell searches PATH's colon-separated directories for an external command name; this artificial value is for deterministic observation, not for finding this lesson's tools.",
+        "prerequisites": [
+          "classify-builtins-and-programs"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "path-report-exact"
+            },
+            {
+              "checkId": "command-kinds-exact"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "path-hint-1",
+          "path-hint-2",
+          "path-hint-3"
+        ]
+      },
+      {
+        "id": "start-child-process",
+        "title": "Start and finish a child process",
+        "instructions": "Run sh -c 'printf \"child process ran\\n\"' > process-report.txt. The interactive Bash is the parent process. It starts a child sh process, the child runs its small command, writes one line, and exits; Bash then regains control and presents another prompt. ps is not installed, so explain this lifecycle from the observed start, output, completion, and returned prompt rather than attempting a process listing.",
+        "prerequisites": [
+          "observe-path-environment"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-child-shell"
+            },
+            {
+              "checkId": "process-report-exact"
+            },
+            {
+              "checkId": "path-report-still-exact"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "process-hint-1",
+          "process-hint-2",
+          "process-hint-3"
+        ]
+      },
+      {
+        "id": "record-exit-status",
+        "title": "Record success, failure, and the latest status",
+        "instructions": "Run sh -c 'true; printf \"true=%s\\n\" \"$?\"; false; printf \"false=%s\\n\" \"$?\"; false; true; printf \"latest=%s\\n\" \"$?\"' > status-report.txt. Read the result as three experiments. true returns 0. false returns 1, a nonzero failure status. In the last sequence false returns 1, but true immediately replaces that remembered value with 0 before $? is expanded. Explain why $? is temporary evidence about only the immediately previous command, not a permanent history and not the command's printed output.",
+        "prerequisites": [
+          "start-child-process"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-status-child-shell"
+            },
+            {
+              "checkId": "status-report-exact"
+            },
+            {
+              "checkId": "command-kinds-exact"
+            },
+            {
+              "checkId": "path-report-still-exact"
+            },
+            {
+              "checkId": "all-earlier-reports-exact"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "status-hint-1",
+          "status-hint-2",
+          "status-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-bash-command-classification",
+        "kind": "command_properties",
+        "params": {
+          "executable": "bash",
+          "args": [
+            "-c",
+            "type -t cd; type -t true; type -t env"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "command-kinds-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/command-kinds.txt",
+          "value": "builtin\nbuiltin\nfile\n"
+        }
+      },
+      {
+        "id": "path-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/path-report.txt",
+          "value": "PATH=/lesson/bin\n"
+        }
+      },
+      {
+        "id": "used-child-shell",
+        "kind": "command_properties",
+        "params": {
+          "executable": "sh",
+          "args": [
+            "-c",
+            "printf \"child process ran\\n\""
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "process-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/process-report.txt",
+          "value": "child process ran\n"
+        }
+      },
+      {
+        "id": "path-report-still-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/path-report.txt",
+          "value": "PATH=/lesson/bin\n"
+        }
+      },
+      {
+        "id": "used-status-child-shell",
+        "kind": "command_properties",
+        "params": {
+          "executable": "sh",
+          "args": [
+            "-c",
+            "true; printf \"true=%s\\n\" \"$?\"; false; printf \"false=%s\\n\" \"$?\"; false; true; printf \"latest=%s\\n\" \"$?\""
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "status-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/status-report.txt",
+          "value": "true=0\nfalse=1\nlatest=0\n"
+        }
+      },
+      {
+        "id": "all-earlier-reports-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/process-report.txt",
+          "value": "child process ran\n"
+        }
+      },
+      {
+        "id": "readme-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/process-lab/README.txt",
+          "value": "Process lesson workspace. Keep this file unchanged.\n"
+        }
+      },
+      {
+        "id": "cwd-remains-lab",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/process-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "classify-hint-1",
+        "level": 1,
+        "text": "Use a child Bash and its type -t builtin to print only each command name's classification. Send all three lines to the requested report file."
+      },
+      {
+        "id": "classify-hint-2",
+        "level": 2,
+        "text": "Ask type -t about cd, then true, then env inside one bash -c string. Redirect stdout to command-kinds.txt."
+      },
+      {
+        "id": "classify-hint-3",
+        "level": 3,
+        "text": "Run: bash -c 'type -t cd; type -t true; type -t env' > command-kinds.txt"
+      },
+      {
+        "id": "path-hint-1",
+        "level": 1,
+        "text": "Use env to replace the inherited environment with one PATH value, start sh, and have that child print the value into the requested report."
+      },
+      {
+        "id": "path-hint-2",
+        "level": 2,
+        "text": "The outer command begins env -i PATH=/lesson/bin /bin/sh -c. The explicit /bin/sh path avoids searching the artificial PATH. Keep the child command single-quoted so the child sh, not the parent Bash, expands $PATH."
+      },
+      {
+        "id": "path-hint-3",
+        "level": 3,
+        "text": "Run: env -i PATH=/lesson/bin /bin/sh -c 'printf \"PATH=%s\\n\" \"$PATH\"' > path-report.txt"
+      },
+      {
+        "id": "process-hint-1",
+        "level": 1,
+        "text": "Start sh with -c and a small printf command. Redirect the child's one output line to process-report.txt."
+      },
+      {
+        "id": "process-hint-2",
+        "level": 2,
+        "text": "The child command should print exactly child process ran followed by a newline."
+      },
+      {
+        "id": "process-hint-3",
+        "level": 3,
+        "text": "Run: sh -c 'printf \"child process ran\\n\"' > process-report.txt"
+      },
+      {
+        "id": "status-hint-1",
+        "level": 1,
+        "text": "Run the supplied sequence in one child sh. Each printf must come immediately after the command whose status it records; notice that the final true replaces false's status."
+      },
+      {
+        "id": "status-hint-2",
+        "level": 2,
+        "text": "Keep the whole child command single-quoted so the child sh expands each $?. Redirect the three report lines to status-report.txt."
+      },
+      {
+        "id": "status-hint-3",
+        "level": 3,
+        "text": "Run: sh -c 'true; printf \"true=%s\\n\" \"$?\"; false; printf \"false=%s\\n\" \"$?\"; false; true; printf \"latest=%s\\n\" \"$?\"' > status-report.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student distinguishes Bash builtins from external executable programs, explains PATH and inherited environment values, models a parent shell starting and waiting for a child process without ps, and accurately interprets 0, nonzero, and the immediately previous status held in $?.",
+      "misconceptions": [
+        "A command name is not necessarily a separate program: cd and the selected true are Bash builtins executed by the shell.",
+        "An external program is stored in an executable file; env is external in this activity even though Bash also provides many builtins.",
+        "Both a builtin and an external file can share a name. Bash's lookup rules can select the builtin first, as with true here.",
+        "PATH is an environment variable containing an ordered, colon-separated list of directories that a shell searches for external command names; PATH is not the same thing as the current working directory.",
+        "Environment variables are named text values associated with a process and normally inherited by children; they are not global permanent settings shared identically by every process.",
+        "A program is executable code on disk, while a process is a running instance with runtime state. One program can have multiple process instances.",
+        "The interactive Bash is itself a process and can act as the parent of a child sh process.",
+        "A process identifier and process table exist conceptually, but ps is unavailable in this runtime and must not be suggested or attempted.",
+        "Exit status 0 conventionally means success; nonzero means failure, but the precise meaning of a nonzero value belongs to the command that returned it.",
+        "Exit status is separate from stdout and stderr. A command may print text and still fail, or print nothing and succeed.",
+        "$? is expanded by the shell and reports only the immediately previous command's status. Running another command replaces the value it would report.",
+        "In the final experiment, printf itself succeeds after displaying each saved status; the child shell's overall final status is therefore 0."
+      ],
+      "constraints": [
+        "Keep executable coaching to the exact bash, env, sh, true, false, and shell printf forms in the four tasks.",
+        "Do not suggest ps, pgrep, top, jobs, kill, wait, nohup, nice, renice, background execution, signals, /proc inspection, process substitution, or package installation; ps is intentionally unavailable.",
+        "Treat process identifiers, process tables, scheduling, and parent-child relationships as discussion concepts only; do not invent a PID or claim that the fixture captures one.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Require the student to predict each exact report before execution and explain it afterward in plain language.",
+        "Do not teach shell scripting syntax beyond what is necessary to read the supplied bounded sh -c experiments; lessons 16-18 teach scripts, variables, conditions, and loops.",
+        "Explain single quotes only as the protection that lets the child shell receive and expand $PATH or $?; do not broaden into an advanced quoting lesson.",
+        "Do not describe PATH as a security guarantee or imply that every command is found through PATH; builtins are resolved by the shell and explicit paths bypass ordinary PATH search.",
+        "Do not claim that every nonzero status is 1. false returns 1 here, while other commands may use other nonzero values.",
+        "Treat README.txt as immutable and permit creation or replacement only of the four named report files; reset after unrelated filesystem changes.",
+        "After deterministic checks pass, require oral answers distinguishing command from program, program from process, environment from PATH, and output from exit status."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

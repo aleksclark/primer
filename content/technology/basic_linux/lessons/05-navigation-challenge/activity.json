@@ -1,0 +1,531 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-05-navigation-challenge",
+  "title": "Navigation mastery challenge",
+  "summary": "Master an unfamiliar directory tree by orienting, discovering clues, revealing a hidden route, following a precise relative path, and reporting the destination.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "primary",
+      "weight": 1
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "05",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Independently orient, discover, and navigate an unfamiliar fixed directory tree; reveal and interpret a hidden relative route; and report the reached location as a precise absolute path.",
+    "instructions": "Complete the field-station mission in order without changing the fixture. Establish your starting location, use level-by-level observations and short index clues to identify the active relay, enter its relay bay, reveal and read its hidden route card, follow that relative route, and report the final location exactly. The task text withholds command lines; request graduated hints only when needed.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/field-station",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/BRIEF.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "FIELD STATION NAVIGATION TEST\nCompare each zone's INDEX.txt before choosing a route.\nThe active relay bay contains a hidden route card.\n"
+        },
+        {
+          "path": "workspace/field-station/zone-amber",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-amber/INDEX.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "ZONE AMBER\nrelay: standby\nbay: north\n"
+        },
+        {
+          "path": "workspace/field-station/zone-amber/north",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-amber/north/STATUS.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Standby relay. No route issued.\n"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/INDEX.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "ZONE COBALT\nrelay: active\nbay: south\n"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/south",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/south/STATUS.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Active relay. Route card installed.\n"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/south/.route-card",
+          "type": "file",
+          "mode": "0444",
+          "content": "ROUTE: ../../records/verified/archive\nEXPECT: SEALED-MANIFEST.txt\n"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/north",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/north/STATUS.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Maintenance bay.\n"
+        },
+        {
+          "path": "workspace/field-station/zone-silver",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-silver/INDEX.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "ZONE SILVER\nrelay: retired\nbay: west\n"
+        },
+        {
+          "path": "workspace/field-station/zone-silver/west",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-silver/west/STATUS.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Retired relay. Archive closed.\n"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/records",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/records/unverified",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/records/unverified/NOTICE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Unverified records are not the mission destination.\n"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/records/verified",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/records/verified/archive",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/field-station/zone-cobalt/records/verified/archive/SEALED-MANIFEST.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "NAVIGATION MISSION COMPLETE\narchive: cobalt verified\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "establish-start",
+        "title": "Establish the starting location",
+        "instructions": "Before exploring, report the shell's current working directory. Confirm that the absolute report ends in workspace/field-station, and remain there.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-start-location-report"
+            },
+            {
+              "checkId": "start-location-output-exact"
+            },
+            {
+              "checkId": "cwd-remains-field-station"
+            }
+          ]
+        },
+        "hintIds": [
+          "start-hint-1",
+          "start-hint-2",
+          "start-hint-3"
+        ]
+      },
+      {
+        "id": "discover-active-relay",
+        "title": "Discover and enter the active relay",
+        "instructions": "Survey the starting directory, inspect the short INDEX.txt card inside each zone from this known location, and identify the zone whose relay is active. Its card names the bay. Inspect that zone, predict one relative route from field-station to the bay, then enter it. Do not guess or enter inactive zones.",
+        "prerequisites": [
+          "establish-start"
+        ],
+        "completion": {
+          "checkId": "cwd-is-active-relay-bay"
+        },
+        "hintIds": [
+          "relay-hint-1",
+          "relay-hint-2",
+          "relay-hint-3"
+        ]
+      },
+      {
+        "id": "reveal-hidden-route",
+        "title": "Reveal the hidden route card",
+        "instructions": "While remaining in the active relay bay, list every name, including dot-prefixed names. Locate the hidden route card in the output.",
+        "prerequisites": [
+          "discover-active-relay"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-all-names-listing"
+            },
+            {
+              "checkId": "all-listing-reveals-route-card"
+            },
+            {
+              "checkId": "cwd-still-active-relay-bay"
+            }
+          ]
+        },
+        "hintIds": [
+          "reveal-hint-1",
+          "reveal-hint-2",
+          "reveal-hint-3"
+        ]
+      },
+      {
+        "id": "read-and-resolve-route",
+        "title": "Read and resolve the route",
+        "instructions": "Read the hidden route card with the short-text inspection tool. Before moving, resolve its ROUTE value component by component from the current relay bay and predict the destination.",
+        "prerequisites": [
+          "reveal-hidden-route"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-route-card-reader"
+            },
+            {
+              "checkId": "route-card-output-exact"
+            },
+            {
+              "checkId": "route-card-still-exact"
+            },
+            {
+              "checkId": "cwd-still-relay-after-reading"
+            }
+          ]
+        },
+        "hintIds": [
+          "read-hint-1",
+          "read-hint-2",
+          "read-hint-3"
+        ]
+      },
+      {
+        "id": "reach-and-report-archive",
+        "title": "Reach and report the archive",
+        "instructions": "Follow the relative ROUTE printed on the card. Verify that the destination contains SEALED-MANIFEST.txt, then report the current working directory as a precise absolute path. Leave every fixture unchanged.",
+        "prerequisites": [
+          "read-and-resolve-route"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-final-location-report"
+            },
+            {
+              "checkId": "final-location-output-exact"
+            },
+            {
+              "checkId": "cwd-is-verified-archive"
+            },
+            {
+              "checkId": "sealed-manifest-still-exact"
+            },
+            {
+              "checkId": "route-card-remains-exact-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "finish-hint-1",
+          "finish-hint-2",
+          "finish-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-start-location-report",
+        "kind": "command_properties",
+        "params": {
+          "executable": "pwd",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "start-location-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "/workspace/workspace/field-station\n"
+        }
+      },
+      {
+        "id": "cwd-remains-field-station",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/field-station"
+        }
+      },
+      {
+        "id": "cwd-is-active-relay-bay",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/south"
+        }
+      },
+      {
+        "id": "used-all-names-listing",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-a"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "all-listing-reveals-route-card",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])\\.route-card([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "cwd-still-active-relay-bay",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/south"
+        }
+      },
+      {
+        "id": "used-route-card-reader",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            ".route-card"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "route-card-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "ROUTE: ../../records/verified/archive\nEXPECT: SEALED-MANIFEST.txt\n"
+        }
+      },
+      {
+        "id": "route-card-still-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/south/.route-card",
+          "value": "ROUTE: ../../records/verified/archive\nEXPECT: SEALED-MANIFEST.txt\n"
+        }
+      },
+      {
+        "id": "cwd-still-relay-after-reading",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/south"
+        }
+      },
+      {
+        "id": "used-final-location-report",
+        "kind": "command_properties",
+        "params": {
+          "executable": "pwd",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "final-location-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "/workspace/workspace/field-station/zone-cobalt/records/verified/archive\n"
+        }
+      },
+      {
+        "id": "cwd-is-verified-archive",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/records/verified/archive"
+        }
+      },
+      {
+        "id": "sealed-manifest-still-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/records/verified/archive/SEALED-MANIFEST.txt",
+          "value": "NAVIGATION MISSION COMPLETE\narchive: cobalt verified\n"
+        }
+      },
+      {
+        "id": "route-card-remains-exact-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/field-station/zone-cobalt/south/.route-card",
+          "value": "ROUTE: ../../records/verified/archive\nEXPECT: SEALED-MANIFEST.txt\n"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "start-hint-1",
+        "level": 1,
+        "text": "Use the orientation tool that reports the cwd rather than the tool that lists names."
+      },
+      {
+        "id": "start-hint-2",
+        "level": 2,
+        "text": "The command name is formed from print working directory and needs no argument."
+      },
+      {
+        "id": "start-hint-3",
+        "level": 3,
+        "text": "Run: pwd"
+      },
+      {
+        "id": "relay-hint-1",
+        "level": 1,
+        "text": "Stay in field-station while comparing evidence. List the current level, then read each zone's INDEX.txt by relative path. One card says relay: active and names its bay."
+      },
+      {
+        "id": "relay-hint-2",
+        "level": 2,
+        "text": "The active card is under zone-cobalt and names south. From field-station, combine those two directory components into one relative destination."
+      },
+      {
+        "id": "relay-hint-3",
+        "level": 3,
+        "text": "After inspecting the clues, run: cd zone-cobalt/south"
+      },
+      {
+        "id": "reveal-hint-1",
+        "level": 1,
+        "text": "A leading dot hides a name from an ordinary listing. Ask the listing tool to include all names while staying in this bay."
+      },
+      {
+        "id": "reveal-hint-2",
+        "level": 2,
+        "text": "Use the all option, -a, with the familiar listing command and no path argument."
+      },
+      {
+        "id": "reveal-hint-3",
+        "level": 3,
+        "text": "Run: ls -a"
+      },
+      {
+        "id": "read-hint-1",
+        "level": 1,
+        "text": "Use the previously learned read-only tool for printing a known short text file. The hidden card is in the current directory."
+      },
+      {
+        "id": "read-hint-2",
+        "level": 2,
+        "text": "The reader is cat. Preserve the leading dot in the card's name."
+      },
+      {
+        "id": "read-hint-3",
+        "level": 3,
+        "text": "Run: cat .route-card"
+      },
+      {
+        "id": "finish-hint-1",
+        "level": 1,
+        "text": "Use the ROUTE value exactly as a relative destination from the relay bay. Each .. selects one parent. At the destination, an ordinary listing can confirm the expected manifest before you report the cwd."
+      },
+      {
+        "id": "finish-hint-2",
+        "level": 2,
+        "text": "Change directory using ../../records/verified/archive, confirm SEALED-MANIFEST.txt is present, and then use the location-reporting command."
+      },
+      {
+        "id": "finish-hint-3",
+        "level": 3,
+        "text": "Run cd ../../records/verified/archive, inspect the destination with ls, then run pwd as a separate final command."
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student independently applies orientation, level-by-level listing, short clue inspection, hidden-name discovery, relative-path resolution, cwd changes, and exact absolute reporting to master an unfamiliar fixed tree.",
+      "misconceptions": [
+        "A relative path starts at the shell's current working directory, not automatically at field-station or workspace.",
+        "ls observes names but does not enter a directory or change the cwd.",
+        "A dot-prefixed name is omitted by an ordinary listing; hidden does not mean absent, encrypted, or inaccessible.",
+        "Each .. component selects the current path's parent; it does not undo command history.",
+        "Systematic discovery means gathering evidence before moving, not trying branches until one succeeds.",
+        "The final absolute report begins at /, while the route card is interpreted relative to the relay bay."
+      ],
+      "constraints": [
+        "Keep coaching within the previously taught purposes of pwd, ls, ls -a, cat, cd, cwd, ., .., and relative-versus-absolute paths.",
+        "Do not introduce find, tree, recursive ls, glob shortcuts, pipelines, shell scripts, or commands that create, edit, copy, move, rename, or remove entries.",
+        "Do not reveal zone-cobalt, south, .route-card, or the archive route before the corresponding graduated hint reaches the level that supplies it.",
+        "Give hints for the current task in level order and reveal an exact command only at level 3.",
+        "Never provide the complete mission as a pasteable command sequence or perform later tasks for the student.",
+        "For relay discovery, ask the student to remain at field-station, list one level, compare each INDEX.txt, state the evidence, and predict one route before moving.",
+        "For the card route, ask the student to resolve every component aloud from the relay bay before changing cwd.",
+        "Keep the student inside workspace/field-station and treat all fixture data as read-only even though directories use materialization-safe mode 0755.",
+        "If the student reaches the relay or archive by random wandering, ask for the evidence and path explanation; recommend reset and a methodical repeat when they cannot provide it.",
+        "After completion, ask the student to contrast the relative route with the final absolute cwd report."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

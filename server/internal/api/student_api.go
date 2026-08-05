@@ -161,7 +161,8 @@ func registerStudentAPI(h huma.API, q repo.Querier, opts Options) {
 		if err != nil {
 			return nil, err
 		}
-		sess, err := repo.StartOrResumeSession(ctx, q, dev, in.Body.ClientSessionID, in.Body.AssignmentID, time.Now().UTC())
+		caps := in.Body.Capabilities
+		sess, err := repo.StartOrResumeSession(ctx, q, dev, in.Body.ClientSessionID, in.Body.AssignmentID, time.Now().UTC(), caps...)
 		if err != nil {
 			return nil, MapError(err)
 		}
@@ -334,8 +335,9 @@ type studentWorkOutput struct {
 
 type startSessionInput struct {
 	Body struct {
-		ClientSessionID string `json:"clientSessionId" minLength:"1"`
-		AssignmentID    string `json:"assignmentId" format:"uuid"`
+		ClientSessionID string   `json:"clientSessionId" minLength:"1"`
+		AssignmentID    string   `json:"assignmentId" format:"uuid"`
+		Capabilities    []string `json:"capabilities,omitempty" doc:"Runner capability flags such as structured_command_evidence."`
 	}
 }
 

@@ -1,0 +1,582 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-11-find-files",
+  "title": "Find files by name",
+  "summary": "Use find with an intentional starting scope, -name patterns, and -type predicates to locate files and directories safely inside a supplied workspace.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.SEARCH.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "11",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Use find STARTING-POINT with -name and -type to search a deliberate scope, quote wildcard patterns so find receives them unchanged, distinguish regular files from directories, and perform read-only searches without scanning outside the assigned workspace.",
+    "instructions": "Work only in workspace/search-lab and complete the four searches in order. Read every find command from left to right: first the starting point, then tests that a path must pass. Use . for the whole lab or a named subdirectory for a narrower scope. Use -name for an exact name or quoted wildcard pattern, and add -type f for regular files or -type d for directories when type matters. Do not search / or workspace ancestors, and do not use -delete, -exec, -ok, xargs, pipes, redirection, command substitution, or any command that changes the fixture.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/search-lab",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/projects",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion/notes",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion/notes/mission.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Orion launch window: 06:40 UTC.\n"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion/notes/Mission.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Capitalization decoy.\n"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion/telemetry.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "orion: nominal\n"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion/reports",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/projects/orion/reports/summary.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Orion report complete.\n"
+        },
+        {
+          "path": "workspace/search-lab/projects/atlas",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/projects/atlas/telemetry.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "atlas: standby\n"
+        },
+        {
+          "path": "workspace/search-lab/projects/atlas/reports",
+          "type": "file",
+          "mode": "0444",
+          "content": "This regular file shares a name with a directory.\n"
+        },
+        {
+          "path": "workspace/search-lab/archive",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/archive/mission.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Archived mission record.\n"
+        },
+        {
+          "path": "workspace/search-lab/archive/telemetry.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "archive: closed\n"
+        },
+        {
+          "path": "workspace/search-lab/archive/old",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/archive/old/summary.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Historical summary.\n"
+        },
+        {
+          "path": "workspace/search-lab/data",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/data/current",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/data/current/readings.csv",
+          "type": "file",
+          "mode": "0444",
+          "content": "sensor,value\nA,18\n"
+        },
+        {
+          "path": "workspace/search-lab/data/current/readings.csv.d",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/data/current/readings.csv.d/part.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Directory-name decoy content.\n"
+        },
+        {
+          "path": "workspace/search-lab/data/raw",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/search-lab/data/raw/sensors.csv",
+          "type": "file",
+          "mode": "0444",
+          "content": "sensor,value\nB,21\n"
+        },
+        {
+          "path": "workspace/search-lab/data/raw/SENSORS.CSV",
+          "type": "file",
+          "mode": "0444",
+          "content": "Capitalization decoy.\n"
+        },
+        {
+          "path": "workspace/search-lab/loose.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Top-level note.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "find-exact-name",
+        "title": "Find an exact filename in the whole lab",
+        "instructions": "From the lab root, search starting at . for every path whose basename is exactly mission.txt. Run find . -name 'mission.txt'. Predict that the search includes nested paths under both projects and archive, but does not match Mission.txt because -name is case-sensitive.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-whole-lab-exact-search"
+            },
+            {
+              "checkId": "exact-name-results"
+            },
+            {
+              "checkId": "orion-mission-preserved"
+            },
+            {
+              "checkId": "archive-mission-preserved"
+            },
+            {
+              "checkId": "cwd-after-exact-search"
+            }
+          ]
+        },
+        "hintIds": [
+          "exact-hint-1",
+          "exact-hint-2",
+          "exact-hint-3"
+        ]
+      },
+      {
+        "id": "limit-starting-scope",
+        "title": "Narrow the starting scope",
+        "instructions": "Search only the projects subtree for regular files named telemetry.log. Use projects as the starting point, then -type f and -name 'telemetry.log'. Explain why archive/telemetry.log is outside this command's scope even though its name matches.",
+        "prerequisites": [
+          "find-exact-name"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-narrow-project-search"
+            },
+            {
+              "checkId": "project-log-results"
+            },
+            {
+              "checkId": "all-logs-preserved"
+            },
+            {
+              "checkId": "cwd-after-scope-search"
+            }
+          ]
+        },
+        "hintIds": [
+          "scope-hint-1",
+          "scope-hint-2",
+          "scope-hint-3"
+        ]
+      },
+      {
+        "id": "find-directory-by-type",
+        "title": "Distinguish a directory from a same-named file",
+        "instructions": "The tree contains both a directory and a regular file named reports. Search the projects subtree for directories only whose name is reports. Use -type d before -name 'reports', and explain why projects/atlas/reports must not appear.",
+        "prerequisites": [
+          "limit-starting-scope"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-directory-type-search"
+            },
+            {
+              "checkId": "directory-only-result"
+            },
+            {
+              "checkId": "reports-directory-remains-directory"
+            },
+            {
+              "checkId": "reports-file-remains-file"
+            }
+          ]
+        },
+        "hintIds": [
+          "type-hint-1",
+          "type-hint-2",
+          "type-hint-3"
+        ]
+      },
+      {
+        "id": "find-files-with-pattern",
+        "title": "Use a quoted filename pattern safely",
+        "instructions": "Search only data for regular files whose names end in lowercase .csv. Run find data -type f -name '*.csv'. Keep the wildcard pattern quoted so the shell passes it to find. Explain why the uppercase SENSORS.CSV and the directory readings.csv.d do not match.",
+        "prerequisites": [
+          "find-directory-by-type"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-quoted-pattern-search"
+            },
+            {
+              "checkId": "csv-file-results"
+            },
+            {
+              "checkId": "current-csv-preserved"
+            },
+            {
+              "checkId": "raw-csv-preserved"
+            },
+            {
+              "checkId": "csv-decoys-preserved"
+            },
+            {
+              "checkId": "cwd-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "pattern-hint-1",
+          "pattern-hint-2",
+          "pattern-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-whole-lab-exact-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "find",
+          "args": [
+            ".",
+            "-name",
+            "mission.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "exact-name-results",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "^(\\./projects/orion/notes/mission\\.txt\\n\\./archive/mission\\.txt|\\./archive/mission\\.txt\\n\\./projects/orion/notes/mission\\.txt)\\n?$"
+        }
+      },
+      {
+        "id": "orion-mission-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/search-lab/projects/orion/notes/mission.txt",
+          "value": "Orion launch window: 06:40 UTC.\n"
+        }
+      },
+      {
+        "id": "archive-mission-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/search-lab/archive/mission.txt",
+          "value": "Archived mission record.\n"
+        }
+      },
+      {
+        "id": "cwd-after-exact-search",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/search-lab"
+        }
+      },
+      {
+        "id": "used-narrow-project-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "find",
+          "args": [
+            "projects",
+            "-type",
+            "f",
+            "-name",
+            "telemetry.log"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "project-log-results",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "^(projects/orion/telemetry\\.log\\nprojects/atlas/telemetry\\.log|projects/atlas/telemetry\\.log\\nprojects/orion/telemetry\\.log)\\n?$"
+        }
+      },
+      {
+        "id": "all-logs-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/search-lab/archive/telemetry.log",
+          "value": "archive: closed\n"
+        }
+      },
+      {
+        "id": "cwd-after-scope-search",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/search-lab"
+        }
+      },
+      {
+        "id": "used-directory-type-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "find",
+          "args": [
+            "projects",
+            "-type",
+            "d",
+            "-name",
+            "reports"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "directory-only-result",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "projects/orion/reports\n"
+        }
+      },
+      {
+        "id": "reports-directory-remains-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/search-lab/projects/orion/reports",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "reports-file-remains-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/search-lab/projects/atlas/reports",
+          "type": "file"
+        }
+      },
+      {
+        "id": "used-quoted-pattern-search",
+        "kind": "command_properties",
+        "params": {
+          "executable": "find",
+          "args": [
+            "data",
+            "-type",
+            "f",
+            "-name",
+            "*.csv"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "csv-file-results",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "^(data/current/readings\\.csv\\ndata/raw/sensors\\.csv|data/raw/sensors\\.csv\\ndata/current/readings\\.csv)\\n?$"
+        }
+      },
+      {
+        "id": "current-csv-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/search-lab/data/current/readings.csv",
+          "value": "sensor,value\nA,18\n"
+        }
+      },
+      {
+        "id": "raw-csv-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/search-lab/data/raw/sensors.csv",
+          "value": "sensor,value\nB,21\n"
+        }
+      },
+      {
+        "id": "csv-decoys-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/search-lab/data/raw/SENSORS.CSV",
+          "value": "Capitalization decoy.\n"
+        }
+      },
+      {
+        "id": "cwd-at-finish",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/search-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "exact-hint-1",
+        "level": 1,
+        "text": "Begin with the scope. A single dot means the current directory and everything find descends into beneath it."
+      },
+      {
+        "id": "exact-hint-2",
+        "level": 2,
+        "text": "After find ., use -name followed by the exact lowercase basename mission.txt. Exact capitalization matters."
+      },
+      {
+        "id": "exact-hint-3",
+        "level": 3,
+        "text": "Run: find . -name 'mission.txt'"
+      },
+      {
+        "id": "scope-hint-1",
+        "level": 1,
+        "text": "Do not begin at . when the question names only one subtree. Put that subtree immediately after find."
+      },
+      {
+        "id": "scope-hint-2",
+        "level": 2,
+        "text": "Start at projects, require regular-file type f, then test the exact name telemetry.log."
+      },
+      {
+        "id": "scope-hint-3",
+        "level": 3,
+        "text": "Run: find projects -type f -name 'telemetry.log'"
+      },
+      {
+        "id": "type-hint-1",
+        "level": 1,
+        "text": "A name test alone would accept both path types. Add a type test for directories."
+      },
+      {
+        "id": "type-hint-2",
+        "level": 2,
+        "text": "Start at projects. The directory type letter is d; combine -type d with the exact name reports."
+      },
+      {
+        "id": "type-hint-3",
+        "level": 3,
+        "text": "Run: find projects -type d -name 'reports'"
+      },
+      {
+        "id": "pattern-hint-1",
+        "level": 1,
+        "text": "Use the smallest named subtree as scope, require regular files, and let find\u2014not the shell\u2014interpret the wildcard pattern."
+      },
+      {
+        "id": "pattern-hint-2",
+        "level": 2,
+        "text": "Start at data, use -type f, and quote a -name pattern consisting of any basename ending in lowercase .csv."
+      },
+      {
+        "id": "pattern-hint-3",
+        "level": 3,
+        "text": "Run: find data -type f -name '*.csv'"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student reads find as a bounded recursive search: choose the smallest safe starting point, combine case-sensitive -name with -type when needed, quote wildcard patterns, interpret printed paths, and leave the searched tree unchanged.",
+      "misconceptions": [
+        "The starting point is not decorative: find . searches the current tree, while find projects cannot return a matching path under archive.",
+        "find searches recursively beneath each starting point; the student does not need to cd through every directory first.",
+        "-name compares only the final path component, or basename, not the entire printed path.",
+        "Plain -name is case-sensitive, so mission.txt and Mission.txt are different names and *.csv does not match SENSORS.CSV.",
+        "A wildcard in a quoted -name pattern is interpreted by find; leaving it unquoted lets the shell try to expand it before find runs.",
+        "-type f means regular file and -type d means directory; an extension-like name does not prove path type.",
+        "find normally prints matching paths and does not change them, but actions such as -delete and -exec can be destructive or invoke other programs.",
+        "Searching from / is not more correct than searching the assigned subtree; it is broader, slower, noisier, and may encounter inaccessible or sensitive paths.",
+        "An empty result can correctly mean no path in the chosen scope passed every test; it does not automatically mean find failed."
+      ],
+      "constraints": [
+        "Keep coaching to find with the exact bounded starting points ., projects, and data plus -name, -type f, and -type d.",
+        "Require the student to state the intended scope before discussing name or type predicates.",
+        "Ask for a prediction of included matches and excluded decoys before each command.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Do not suggest /, workspace ancestors, home-directory searches, multiple starting points, -iname, -path, -maxdepth, -mindepth, logical operators, parentheses, or format actions.",
+        "Never suggest -delete, -exec, -execdir, -ok, xargs, shell loops, command substitution, pipes, redirection, aliases, or command chaining in this lesson.",
+        "Do not accept ls traversal, grep, shell globbing alone, or manually visiting directories as equivalent evidence for the requested recursive find search.",
+        "Treat quotes as safety and correctness syntax for wildcard patterns, while recognizing that command observation records the resulting argument without quote characters.",
+        "Keep all work in workspace/search-lab and reset if any fixture is changed, renamed, copied, or removed.",
+        "After completion, ask the student to explain each output path in terms of starting scope, basename test, type test, and case sensitivity."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

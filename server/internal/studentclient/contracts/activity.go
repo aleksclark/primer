@@ -17,9 +17,44 @@ type ActivityDocument struct {
 
 // StandardRef links an activity revision to a standard code.
 type StandardRef struct {
-	Code   string  `json:"code" yaml:"code"`
-	Role   string  `json:"role" yaml:"role"`
-	Weight float64 `json:"weight,omitempty" yaml:"weight,omitempty"`
+	Code           string          `json:"code" yaml:"code"`
+	Role           string          `json:"role" yaml:"role"`
+	Weight         float64         `json:"weight,omitempty" yaml:"weight,omitempty"`
+	EvidencePolicy *EvidencePolicy `json:"evidencePolicy,omitempty" yaml:"evidence_policy,omitempty"`
+}
+
+// EvidencePolicy describes which evidence classes are required before a
+// mastery status transition for a revision-standard link.
+type EvidencePolicy struct {
+	Version            int                 `json:"version" yaml:"version"`
+	StatusRequirements map[string][]string `json:"statusRequirements" yaml:"status_requirements"`
+}
+
+// DefaultTerminalEvidencePolicy is the conservative v1 default for terminal
+// activities: procedural evidence may introduce a standard, but cannot alone
+// establish approaching or mastered.
+func DefaultTerminalEvidencePolicy() EvidencePolicy {
+	return EvidencePolicy{
+		Version: 1,
+		StatusRequirements: map[string][]string{
+			"in_progress": {"procedural_continuous"},
+			"approaching": {"procedural_continuous", "conceptual_response"},
+			"mastered":    {"procedural_continuous", "conceptual_response", "formal_assessment"},
+		},
+	}
+}
+
+// DefaultTypingEvidencePolicy allows procedural typing evidence to advance
+// typing standards through the normal confidence ladder.
+func DefaultTypingEvidencePolicy() EvidencePolicy {
+	return EvidencePolicy{
+		Version: 1,
+		StatusRequirements: map[string][]string{
+			"in_progress": {"procedural_continuous"},
+			"approaching": {"procedural_continuous"},
+			"mastered":    {"procedural_continuous"},
+		},
+	}
 }
 
 // ActivityContent is the versioned revision body stored as JSONB later.
