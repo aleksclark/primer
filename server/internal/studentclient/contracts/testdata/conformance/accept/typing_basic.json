@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1",
+  "slug": "sample-typing",
+  "title": "Typing",
+  "summary": "s",
+  "kind": "typing",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.TYPE.1",
+      "role": "primary"
+    }
+  ],
+  "content": {
+    "objective": "o",
+    "instructions": "i",
+    "typing": {
+      "promptSetId": "p1",
+      "prompts": [
+        {
+          "id": "a",
+          "text": "asdf"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "t1",
+        "title": "T",
+        "instructions": "I",
+        "completion": {
+          "checkId": "done"
+        }
+      }
+    ],
+    "checks": [
+      {
+        "id": "done",
+        "kind": "typing_metrics",
+        "params": {
+          "minWpm": 20,
+          "minAccuracy": 0.9
+        },
+        "stages": [
+          "final"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1",
+  "slug": "sample-course",
+  "title": "Sample Course",
+  "subjectCode": "digital-literacy",
+  "version": "1",
+  "revisionPolicy": "latest_published",
+  "continuityDefaults": {
+    "mode": "fresh"
+  },
+  "pacingReference": {
+    "nominalWeeks": 4,
+    "masteryBased": true
+  },
+  "activities": [
+    {
+      "order": 1,
+      "slug": "act-one",
+      "file": "lessons/01/activity.json"
+    },
+    {
+      "order": 2,
+      "slug": "act-two",
+      "file": "lessons/02/activity.json",
+      "capstone": true
+    }
+  ],
+  "prerequisites": [
+    {
+      "activity": "act-two",
+      "requires": [
+        "act-one"
+      ],
+      "requirement": "completed"
+    }
+  ],
+  "gates": [
+    {
+      "activity": "act-two",
+      "kind": "parent_review"
+    }
+  ]
+}

@@ -58,6 +58,34 @@ func ValidateDocument(doc *ActivityDocument) error {
 	if err := ValidateContent(doc.Kind, &doc.Content); err != nil {
 		return err
 	}
+	if err := validateReferenceSolution(doc.ReferenceSolution); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateReferenceSolution(ref *ReferenceSolution) error {
+	if ref == nil {
+		return nil
+	}
+	if len(ref.Steps) == 0 {
+		return fmt.Errorf("referenceSolution.steps must not be empty")
+	}
+	for i, step := range ref.Steps {
+		if len(step.Argv) == 0 {
+			return fmt.Errorf("referenceSolution.steps[%d].argv must not be empty", i)
+		}
+		for j, a := range step.Argv {
+			if strings.TrimSpace(a) == "" {
+				return fmt.Errorf("referenceSolution.steps[%d].argv[%d] must not be empty", i, j)
+			}
+		}
+		if step.WorkDir != "" {
+			if _, err := SafeRelPath(step.WorkDir); err != nil {
+				return fmt.Errorf("referenceSolution.steps[%d].workDir: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -253,12 +281,21 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 	if ch.Params == nil {
 		ch.Params = map[string]any{}
 	}
+	if err := validateCheckStages(i, ch); err != nil {
+		return err
+	}
 	switch ch.Kind {
 	case CheckFileExists, CheckFileNotExists:
+		if err := requireExactParams(ch.Params, "path"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
 	case CheckContentEquals, CheckContentContains:
+		if err := requireExactParams(ch.Params, "path", "value"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -266,6 +303,9 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): params.value is required", i, ch.ID)
 		}
 	case CheckContentMatch:
+		if err := requireExactParams(ch.Params, "path", "pattern"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -277,6 +317,9 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): invalid pattern: %w", i, ch.ID, err)
 		}
 	case CheckPathType:
+		if err := requireExactParams(ch.Params, "path", "type"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -290,6 +333,9 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): unknown path type %q", i, ch.ID, pt)
 		}
 	case CheckPathMode:
+		if err := requireExactParams(ch.Params, "path", "mode"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -298,10 +344,17 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): params.mode must be octal like 0644", i, ch.ID)
 		}
 	case CheckCwd:
+		if err := requireExactParams(ch.Params, "path"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
 	case CheckCommandProperties:
+		allowed := map[string]bool{"executable": true, "args": true, "exitCode": true}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if _, ok := stringParam(ch.Params, "executable"); !ok {
 			return fmt.Errorf("checks[%d] (%s): params.executable is required", i, ch.ID)
 		}
@@ -316,6 +369,10 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			}
 		}
 	case CheckPipelineOutput:
+		allowed := map[string]bool{"value": true, "contains": true, "pattern": true}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if _, ok := stringParam(ch.Params, "value"); !ok {
 			if _, ok2 := stringParam(ch.Params, "contains"); !ok2 {
 				if _, ok3 := stringParam(ch.Params, "pattern"); !ok3 {
@@ -329,6 +386,13 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			}
 		}
 	case CheckTypingMetrics:
+		allowed := map[string]bool{
+			"min_wpm": true, "minWpm": true,
+			"min_accuracy": true, "minAccuracy": true,
+		}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if _, err := floatParam(ch.Params["min_wpm"]); err != nil {
 			// Also accept camelCase from JSON content.
 			if _, err2 := floatParam(ch.Params["minWpm"]); err2 != nil {
@@ -356,6 +420,51 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 		}
 	default:
 		return fmt.Errorf("checks[%d] (%s): unknown kind %q", i, ch.ID, ch.Kind)
+	}
+	return nil
+}
+
+func validateCheckStages(i int, ch Check) error {
+	seenStage := map[string]bool{}
+	for _, s := range ch.Stages {
+		switch s {
+		case StageFixture, StageTask, StageFinal:
+		default:
+			return fmt.Errorf("checks[%d] (%s): unknown stage %q", i, ch.ID, s)
+		}
+		if seenStage[s] {
+			return fmt.Errorf("checks[%d] (%s): duplicate stage %q", i, ch.ID, s)
+		}
+		seenStage[s] = true
+	}
+	seenInv := map[string]bool{}
+	for _, b := range ch.InvariantAt {
+		switch b {
+		case InvariantAtFixture, InvariantAtAfterTask, InvariantAtFinal:
+		default:
+			return fmt.Errorf("checks[%d] (%s): unknown invariantAt %q", i, ch.ID, b)
+		}
+		if seenInv[b] {
+			return fmt.Errorf("checks[%d] (%s): duplicate invariantAt %q", i, ch.ID, b)
+		}
+		seenInv[b] = true
+	}
+	return nil
+}
+
+func requireExactParams(params map[string]any, keys ...string) error {
+	allowed := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		allowed[k] = true
+	}
+	return requireParamsSubset(params, allowed)
+}
+
+func requireParamsSubset(params map[string]any, allowed map[string]bool) error {
+	for k := range params {
+		if !allowed[k] {
+			return fmt.Errorf("unknown params.%s", k)
+		}
 	}
 	return nil
 }
@@ -465,6 +574,12 @@ func intParam(v any) (int, error) {
 		return int(n), nil
 	case float64:
 		return int(n), nil
+	case jsonNumber:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, err
+		}
+		return int(i), nil
 	case string:
 		return strconv.Atoi(n)
 	default:
@@ -494,6 +609,7 @@ func floatParam(v any) (float64, error) {
 // jsonNumber is satisfied by encoding/json.Number without importing encoding/json here.
 type jsonNumber interface {
 	Float64() (float64, error)
+	Int64() (int64, error)
 }
 
 // TypingMinWPM extracts min_wpm / minWpm from typing_metrics check params.

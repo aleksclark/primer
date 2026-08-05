@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // LoadDocument reads an activity document from a YAML or JSON file and validates it.
@@ -27,20 +25,39 @@ func LoadDocument(path string) (*ActivityDocument, error) {
 }
 
 // ParseDocument unmarshals YAML or JSON based on the path extension (or content).
+// Decoding is strict: unknown fields and duplicate keys are rejected.
 func ParseDocument(data []byte, pathHint string) (*ActivityDocument, error) {
-	var doc ActivityDocument
 	ext := strings.ToLower(filepath.Ext(pathHint))
 	switch ext {
 	case ".json":
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return nil, fmt.Errorf("parse activity json %s: %w", pathHint, err)
-		}
+		return DecodeActivityJSON(data, pathHint)
 	default:
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, fmt.Errorf("parse activity yaml %s: %w", pathHint, err)
+		// YAML default; also used when extension is missing.
+		if ext == ".yaml" || ext == ".yml" || ext == "" {
+			return DecodeActivityYAML(data, pathHint)
 		}
+		// Non-json with unknown extension: try YAML then JSON.
+		if doc, err := DecodeActivityYAML(data, pathHint); err == nil {
+			return doc, nil
+		}
+		return DecodeActivityJSON(data, pathHint)
 	}
-	return &doc, nil
+}
+
+// LoadCourseDocument reads and validates a course manifest JSON file.
+func LoadCourseDocument(path string) (*CourseDocument, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read course %s: %w", path, err)
+	}
+	doc, err := DecodeCourseJSON(data, path)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateCourseDocument(doc); err != nil {
+		return nil, fmt.Errorf("validate %s: %w", path, err)
+	}
+	return doc, nil
 }
 
 // LoadDocumentsDir loads every activity.yaml/yml/json under immediate subdirectories

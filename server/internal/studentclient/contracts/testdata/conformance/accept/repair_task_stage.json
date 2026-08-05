@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1",
+  "slug": "repair-sample",
+  "title": "Sample",
+  "summary": "s",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "primary",
+      "weight": 1
+    }
+  ],
+  "content": {
+    "objective": "o",
+    "instructions": "i",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "home",
+      "fixtures": [
+        {
+          "path": "home",
+          "type": "directory"
+        },
+        {
+          "path": "home/welcome.txt",
+          "type": "file",
+          "content": "hello\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "inspect",
+        "title": "Inspect",
+        "instructions": "Look",
+        "completion": {
+          "checkId": "broken-script"
+        }
+      },
+      {
+        "id": "fix",
+        "title": "Fix",
+        "instructions": "Fix",
+        "prerequisites": [
+          "inspect"
+        ],
+        "completion": {
+          "checkId": "fixed"
+        }
+      }
+    ],
+    "checks": [
+      {
+        "id": "broken-script",
+        "kind": "content_contains",
+        "params": {
+          "path": "home/welcome.txt",
+          "value": "hello"
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
+      },
+      {
+        "id": "welcome",
+        "kind": "file_exists",
+        "params": {
+          "path": "home/welcome.txt"
+        },
+        "stages": [
+          "fixture",
+          "final"
+        ],
+        "invariantAt": [
+          "fixture",
+          "final"
+        ]
+      },
+      {
+        "id": "fixed",
+        "kind": "content_equals",
+        "params": {
+          "path": "home/welcome.txt",
+          "value": "fixed\n"
+        },
+        "stages": [
+          "final"
+        ]
+      }
+    ]
+  }
+}

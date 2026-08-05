@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1",
+  "schemaVersion": "1",
+  "slug": "dup",
+  "title": "t",
+  "summary": "s",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [{"code": "PRIMER.DL.6.NAV.1", "role": "primary"}],
+  "content": {
+    "objective": "o",
+    "instructions": "i",
+    "terminal": {"runtimeProfile": "coreutils-basic", "fixtures": []},
+    "tasks": [{"id": "t1", "title": "T", "instructions": "I", "completion": {"checkId": "c1"}}],
+    "checks": [{"id": "c1", "kind": "file_exists", "params": {"path": "x"}}]
+  }
+}

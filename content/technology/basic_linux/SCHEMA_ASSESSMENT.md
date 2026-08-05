@@ -1,5 +1,8 @@
 # Primer activity schema assessment
 
+> Phase 1 process documentation lives in [`SCHEMA.md`](./SCHEMA.md).
+> Conformance fixtures: `server/internal/studentclient/contracts/testdata/conformance/`.
+
 ## Decision
 
 The existing Primer `ActivityDocument` v1 is suitable as the immediate storage and delivery format. The lesson JSON files therefore use its camelCase API representation directly, and the supplied JSON Schema makes that contract explicit and rejects unknown authoring fields.

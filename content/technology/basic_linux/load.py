@@ -40,6 +40,17 @@ def validate_course(root, manifest):
     except ImportError as error:
         raise RuntimeError("jsonschema is required: python3 -m pip install jsonschema") from error
 
+    course_schema_path = root / "course.schema.json"
+    if course_schema_path.exists():
+        course_validator = Draft202012Validator(load_json(course_schema_path))
+        course_errors = sorted(course_validator.iter_errors(manifest), key=lambda entry: list(entry.path))
+        if course_errors:
+            locations = []
+            for error in course_errors:
+                location = ".".join(str(part) for part in error.path) or "<root>"
+                locations.append(f"course.json:{location}: {error.message}")
+            raise RuntimeError("\n".join(locations))
+
     schema = load_json(root / "activity.schema.json")
     validator = Draft202012Validator(schema)
     activities = manifest.get("activities", [])
