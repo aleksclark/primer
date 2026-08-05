@@ -108,6 +108,19 @@ func Publish(ctx context.Context, q repo.Querier, opts PublishOptions) (*Publish
 	return out, nil
 }
 
+// PublishCourse loads a course.json and publishes an immutable curriculum revision.
+// Activities referenced by the course must already be published.
+func PublishCourse(ctx context.Context, q repo.Querier, coursePath string, now time.Time) (*repo.PublishCourseResult, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	doc, err := contracts.LoadCourseDocument(coursePath)
+	if err != nil {
+		return nil, err
+	}
+	return repo.PublishCourseDocument(ctx, q, doc, now)
+}
+
 // PublishDocument publishes a single in-memory activity document (tests/helpers).
 func PublishDocument(ctx context.Context, q repo.Querier, doc *contracts.ActivityDocument, now time.Time) (*domain.LearningActivity, *domain.LearningActivityRevision, error) {
 	if now.IsZero() {

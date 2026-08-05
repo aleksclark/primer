@@ -291,6 +291,7 @@ func TestCurriculumAndSequencing(t *testing.T) {
 	h, tx := testutil.API(t)
 
 	resp := h.Post("/curricula", objMap{
+		"slug":        "grade-6-mastery-math",
 		"name":        "Grade 6 Mastery Math",
 		"approach":    "mastery_based",
 		"gradeLevel":  6,
@@ -300,7 +301,7 @@ func TestCurriculumAndSequencing(t *testing.T) {
 	curriculum := decode[objMap](t, resp.Body.Bytes())
 
 	// Invalid approach -> validation error
-	resp = h.Post("/curricula", objMap{"name": "Bad", "approach": "montessori"})
+	resp = h.Post("/curricula", objMap{"slug": "bad", "name": "Bad", "approach": "montessori"})
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code)
 
 	// Sequence two standards into the curriculum
