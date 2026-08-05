@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.border
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aleksclark.primer.tv.app.ui.designsystem.PrimerTheme
@@ -36,6 +38,9 @@ fun FeaturedHero(
     baseUrl: String,
     onPrimaryAction: () -> Unit,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
+    requestFocus: Boolean = false,
 ) {
     when (hero) {
         HeroModel.Loading -> FeaturedHeroSkeleton(modifier = modifier)
@@ -44,17 +49,26 @@ fun FeaturedHero(
             baseUrl = baseUrl,
             onPrimaryAction = onPrimaryAction,
             modifier = modifier,
+            focusRequester = focusRequester,
+            focusDown = focusDown,
+            requestFocus = requestFocus,
         )
         is HeroModel.Featured -> FeaturedCatalogHero(
             hero = hero,
             baseUrl = baseUrl,
             onPrimaryAction = onPrimaryAction,
             modifier = modifier,
+            focusRequester = focusRequester,
+            focusDown = focusDown,
+            requestFocus = requestFocus,
         )
         is HeroModel.Empty -> EmptyHeroContent(
             hero = hero,
             baseUrl = baseUrl,
             modifier = modifier,
+            focusRequester = focusRequester,
+            focusDown = focusDown,
+            requestFocus = requestFocus,
         )
     }
 }
@@ -65,6 +79,9 @@ private fun LiveHeroContent(
     baseUrl: String,
     onPrimaryAction: () -> Unit,
     modifier: Modifier,
+    focusRequester: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
+    requestFocus: Boolean = false,
 ) {
     HeroFrame(
         baseUrl = baseUrl,
@@ -104,6 +121,9 @@ private fun LiveHeroContent(
             enabled = hero.tunable,
             labelOverride = if (hero.joinInProgress) "${MediaLabels.WATCH_LIVE} — joins in progress" else null,
             onClick = onPrimaryAction,
+            focusRequester = focusRequester,
+            focusDown = focusDown,
+            requestFocus = requestFocus,
         )
     }
 }
@@ -114,6 +134,9 @@ private fun FeaturedCatalogHero(
     baseUrl: String,
     onPrimaryAction: () -> Unit,
     modifier: Modifier,
+    focusRequester: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
+    requestFocus: Boolean = false,
 ) {
     val card = hero.card
     HeroFrame(
@@ -162,6 +185,9 @@ private fun FeaturedCatalogHero(
             action = hero.primaryAction,
             enabled = hero.primaryAction != HeroAction.NONE && (card.playable || hero.primaryAction == HeroAction.VIEW_DETAILS),
             onClick = onPrimaryAction,
+            focusRequester = focusRequester,
+            focusDown = focusDown,
+            requestFocus = requestFocus,
         )
     }
 }
@@ -171,6 +197,9 @@ private fun EmptyHeroContent(
     hero: HeroModel.Empty,
     baseUrl: String,
     modifier: Modifier,
+    focusRequester: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
+    requestFocus: Boolean = false,
 ) {
     HeroFrame(
         baseUrl = baseUrl,
@@ -186,13 +215,25 @@ private fun EmptyHeroContent(
             overflow = TextOverflow.Ellipsis,
         )
         hero.next?.let { next ->
-            Spacer(Modifier.height(PrimerTheme.spacing.sm))
+            Spacer(modifier.height(PrimerTheme.spacing.sm))
             Text(
                 text = "Next: ${next.title} · ${next.startsInLabel}",
                 style = PrimerTheme.typography.body,
                 color = PrimerTheme.colors.onSurfaceMuted,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (focusRequester != null) {
+            Spacer(modifier.height(PrimerTheme.spacing.md))
+            HeroPrimaryButton(
+                action = HeroAction.VIEW_DETAILS,
+                enabled = false,
+                onClick = {},
+                labelOverride = "Browse titles below",
+                focusRequester = focusRequester,
+                focusDown = focusDown,
+                requestFocus = requestFocus,
             )
         }
     }
@@ -279,6 +320,9 @@ private fun HeroPrimaryButton(
     enabled: Boolean,
     onClick: () -> Unit,
     labelOverride: String? = null,
+    focusRequester: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
+    requestFocus: Boolean = false,
 ) {
     val label = labelOverride ?: when (action) {
         HeroAction.WATCH_LIVE -> MediaLabels.WATCH_LIVE
@@ -287,12 +331,16 @@ private fun HeroPrimaryButton(
         HeroAction.NONE -> return
     }
     val colors = PrimerTheme.colors
+    val resolvedFocusRequester = focusRequester ?: androidx.compose.runtime.remember { FocusRequester() }
 
     // TvFocusSurface provides the focusable surface; content is visual only so
     // phone and TV share one click target without nested clickables.
     TvFocusSurface(
         onClick = onClick,
-        enabled = enabled,
+        enabled = enabled || focusRequester != null,
+        requestFocus = requestFocus,
+        focusRequester = resolvedFocusRequester,
+        focusDown = focusDown,
         shape = PrimerTheme.shapes.button,
         modifier = Modifier.widthIn(min = 160.dp),
     ) { focused ->

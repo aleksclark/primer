@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aleksclark.primer.tv.app.ui.designsystem.PrimerTheme
@@ -33,15 +35,26 @@ fun MediaPosterCard(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     requestFocus: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    focusLeft: FocusRequester? = null,
+    focusRight: FocusRequester? = null,
+    focusUp: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
 ) {
     val spacing = PrimerTheme.spacing
     val colors = PrimerTheme.colors
     val typography = PrimerTheme.typography
+    val resolvedFocusRequester = focusRequester ?: remember { FocusRequester() }
 
     TvFocusSurface(
         onClick = onClick,
         selected = selected,
         requestFocus = requestFocus,
+        focusRequester = resolvedFocusRequester,
+        focusLeft = focusLeft,
+        focusRight = focusRight,
+        focusUp = focusUp,
+        focusDown = focusDown,
         modifier = modifier.width(spacing.cardWidth),
         shape = PrimerTheme.shapes.mediaCard,
     ) { focused ->

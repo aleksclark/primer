@@ -1,5 +1,6 @@
 package com.aleksclark.primer.tv.app.ui.home
 
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import com.aleksclark.primer.tv.app.ui.components.ContentRail
 import com.aleksclark.primer.tv.app.ui.components.FeaturedHero
 import com.aleksclark.primer.tv.app.ui.components.FeaturedHeroSkeleton
@@ -43,6 +45,10 @@ sealed interface HomeEvent {
 /**
  * Streaming-style Home: featured/on-now hero plus content rails.
  *
+ * D-pad contract on television:
+ * - Up/down moves between the LIVE/featured banner and each VOD category row.
+ * - Left/right on a category row scrolls that row's posters.
+ *
  * Rail [LazyListState] is remembered by [RailId] so refresh with stable IDs
  * keeps scroll/focus position. When [detailsOpen] flips false, [selectedMediaId]
  * is re-focused so TV returns to the originating card.
@@ -59,7 +65,6 @@ fun HomeScreen(
 ) {
     val spacing = PrimerTheme.spacing
     val colors = PrimerTheme.colors
-    // Per-rail state is retained while Home stays composed under Details.
     val learnState = rememberLazyListState()
     val worthState = rememberLazyListState()
     val entertainmentState = rememberLazyListState()
@@ -74,9 +79,14 @@ fun HomeScreen(
         RailId.LEAVING_SOON -> leavingState
     }
 
-    // Capture the card opened into Details; restore focus once Details closes.
+    val heroFocus = remember { FocusRequester() }
+    val railFocusRequesters = remember(state.rails.map { it.id }) {
+        state.rails.associate { it.id to FocusRequester() }
+    }
+
     var pendingFocusId by rememberSaveable { mutableStateOf<String?>(null) }
     var focusTarget by remember { mutableStateOf<String?>(null) }
+    var bootstrapFocus by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(detailsOpen, selectedMediaId) {
         if (detailsOpen) {
@@ -84,31 +94,43 @@ fun HomeScreen(
                 pendingFocusId = selectedMediaId
             }
             focusTarget = null
+            bootstrapFocus = false
         } else if (pendingFocusId != null) {
             focusTarget = pendingFocusId
             pendingFocusId = null
         }
     }
 
+    LaunchedEffect(bootstrapFocus, state.hero, state.rails, detailsOpen) {
+        if (!bootstrapFocus || detailsOpen || focusTarget != null) return@LaunchedEffect
+        if (state.hero is HeroModel.Loading && state.rails.isEmpty()) return@LaunchedEffect
+        runCatching { heroFocus.requestFocus() }
+        bootstrapFocus = false
+    }
+
     LaunchedEffect(focusTarget, state.rails) {
         val target = focusTarget ?: return@LaunchedEffect
-        val rail = state.rails.firstOrNull { r -> r.items.any { it.mediaItemId == target } }
-        if (rail != null) {
+        val railIndex = state.rails.indexOfFirst { r -> r.items.any { it.mediaItemId == target } }
+        if (railIndex >= 0) {
+            val rail = state.rails[railIndex]
             val index = rail.items.indexOfFirst { it.mediaItemId == target }
             if (index >= 0) {
+                // +1 accounts for the hero item above the rails.
+                listState.scrollToItem(railIndex + 1)
                 railState(rail.id).scrollToItem(index)
             }
         }
-        // Keep requestFocus asserted briefly so TvFocusSurface's effect can fire,
-        // then clear so later recompositions do not steal focus again.
         kotlinx.coroutines.delay(64)
         if (focusTarget == target) {
             focusTarget = null
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // Non-blocking refresh error when content is already visible.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .focusGroup(),
+    ) {
         state.error?.let { err ->
             if (state.hasContent || state.rails.isNotEmpty() || state.hero !is HeroModel.Loading) {
                 RowRefreshBanner(
@@ -145,8 +167,6 @@ fun HomeScreen(
                             baseUrl = baseUrl,
                             onPrimaryAction = {
                                 when (state.hero.primaryAction) {
-                                    // PlayHero tunes live immediately when the on-air
-                                    // snapshot is still valid; otherwise it opens Channel.
                                     HeroAction.WATCH_LIVE,
                                     HeroAction.PLAY,
                                     HeroAction.VIEW_DETAILS,
@@ -154,6 +174,9 @@ fun HomeScreen(
                                     HeroAction.NONE -> Unit
                                 }
                             },
+                            focusRequester = heroFocus,
+                            focusDown = state.rails.firstOrNull()?.let { railFocusRequesters[it.id] },
+                            requestFocus = bootstrapFocus && focusTarget == null && !detailsOpen,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = spacing.screenHorizontal)
@@ -161,13 +184,22 @@ fun HomeScreen(
                         )
                     }
 
-                    items(state.rails, key = { it.id.name }) { rail ->
+                    itemsIndexed(state.rails, key = { _, rail -> rail.id.name }) { index, rail ->
+                        val previous = if (index == 0) {
+                            heroFocus
+                        } else {
+                            railFocusRequesters[state.rails[index - 1].id]
+                        }
+                        val next = state.rails.getOrNull(index + 1)?.let { railFocusRequesters[it.id] }
                         ContentRail(
                             rail = rail,
                             baseUrl = baseUrl,
                             onSelect = { id: MediaId -> onEvent(HomeEvent.SelectMedia(id.value)) },
                             state = railState(rail.id),
                             focusedMediaId = focusTarget,
+                            firstItemFocusRequester = railFocusRequesters[rail.id],
+                            focusUp = previous,
+                            focusDown = next,
                             contentPadding = PaddingValues(horizontal = spacing.screenHorizontal),
                         )
                     }
@@ -270,7 +302,7 @@ private fun RowRefreshBanner(
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onRetry) {
-                Text("Retry", style = PrimerTheme.typography.label, color = colors.brand)
+                Text("Retry", style = PrimerTheme.typography.button, color = colors.brand)
             }
         }
     }
