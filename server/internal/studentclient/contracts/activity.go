@@ -2,17 +2,21 @@ package contracts
 
 // ActivityDocument is the on-disk / API authoring document for one activity
 // revision payload. Phase 0 loads these from curriculum/activities/*/activity.yaml.
+//
+// ReferenceSolution is authoring-only and is never part of the published
+// student revision body (PublishActivityRevision stores Content only).
 type ActivityDocument struct {
-	SchemaVersion string            `json:"schemaVersion" yaml:"schema_version"`
-	Slug          string            `json:"slug" yaml:"slug"`
-	Title         string            `json:"title" yaml:"title"`
-	Summary       string            `json:"summary" yaml:"summary"`
-	Kind          string            `json:"kind" yaml:"kind"`
-	SubjectCode   string            `json:"subjectCode" yaml:"subject_code"`
-	Standards     []StandardRef     `json:"standards" yaml:"standards"`
-	Content       ActivityContent   `json:"content" yaml:"content"`
-	MinRunner     string            `json:"minRunnerVersion,omitempty" yaml:"min_runner_version,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	SchemaVersion     string             `json:"schemaVersion" yaml:"schema_version"`
+	Slug              string             `json:"slug" yaml:"slug"`
+	Title             string             `json:"title" yaml:"title"`
+	Summary           string             `json:"summary" yaml:"summary"`
+	Kind              string             `json:"kind" yaml:"kind"`
+	SubjectCode       string             `json:"subjectCode" yaml:"subject_code"`
+	Standards         []StandardRef      `json:"standards" yaml:"standards"`
+	Content           ActivityContent    `json:"content" yaml:"content"`
+	MinRunner         string             `json:"minRunnerVersion,omitempty" yaml:"min_runner_version,omitempty"`
+	Metadata          map[string]string  `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	ReferenceSolution *ReferenceSolution `json:"referenceSolution,omitempty" yaml:"reference_solution,omitempty"`
 }
 
 // StandardRef links an activity revision to a standard code.
@@ -125,11 +129,18 @@ type CheckTree struct {
 }
 
 // Check is a deterministic verifier assertion.
+//
+// Stages declare when the check is expected to hold. When omitted, validation
+// defaults the check to StageFinal so intentional repair/initial-condition
+// checks must opt into StageFixture or StageTask explicitly.
 type Check struct {
-	ID       string         `json:"id" yaml:"id"`
-	Kind     string         `json:"kind" yaml:"kind"`
-	Optional bool           `json:"optional,omitempty" yaml:"optional,omitempty"`
-	Params   map[string]any `json:"params" yaml:"params"`
+	ID               string         `json:"id" yaml:"id"`
+	Kind             string         `json:"kind" yaml:"kind"`
+	Optional         bool           `json:"optional,omitempty" yaml:"optional,omitempty"`
+	Params           map[string]any `json:"params" yaml:"params"`
+	Stages           []string       `json:"stages,omitempty" yaml:"stages,omitempty"`
+	EvidenceBearing  *bool          `json:"evidenceBearing,omitempty" yaml:"evidence_bearing,omitempty"`
+	InvariantAt      []string       `json:"invariantAt,omitempty" yaml:"invariant_at,omitempty"`
 }
 
 // Hint is a graduated coaching tip referenced by tasks.
@@ -162,4 +173,19 @@ type ArtifactPolicy struct {
 	MaxBytesTotal int64    `json:"maxBytesTotal,omitempty" yaml:"max_bytes_total,omitempty"`
 	AllowedTypes  []string `json:"allowedTypes,omitempty" yaml:"allowed_types,omitempty"`
 	RetainDays    int      `json:"retainDays,omitempty" yaml:"retain_days,omitempty"`
+}
+
+// ReferenceSolution is an authoring-only replay script. It must never be treated
+// as student-delivered verifier code; publish paths store Content only.
+type ReferenceSolution struct {
+	Description   string          `json:"description,omitempty" yaml:"description,omitempty"`
+	Deterministic bool            `json:"deterministic,omitempty" yaml:"deterministic,omitempty"`
+	Steps         []ReferenceStep `json:"steps" yaml:"steps"`
+}
+
+// ReferenceStep is one sandboxed runner input applied during authoring replay.
+type ReferenceStep struct {
+	WorkDir string   `json:"workDir,omitempty" yaml:"work_dir,omitempty"`
+	Argv    []string `json:"argv" yaml:"argv"`
+	Stdin   string   `json:"stdin,omitempty" yaml:"stdin,omitempty"`
 }

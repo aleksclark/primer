@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "99",
+  "slug": "sample-terminal",
+  "title": "Sample",
+  "summary": "s",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "primary",
+      "weight": 1
+    }
+  ],
+  "content": {
+    "objective": "o",
+    "instructions": "i",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "home",
+      "fixtures": [
+        {
+          "path": "home",
+          "type": "directory"
+        },
+        {
+          "path": "home/welcome.txt",
+          "type": "file",
+          "content": "hello\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "t1",
+        "title": "T",
+        "instructions": "I",
+        "completion": {
+          "checkId": "welcome"
+        }
+      }
+    ],
+    "checks": [
+      {
+        "id": "welcome",
+        "kind": "file_exists",
+        "params": {
+          "path": "home/welcome.txt"
+        },
+        "stages": [
+          "fixture",
+          "final"
+        ]
+      }
+    ]
+  }
+}

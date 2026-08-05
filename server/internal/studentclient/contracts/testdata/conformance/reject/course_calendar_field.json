@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1",
+  "slug": "c",
+  "title": "C",
+  "subjectCode": "digital-literacy",
+  "eligibleAfterDate": "2026-01-01",
+  "activities": [
+    {
+      "order": 1,
+      "slug": "a"
+    }
+  ]
+}

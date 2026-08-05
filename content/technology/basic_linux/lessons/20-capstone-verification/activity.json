@@ -466,14 +466,22 @@
             "field-report/reports/summary.txt"
           ],
           "exitCode": 0
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "inherited-inspection-output",
         "kind": "pipeline_output",
         "params": {
           "contains": "STALE REPORT - NOT VERIFIED\nSource files: 99\n"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "initial-script-nonexecutable",
@@ -481,7 +489,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/report.sh",
           "mode": "0644"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "initial-script-imperfect",
@@ -489,7 +501,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/report.sh",
           "value": "source_dir='clean-data/system'\n"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "stale-summary-present",
@@ -497,14 +513,22 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/summary.txt",
           "value": "STALE REPORT - NOT VERIFIED\nSource files: 99\n"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "cwd-verification-lab",
         "kind": "cwd",
         "params": {
           "path": "workspace/verification-lab"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "reviewed-repaired-source",
@@ -516,7 +540,11 @@
             "report.sh"
           ],
           "exitCode": 0
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "readme-correct",
@@ -524,7 +552,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/README.md",
           "value": "# Field Report\n\nRun from this directory:\n./report.sh\n\nThe script reads immutable data from ../clean-data/system and replaces six evidence files in reports/.\nNormal report data stays in its named files; command diagnostics are kept separately in reports/run-errors.txt.\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "script-correct",
@@ -532,7 +564,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/report.sh",
           "value": "#!/bin/bash\n# Rebuild deterministic evidence from the supplied clean fixture.\nsource_dir='../clean-data/system'\nreport_dir='reports'\nmkdir -p \"$report_dir\"\n: > \"$report_dir/run-errors.txt\"\n{\n  find \"$source_dir\" -type f -name '*.conf' | sort > \"$report_dir/config-files.txt\"\n  grep -n '^ERROR' \"$source_dir/var/log/operations.log\" > \"$report_dir/errors.txt\"\n  cut -d ',' -f 2 \"$source_dir/var/lib/inventory/assets.csv\" | sort | uniq > \"$report_dir/categories.txt\"\n  printf 'Field Report\\n' > \"$report_dir/summary.txt\"\n  printf 'Source files: ' >> \"$report_dir/summary.txt\"\n  find \"$source_dir\" -type f | wc -l >> \"$report_dir/summary.txt\"\n  printf 'Config files: ' >> \"$report_dir/summary.txt\"\n  find \"$source_dir\" -type f -name '*.conf' | wc -l >> \"$report_dir/summary.txt\"\n  printf 'Error entries: ' >> \"$report_dir/summary.txt\"\n  grep '^ERROR' \"$source_dir/var/log/operations.log\" | wc -l >> \"$report_dir/summary.txt\"\n  printf 'Field report complete\\n' > \"$report_dir/run-output.txt\"\n} 2>> \"$report_dir/run-errors.txt\"\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "script-still-nonexecutable",
@@ -540,7 +576,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/report.sh",
           "mode": "0644"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "stale-summary-unchanged-before-run",
@@ -548,14 +588,22 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/summary.txt",
           "value": "STALE REPORT - NOT VERIFIED\nSource files: 99\n"
-        }
+        },
+        "stages": [
+          "task"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "cwd-field-report",
         "kind": "cwd",
         "params": {
           "path": "workspace/verification-lab/field-report"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "script-executable",
@@ -563,7 +611,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/report.sh",
           "mode": "0744"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "config-report-correct",
@@ -571,7 +623,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/config-files.txt",
           "value": "../clean-data/system/etc/app/main.conf\n../clean-data/system/etc/app/worker.conf\n../clean-data/system/etc/network.conf\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "error-report-correct",
@@ -579,7 +635,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/errors.txt",
           "value": "2:ERROR fan stalled\n4:ERROR backup failed\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "category-report-correct",
@@ -587,7 +647,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/categories.txt",
           "value": "equipment\nnavigation\nprovisions\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "summary-report-correct",
@@ -595,7 +659,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/summary.txt",
           "value": "Field Report\nSource files: 8\nConfig files: 3\nError entries: 2\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "run-output-correct",
@@ -603,7 +671,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/run-output.txt",
           "value": "Field report complete\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "run-errors-empty",
@@ -611,7 +683,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/run-errors.txt",
           "value": ""
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "first-summary-saved",
@@ -619,7 +695,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/verification/summary-first.txt",
           "value": "Field Report\nSource files: 8\nConfig files: 3\nError entries: 2\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "ran-repeatability-diff",
@@ -632,7 +712,11 @@
             "reports/summary.txt"
           ],
           "exitCode": 0
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "repeatability-diff-empty",
@@ -640,7 +724,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/verification/repeatability.diff",
           "value": ""
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "verification-note-correct",
@@ -648,7 +736,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/VERIFICATION.md",
           "value": "# Verification Note\n\n- Clean source: I used only ../clean-data/system and left its eight supplied files unchanged.\n- Run evidence: reports/summary.txt records 8 source files, 3 configuration files, and 2 current ERROR entries.\n- Error separation: normal evidence has named report files; reports/run-errors.txt is separately captured and empty for the successful run.\n- Repeatability: I saved the first summary, ran ./report.sh again, and diff produced an empty verification/repeatability.diff.\n- Explanation: find selects bounded paths, grep selects anchored lines in one current log, and cut | sort | uniq produces distinct ordered categories.\n- Permission: mode 0744 lets the owner execute the reviewed script without granting group or other execute permission.\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "read-final-evidence",
@@ -663,14 +755,22 @@
             "verification/repeatability.diff"
           ],
           "exitCode": 0
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "final-evidence-output",
         "kind": "pipeline_output",
         "params": {
           "value": "# Verification Note\n\n- Clean source: I used only ../clean-data/system and left its eight supplied files unchanged.\n- Run evidence: reports/summary.txt records 8 source files, 3 configuration files, and 2 current ERROR entries.\n- Error separation: normal evidence has named report files; reports/run-errors.txt is separately captured and empty for the successful run.\n- Repeatability: I saved the first summary, ran ./report.sh again, and diff produced an empty verification/repeatability.diff.\n- Explanation: find selects bounded paths, grep selects anchored lines in one current log, and cut | sort | uniq produces distinct ordered categories.\n- Permission: mode 0744 lets the owner execute the reviewed script without granting group or other execute permission.\nField Report\nSource files: 8\nConfig files: 3\nError entries: 2\nField report complete\n"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "all-final-reports-correct",
@@ -678,7 +778,11 @@
         "params": {
           "path": "workspace/verification-lab/field-report/reports/summary.txt",
           "pattern": "^Field Report\\nSource files: 8\\nConfig files: 3\\nError entries: 2\\n$"
-        }
+        },
+        "stages": [
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "clean-main-preserved",
@@ -686,7 +790,17 @@
         "params": {
           "path": "workspace/verification-lab/clean-data/system/etc/app/main.conf",
           "value": "mode=field\nworkers=2\n"
-        }
+        },
+        "stages": [
+          "fixture",
+          "final"
+        ],
+        "invariantAt": [
+          "fixture",
+          "after_task",
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "clean-log-preserved",
@@ -694,7 +808,17 @@
         "params": {
           "path": "workspace/verification-lab/clean-data/system/var/log/operations.log",
           "value": "INFO startup complete\nERROR fan stalled\nWARNING temperature high\nERROR backup failed\nINFO shutdown scheduled\nerror lowercase decoy\n"
-        }
+        },
+        "stages": [
+          "fixture",
+          "final"
+        ],
+        "invariantAt": [
+          "fixture",
+          "after_task",
+          "final"
+        ],
+        "evidenceBearing": true
       },
       {
         "id": "clean-source-preserved",
@@ -702,7 +826,17 @@
         "params": {
           "path": "workspace/verification-lab/clean-data/system/var/lib/inventory/assets.csv",
           "value": "compass,navigation\nrope,equipment\nmap,navigation\nwater,provisions\nradio,equipment\n"
-        }
+        },
+        "stages": [
+          "fixture",
+          "final"
+        ],
+        "invariantAt": [
+          "fixture",
+          "after_task",
+          "final"
+        ],
+        "evidenceBearing": true
       }
     ],
     "hints": [

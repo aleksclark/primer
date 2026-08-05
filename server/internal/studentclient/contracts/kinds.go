@@ -3,6 +3,27 @@ package contracts
 // SchemaVersion is the activity revision content schema version implemented here.
 const SchemaVersion = "1"
 
+// CourseSchemaVersion is the git-authored course manifest schema version.
+const CourseSchemaVersion = "1"
+
+// Observation stages for checks. A check may list one or more stages.
+const (
+	// StageFixture assertions must hold immediately after fixture materialization.
+	StageFixture = "fixture"
+	// StageTask checks are evaluated while a referencing task is active. They may
+	// intentionally describe an initial condition before student mutation.
+	StageTask = "task"
+	// StageFinal outcomes must hold at activity completion.
+	StageFinal = "final"
+)
+
+// Invariant evaluation boundaries (used with Check.InvariantAt).
+const (
+	InvariantAtFixture   = "fixture"
+	InvariantAtAfterTask = "after_task"
+	InvariantAtFinal     = "final"
+)
+
 // Activity kinds.
 const (
 	KindTerminal = "terminal"
