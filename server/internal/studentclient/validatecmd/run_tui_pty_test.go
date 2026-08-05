@@ -1,10 +1,13 @@
 package validatecmd
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withPTYStdio(t *testing.T, feed string, fn func() error) error {
+func withPTYStdio(t *testing.T, feed, readySubstr string, fn func() error) error {
 	t.Helper()
 	ptmx, tty, err := pty.Open()
 	require.NoError(t, err)
@@ -27,23 +30,77 @@ func withPTYStdio(t *testing.T, feed string, fn func() error) error {
 		os.Stdin = oldIn
 		os.Stdout = oldOut
 	}()
-	errCh := make(chan error, 1)
-	go func() { errCh <- fn() }()
-	// Validation can take a moment before the TUI starts.
-	time.Sleep(800 * time.Millisecond)
-	_, _ = io.WriteString(ptmx, feed)
-	// Keep feeding q in case validation finishes after first write.
+
+	var (
+		mu     sync.Mutex
+		outBuf bytes.Buffer
+	)
 	go func() {
-		for i := 0; i < 10; i++ {
-			time.Sleep(300 * time.Millisecond)
-			_, _ = io.WriteString(ptmx, "q")
+		buf := make([]byte, 4096)
+		for {
+			n, rerr := ptmx.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				_, _ = outBuf.Write(buf[:n])
+				mu.Unlock()
+			}
+			if rerr != nil {
+				return
+			}
 		}
 	}()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- fn() }()
+
+	// Validation can take a while before the TUI starts; wait for readiness text.
+	deadline := time.Now().Add(45 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		s := outBuf.String()
+		mu.Unlock()
+		if readySubstr == "" {
+			if len(s) > 0 {
+				ready = true
+				break
+			}
+		} else if strings.Contains(s, readySubstr) {
+			ready = true
+			break
+		}
+		select {
+		case err := <-errCh:
+			return err
+		default:
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !ready {
+		t.Logf("PTY readiness marker %q not seen before feed; feeding keys anyway", readySubstr)
+	}
+	_, _ = io.WriteString(ptmx, feed)
+	// Keep a light re-feed in case the first key is lost during startup races.
+	go func() {
+		for i := 0; i < 5; i++ {
+			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-errCh:
+				return
+			default:
+				_, _ = io.WriteString(ptmx, "q")
+			}
+		}
+	}()
+
 	select {
 	case err := <-errCh:
 		return err
-	case <-time.After(60 * time.Second):
-		t.Fatal("timed out waiting for RunTUI")
+	case <-time.After(30 * time.Second):
+		mu.Lock()
+		got := outBuf.String()
+		mu.Unlock()
+		t.Fatalf("timed out waiting for RunTUI; pty output=%q", got)
 		return nil
 	}
 }
@@ -52,13 +109,11 @@ func TestRunTUIQuitsViaPTY(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "..", ".."))
-	// Validate a single known-good activity directory parent.
 	dir := filepath.Join(root, "curriculum", "activities")
-	err := withPTYStdio(t, "q", func() error {
+	err := withPTYStdio(t, "q", "Activity validation", func() error {
 		return RunTUI(Options{ActivitiesDir: dir, Materialize: true})
 	})
 	// AllOK may fail if some activities fail validation; RunTUI still exercised.
-	// Accept either nil or validation-failed error after TUI quit.
 	if err != nil {
 		require.Contains(t, err.Error(), "validation failed")
 	}

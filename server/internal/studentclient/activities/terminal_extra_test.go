@@ -69,6 +69,8 @@ func TestTerminalRunnerWorkspaceSetCwdAndShell(t *testing.T) {
 	assert.Contains(t, snap.LastOutput, "ok")
 
 	require.NoError(t, r.Verify(context.Background()))
-	assert.True(t, r.CompleteReady() || snap.ChecksTotal >= 0)
+	// Fixture home/a.txt satisfies the exists check → required checks ready.
+	assert.True(t, r.CompleteReady())
+	assert.GreaterOrEqual(t, snap.ChecksTotal, 1)
 	require.NoError(t, r.Close())
 }

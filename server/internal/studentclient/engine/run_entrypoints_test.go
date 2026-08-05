@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"bytes"
 	"io"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,8 +14,9 @@ import (
 )
 
 // withPTYStdio swaps os.Stdin/Stdout for a PTY slave so tea.NewProgram().Run()
-// (as used by RunStatusTUI) can open a TTY, then feeds quit keys on the master.
-func withPTYStdio(t *testing.T, feed string, fn func() error) error {
+// (as used by RunStatusTUI) can open a TTY, waits for readiness output, then
+// feeds quit keys on the master.
+func withPTYStdio(t *testing.T, feed, readySubstr string, fn func() error) error {
 	t.Helper()
 	ptmx, tty, err := pty.Open()
 	require.NoError(t, err)
@@ -29,25 +33,64 @@ func withPTYStdio(t *testing.T, feed string, fn func() error) error {
 		os.Stdout = oldOut
 	}()
 
+	var (
+		mu     sync.Mutex
+		outBuf bytes.Buffer
+	)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, rerr := ptmx.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				_, _ = outBuf.Write(buf[:n])
+				mu.Unlock()
+			}
+			if rerr != nil {
+				return
+			}
+		}
+	}()
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- fn() }()
 
-	// Give the program a moment to start, then send quit.
-	time.Sleep(150 * time.Millisecond)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		s := outBuf.String()
+		mu.Unlock()
+		if readySubstr == "" {
+			if len(s) > 0 {
+				break
+			}
+		} else if strings.Contains(s, readySubstr) {
+			break
+		}
+		select {
+		case err := <-errCh:
+			return err
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	_, _ = io.WriteString(ptmx, feed)
 
 	select {
 	case err := <-errCh:
 		return err
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for TUI to quit")
+		mu.Lock()
+		got := outBuf.String()
+		mu.Unlock()
+		t.Fatalf("timed out waiting for TUI to quit; pty output=%q", got)
 		return nil
 	}
 }
 
 func TestRunStatusTUIQuitsViaPTY(t *testing.T) {
 	// Not parallel: mutates process-wide stdin/stdout.
-	err := withPTYStdio(t, "q", func() error {
+	err := withPTYStdio(t, "q", "Phase:", func() error {
 		return RunStatusTUI("coverage-status", Status{
 			Phase:          "running",
 			Sync:           "idle",
@@ -67,7 +110,7 @@ func TestRunStatusTUIQuitsViaPTY(t *testing.T) {
 }
 
 func TestRunStatusTUIEnterQuitAndViews(t *testing.T) {
-	err := withPTYStdio(t, "\r", func() error {
+	err := withPTYStdio(t, "\r", "Required checks: PASS", func() error {
 		return RunStatusTUI("", Status{
 			Phase:           "done",
 			RequiredPassed:  true,

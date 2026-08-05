@@ -13,6 +13,7 @@ import (
 
 	"github.com/aleksclark/primer/server/internal/curriculum"
 	"github.com/aleksclark/primer/server/internal/domain"
+	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 	"github.com/aleksclark/primer/server/internal/testutil"
 	"github.com/aleksclark/primer/server/internal/testutil/factory"
@@ -231,4 +232,11 @@ func TestParentPublishRevisionExplicitSchemaAndDuplicateStandard(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
 	rev := decode[domain.LearningActivityRevision](t, resp.Body.Bytes())
 	assert.Equal(t, "1", rev.SchemaVersion)
+	require.NotEmpty(t, rev.ID)
+
+	// Exactly one revision↔standard link, retaining the first role (primary).
+	links, err := repo.ListRevisionStandards(ctx, q, rev.ID)
+	require.NoError(t, err)
+	require.Len(t, links, 1, "duplicate standard codes must collapse to one link")
+	assert.Equal(t, "primary", links[0].Role)
 }

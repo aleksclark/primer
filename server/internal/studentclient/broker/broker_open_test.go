@@ -137,15 +137,21 @@ func TestBrokerOpenSessionTypingFlow(t *testing.T) {
 	require.NotNil(t, st.Snapshot)
 
 	// Verify + pause
-	_, err = cl.Verify(ctx, sid)
+	vSnap, err := cl.Verify(ctx, sid)
 	require.NoError(t, err)
-	_, err = cl.Pause(ctx, sid)
-	require.NoError(t, err)
+	require.NotNil(t, vSnap.Typing)
+	assert.Equal(t, contracts.KindTyping, vSnap.Kind)
 
-	// Session gone after pause
-	_, err = cl.Status(ctx, sid)
-	// status may still succeed without snapshot
+	pauseSnap, err := cl.Pause(ctx, sid)
 	require.NoError(t, err)
+	assert.Equal(t, contracts.KindTyping, pauseSnap.Kind)
+	require.NotNil(t, pauseSnap.Typing)
+
+	// After pause the in-memory session is removed; Status still returns health
+	// but must not include a session snapshot for the closed id.
+	st, err = cl.Status(ctx, sid)
+	require.NoError(t, err)
+	assert.Nil(t, st.Snapshot, "paused session should no longer appear in Status snapshot")
 }
 
 func TestBrokerOpenSessionTerminalRunAndPTY(t *testing.T) {

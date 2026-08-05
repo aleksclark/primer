@@ -40,7 +40,7 @@ func TestTerminalRunnerShellResultAndCD(t *testing.T) {
 				ID: "exists", Kind: contracts.CheckFileExists,
 				Params: map[string]any{"path": "home/a.txt"},
 			}, {
-				ID: "cwd", Kind: contracts.CheckCwd,
+				ID: "cwd", Kind: contracts.CheckCwd, Optional: true,
 				Params: map[string]any{"path": "home/docs"},
 			}},
 		},
@@ -124,12 +124,36 @@ func TestTerminalRunnerShellResultAndCD(t *testing.T) {
 	}))
 
 	require.NoError(t, r.Verify(context.Background()))
-	_ = r.Observations()
-	assert.True(t, r.CompleteReady() || !r.CompleteReady()) // exercised both getters
+	obs := r.Observations()
+	assert.NotNil(t, obs)
+	// Required check is only "exists" (cwd is optional). home/a.txt is present.
+	assert.True(t, r.CompleteReady(), "required file_exists check should pass")
+	snap = r.Snapshot()
+	assert.GreaterOrEqual(t, snap.ChecksTotal, 2)
+	var existsOK bool
+	for _, c := range snap.Checks {
+		if c.ID == "exists" {
+			existsOK = c.Passed
+		}
+	}
+	assert.True(t, existsOK, "home/a.txt should exist")
+	// Optional cwd still evaluated against last shell state (cwd=home) → not passed.
+	require.NoError(t, r.HandleInput(context.Background(), activities.Input{
+		Type: activities.InputShellResult,
+		Shell: &activities.ShellResult{
+			Cwd:        "home/docs",
+			Executable: "cd",
+			Args:       []string{"docs"},
+			ExitCode:   0,
+		},
+	}))
+	assert.Equal(t, filepath.Join(ws, "home", "docs"), r.Cwd())
+	assert.True(t, r.CompleteReady())
 	raw, err := r.EncodeState()
 	require.NoError(t, err)
 	require.NotEmpty(t, raw)
 	require.NoError(t, r.RestoreState(raw))
+	assert.True(t, r.CompleteReady())
 }
 
 func TestTerminalRunnerNoShellExecutor(t *testing.T) {

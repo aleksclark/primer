@@ -31,32 +31,34 @@ func TestTerminalSessionPTYWriteResizeIdleVerify(t *testing.T) {
 	t.Cleanup(func() { _ = sess.Close() })
 	assert.Equal(t, contracts.KindTerminal, sess.Kind())
 
-	// Wait briefly for PTY to come up (may be unavailable in some CI; then skip soft).
-	deadline := time.Now().Add(2 * time.Second)
+	// Wait for PTY to come up. Fail clearly if unavailable (no silent skip).
+	deadline := time.Now().Add(5 * time.Second)
 	var hasTerm bool
 	for time.Now().Before(deadline) {
 		if sess.Snapshot().HasTerminal {
 			hasTerm = true
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
-	if !hasTerm {
-		// Command-box path still exercises RunLine / Verify without PTY.
-		require.NoError(t, sess.RunLine(ctx, "pwd"))
-		require.NoError(t, sess.Verify(ctx))
-		t.Log("PTY unavailable; covered RunLine/Verify only")
-		return
-	}
+	require.True(t, hasTerm, "expected live PTY for terminal session (HasTerminal never became true)")
 
 	require.NoError(t, sess.ResizeTerminal(30, 100))
 	// Non-newline write should not panic and updates last input time.
 	require.NoError(t, sess.WriteTerminal(ctx, []byte("echo hello")))
 	// Newline triggers idleVerify goroutine.
 	require.NoError(t, sess.WriteTerminal(ctx, []byte("\n")))
-	time.Sleep(700 * time.Millisecond) // idleVerify sleeps 400ms
 
-	screen := sess.TerminalScreen()
+	// Wait for command output / idle verify to land on the screen (event-driven).
+	screenDeadline := time.Now().Add(3 * time.Second)
+	var screen string
+	for time.Now().Before(screenDeadline) {
+		screen = sess.TerminalScreen()
+		if screen != "" {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 	assert.NotEmpty(t, screen)
 	snap := sess.Snapshot()
 	assert.True(t, snap.HasTerminal)
