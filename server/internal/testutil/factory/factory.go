@@ -99,9 +99,12 @@ func Standard(t *testing.T, q repo.Querier, overrides ...Override) *domain.Stand
 func Curriculum(t *testing.T, q repo.Querier, overrides ...Override) *domain.Curriculum {
 	i := n()
 	return create(t, q, repo.Curricula, merge(map[string]any{
-		"name":        fmt.Sprintf("Curriculum %d", i),
-		"approach":    "mastery_based",
-		"grade_level": 6,
+		"slug":         fmt.Sprintf("curriculum-%d", i),
+		"name":         fmt.Sprintf("Curriculum %d", i),
+		"approach":     "mastery_based",
+		"subject_code": "digital-literacy",
+		"status":       "published",
+		"grade_level":  6,
 	}, overrides))
 }
 

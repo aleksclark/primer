@@ -394,16 +394,46 @@ func PublishDraftRevision(ctx context.Context, q Querier, activityID string, con
 
 // CreateAssignment assigns a published revision to a student.
 func CreateAssignment(ctx context.Context, q Querier, studentID, revisionID string, assignedBy *string, priority int, reason string) (*domain.StudentAssignment, error) {
+	return CreateAssignmentFull(ctx, q, AssignmentCreate{
+		StudentID:          studentID,
+		ActivityRevisionID: revisionID,
+		AssignedBy:         assignedBy,
+		Priority:           priority,
+		Reason:             reason,
+	})
+}
+
+// AssignmentCreate carries optional course provenance for an assignment.
+type AssignmentCreate struct {
+	StudentID            string
+	ActivityRevisionID   string
+	EnrollmentID         *string
+	CurriculumActivityID *string
+	SelectionReason      string
+	AssignedBy           *string
+	Priority             int
+	Reason               string
+}
+
+// CreateAssignmentFull assigns a published revision with optional enrollment provenance.
+func CreateAssignmentFull(ctx context.Context, q Querier, in AssignmentCreate) (*domain.StudentAssignment, error) {
 	values := map[string]any{
-		"student_id":           studentID,
-		"activity_revision_id": revisionID,
+		"student_id":           in.StudentID,
+		"activity_revision_id": in.ActivityRevisionID,
 		"state":                domain.AssignmentAvailable,
-		"priority":             priority,
-		"reason":               reason,
+		"priority":             in.Priority,
+		"reason":               in.Reason,
+		"selection_reason":     in.SelectionReason,
 		"constraints":          map[string]any{},
 	}
-	if assignedBy != nil {
-		values["assigned_by"] = *assignedBy
+	if in.AssignedBy != nil {
+		values["assigned_by"] = *in.AssignedBy
+	}
+	if in.EnrollmentID != nil {
+		values["enrollment_id"] = *in.EnrollmentID
+	}
+	if in.CurriculumActivityID != nil {
+		values["curriculum_activity_id"] = *in.CurriculumActivityID
 	}
 	return StudentAssignments.Create(ctx, q, values)
 }
@@ -411,7 +441,8 @@ func CreateAssignment(ctx context.Context, q Querier, studentID, revisionID stri
 // ListAssignmentsForStudent returns assignments ordered for the work queue.
 func ListAssignmentsForStudent(ctx context.Context, q Querier, studentID string) ([]domain.StudentAssignment, error) {
 	const sqlStr = `
-SELECT id, student_id, activity_revision_id, enrollment_id, state, priority,
+SELECT id, student_id, activity_revision_id, enrollment_id, curriculum_activity_id,
+       selection_reason, state, priority,
        available_at, due_at, assigned_by, reason, constraints, created_at, updated_at
 FROM student_assignments
 WHERE student_id = $1 AND state <> 'cancelled'
@@ -455,7 +486,8 @@ func ListStudentWork(ctx context.Context, q Querier, studentID, after string, li
 	}
 
 	const sqlStr = `
-SELECT a.id, a.student_id, a.activity_revision_id, a.enrollment_id, a.state, a.priority,
+SELECT a.id, a.student_id, a.activity_revision_id, a.enrollment_id, a.curriculum_activity_id,
+       a.selection_reason, a.state, a.priority,
        a.available_at, a.due_at, a.assigned_by, a.reason, a.constraints, a.created_at, a.updated_at,
        r.id, r.activity_id, r.revision, r.schema_version, r.content, r.content_sha256, r.published_at, r.created_at,
        la.id, la.slug, la.title, la.summary, la.kind, la.subject_id, la.status, la.created_at, la.updated_at
@@ -493,7 +525,8 @@ LIMIT $4`
 		var r domain.LearningActivityRevision
 		var la domain.LearningActivity
 		if err := rows.Scan(
-			&a.ID, &a.StudentID, &a.ActivityRevisionID, &a.EnrollmentID, &a.State, &a.Priority,
+			&a.ID, &a.StudentID, &a.ActivityRevisionID, &a.EnrollmentID, &a.CurriculumActivityID,
+			&a.SelectionReason, &a.State, &a.Priority,
 			&a.AvailableAt, &a.DueAt, &a.AssignedBy, &a.Reason, &a.Constraints, &a.CreatedAt, &a.UpdatedAt,
 			&r.ID, &r.ActivityID, &r.Revision, &r.SchemaVersion, &r.Content, &r.ContentSHA256, &r.PublishedAt, &r.CreatedAt,
 			&la.ID, &la.Slug, &la.Title, &la.Summary, &la.Kind, &la.SubjectID, &la.Status, &la.CreatedAt, &la.UpdatedAt,

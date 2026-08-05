@@ -402,7 +402,8 @@ func containsString(ss []string, want string) bool {
 // ListOpenAssignmentsForStudent returns available/in_progress assignments.
 func ListOpenAssignmentsForStudent(ctx context.Context, q Querier, studentID string) ([]domain.StudentAssignment, error) {
 	const sqlStr = `
-SELECT id, student_id, activity_revision_id, enrollment_id, state, priority,
+SELECT id, student_id, activity_revision_id, enrollment_id, curriculum_activity_id,
+       selection_reason, state, priority,
        available_at, due_at, assigned_by, reason, constraints, created_at, updated_at
 FROM student_assignments
 WHERE student_id = $1 AND state IN ('available', 'in_progress')

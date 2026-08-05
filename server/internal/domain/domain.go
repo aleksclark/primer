@@ -68,15 +68,81 @@ type Standard struct {
 }
 
 // Curriculum is a curriculum approach: a coherent way of organizing standards.
+// Stable identity for course enrollments; immutable content lives on revisions.
 type Curriculum struct {
 	ID          string         `json:"id" db:"id" format:"uuid"`
+	Slug        string         `json:"slug" db:"slug"`
 	Name        string         `json:"name" db:"name"`
 	Description string         `json:"description" db:"description"`
 	Approach    string         `json:"approach" db:"approach" enum:"mastery_based,spiral,classical,unit_study,custom"`
+	SubjectCode string         `json:"subjectCode" db:"subject_code"`
+	Status      string         `json:"status" db:"status" enum:"draft,published,retired"`
 	GradeLevel  *int           `json:"gradeLevel,omitempty" db:"grade_level"`
 	Metadata    map[string]any `json:"metadata,omitempty" db:"metadata"`
 	CreatedAt   time.Time      `json:"createdAt" db:"created_at"`
 	UpdatedAt   time.Time      `json:"updatedAt" db:"updated_at"`
+}
+
+// CurriculumRevision is an immutable published course snapshot.
+type CurriculumRevision struct {
+	ID             string         `json:"id" db:"id" format:"uuid"`
+	CurriculumID   string         `json:"curriculumId" db:"curriculum_id" format:"uuid"`
+	Revision       int            `json:"revision" db:"revision"`
+	Title          string         `json:"title" db:"title"`
+	Description    string         `json:"description" db:"description"`
+	SubjectCode    string         `json:"subjectCode" db:"subject_code"`
+	Version        string         `json:"version" db:"version"`
+	RevisionPolicy string         `json:"revisionPolicy" db:"revision_policy" enum:"latest_published,pinned_digest"`
+	Document       map[string]any `json:"document,omitempty" db:"document"`
+	PublishedAt    *time.Time     `json:"publishedAt,omitempty" db:"published_at"`
+	CreatedAt      time.Time      `json:"createdAt" db:"created_at"`
+}
+
+// CurriculumActivity is one ordered activity membership entry in a revision.
+type CurriculumActivity struct {
+	ID                   string         `json:"id" db:"id" format:"uuid"`
+	CurriculumRevisionID string         `json:"curriculumRevisionId" db:"curriculum_revision_id" format:"uuid"`
+	Position             int            `json:"position" db:"position"`
+	ActivitySlug         string         `json:"activitySlug" db:"activity_slug"`
+	ActivityRevisionID   *string        `json:"activityRevisionId,omitempty" db:"activity_revision_id" format:"uuid"`
+	Module               string         `json:"module,omitempty" db:"module"`
+	Capstone             bool           `json:"capstone" db:"capstone"`
+	ContinuityMode       string         `json:"continuityMode,omitempty" db:"continuity_mode"`
+	Metadata             map[string]any `json:"metadata,omitempty" db:"metadata"`
+	CreatedAt            time.Time      `json:"createdAt" db:"created_at"`
+}
+
+// CurriculumActivityPrerequisite is a directed prerequisite edge.
+type CurriculumActivityPrerequisite struct {
+	ID                   string    `json:"id" db:"id" format:"uuid"`
+	CurriculumRevisionID string    `json:"curriculumRevisionId" db:"curriculum_revision_id" format:"uuid"`
+	ActivitySlug         string    `json:"activitySlug" db:"activity_slug"`
+	RequiresSlug         string    `json:"requiresSlug" db:"requires_slug"`
+	Requirement          string    `json:"requirement" db:"requirement" enum:"completed,approaching,mastered"`
+	Description          string    `json:"description,omitempty" db:"description"`
+	CreatedAt            time.Time `json:"createdAt" db:"created_at"`
+}
+
+// CurriculumActivityGate is an evidence or parent-review gate.
+type CurriculumActivityGate struct {
+	ID                   string    `json:"id" db:"id" format:"uuid"`
+	CurriculumRevisionID string    `json:"curriculumRevisionId" db:"curriculum_revision_id" format:"uuid"`
+	ActivitySlug         string    `json:"activitySlug" db:"activity_slug"`
+	Kind                 string    `json:"kind" db:"kind" enum:"evidence,parent_review"`
+	Standards            []string  `json:"standards,omitempty" db:"standards"`
+	Description          string    `json:"description,omitempty" db:"description"`
+	CreatedAt            time.Time `json:"createdAt" db:"created_at"`
+}
+
+// CurriculumActivityRemediation is a remediation/reinforcement branch placeholder.
+type CurriculumActivityRemediation struct {
+	ID                   string    `json:"id" db:"id" format:"uuid"`
+	CurriculumRevisionID string    `json:"curriculumRevisionId" db:"curriculum_revision_id" format:"uuid"`
+	ForActivitySlug      string    `json:"forActivitySlug" db:"for_activity_slug"`
+	BranchSlug           string    `json:"branchSlug" db:"branch_slug"`
+	Kind                 string    `json:"kind" db:"kind" enum:"remediation,reinforcement"`
+	Description          string    `json:"description,omitempty" db:"description"`
+	CreatedAt            time.Time `json:"createdAt" db:"created_at"`
 }
 
 // CurriculumStandard places a standard within a curriculum's sequence.
@@ -91,16 +157,37 @@ type CurriculumStandard struct {
 	UpdatedAt    time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-// Enrollment ties a student to a curriculum.
+// Enrollment ties a student to a curriculum revision (course).
 type Enrollment struct {
-	ID           string     `json:"id" db:"id" format:"uuid"`
-	StudentID    string     `json:"studentId" db:"student_id" format:"uuid"`
-	CurriculumID string     `json:"curriculumId" db:"curriculum_id" format:"uuid"`
-	Status       string     `json:"status" db:"status" enum:"active,paused,completed,withdrawn"`
-	StartedOn    time.Time  `json:"startedOn" db:"started_on"`
-	EndedOn      *time.Time `json:"endedOn,omitempty" db:"ended_on"`
-	CreatedAt    time.Time  `json:"createdAt" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updatedAt" db:"updated_at"`
+	ID                   string         `json:"id" db:"id" format:"uuid"`
+	StudentID            string         `json:"studentId" db:"student_id" format:"uuid"`
+	CurriculumID         string         `json:"curriculumId" db:"curriculum_id" format:"uuid"`
+	CurriculumRevisionID *string        `json:"curriculumRevisionId,omitempty" db:"curriculum_revision_id" format:"uuid"`
+	Status               string         `json:"status" db:"status" enum:"active,paused,completed,withdrawn"`
+	Priority             int            `json:"priority" db:"priority"`
+	PinnedActivitySlug   string         `json:"pinnedActivitySlug,omitempty" db:"pinned_activity_slug"`
+	PinnedReason         string         `json:"pinnedReason,omitempty" db:"pinned_reason"`
+	PinnedBy             *string        `json:"pinnedBy,omitempty" db:"pinned_by" format:"uuid"`
+	PinnedAt             *time.Time     `json:"pinnedAt,omitempty" db:"pinned_at"`
+	OverrideSlugs        []string       `json:"overrideSlugs,omitempty" db:"override_slugs"`
+	OverrideReason       string         `json:"overrideReason,omitempty" db:"override_reason"`
+	BlockingReasons      []any          `json:"blockingReasons,omitempty" db:"blocking_reasons"`
+	Constraints          map[string]any `json:"constraints,omitempty" db:"constraints"`
+	StartedOn            time.Time      `json:"startedOn" db:"started_on"`
+	EndedOn              *time.Time     `json:"endedOn,omitempty" db:"ended_on"`
+	CreatedAt            time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt            time.Time      `json:"updatedAt" db:"updated_at"`
+}
+
+// EnrollmentAuditEvent records parent pin/override/status changes.
+type EnrollmentAuditEvent struct {
+	ID           string         `json:"id" db:"id" format:"uuid"`
+	EnrollmentID string         `json:"enrollmentId" db:"enrollment_id" format:"uuid"`
+	EducatorID   *string        `json:"educatorId,omitempty" db:"educator_id" format:"uuid"`
+	Action       string         `json:"action" db:"action"`
+	Reason       string         `json:"reason,omitempty" db:"reason"`
+	Detail       map[string]any `json:"detail,omitempty" db:"detail"`
+	CreatedAt    time.Time      `json:"createdAt" db:"created_at"`
 }
 
 // MasteryRecord captures a student's mastery of a single standard.
@@ -309,19 +396,21 @@ type LearningActivityRevisionStandard struct {
 
 // StudentAssignment is a concrete work item for a student.
 type StudentAssignment struct {
-	ID                 string         `json:"id" db:"id" format:"uuid"`
-	StudentID          string         `json:"studentId" db:"student_id" format:"uuid"`
-	ActivityRevisionID string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
-	EnrollmentID       *string        `json:"enrollmentId,omitempty" db:"enrollment_id" format:"uuid"`
-	State              string         `json:"state" db:"state" enum:"available,in_progress,completed,cancelled"`
-	Priority           int            `json:"priority" db:"priority"`
-	AvailableAt        time.Time      `json:"availableAt" db:"available_at"`
-	DueAt              *time.Time     `json:"dueAt,omitempty" db:"due_at"`
-	AssignedBy         *string        `json:"assignedBy,omitempty" db:"assigned_by" format:"uuid"`
-	Reason             string         `json:"reason" db:"reason"`
-	Constraints        map[string]any `json:"constraints,omitempty" db:"constraints"`
-	CreatedAt          time.Time      `json:"createdAt" db:"created_at"`
-	UpdatedAt          time.Time      `json:"updatedAt" db:"updated_at"`
+	ID                   string         `json:"id" db:"id" format:"uuid"`
+	StudentID            string         `json:"studentId" db:"student_id" format:"uuid"`
+	ActivityRevisionID   string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	EnrollmentID         *string        `json:"enrollmentId,omitempty" db:"enrollment_id" format:"uuid"`
+	CurriculumActivityID *string        `json:"curriculumActivityId,omitempty" db:"curriculum_activity_id" format:"uuid"`
+	SelectionReason      string         `json:"selectionReason,omitempty" db:"selection_reason"`
+	State                string         `json:"state" db:"state" enum:"available,in_progress,completed,cancelled"`
+	Priority             int            `json:"priority" db:"priority"`
+	AvailableAt          time.Time      `json:"availableAt" db:"available_at"`
+	DueAt                *time.Time     `json:"dueAt,omitempty" db:"due_at"`
+	AssignedBy           *string        `json:"assignedBy,omitempty" db:"assigned_by" format:"uuid"`
+	Reason               string         `json:"reason" db:"reason"`
+	Constraints          map[string]any `json:"constraints,omitempty" db:"constraints"`
+	CreatedAt            time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt            time.Time      `json:"updatedAt" db:"updated_at"`
 }
 
 // StudentDevice is a paired student workstation.

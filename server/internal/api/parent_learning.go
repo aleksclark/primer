@@ -326,15 +326,20 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 		if err != nil {
 			return nil, MapError(err)
 		}
-		status := http.StatusCreated
-		if !res.Created {
-			status = http.StatusOK
+		if res.Assignment == nil {
+			return &assignNextOutput{Body: AssignNextResponse{
+				Reason:      res.Reason,
+				Created:     false,
+				BlockReason: res.BlockReason,
+				Candidates:  res.Candidates,
+			}}, nil
 		}
-		_ = status // huma DefaultStatus is Created; clients accept 200/201
 		return &assignNextOutput{Body: AssignNextResponse{
-			Assignment: *res.Assignment,
-			Reason:     res.Reason,
-			Created:    res.Created,
+			Assignment:  res.Assignment,
+			Reason:      res.Reason,
+			Created:     res.Created,
+			BlockReason: res.BlockReason,
+			Candidates:  res.Candidates,
 		}}, nil
 	})
 
@@ -741,9 +746,11 @@ type assignNextInput struct {
 
 // AssignNextResponse is the overseer assign-next result.
 type AssignNextResponse struct {
-	Assignment domain.StudentAssignment `json:"assignment"`
-	Reason     string                   `json:"reason"`
-	Created    bool                     `json:"created"`
+	Assignment  *domain.StudentAssignment `json:"assignment,omitempty"`
+	Reason      string                    `json:"reason"`
+	Created     bool                      `json:"created"`
+	BlockReason string                    `json:"blockReason,omitempty"`
+	Candidates  []string                  `json:"candidates,omitempty"`
 }
 
 type assignNextOutput struct {
