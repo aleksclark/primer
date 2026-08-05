@@ -231,21 +231,42 @@ func TestMetadataDiff(t *testing.T) {
 		assert.Equal(t, "", diff["quality_notes"])
 	})
 
-	t.Run("manual quality notes are preserved", func(t *testing.T) {
+	t.Run("manual quality notes withhold direct play", func(t *testing.T) {
 		t.Parallel()
-		stale := current
-		stale.AudioCodec = "eac3"
-		stale.DirectPlayOK = false
-		stale.QualityNotes = "curator: family movie night pick"
+		// Curator unchecked direct-play and left a manual note — sync must not
+		// clobber either the flag or the note just because codecs are allowlisted.
+		withheld := current
+		withheld.AudioCodec = "eac3"
+		withheld.DirectPlayOK = false
+		withheld.QualityNotes = "curator: family movie night pick"
 
 		same := &jellyfin.Item{
 			Name: "Old", SortName: "Old", Overview: "Old synopsis",
 			Runtime: 100 * time.Second, Container: "mkv",
 			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
 		}
-		diff := metadataDiff(stale, same)
-		assert.Equal(t, true, diff["direct_play_ok"])
+		diff := metadataDiff(withheld, same)
+		assert.NotContains(t, diff, "direct_play_ok", "manual withhold must survive sync")
 		assert.NotContains(t, diff, "quality_notes", "manual notes must not be wiped")
+	})
+
+	t.Run("blank quality notes withhold direct play", func(t *testing.T) {
+		t.Parallel()
+		// Curator unchecked without a note (or never annotated). Only
+		// recognizably auto-generated codec notes may repair false→true.
+		withheld := current
+		withheld.AudioCodec = "eac3"
+		withheld.DirectPlayOK = false
+		withheld.QualityNotes = ""
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(withheld, same)
+		assert.NotContains(t, diff, "direct_play_ok", "blank note is not safe stale-policy evidence")
+		assert.NotContains(t, diff, "quality_notes")
 	})
 }
 
