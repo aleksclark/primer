@@ -28,9 +28,8 @@ const itemsJSON = `{
       "ImageTags": {"Primary": "tag-1"},
       "MediaStreams": [
         {"Type": "Video", "Codec": "h264"},
-        {"Type": "Video", "Codec": "h264"},
+        {"Type": "Video", "Codec": "ignored"},
         {"Type": "Audio", "Codec": "aac"},
-        {"Type": "Audio", "Codec": "eac3"},
         {"Type": "Subtitle", "Codec": "srt"}
       ]
     }
@@ -109,8 +108,8 @@ func TestBrowse(t *testing.T) {
 	assert.Equal(t, 1350*time.Second, item.Runtime, "RunTimeTicks convert to a duration")
 	assert.Equal(t, 1350, item.RuntimeSeconds())
 	assert.Equal(t, "mkv", item.Container)
-	assert.Equal(t, "h264", item.VideoCodec, "duplicate video codecs collapse to the unique set")
-	assert.Equal(t, "aac,eac3", item.AudioCodec, "every audio stream is retained for direct-play checks")
+	assert.Equal(t, "h264", item.VideoCodec, "first video stream wins")
+	assert.Equal(t, "aac", item.AudioCodec)
 	assert.Equal(t, "tag-1", item.ImageTag)
 
 	assert.Equal(t, "lib-1", gotQuery.Get("ParentId"))

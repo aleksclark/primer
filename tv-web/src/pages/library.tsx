@@ -44,25 +44,15 @@ type SyncResponse = Schemas["SyncResponse"];
  * student hits a stalled stream.
  */
 const DIRECT_PLAY_VIDEO = ["h264", "hevc", "h265", "mpeg4", "vp8", "vp9"];
-// Includes FFmpeg software fallbacks shipped in the Android client.
-const DIRECT_PLAY_AUDIO = ["aac", "mp3", "ac3", "eac3", "dca", "dts", "opus", "vorbis", "flac"];
-
-function codecList(value: string | null | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean);
-}
+const DIRECT_PLAY_AUDIO = ["aac", "mp3", "ac3", "opus", "vorbis", "flac"];
 
 /** directPlayIssues lists the reasons an item would need transcoding. */
 function directPlayIssues(item: Pick<BrowseItem, "videoCodec" | "audioCodec">): string[] {
   const issues: string[] = [];
-  for (const video of codecList(item.videoCodec)) {
-    if (!DIRECT_PLAY_VIDEO.includes(video)) issues.push(`video codec ${video}`);
-  }
-  for (const audio of codecList(item.audioCodec)) {
-    if (!DIRECT_PLAY_AUDIO.includes(audio)) issues.push(`audio codec ${audio}`);
-  }
+  const video = item.videoCodec?.toLowerCase() ?? "";
+  const audio = item.audioCodec?.toLowerCase() ?? "";
+  if (video && !DIRECT_PLAY_VIDEO.includes(video)) issues.push(`video codec ${item.videoCodec}`);
+  if (audio && !DIRECT_PLAY_AUDIO.includes(audio)) issues.push(`audio codec ${item.audioCodec}`);
   return issues;
 }
 

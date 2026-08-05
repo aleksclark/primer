@@ -851,15 +851,6 @@ class TvViewModel(
         controller?.attachPlayer(probe)
     }
 
-    /** Surfaces a decoder/renderer failure without abandoning the grant retry path. */
-    fun reportPlayerError(message: String) {
-        val detail = message.trim().ifBlank { "Playback failed." }
-        _playback.value = PlaybackState.Failed(
-            error = ApiError.Unexpected(detail),
-            recoverable = true,
-        )
-    }
-
     /**
      * Raises the on-demand furthest-position watermark from a live playhead
      * sample so seek limits tighten without waiting for the next heartbeat.
