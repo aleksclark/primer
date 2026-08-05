@@ -137,11 +137,16 @@ func PublishActivityRevision(ctx context.Context, q Querier, doc *contracts.Acti
 		if err != nil {
 			return err
 		}
+		seenStd := map[string]struct{}{}
 		for _, ref := range doc.Standards {
 			stdID, ok := standardIDs[ref.Code]
 			if !ok {
 				return ErrBadRequest{Msg: "unknown standard code: " + ref.Code}
 			}
+			if _, dup := seenStd[stdID]; dup {
+				continue // same standard code may appear twice; keep first role
+			}
+			seenStd[stdID] = struct{}{}
 			weight := ref.Weight
 			if weight == 0 {
 				weight = 1
@@ -311,11 +316,16 @@ func PublishDraftRevision(ctx context.Context, q Querier, activityID string, con
 		if err != nil {
 			return err
 		}
+		seenStd := map[string]struct{}{}
 		for _, ref := range standards {
 			stdID, ok := standardIDs[ref.Code]
 			if !ok {
 				return ErrBadRequest{Msg: "unknown standard code: " + ref.Code}
 			}
+			if _, dup := seenStd[stdID]; dup {
+				continue // same standard code may appear twice; keep first role
+			}
+			seenStd[stdID] = struct{}{}
 			weight := ref.Weight
 			if weight == 0 {
 				weight = 1

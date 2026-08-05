@@ -32,10 +32,11 @@ var Subjects = NewResource[domain.Subject](ListConfig{
 
 // Standards is the standard repository.
 var Standards = NewResource[domain.Standard](ListConfig{
-	Table:             "standards",
-	SearchColumns:     []string{"code", "description", "domain", "cluster"},
-	SortableColumns:   []string{"code", "source", "grade_level", "domain", "created_at", "updated_at"},
-	FilterableColumns: []string{"source", "subject_id", "parent_id", "grade_level", "domain", "tcap_weight"},
+	Table:           "standards",
+	SearchColumns:   []string{"code", "description", "domain", "cluster"},
+	SortableColumns: []string{"code", "source", "grade_level", "domain", "created_at", "updated_at"},
+	// code is required for parent publish-revision and other code→id lookups.
+	FilterableColumns: []string{"code", "source", "subject_id", "parent_id", "grade_level", "domain", "tcap_weight"},
 })
 
 // Curricula is the curriculum repository.
