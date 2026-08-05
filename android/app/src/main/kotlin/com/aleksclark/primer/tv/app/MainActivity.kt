@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
+import com.aleksclark.primer.tv.app.admin.KioskController
 import com.aleksclark.primer.tv.app.ui.TvShell
 import com.aleksclark.primer.tv.app.ui.TvViewModel
 import com.aleksclark.primer.tv.core.domain.FormFactor
@@ -13,25 +14,37 @@ import com.aleksclark.primer.tv.core.domain.FormFactor
 class MainActivity : ComponentActivity() {
 
     private lateinit var viewModel: TvViewModel
+    private lateinit var kioskController: KioskController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val container = (application as TvApplication).container
+        val application = application as TvApplication
+        val container = application.container
+        kioskController = application.kioskController
         viewModel = ViewModelProvider(this, TvViewModel.Factory(container))[TvViewModel::class.java]
 
-        val formFactor = FormFactor.fromUiModeType(
-            (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType,
-        )
+        val formFactor = if (kioskController.isTelevision()) {
+            FormFactor.TELEVISION
+        } else {
+            FormFactor.fromUiModeType(
+                (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType,
+            )
+        }
 
         setContent {
             TvShell(
                 viewModel = viewModel,
                 formFactor = formFactor,
                 httpClient = container.httpClient,
-                onExit = { finish() },
+                onExit = { if (!kioskController.isManagedTelevision()) finish() },
             )
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        kioskController.enterLockTask(this)
     }
 
     /**

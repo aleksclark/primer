@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -41,6 +42,11 @@ fun TvFocusSurface(
     selected: Boolean = false,
     enabled: Boolean = true,
     requestFocus: Boolean = false,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    focusLeft: FocusRequester? = null,
+    focusRight: FocusRequester? = null,
+    focusUp: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
     shape: Shape = PrimerTheme.shapes.mediaCard,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
@@ -48,7 +54,6 @@ fun TvFocusSurface(
     val spacing = PrimerTheme.spacing
     val formFactor = PrimerTheme.formFactor
     val interactionSource = remember { MutableInteractionSource() }
-    val focusRequester = remember { FocusRequester() }
     val focused by interactionSource.collectIsFocusedAsState()
     val showFocusChrome = formFactor == FormFactor.TELEVISION && focused
 
@@ -69,6 +74,12 @@ fun TvFocusSurface(
     Box(
         modifier = modifier
             .focusRequester(focusRequester)
+            .focusProperties {
+                focusLeft?.let { left = it }
+                focusRight?.let { right = it }
+                focusUp?.let { up = it }
+                focusDown?.let { down = it }
+            }
             .scale(scale)
             .then(
                 if (showFocusChrome) {

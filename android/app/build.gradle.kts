@@ -54,6 +54,31 @@ val generatePrimerTokens by tasks.registering(GeneratePrimerTokensTask::class) {
     targetPackage.set("com.aleksclark.primer.tv.app.ui.designsystem")
 }
 
+val primerVersionCode = providers.gradleProperty("primerVersionCode")
+    .orElse(providers.environmentVariable("PRIMER_ANDROID_VERSION_CODE"))
+    .orElse("1")
+val primerVersionName = providers.gradleProperty("primerVersionName")
+    .orElse(providers.environmentVariable("PRIMER_ANDROID_VERSION_NAME"))
+    .orElse("0.1.0")
+val releaseStoreFile = providers.gradleProperty("primerSigningStoreFile")
+    .orElse(providers.environmentVariable("PRIMER_ANDROID_KEYSTORE"))
+val releaseStorePassword = providers.gradleProperty("primerSigningStorePassword")
+    .orElse(providers.environmentVariable("PRIMER_ANDROID_STORE_PASSWORD"))
+val releaseKeyAlias = providers.gradleProperty("primerSigningKeyAlias")
+    .orElse(providers.environmentVariable("PRIMER_ANDROID_KEY_ALIAS"))
+val releaseKeyPassword = providers.gradleProperty("primerSigningKeyPassword")
+    .orElse(providers.environmentVariable("PRIMER_ANDROID_KEY_PASSWORD"))
+val releaseSigningValues = listOf(
+    releaseStoreFile.orNull,
+    releaseStorePassword.orNull,
+    releaseKeyAlias.orNull,
+    releaseKeyPassword.orNull,
+)
+check(releaseSigningValues.all { it != null } || releaseSigningValues.all { it == null }) {
+    "Release signing requires all PRIMER_ANDROID_KEYSTORE, PRIMER_ANDROID_STORE_PASSWORD, " +
+        "PRIMER_ANDROID_KEY_ALIAS, and PRIMER_ANDROID_KEY_PASSWORD values."
+}
+
 android {
     namespace = "com.aleksclark.primer.tv"
     compileSdk = 35
@@ -64,13 +89,28 @@ android {
         // be updated.
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = primerVersionCode.get().toInt().also {
+            require(it > 0) { "primerVersionCode must be a positive integer" }
+        }
+        versionName = primerVersionName.get().also {
+            require(it.isNotBlank()) { "primerVersionName must not be blank" }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    signingConfigs {
+        if (releaseSigningValues.all { it != null }) {
+            create("production") {
+                storeFile = file(releaseStoreFile.get())
+                storePassword = releaseStorePassword.get()
+                keyAlias = releaseKeyAlias.get()
+                keyPassword = releaseKeyPassword.get()
+            }
         }
     }
 
@@ -80,6 +120,9 @@ android {
         }
         release {
             isMinifyEnabled = false
+            if (releaseSigningValues.all { it != null }) {
+                signingConfig = signingConfigs.getByName("production")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

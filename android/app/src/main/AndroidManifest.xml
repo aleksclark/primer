@@ -24,6 +24,25 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PrimerTv">
 
+        <receiver
+            android:name=".app.update.UpdateInstallReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".app.admin.PrimerDeviceAdminReceiver"
+            android:description="@string/device_admin_description"
+            android:exported="true"
+            android:label="@string/device_admin_label"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_receiver" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".app.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
