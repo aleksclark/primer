@@ -321,17 +321,62 @@ func runHealth(socket, baseURL, dbPath string) error {
 	switch {
 	case profilesDir != "":
 		fmt.Printf("ok: runtime_profiles_dir %s\n", profilesDir)
-		if _, err := sandbox.ResolveProfileDir("coreutils-basic"); err != nil {
-			fmt.Fprintf(os.Stderr, "FAIL: coreutils-basic profile: %v\n", err)
+		// Verify each known profile subdirectory that is present; warn when a
+		// known name is absent (partial multi-profile install is allowed).
+		resolved := 0
+		for _, name := range sandbox.KnownProfileNames() {
+			dir := filepath.Join(profilesDir, name)
+			st, err := os.Stat(dir)
+			if err != nil || !st.IsDir() {
+				fmt.Printf("WARN: runtime profile %s not installed under %s\n", name, profilesDir)
+				continue
+			}
+			resolved++
+			missing, verr := sandbox.VerifyProfileBinaries(name, dir)
+			if verr != nil {
+				fmt.Fprintf(os.Stderr, "FAIL: runtime profile %s: %v\n", name, verr)
+				errors++
+				continue
+			}
+			if len(missing) > 0 {
+				critical := false
+				for _, b := range missing {
+					if b == "sh" || b == "bash" || b == "ls" {
+						critical = true
+						break
+					}
+				}
+				msg := fmt.Sprintf("runtime profile %s missing binaries: %s", name, strings.Join(missing, ", "))
+				if critical {
+					fmt.Fprintf(os.Stderr, "FAIL: %s\n", msg)
+					errors++
+				} else {
+					fmt.Printf("WARN: %s\n", msg)
+				}
+			} else {
+				fmt.Printf("ok: runtime_profile %s (%s)\n", name, dir)
+			}
+		}
+		if resolved == 0 {
+			fmt.Fprintf(os.Stderr, "FAIL: %s set but no known profiles resolved\n", sandbox.EnvRuntimeProfilesDir)
 			errors++
-		} else {
-			fmt.Printf("ok: runtime_profile coreutils-basic\n")
 		}
 	case profileDir != "":
+		fmt.Printf("WARN: using singular %s (migration fallback); prefer %s with named subdirs\n",
+			sandbox.EnvRuntimeProfileDir, sandbox.EnvRuntimeProfilesDir)
 		fmt.Printf("ok: runtime_profile_dir %s\n", profileDir)
 		if st, err := os.Stat(profileDir); err != nil || !st.IsDir() {
 			fmt.Fprintf(os.Stderr, "FAIL: %s not a directory\n", sandbox.EnvRuntimeProfileDir)
 			errors++
+		} else {
+			// Verify binaries for coreutils-basic against the singular closure.
+			missing, _ := sandbox.VerifyProfileBinaries("coreutils-basic", profileDir)
+			if len(missing) > 0 {
+				fmt.Printf("WARN: coreutils-basic missing binaries under singular profile: %s\n",
+					strings.Join(missing, ", "))
+			} else {
+				fmt.Printf("ok: runtime_profile coreutils-basic (singular dir)\n")
+			}
 		}
 	default:
 		fmt.Printf("WARN: no %s / %s (dev host binds will be used)\n",

@@ -244,7 +244,7 @@ func (e *Engine) openFreshSession(ctx context.Context, item *studentapi.WorkItem
 		if tok, _ := e.opts.Store.DeviceToken(ctx); tok != "" {
 			e.opts.Client.SetToken(tok)
 		}
-		serverSess, err := e.opts.Client.StartSession(ctx, clientSessionID, item.Assignment.ID, caps...)
+		serverSess, err := e.opts.Client.StartSessionWithCaps(ctx, clientSessionID, item.Assignment.ID, caps, sync.CollectDeviceCapabilities())
 		if err != nil {
 			if isIncompatibleRevisionError(err) {
 				_ = runner.Close()

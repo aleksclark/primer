@@ -193,14 +193,23 @@ func TestCancelledAssignmentNeverCreatesEvidence(t *testing.T) {
 	_, err = repo.CancelAssignment(ctx, q, asg.ID)
 	require.NoError(t, err)
 
-	_, err = mastery.ApplyCompletion(ctx, q, dev, sess.ID, contracts.CompletionRequest{
+	// Phase 5: cancelled-after-work returns an explicit rejected result (not an
+	// HTTP error) so clients can ack, retain local evidence, and avoid mastery.
+	result, err := mastery.ApplyCompletion(ctx, q, dev, sess.ID, contracts.CompletionRequest{
 		SchemaVersion: "1",
 		CompletionID:  uuid.NewString(),
 		RequestDigest: "x",
 		Observations:  passingObs(doc),
 		ClientTime:    time.Now().UTC(),
 	}, time.Now().UTC())
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Accepted)
+	assert.Contains(t, result.Message, "cancelled")
+	if assert.NotNil(t, result.AssignmentCompletion) {
+		assert.Equal(t, "cancelled-after-work", result.AssignmentCompletion.Summary)
+		assert.Equal(t, domain.AssignmentCancelled, result.AssignmentCompletion.State)
+	}
 
 	page, err := repo.MasteryEvidences.List(ctx, q, repo.ListParams{Limit: 50})
 	require.NoError(t, err)

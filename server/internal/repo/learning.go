@@ -465,22 +465,50 @@ type StudentWorkItem struct {
 	Activity   domain.LearningActivity         `json:"activity"`
 }
 
+// StudentWorkPage is one page of the work queue with sync metadata.
+type StudentWorkPage struct {
+	Items   []StudentWorkItem
+	Cursor  string
+	Mode    string // "snapshot" or "incremental"
+	HasMore bool
+}
+
+// Work modes for GET /student/work.
+const (
+	WorkModeSnapshot    = "snapshot"
+	WorkModeIncremental = "incremental"
+)
+
 // ListStudentWork returns assignment upserts after an optional cursor (updated_at|id).
+// Empty after yields a full snapshot page stream; a valid after is incremental.
+// Fetches limit+1 rows to set HasMore without a second query.
 func ListStudentWork(ctx context.Context, q Querier, studentID, after string, limit int) ([]StudentWorkItem, string, error) {
+	page, err := ListStudentWorkPage(ctx, q, studentID, after, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	return page.Items, page.Cursor, nil
+}
+
+// ListStudentWorkPage is the Phase 5 work sync entry point with mode/hasMore.
+func ListStudentWorkPage(ctx context.Context, q Querier, studentID, after string, limit int) (*StudentWorkPage, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	mode := WorkModeIncremental
 	var afterTime time.Time
 	var afterID string
-	if after != "" {
+	if after == "" {
+		mode = WorkModeSnapshot
+	} else {
 		// cursor format: RFC3339Nano|uuid
 		parts := splitCursor(after)
 		if len(parts) != 2 {
-			return nil, "", ErrBadRequest{Msg: "invalid after cursor"}
+			return nil, ErrBadRequest{Msg: "invalid after cursor"}
 		}
 		t, err := time.Parse(time.RFC3339Nano, parts[0])
 		if err != nil {
-			return nil, "", ErrBadRequest{Msg: "invalid after cursor time"}
+			return nil, ErrBadRequest{Msg: "invalid after cursor time"}
 		}
 		afterTime, afterID = t, parts[1]
 	}
@@ -512,9 +540,10 @@ LIMIT $4`
 		idArg = afterID
 	}
 
-	rows, err := q.Query(ctx, sqlStr, studentID, tArg, idArg, limit)
+	// Fetch one extra row to detect another page.
+	rows, err := q.Query(ctx, sqlStr, studentID, tArg, idArg, limit+1)
 	if err != nil {
-		return nil, "", fmt.Errorf("list student work: %w", err)
+		return nil, fmt.Errorf("list student work: %w", err)
 	}
 	defer rows.Close()
 
@@ -531,7 +560,7 @@ LIMIT $4`
 			&r.ID, &r.ActivityID, &r.Revision, &r.SchemaVersion, &r.Content, &r.ContentSHA256, &r.PublishedAt, &r.CreatedAt,
 			&la.ID, &la.Slug, &la.Title, &la.Summary, &la.Kind, &la.SubjectID, &la.Status, &la.CreatedAt, &la.UpdatedAt,
 		); err != nil {
-			return nil, "", fmt.Errorf("scan student work: %w", err)
+			return nil, fmt.Errorf("scan student work: %w", err)
 		}
 		// Student devices must never receive parent_note blocks (hidden authoring notes).
 		// ContentSHA256 remains the published digest; payload is a student-safe projection.
@@ -540,9 +569,23 @@ LIMIT $4`
 		cursor = a.UpdatedAt.UTC().Format(time.RFC3339Nano) + "|" + a.ID
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return items, cursor, nil
+	hasMore := false
+	if len(items) > limit {
+		hasMore = true
+		items = items[:limit]
+		last := items[len(items)-1]
+		cursor = last.Assignment.UpdatedAt.UTC().Format(time.RFC3339Nano) + "|" + last.Assignment.ID
+	}
+	// Snapshot mode continues for the whole pagination walk that started with empty after.
+	// Clients track mode from the first page of a walk.
+	return &StudentWorkPage{
+		Items:   items,
+		Cursor:  cursor,
+		Mode:    mode,
+		HasMore: hasMore,
+	}, nil
 }
 
 func splitCursor(s string) []string {

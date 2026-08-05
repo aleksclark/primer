@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -90,7 +91,8 @@ RETURNING id, student_id, code_hash, created_by, expires_at, used_at, created_at
 func StudentDeviceByToken(ctx context.Context, q Querier, token string) (*domain.StudentDevice, error) {
 	hash := authutil.HashToken(token)
 	const sqlStr = `
-SELECT id, student_id, name, token_hash, last_seen_at, revoked_at, created_at, updated_at
+SELECT id, student_id, name, token_hash, last_seen_at, revoked_at,
+       capabilities, capabilities_reported_at, created_at, updated_at
 FROM student_devices
 WHERE token_hash = $1 AND token_hash <> '' AND revoked_at IS NULL
 LIMIT 1`
@@ -106,6 +108,51 @@ LIMIT 1`
 		return nil, fmt.Errorf("scan student device: %w", err)
 	}
 	return &dev, nil
+}
+
+// StoreDeviceCapabilities records the latest capability report from a device.
+func StoreDeviceCapabilities(ctx context.Context, q Querier, deviceID string, caps map[string]any, now time.Time) error {
+	if caps == nil {
+		caps = map[string]any{}
+	}
+	raw, err := json.Marshal(caps)
+	if err != nil {
+		return fmt.Errorf("marshal device capabilities: %w", err)
+	}
+	_, err = q.Exec(ctx, `
+UPDATE student_devices
+SET capabilities = $2::jsonb,
+    capabilities_reported_at = $3,
+    last_seen_at = $3,
+    updated_at = now()
+WHERE id = $1`, deviceID, string(raw), now)
+	if err != nil {
+		return fmt.Errorf("store device capabilities: %w", err)
+	}
+	return nil
+}
+
+// LatestDeviceCapabilitiesForStudent returns the newest non-empty capability
+// report across the student's unrevoked devices (for eligibility).
+func LatestDeviceCapabilitiesForStudent(ctx context.Context, q Querier, studentID string) (map[string]any, *time.Time, error) {
+	const sqlStr = `
+SELECT capabilities, capabilities_reported_at
+FROM student_devices
+WHERE student_id = $1
+  AND revoked_at IS NULL
+  AND capabilities_reported_at IS NOT NULL
+ORDER BY capabilities_reported_at DESC
+LIMIT 1`
+	var caps map[string]any
+	var reported *time.Time
+	err := q.QueryRow(ctx, sqlStr, studentID).Scan(&caps, &reported)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("latest device capabilities: %w", err)
+	}
+	return caps, reported, nil
 }
 
 // TouchStudentDevice updates last_seen_at.
@@ -125,7 +172,8 @@ func RevokeStudentDevice(ctx context.Context, q Querier, deviceID string, now ti
 UPDATE student_devices
 SET revoked_at = $2, token_hash = '', updated_at = now()
 WHERE id = $1 AND revoked_at IS NULL
-RETURNING id, student_id, name, token_hash, last_seen_at, revoked_at, created_at, updated_at`
+RETURNING id, student_id, name, token_hash, last_seen_at, revoked_at,
+          capabilities, capabilities_reported_at, created_at, updated_at`
 	rows, err := q.Query(ctx, sqlStr, deviceID, now)
 	if err != nil {
 		return nil, fmt.Errorf("revoke device: %w", err)
@@ -144,11 +192,13 @@ RETURNING id, student_id, name, token_hash, last_seen_at, revoked_at, created_at
 // optionally filtered by student. Includes revoked devices for parent diagnostics.
 func ListStudentDevices(ctx context.Context, q Querier, studentID string) ([]domain.StudentDevice, error) {
 	const allSQL = `
-SELECT id, student_id, name, token_hash, last_seen_at, revoked_at, created_at, updated_at
+SELECT id, student_id, name, token_hash, last_seen_at, revoked_at,
+       capabilities, capabilities_reported_at, created_at, updated_at
 FROM student_devices
 ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`
 	const byStudentSQL = `
-SELECT id, student_id, name, token_hash, last_seen_at, revoked_at, created_at, updated_at
+SELECT id, student_id, name, token_hash, last_seen_at, revoked_at,
+       capabilities, capabilities_reported_at, created_at, updated_at
 FROM student_devices
 WHERE student_id = $1
 ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`

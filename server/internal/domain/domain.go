@@ -415,14 +415,18 @@ type StudentAssignment struct {
 
 // StudentDevice is a paired student workstation.
 type StudentDevice struct {
-	ID         string     `json:"id" db:"id" format:"uuid"`
-	StudentID  string     `json:"studentId" db:"student_id" format:"uuid"`
-	Name       string     `json:"name" db:"name"`
-	TokenHash  string     `json:"-" db:"token_hash"`
-	LastSeenAt *time.Time `json:"lastSeenAt,omitempty" db:"last_seen_at"`
-	RevokedAt  *time.Time `json:"revokedAt,omitempty" db:"revoked_at"`
-	CreatedAt  time.Time  `json:"createdAt" db:"created_at"`
-	UpdatedAt  time.Time  `json:"updatedAt" db:"updated_at"`
+	ID                      string         `json:"id" db:"id" format:"uuid"`
+	StudentID               string         `json:"studentId" db:"student_id" format:"uuid"`
+	Name                    string         `json:"name" db:"name"`
+	TokenHash               string         `json:"-" db:"token_hash"`
+	LastSeenAt              *time.Time     `json:"lastSeenAt,omitempty" db:"last_seen_at"`
+	RevokedAt               *time.Time     `json:"revokedAt,omitempty" db:"revoked_at"`
+	// Capabilities is the most recent device capability report (runtime profiles, runner flags).
+	// Diagnostic only — not an authorization boundary.
+	Capabilities            map[string]any `json:"capabilities,omitempty" db:"capabilities"`
+	CapabilitiesReportedAt  *time.Time     `json:"capabilitiesReportedAt,omitempty" db:"capabilities_reported_at"`
+	CreatedAt               time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt               time.Time      `json:"updatedAt" db:"updated_at"`
 }
 
 // StudentDevicePairingCode is a short-lived one-use pairing code.
