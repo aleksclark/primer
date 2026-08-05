@@ -16,6 +16,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/config"
 	"github.com/aleksclark/primer/server/internal/db"
 	"github.com/aleksclark/primer/server/internal/spa"
+	"github.com/aleksclark/primer/server/internal/tutor"
 )
 
 func main() {
@@ -50,9 +51,26 @@ func run() error {
 		slog.Warn("service token is not set; the instruction log ingest is unauthenticated")
 	}
 
+	tutorCfg := tutor.DefaultConfig()
+	tutorCfg.Provider = cfg.TutorProvider
+	tutorCfg.Enabled = cfg.TutorEnabled
+	tutorCfg.Bedrock = tutor.BedrockConfig{
+		URL:    cfg.TutorBedrockURL,
+		APIKey: cfg.TutorBedrockAPIKey,
+		Model:  cfg.TutorBedrockModel,
+	}
+	tutorSvc, err := tutor.NewFromConfig(tutorCfg)
+	if err != nil {
+		return fmt.Errorf("tutor: %w", err)
+	}
+	slog.Info("tutor configured", "provider", tutorSvc.ProviderName(), "enabled", tutorSvc.Enabled())
+
 	_, handler := api.New(pool, api.Options{
-		CORSOrigins:  cfg.CORSOrigins,
-		ServiceToken: cfg.ServiceToken,
+		CORSOrigins:       cfg.CORSOrigins,
+		ServiceToken:      cfg.ServiceToken,
+		Tutor:             tutorSvc,
+		TutorProviderName: tutorSvc.ProviderName(),
+		TutorEnabled:      tutorSvc.Enabled(),
 	})
 
 	mux := http.NewServeMux()

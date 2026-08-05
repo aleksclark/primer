@@ -122,14 +122,36 @@ spending a second play.
 
 The app never asks Jellyfin to transcode. The RK3318 box cannot keep up with a
 server-side transcode, and a NAS usually cannot either, so the library must be
-in a format the box decodes in hardware:
+in a format the client can decode without a server-side re-encode:
 
 | | Supported |
 |---|---|
-| Video | H.264 (AVC), H.265 (HEVC), up to 4K |
+| Video | H.264 (AVC), H.265 (HEVC), up to 4K (SoC hardware) |
 | Container | MKV, MP4 |
-| Audio | AAC, MP3; AC3/EAC3 depends on the box's licensing |
+| Audio | AAC, MP3 (hardware MediaCodec); AC3, EAC3, DTS via bundled Media3 FFmpeg software fallback |
 
-The admin SPA flags items that fail this check, and the server refuses to offer
-them in the catalog — an unplayable title should never reach the student as a
-black screen.
+### Bundled AC3 / EAC3 / DTS (FFmpeg)
+
+The T9 / RK3318 (and many other Rockchip TV boxes) ship without AC3/EAC3/DTS
+MediaCodec decoders. The app vendors the official AndroidX Media3 1.4.1
+`decoder_ffmpeg` extension built against FFmpeg 6.0 with **LGPL-compatible**
+audio decoders only (`ac3`, `eac3`, `dca`). ExoPlayer is wired with
+`DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON`, so platform AAC/MP3 stay
+on hardware and FFmpeg is used only when MediaCodec cannot handle the track.
+
+**Limits**
+
+- Software decode burns CPU. Multichannel AC3/EAC3/DTS is fine on RK3318 for
+  typical TV content; very high-bitrate tracks can still hitch.
+- **TrueHD / Atmos truehd is not enabled** (heavy and uncommon in this library).
+- DTS-HD MA core may play via the DTS (`dca`) decoder; full lossless MA is not
+  a target.
+- x86 / x86_64 `.so` files are included in the AAR for emulator completeness;
+  the APK still ships only `arm64-v8a` and `armeabi-v7a`.
+
+Rebuild / provenance: see
+[`third_party/media3-ffmpeg/`](third_party/media3-ffmpeg/README.md).
+
+The admin SPA flags items that fail the direct-play allowlist, and the server
+refuses to offer them in the catalog — an unplayable title should never reach
+the student as a black screen.

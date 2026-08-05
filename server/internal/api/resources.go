@@ -7,6 +7,7 @@ import (
 
 	"github.com/aleksclark/primer/server/internal/domain"
 	"github.com/aleksclark/primer/server/internal/repo"
+	"github.com/aleksclark/primer/server/internal/tutor"
 )
 
 // Create/update request bodies. The db tags map fields to columns; update
@@ -275,6 +276,7 @@ type ItemResponseUpdate struct {
 
 // registerAll wires every resource's CRUD endpoints into the API.
 func registerAll(h huma.API, q repo.Querier, opts Options) {
+	opts = normalizeOptions(opts)
 	RegisterCRUD[domain.Educator, EducatorCreate, EducatorUpdate](h, q, repo.Educators, "educator", "educators", "/educators")
 	RegisterCRUD[domain.Student, StudentCreate, StudentUpdate](h, q, repo.Students, "student", "students", "/students")
 	RegisterCRUD[domain.Subject, SubjectCreate, SubjectUpdate](h, q, repo.Subjects, "subject", "subjects", "/subjects")
@@ -290,4 +292,36 @@ func registerAll(h huma.API, q repo.Querier, opts Options) {
 	RegisterCRUD[domain.AssessmentAttempt, AssessmentAttemptCreate, AssessmentAttemptUpdate](h, q, repo.AssessmentAttempts, "assessment-attempt", "assessment-attempts", "/assessment-attempts")
 	RegisterCRUD[domain.ItemResponse, ItemResponseCreate, ItemResponseUpdate](h, q, repo.ItemResponses, "item-response", "item-responses", "/item-responses")
 	registerInstructionLogs(h, q, opts)
+	registerParentAuth(h, q)
+	registerParentLearning(h, q, opts)
+	registerStudentAPI(h, q, opts)
+}
+
+func normalizeOptions(opts Options) Options {
+	if opts.Tutor == nil {
+		svc, err := tutor.NewFromConfig(tutor.DefaultConfig())
+		if err != nil {
+			// DefaultConfig must always succeed; panic would hide wiring bugs in tests.
+			opts.Tutor = tutor.NewFake()
+			opts.TutorProviderName = "fake"
+			opts.TutorEnabled = true
+			return opts
+		}
+		opts.Tutor = svc
+		if opts.TutorProviderName == "" {
+			opts.TutorProviderName = svc.ProviderName()
+		}
+		opts.TutorEnabled = svc.Enabled()
+		return opts
+	}
+	if opts.TutorProviderName == "" {
+		if ps, ok := opts.Tutor.(*tutor.PolicyService); ok {
+			opts.TutorProviderName = ps.ProviderName()
+			opts.TutorEnabled = ps.Enabled()
+		} else {
+			opts.TutorProviderName = "fake"
+			opts.TutorEnabled = true
+		}
+	}
+	return opts
 }

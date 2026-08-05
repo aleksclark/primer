@@ -10,13 +10,33 @@ COVER_MIN := 85
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
-	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system
+	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
+	activity-validate activity-publish student-build student-deploy student-acceptance \
+	student-stub student-harness \
+	workstation-package workstation-check update-student-vendor-hash \
+	investor-web investor-web-dev investor-web-test investor-web-ci
 
 all: build openapi openapi-tv client tv-client
 
 ## Generate and validate cross-platform design tokens and the review preview.
 design-system:
 	python3 design-system/build.py
+
+## Build the investor pitch site (regenerates design-system tokens first).
+investor-web: design-system
+	cd investor-web && npm run build
+
+## Run the investor pitch Vite dev server.
+investor-web-dev:
+	cd investor-web && npm run dev
+
+## Investor data, launch, a11y, and unit checks (no production build).
+investor-web-test:
+	cd investor-web && npm test
+
+## CI sequence: design-system → tests → typecheck/lint → build → bundle budgets.
+investor-web-ci: design-system
+	cd investor-web && npm run gate
 
 ## Build the server binaries.
 build:
@@ -135,3 +155,76 @@ ingest-review: ingest-build
 ## Converge Radarr/Sonarr/yt-dlp/Jellyfin/TV toward the content manifest.
 ingest-apply: ingest-build
 	./bin/content-ingest apply
+
+## Validate curriculum/activities against student-client contracts (offline, no DB).
+activity-validate:
+	cd server && go run ./cmd/activity-validate -dir ../curriculum/activities
+
+## Publish curriculum standards + activity revisions into the LMS database.
+## Requires DATABASE_URL (see server/internal/config).
+activity-publish:
+	cd server && go run ./cmd/activity-publish -activities ../curriculum/activities -standards ../curriculum/standards
+
+## TEST-ONLY: Phase 1 work-queue stub TUI. Do not deploy to workstations.
+## Prefer primer-student (packaged via workstation flake) for real instruction.
+student-stub:
+	cd server && go build -o ../bin/primer-student-stub ./cmd/primer-student-stub
+
+## TEST-ONLY: headless engine harness for CI/acceptance. Do not deploy.
+student-harness:
+	cd server && go build -o ../bin/primer-student-harness ./cmd/primer-student-harness
+
+## API + headless acceptance smoke (requires running LMS + parent credentials).
+## See scripts/student-acceptance.sh and agent_docs/runbooks/student-client-ops.md.
+student-acceptance:
+	./scripts/student-acceptance.sh
+
+## Build the interactive student workstation TUI with version/commit ldflags.
+STUDENT_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+STUDENT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+student-build:
+	cd server && go build -ldflags="-s -w -X main.version=$(STUDENT_VERSION) -X main.commit=$(STUDENT_COMMIT)" \
+		-o ../bin/primer-student ./cmd/primer-student
+
+## DEPRECATED: scp a prebuilt binary to /var/lib/primer-student/bin.
+## Prefer: cd workstation && ./deploy.sh  (Nix package is the default now).
+## Usage: make student-deploy HOST=root@primer.local
+HOST ?= root@primer.local
+student-deploy: student-build
+	@echo "WARNING: student-deploy is deprecated; use workstation flake package via ./deploy.sh" >&2
+	ssh "$(HOST)" 'mkdir -p /var/lib/primer-student/bin && chown student:students /var/lib/primer-student /var/lib/primer-student/bin'
+	scp bin/primer-student "$(HOST):/var/lib/primer-student/bin/primer-student"
+	ssh "$(HOST)" 'chown student:students /var/lib/primer-student/bin/primer-student && chmod 755 /var/lib/primer-student/bin/primer-student && primer-student-health'
+
+## Build primer-student via the workstation flake (Docker Nix when host nix is broken).
+## Mounts the Primer parent tree so git worktrees resolve inside the container.
+PRIMER_ROOT ?= $(shell cd "$(CURDIR)/../.." && pwd)
+workstation-package:
+	docker volume create primer-nix-store >/dev/null
+	docker run --rm \
+		-v primer-nix-store:/nix \
+		-v "$(PRIMER_ROOT):$(PRIMER_ROOT)" \
+		-w "$(CURDIR)/workstation" \
+		-e NIX_CONFIG='experimental-features = nix-command flakes' \
+		nixos/nix:2.24.11 \
+		sh -c 'git config --global --add safe.directory "*" && nix build .#primer-student --option sandbox false --print-out-paths'
+
+## Run flake checks (package build + activity-validate) in Docker Nix.
+workstation-check:
+	docker volume create primer-nix-store >/dev/null
+	docker run --rm \
+		-v primer-nix-store:/nix \
+		-v "$(PRIMER_ROOT):$(PRIMER_ROOT)" \
+		-w "$(CURDIR)/workstation" \
+		-e NIX_CONFIG='experimental-features = nix-command flakes' \
+		nixos/nix:2.24.11 \
+		sh -c 'git config --global --add safe.directory "*" && nix build \
+			.#checks.x86_64-linux.primer-student \
+			.#checks.x86_64-linux.runtime-coreutils-basic \
+			.#checks.x86_64-linux.activity-validate \
+			.#checks.x86_64-linux.workstation-eval \
+			--option sandbox false --print-out-paths'
+
+## Recompute packages/primer-student.nix vendorHash after go.mod changes.
+update-student-vendor-hash:
+	./workstation/scripts/update-primer-student-vendor-hash.sh

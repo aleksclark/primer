@@ -27,12 +27,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -55,6 +58,11 @@ private const val OVERLAY_TIMEOUT_MS = 4_000L
  * Playback is deliberately direct-play only: no transcoding is requested of
  * Jellyfin, because the RK3318 box cannot keep up with a server-side transcode
  * and the admin UI already refuses to offer incompatible items.
+ *
+ * Audio uses [DefaultRenderersFactory] with
+ * [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON] so platform MediaCodec
+ * stays preferred (AAC/MP3) and the vendored Media3 FFmpeg extension covers
+ * AC3/EAC3/DTS when the SoC has no hardware decoder.
  *
  * Transport chrome visibility follows [PlaybackControls] / [PlaybackOverlayModel].
  * Pause and seek are enforced by [PolicyPlayer] (command withdrawal + clamp),
@@ -110,7 +118,9 @@ fun PlayerHost(
     }
 
     val exoPlayer = remember(streamUrl) {
-        ExoPlayer.Builder(context)
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(PlayerConfiguration.EXTENSION_RENDERER_MODE)
+        ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(OkHttpDataSource.Factory(httpClient)),
             )
@@ -235,6 +245,21 @@ fun PlayerHost(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) onEnded()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                // Keep existing callbacks intact; log enough to diagnose codec
+                // / renderer failures on the T9 box without crashing the UI.
+                Log.e(
+                    PLAYER_HOST_TAG,
+                    PlayerConfiguration.formatPlayerError(
+                        errorCode = error.errorCode,
+                        errorCodeName = error.errorCodeName,
+                        message = error.message,
+                        cause = error.cause?.toString(),
+                    ),
+                    error,
+                )
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -386,3 +411,5 @@ fun PlayerHost(
         }
     }
 }
+
+private const val PLAYER_HOST_TAG = "PlayerHost"

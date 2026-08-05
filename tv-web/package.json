@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "generate:client": "openapi-typescript openapi.yaml -o src/api/schema.d.ts",
-    "prebuild": "npm run generate:client",
+    "check:direct-play": "node scripts/check-direct-play.mjs",
+    "prebuild": "npm run generate:client && npm run check:direct-play",
     "build": "tsc -b && vite build",
     "lint": "oxlint .",
     "preview": "vite preview"

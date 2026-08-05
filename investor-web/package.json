@@ -1,0 +1,36 @@
+{
+  "name": "investor-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint .",
+    "preview": "vite preview",
+    "validate": "tsx scripts/validate-data.ts",
+    "check:system-c": "tsx scripts/check-system-c.ts",
+    "check:launch": "tsx scripts/check-launch.ts",
+    "check:a11y": "tsx scripts/check-a11y.ts",
+    "check:bundle": "tsx scripts/check-bundle.ts",
+    "test:unit": "tsx tests/marketMath.test.ts",
+    "test": "tsx scripts/validate-data.ts && tsx scripts/check-system-c.ts && tsx tests/marketMath.test.ts && tsx scripts/check-launch.ts && tsx scripts/check-a11y.ts",
+    "typecheck": "tsc -b --pretty false",
+    "gate": "npm run test && npm run typecheck && npm run lint && npm run build && npm run check:bundle"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "tsx": "^4.20.5",
+    "typescript": "~5.9.0",
+    "vite": "^8.1.1"
+  }
+}

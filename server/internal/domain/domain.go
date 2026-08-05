@@ -8,13 +8,24 @@ package domain
 import "time"
 
 // Educator is a parent or administrator who manages the system.
+// PasswordHash is never serialized; it is loaded only for authentication.
 type Educator struct {
-	ID        string    `json:"id" db:"id" format:"uuid"`
-	Email     string    `json:"email" db:"email" format:"email"`
-	Name      string    `json:"name" db:"name"`
-	Role      string    `json:"role" db:"role" enum:"parent,admin,tutor"`
-	CreatedAt time.Time `json:"createdAt" db:"created_at"`
-	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+	ID           string    `json:"id" db:"id" format:"uuid"`
+	Email        string    `json:"email" db:"email" format:"email"`
+	Name         string    `json:"name" db:"name"`
+	Role         string    `json:"role" db:"role" enum:"parent,admin,tutor"`
+	PasswordHash string    `json:"-" db:"password_hash"`
+	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt    time.Time `json:"updatedAt" db:"updated_at"`
+}
+
+// ParentSession is a server-side parent/admin login session.
+type ParentSession struct {
+	ID         string    `json:"id" db:"id" format:"uuid"`
+	EducatorID string    `json:"educatorId" db:"educator_id" format:"uuid"`
+	TokenHash  string    `json:"-" db:"token_hash"`
+	ExpiresAt  time.Time `json:"expiresAt" db:"expires_at"`
+	CreatedAt  time.Time `json:"createdAt" db:"created_at"`
 }
 
 // Student is a learner tracked by the system.
@@ -221,4 +232,157 @@ type ItemResponse struct {
 	Feedback      string         `json:"feedback" db:"feedback"`
 	CreatedAt     time.Time      `json:"createdAt" db:"created_at"`
 	UpdatedAt     time.Time      `json:"updatedAt" db:"updated_at"`
+}
+
+// Activity status values.
+const (
+	ActivityStatusDraft     = "draft"
+	ActivityStatusPublished = "published"
+	ActivityStatusRetired   = "retired"
+)
+
+// Assignment state values.
+const (
+	AssignmentAvailable  = "available"
+	AssignmentInProgress = "in_progress"
+	AssignmentCompleted  = "completed"
+	AssignmentCancelled  = "cancelled"
+)
+
+// Learning session state values.
+const (
+	SessionStarted   = "started"
+	SessionPaused    = "paused"
+	SessionCompleted = "completed"
+	SessionAbandoned = "abandoned"
+)
+
+// LearningActivity is an authoring identity that survives revisions.
+type LearningActivity struct {
+	ID        string    `json:"id" db:"id" format:"uuid"`
+	Slug      string    `json:"slug" db:"slug"`
+	Title     string    `json:"title" db:"title"`
+	Summary   string    `json:"summary" db:"summary"`
+	Kind      string    `json:"kind" db:"kind" enum:"terminal,typing"`
+	SubjectID *string   `json:"subjectId,omitempty" db:"subject_id" format:"uuid"`
+	Status    string    `json:"status" db:"status" enum:"draft,published,retired"`
+	CreatedAt time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+}
+
+// LearningActivityRevision is an immutable activity payload used for sessions.
+type LearningActivityRevision struct {
+	ID            string         `json:"id" db:"id" format:"uuid"`
+	ActivityID    string         `json:"activityId" db:"activity_id" format:"uuid"`
+	Revision      int            `json:"revision" db:"revision"`
+	SchemaVersion string         `json:"schemaVersion" db:"schema_version"`
+	Content       map[string]any `json:"content" db:"content"`
+	ContentSHA256 string         `json:"contentSha256" db:"content_sha256"`
+	PublishedAt   *time.Time     `json:"publishedAt,omitempty" db:"published_at"`
+	CreatedAt     time.Time      `json:"createdAt" db:"created_at"`
+}
+
+// LearningActivityRevisionStandard links a revision to a standard.
+type LearningActivityRevisionStandard struct {
+	ID                 string    `json:"id" db:"id" format:"uuid"`
+	ActivityRevisionID string    `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	StandardID         string    `json:"standardId" db:"standard_id" format:"uuid"`
+	Role               string    `json:"role" db:"role" enum:"primary,reinforcement"`
+	Weight             float64   `json:"weight" db:"weight"`
+	MasteryCriterion   string    `json:"masteryCriterion" db:"mastery_criterion"`
+	CreatedAt          time.Time `json:"createdAt" db:"created_at"`
+}
+
+// StudentAssignment is a concrete work item for a student.
+type StudentAssignment struct {
+	ID                 string         `json:"id" db:"id" format:"uuid"`
+	StudentID          string         `json:"studentId" db:"student_id" format:"uuid"`
+	ActivityRevisionID string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	EnrollmentID       *string        `json:"enrollmentId,omitempty" db:"enrollment_id" format:"uuid"`
+	State              string         `json:"state" db:"state" enum:"available,in_progress,completed,cancelled"`
+	Priority           int            `json:"priority" db:"priority"`
+	AvailableAt        time.Time      `json:"availableAt" db:"available_at"`
+	DueAt              *time.Time     `json:"dueAt,omitempty" db:"due_at"`
+	AssignedBy         *string        `json:"assignedBy,omitempty" db:"assigned_by" format:"uuid"`
+	Reason             string         `json:"reason" db:"reason"`
+	Constraints        map[string]any `json:"constraints,omitempty" db:"constraints"`
+	CreatedAt          time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt          time.Time      `json:"updatedAt" db:"updated_at"`
+}
+
+// StudentDevice is a paired student workstation.
+type StudentDevice struct {
+	ID         string     `json:"id" db:"id" format:"uuid"`
+	StudentID  string     `json:"studentId" db:"student_id" format:"uuid"`
+	Name       string     `json:"name" db:"name"`
+	TokenHash  string     `json:"-" db:"token_hash"`
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty" db:"last_seen_at"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty" db:"revoked_at"`
+	CreatedAt  time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updatedAt" db:"updated_at"`
+}
+
+// StudentDevicePairingCode is a short-lived one-use pairing code.
+type StudentDevicePairingCode struct {
+	ID        string     `json:"id" db:"id" format:"uuid"`
+	StudentID string     `json:"studentId" db:"student_id" format:"uuid"`
+	CodeHash  string     `json:"-" db:"code_hash"`
+	CreatedBy *string    `json:"createdBy,omitempty" db:"created_by" format:"uuid"`
+	ExpiresAt time.Time  `json:"expiresAt" db:"expires_at"`
+	UsedAt    *time.Time `json:"usedAt,omitempty" db:"used_at"`
+	CreatedAt time.Time  `json:"createdAt" db:"created_at"`
+}
+
+// LearningSession is one attempt at an assignment on a device.
+type LearningSession struct {
+	ID                 string     `json:"id" db:"id" format:"uuid"`
+	AssignmentID       string     `json:"assignmentId" db:"assignment_id" format:"uuid"`
+	StudentID          string     `json:"studentId" db:"student_id" format:"uuid"`
+	DeviceID           string     `json:"deviceId" db:"device_id" format:"uuid"`
+	ClientSessionID    string     `json:"clientSessionId" db:"client_session_id"`
+	ActivityRevisionID string     `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	State              string     `json:"state" db:"state" enum:"started,paused,completed,abandoned"`
+	StartedAt          time.Time  `json:"startedAt" db:"started_at"`
+	LastEventAt        *time.Time `json:"lastEventAt,omitempty" db:"last_event_at"`
+	CompletedAt        *time.Time `json:"completedAt,omitempty" db:"completed_at"`
+	DurationSeconds    int        `json:"durationSeconds" db:"duration_seconds"`
+	Summary            string     `json:"summary" db:"summary"`
+	CreatedAt          time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt          time.Time  `json:"updatedAt" db:"updated_at"`
+}
+
+// LearningSessionEvent is one append-only audit event.
+type LearningSessionEvent struct {
+	ID            string         `json:"id" db:"id" format:"uuid"`
+	SessionID     string         `json:"sessionId" db:"session_id" format:"uuid"`
+	EventID       string         `json:"eventId" db:"event_id" format:"uuid"`
+	Sequence      int64          `json:"sequence" db:"sequence"`
+	EventType     string         `json:"eventType" db:"event_type"`
+	ClientTime    time.Time      `json:"clientTime" db:"client_time"`
+	ReceivedAt    time.Time      `json:"receivedAt" db:"received_at"`
+	SchemaVersion string         `json:"schemaVersion" db:"schema_version"`
+	Payload       map[string]any `json:"payload,omitempty" db:"payload"`
+}
+
+// LearningSessionCompletion is the immutable completion result for a session.
+type LearningSessionCompletion struct {
+	ID            string         `json:"id" db:"id" format:"uuid"`
+	SessionID     string         `json:"sessionId" db:"session_id" format:"uuid"`
+	CompletionID  string         `json:"completionId" db:"completion_id" format:"uuid"`
+	RequestDigest string         `json:"requestDigest" db:"request_digest"`
+	Response      map[string]any `json:"response" db:"response"`
+	CreatedAt     time.Time      `json:"createdAt" db:"created_at"`
+}
+
+// LearningSessionArtifact is metadata for optional evidence uploads.
+type LearningSessionArtifact struct {
+	ID          string    `json:"id" db:"id" format:"uuid"`
+	SessionID   string    `json:"sessionId" db:"session_id" format:"uuid"`
+	ArtifactID  string    `json:"artifactId" db:"artifact_id" format:"uuid"`
+	Filename    string    `json:"filename" db:"filename"`
+	MediaType   string    `json:"mediaType" db:"media_type"`
+	ByteSize    int64     `json:"byteSize" db:"byte_size"`
+	SHA256      string    `json:"sha256" db:"sha256"`
+	StoragePath string    `json:"storagePath,omitempty" db:"storage_path"`
+	CreatedAt   time.Time `json:"createdAt" db:"created_at"`
 }

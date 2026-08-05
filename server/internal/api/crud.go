@@ -288,6 +288,9 @@ func MapError(err error) error {
 	if errors.Is(err, repo.ErrNotFound) {
 		return huma.Error404NotFound("resource not found")
 	}
+	if errors.Is(err, repo.ErrConflict) {
+		return huma.Error409Conflict(err.Error())
+	}
 	var badReq repo.ErrBadRequest
 	if errors.As(err, &badReq) {
 		return huma.Error400BadRequest(badReq.Msg)

@@ -114,6 +114,7 @@ func TestMetadataDiff(t *testing.T) {
 		VideoCodec:     "h264",
 		AudioCodec:     "aac",
 		ImageTag:       "tag-1",
+		DirectPlayOK:   true,
 	}
 
 	t.Run("no changes yields no writes", func(t *testing.T) {
@@ -142,6 +143,7 @@ func TestMetadataDiff(t *testing.T) {
 		assert.Equal(t, "hevc", diff["video_codec"])
 		assert.Equal(t, "eac3", diff["audio_codec"])
 		assert.Equal(t, "tag-2", diff["image_tag"])
+		assert.NotContains(t, diff, "direct_play_ok", "hevc+eac3 remains direct-play OK")
 	})
 
 	t.Run("empty upstream values never blank local data", func(t *testing.T) {
@@ -159,6 +161,190 @@ func TestMetadataDiff(t *testing.T) {
 		diff := metadataDiff(orphaned, &jellyfin.Item{Name: "Old"})
 		require.Contains(t, diff, "orphaned_at")
 		assert.Nil(t, diff["orphaned_at"], "reappearing in Jellyfin clears the orphan flag")
+	})
+
+	t.Run("stale EAC3 direct_play_ok false becomes true", func(t *testing.T) {
+		t.Parallel()
+		stale := current
+		stale.AudioCodec = "eac3"
+		stale.DirectPlayOK = false
+		stale.QualityNotes = "audio codec eac3"
+
+		// Codecs unchanged upstream — policy still repairs the flag.
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(stale, same)
+		require.Equal(t, true, diff["direct_play_ok"])
+		require.Equal(t, "", diff["quality_notes"])
+		assert.NotContains(t, diff, "audio_codec")
+	})
+
+	t.Run("stale DTS direct_play_ok false becomes true", func(t *testing.T) {
+		t.Parallel()
+		stale := current
+		stale.VideoCodec = "hevc"
+		stale.AudioCodec = "dts"
+		stale.DirectPlayOK = false
+		stale.QualityNotes = "audio codec dts"
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "hevc", AudioCodec: "dts", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(stale, same)
+		assert.Equal(t, true, diff["direct_play_ok"])
+		assert.Equal(t, "", diff["quality_notes"])
+	})
+
+	t.Run("unsupported codec flips direct_play_ok true to false", func(t *testing.T) {
+		t.Parallel()
+		// Remote reports a newly-unsupported audio track.
+		changed := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "truehd", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(current, changed)
+		assert.Equal(t, "truehd", diff["audio_codec"])
+		assert.Equal(t, false, diff["direct_play_ok"])
+		assert.Equal(t, "audio codec truehd", diff["quality_notes"])
+	})
+
+	t.Run("stale auto-note cleaned without flag change", func(t *testing.T) {
+		t.Parallel()
+		stale := current
+		stale.AudioCodec = "eac3"
+		stale.DirectPlayOK = true
+		stale.QualityNotes = "audio codec eac3"
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(stale, same)
+		assert.NotContains(t, diff, "direct_play_ok")
+		assert.Equal(t, "", diff["quality_notes"])
+	})
+
+	t.Run("manual quality notes withhold direct play", func(t *testing.T) {
+		t.Parallel()
+		// Curator unchecked direct-play and left a manual note — sync must not
+		// clobber either the flag or the note just because codecs are allowlisted.
+		withheld := current
+		withheld.AudioCodec = "eac3"
+		withheld.DirectPlayOK = false
+		withheld.QualityNotes = "curator: family movie night pick"
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(withheld, same)
+		assert.NotContains(t, diff, "direct_play_ok", "manual withhold must survive sync")
+		assert.NotContains(t, diff, "quality_notes", "manual notes must not be wiped")
+	})
+
+	t.Run("blank quality notes withhold direct play", func(t *testing.T) {
+		t.Parallel()
+		// Curator unchecked without a note (or never annotated). Only
+		// recognizably auto-generated codec notes may repair false→true.
+		withheld := current
+		withheld.AudioCodec = "eac3"
+		withheld.DirectPlayOK = false
+		withheld.QualityNotes = ""
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(withheld, same)
+		assert.NotContains(t, diff, "direct_play_ok", "blank note is not safe stale-policy evidence")
+		assert.NotContains(t, diff, "quality_notes")
+	})
+
+	t.Run("unsupported auto-note does not authorize false to true", func(t *testing.T) {
+		t.Parallel()
+		// An auto note naming a still-unsupported codec (truehd) is not stale
+		// allowlist evidence — even when the current codecs are allowlisted.
+		withheld := current
+		withheld.AudioCodec = "eac3"
+		withheld.DirectPlayOK = false
+		withheld.QualityNotes = "audio codec truehd"
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(withheld, same)
+		assert.NotContains(t, diff, "direct_play_ok", "truehd auto note must not authorize repair")
+		// Notes still reconcile to empty because codecs are now OK and the note is auto-shaped.
+		assert.Equal(t, "", diff["quality_notes"])
+	})
+
+	t.Run("mixed auto-note with unsupported codec does not authorize repair", func(t *testing.T) {
+		t.Parallel()
+		withheld := current
+		withheld.VideoCodec = "h264"
+		withheld.AudioCodec = "eac3"
+		withheld.DirectPlayOK = false
+		withheld.QualityNotes = "video codec av1; audio codec eac3"
+
+		same := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		diff := metadataDiff(withheld, same)
+		assert.NotContains(t, diff, "direct_play_ok", "partially unsupported auto note must not authorize repair")
+	})
+
+	t.Run("multi-sync blank withhold survives truehd then eac3", func(t *testing.T) {
+		t.Parallel()
+		// Regression: blank curator withhold → truehd sync writes auto note →
+		// later eac3 sync must NOT treat that auto note as stale-allowlist
+		// evidence and flip direct_play_ok back to true.
+		item := current
+		item.DirectPlayOK = false
+		item.QualityNotes = ""
+		item.AudioCodec = "aac"
+
+		truehdRemote := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "truehd", ImageTag: "tag-1",
+		}
+		afterTrueHD := metadataDiff(item, truehdRemote)
+		// Already false — no flag write, but codec + auto note are recorded.
+		assert.NotContains(t, afterTrueHD, "direct_play_ok")
+		require.Equal(t, "truehd", afterTrueHD["audio_codec"])
+		require.Equal(t, "audio codec truehd", afterTrueHD["quality_notes"])
+
+		// Apply first-sync writes as the DB would.
+		item.DirectPlayOK = false
+		item.AudioCodec = "truehd"
+		item.QualityNotes = "audio codec truehd"
+
+		eac3Remote := &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "eac3", ImageTag: "tag-1",
+		}
+		afterEAC3 := metadataDiff(item, eac3Remote)
+		assert.Equal(t, "eac3", afterEAC3["audio_codec"])
+		assert.NotContains(t, afterEAC3, "direct_play_ok",
+			"curator blank withhold must survive truehd→eac3 multi-sync")
+		// Auto note may clear once codecs are OK; the flag must stay false.
+		if notes, ok := afterEAC3["quality_notes"]; ok {
+			assert.Equal(t, "", notes)
+		}
 	})
 }
 

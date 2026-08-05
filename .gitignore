@@ -6,6 +6,10 @@ server/openapi-gen
 server/migrate
 server/content-ingest
 bin/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 
 # content-ingest working artifacts (manifest + review stay tracked)
 curriculum/ingest-reports/

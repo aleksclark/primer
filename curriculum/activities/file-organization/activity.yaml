@@ -1,0 +1,168 @@
+schema_version: "1"
+slug: file-organization
+title: File Organization
+summary: Create folders and move or copy files so a messy inbox becomes an ordered archive.
+kind: terminal
+subject_code: digital-literacy
+standards:
+  - code: PRIMER.DL.6.FILES.1
+    role: primary
+    weight: 1.0
+  - code: PRIMER.DL.6.FILES.2
+    role: reinforcement
+    weight: 0.5
+  - code: PRIMER.DL.6.NAV.1
+    role: reinforcement
+    weight: 0.25
+min_runner_version: "1"
+content:
+  objective: Organize files with mkdir, cp, and mv inside a sandbox workspace.
+  instructions: |
+    Your inbox has a few loose files. Create an archive layout, copy the
+    keepsake, and move the rest so inbox is empty and archive holds the work.
+  terminal:
+    runtime_profile: coreutils-basic
+    initial_cwd: workspace
+    fixtures:
+      - path: workspace
+        type: directory
+      - path: workspace/inbox
+        type: directory
+      - path: workspace/inbox/letter.txt
+        type: file
+        content: |
+          Dear student,
+          Please file this letter in the archive.
+      - path: workspace/inbox/notes.txt
+        type: file
+        content: |
+          shopping: apples
+          homework: math worksheet
+      - path: workspace/inbox/keepsake.txt
+        type: file
+        mode: "0644"
+        content: |
+          A copy of this file should remain available after organizing.
+      - path: workspace/README.txt
+        type: file
+        content: |
+          Create archive/letters and archive/notes, then sort the inbox.
+  tasks:
+    - id: make-layout
+      title: Create the archive layout
+      instructions: |
+        Inside workspace, create archive, archive/letters, and archive/notes.
+      completion:
+        all:
+          - check_id: archive-dir
+          - check_id: letters-dir
+          - check_id: notes-dir
+      hint_ids: [hint-mkdir]
+    - id: file-letter
+      title: File the letter
+      instructions: |
+        Move inbox/letter.txt into archive/letters/. The inbox copy should be gone.
+      prerequisites: [make-layout]
+      completion:
+        all:
+          - check_id: letter-archived
+          - check_id: letter-gone-from-inbox
+          - check_id: letter-body
+      hint_ids: [hint-mv]
+    - id: file-notes
+      title: File the notes
+      instructions: |
+        Move inbox/notes.txt into archive/notes/.
+      prerequisites: [file-letter]
+      completion:
+        all:
+          - check_id: notes-archived
+          - check_id: notes-gone-from-inbox
+    - id: keep-keepsake
+      title: Keep a copy of the keepsake
+      instructions: |
+        Copy inbox/keepsake.txt to archive/keepsake.txt. Leave the original in inbox
+        or remove it only after the copy exists—either is fine if the archive copy
+        has the expected text.
+      prerequisites: [file-notes]
+      completion:
+        all:
+          - check_id: keepsake-archived
+          - check_id: keepsake-text
+          - check_id: inbox-empty-optional
+            optional: true
+      hint_ids: [hint-cp]
+  checks:
+    - id: archive-dir
+      kind: path_type
+      params:
+        path: workspace/archive
+        type: directory
+    - id: letters-dir
+      kind: path_type
+      params:
+        path: workspace/archive/letters
+        type: directory
+    - id: notes-dir
+      kind: path_type
+      params:
+        path: workspace/archive/notes
+        type: directory
+    - id: letter-archived
+      kind: file_exists
+      params:
+        path: workspace/archive/letters/letter.txt
+    - id: letter-gone-from-inbox
+      kind: file_not_exists
+      params:
+        path: workspace/inbox/letter.txt
+    - id: letter-body
+      kind: content_contains
+      params:
+        path: workspace/archive/letters/letter.txt
+        value: archive
+    - id: notes-archived
+      kind: file_exists
+      params:
+        path: workspace/archive/notes/notes.txt
+    - id: notes-gone-from-inbox
+      kind: file_not_exists
+      params:
+        path: workspace/inbox/notes.txt
+    - id: keepsake-archived
+      kind: file_exists
+      params:
+        path: workspace/archive/keepsake.txt
+    - id: keepsake-text
+      kind: content_match
+      params:
+        path: workspace/archive/keepsake.txt
+        pattern: "copy of this file"
+    - id: inbox-empty-optional
+      kind: file_not_exists
+      params:
+        path: workspace/inbox/keepsake.txt
+  hints:
+    - id: hint-mkdir
+      level: 1
+      text: mkdir can create a directory; some systems allow mkdir -p for nested paths.
+    - id: hint-mv
+      level: 2
+      text: mv relocates a file from a source path to a destination path.
+    - id: hint-cp
+      level: 2
+      text: cp duplicates a file; use it when you need the original and a copy.
+  tutor:
+    goal_summary: Student builds a simple archive with mkdir/cp/mv.
+    misconceptions:
+      - mv deletes without moving if the destination path is wrong—check with ls.
+      - cp and mv argument order is source then destination.
+    constraints:
+      - Do not provide a full script of commands to paste.
+      - Celebrate correct structure even if optional cleanup is incomplete.
+  progression:
+    allow_reset: true
+    resume_from_task: true
+    require_in_order: true
+  artifacts:
+    enabled: false

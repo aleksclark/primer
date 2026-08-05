@@ -51,7 +51,7 @@ The system is named after the Young Lady's Illustrated Primer from Neal Stephens
 
 ## Tech Stack
 
-- **Language**: Go (extending the command_teacher prototype)
+- **Language**: Go (student workstation reimplemented in Primer; standalone `command_teacher` is a retired prototype once acceptance passes — see `agent_docs/runbooks/student-client-ops.md`)
 - **UI Framework**: Charm stack (Bubble Tea v2, Lip Gloss v2)
 - **Agent Framework**: Fantasy SDK (Charmbracelet)
 - **LLM Provider**: AWS Bedrock (primary), OpenRouter/OpenAI (fallback)

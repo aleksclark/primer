@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { authHeaders } from "@/api/auth";
 import { apiError, type ListQuery, type Page } from "@/api/client";
 
 interface ListState<T> {
@@ -31,7 +32,10 @@ export function useList<T>(
     for (const f of query.filter ?? []) params.append("filter", f);
 
     setState((s) => ({ ...s, loading: true }));
-    fetch(`/api/v1${path}?${params}`, { signal: controller.signal })
+    fetch(`/api/v1${path}?${params}`, {
+      signal: controller.signal,
+      headers: authHeaders(),
+    })
       .then(async (res) => {
         if (!res.ok) throw await apiError(res);
         return res.json();

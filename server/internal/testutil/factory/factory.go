@@ -39,6 +39,17 @@ func Educator(t *testing.T, q repo.Querier, overrides ...Override) *domain.Educa
 	}, overrides))
 }
 
+// EducatorWithPassword creates an educator and sets a known bcrypt password.
+func EducatorWithPassword(t *testing.T, q repo.Querier, password string, overrides ...Override) *domain.Educator {
+	t.Helper()
+	ed := Educator(t, q, overrides...)
+	if err := repo.SetEducatorPassword(t.Context(), q, ed.ID, password); err != nil {
+		t.Fatalf("set educator password: %v", err)
+	}
+	ed.PasswordHash = "" // not needed by callers
+	return ed
+}
+
 // Student creates a student.
 func Student(t *testing.T, q repo.Querier, overrides ...Override) *domain.Student {
 	i := n()

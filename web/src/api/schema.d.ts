@@ -176,6 +176,84 @@ export interface paths {
         patch: operations["update-assessment"];
         trace?: never;
     };
+    "/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List student assignments */
+        get: operations["list-assignments"];
+        put?: never;
+        /** Assign activity revision to student */
+        post: operations["create-assignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assignments/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an assignment
+         * @description Sets assignment state to cancelled. Completed work cannot be cancelled.
+         */
+        post: operations["cancel-assignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assignments/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry an assignment
+         * @description Creates a new available assignment for the same activity revision. Does not modify the original row; cancel first when replacing open work.
+         */
+        post: operations["retry-assignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parent login
+         * @description Authenticate an educator with email and password. Returns a session token for parent-guarded routes.
+         */
+        post: operations["parent-login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/curricula": {
         parameters: {
             query?: never;
@@ -471,6 +549,59 @@ export interface paths {
         patch: operations["update-item-response"];
         trace?: never;
     };
+    "/learning-activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List learning activities */
+        get: operations["list-learning-activities"];
+        put?: never;
+        /** Create draft learning activity */
+        post: operations["create-learning-activity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/learning-activities/{id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List activity revisions */
+        get: operations["list-activity-revisions"];
+        put?: never;
+        /** Publish immutable activity revision */
+        post: operations["publish-activity-revision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/learning-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List learning sessions */
+        get: operations["list-learning-sessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mastery-evidence": {
         parameters: {
             query?: never;
@@ -512,6 +643,26 @@ export interface paths {
          * @description Partial update: only provided fields are changed.
          */
         patch: operations["update-mastery-evidence"];
+        trace?: never;
+    };
+    "/mastery-evidence/{id}/supersede": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Supersede mastery evidence
+         * @description Marks existing evidence with an audited superseded note and inserts replacement evidence. Does not rewrite device event history.
+         */
+        post: operations["supersede-mastery-evidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/mastery-records": {
@@ -557,6 +708,46 @@ export interface paths {
         patch: operations["update-mastery-record"];
         trace?: never;
     };
+    "/ops/student-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student client metrics
+         * @description Simple JSON counters for devices, open assignments, active sessions, and completions in the last 24h.
+         */
+        get: operations["get-student-metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pairing-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create student device pairing code
+         * @description Issues a short-lived one-time pairing code for a student. Single-family: any parent/admin may manage all students.
+         */
+        post: operations["create-pairing-code"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/standards": {
         parameters: {
             query?: never;
@@ -600,6 +791,205 @@ export interface paths {
         patch: operations["update-standard"];
         trace?: never;
     };
+    "/student-devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List student devices
+         * @description Household device diagnostics: name, lastSeenAt, revokedAt. Single-family: all devices.
+         */
+        get: operations["list-student-devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student-devices/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pair a student device
+         * @description Exchange a parent-issued pairing code for a device token. The token is returned once.
+         */
+        post: operations["pair-student-device"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student-devices/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a student device */
+        post: operations["revoke-student-device"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student-devices/{id}/rotate-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate student device credential
+         * @description Revokes the device token and returns a new one-time pairing code for the same student. Re-pair is required; the old token stops working immediately.
+         */
+        post: operations["rotate-student-device-token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Student profile for the paired device */
+        get: operations["get-student-profile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start or resume a learning session */
+        post: operations["start-student-session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions/{id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register session artifact metadata */
+        post: operations["post-session-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions/{id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete a session (idempotent) */
+        post: operations["complete-student-session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest idempotent session event batch */
+        post: operations["post-session-events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions/{id}/tutor/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a tutor chat message
+         * @description Returns brief discovery-oriented coaching. Falls back to activity hints when the provider fails. Does not mutate mastery.
+         */
+        post: operations["post-session-tutor-message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Work queue for the paired student */
+        get: operations["get-student-work"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/students": {
         parameters: {
             query?: never;
@@ -641,6 +1031,103 @@ export interface paths {
          * @description Partial update: only provided fields are changed.
          */
         patch: operations["update-student"];
+        trace?: never;
+    };
+    "/students/{id}/assign-next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign next activity for a student
+         * @description Overseer helper: prefers reinforcement-due mastery, else next unassigned published curriculum activity. Optional slug forces a specific activity.
+         */
+        post: operations["assign-next-activity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/students/{id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List assignments for a student */
+        get: operations["list-student-assignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/students/{id}/learning-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student learning overview
+         * @description Aggregate: devices, open assignments, recent sessions, mastery summary, tutor-off flag.
+         */
+        get: operations["get-student-learning-overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/students/{id}/tutor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable or disable tutoring for a student
+         * @description Toggles the tutor:off marker in student.notes. Does not change deployment-wide tutor config.
+         */
+        post: operations["set-student-tutor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/students/{id}/tutor-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tutor diagnostics for a student
+         * @description Reports whether tutoring is enabled, the configured provider, and recent failure count. Does not expose system prompts.
+         */
+        get: operations["get-student-tutor-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/subjects": {
@@ -690,6 +1177,47 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActivityContent: {
+            artifacts?: components["schemas"]["ArtifactPolicy"];
+            checks: components["schemas"]["Check"][] | null;
+            hints?: components["schemas"]["Hint"][] | null;
+            instructions: string;
+            objective: string;
+            progression?: components["schemas"]["ProgressionPolicy"];
+            tasks: components["schemas"]["Task"][] | null;
+            terminal?: components["schemas"]["TerminalContent"];
+            tutor?: components["schemas"]["TutorContext"];
+            typing?: components["schemas"]["TypingContent"];
+        };
+        ArtifactMeta: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ArtifactMeta.json
+             */
+            readonly $schema?: string;
+            artifactId: string;
+            /** Format: int64 */
+            byteSize: number;
+            /** Format: date-time */
+            createdAt: string;
+            filename: string;
+            mediaType: string;
+            schemaVersion: string;
+            sha256: string;
+        };
+        ArtifactPolicy: {
+            allowedTypes?: string[] | null;
+            enabled: boolean;
+            /** Format: int64 */
+            maxBytesEach?: number;
+            /** Format: int64 */
+            maxBytesTotal?: number;
+            /** Format: int64 */
+            maxFiles?: number;
+            /** Format: int64 */
+            retainDays?: number;
+        };
         Assessment: {
             /**
              * Format: uri
@@ -951,6 +1479,121 @@ export interface components {
             subjectId?: string;
             title?: string;
         };
+        AssignNextInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/AssignNextInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Default true when slug is empty. */
+            preferReinforcement?: boolean;
+            /** Format: int64 */
+            priority?: number;
+            reason?: string;
+            /** @description Force assign latest published revision of this activity slug. */
+            slug?: string;
+        };
+        AssignNextResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/AssignNextResponse.json
+             */
+            readonly $schema?: string;
+            assignment: components["schemas"]["StudentAssignment"];
+            created: boolean;
+            reason: string;
+        };
+        Check: {
+            id: string;
+            kind: string;
+            optional?: boolean;
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        CheckTree: {
+            all?: components["schemas"]["CheckTree"][] | null;
+            any?: components["schemas"]["CheckTree"][] | null;
+            checkId?: string;
+            optional?: boolean;
+        };
+        CompletionRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CompletionRequest.json
+             */
+            readonly $schema?: string;
+            artifactDigests?: {
+                [key: string]: string;
+            };
+            artifactIds?: string[] | null;
+            /** Format: date-time */
+            clientTime: string;
+            completionId: string;
+            observations: components["schemas"]["Observation"][] | null;
+            requestDigest: string;
+            schemaVersion: string;
+            summary?: string;
+        };
+        CompletionResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CompletionResult.json
+             */
+            readonly $schema?: string;
+            accepted: boolean;
+            completionId: string;
+            evidenceIds?: string[] | null;
+            masterySnapshot?: components["schemas"]["MasteryTransition"][] | null;
+            message?: string;
+            observations: components["schemas"]["Observation"][] | null;
+            requestDigest: string;
+            schemaVersion: string;
+        };
+        CreateActivityInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CreateActivityInputBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            kind: "terminal" | "typing";
+            slug: string;
+            /** Format: uuid */
+            subjectId?: string;
+            summary?: string;
+            title: string;
+        };
+        CreateAssignmentInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CreateAssignmentInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            activityRevisionId: string;
+            /** Format: int64 */
+            priority?: number;
+            reason?: string;
+            /** Format: uuid */
+            studentId: string;
+        };
+        CreatePairingCodeInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CreatePairingCodeInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            studentId: string;
+        };
         Curriculum: {
             /**
              * Format: uri
@@ -1207,6 +1850,22 @@ export interface components {
              */
             type: string;
         };
+        EventsAck: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/EventsAck.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            acknowledgedSequence: number;
+        };
+        FixtureEntry: {
+            content?: string;
+            mode?: string;
+            path: string;
+            type: string;
+        };
         HealthOutputBody: {
             /**
              * Format: uri
@@ -1216,6 +1875,12 @@ export interface components {
             readonly $schema?: string;
             /** @example ok */
             status: string;
+        };
+        Hint: {
+            id: string;
+            /** Format: int64 */
+            level: number;
+            text: string;
         };
         InstructionLog: {
             /**
@@ -1393,6 +2058,147 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        LearningActivity: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LearningActivity.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "terminal" | "typing";
+            slug: string;
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            /** Format: uuid */
+            subjectId?: string;
+            summary: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        LearningActivityRevision: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LearningActivityRevision.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            activityId: string;
+            content: {
+                [key: string]: unknown;
+            };
+            contentSha256: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            publishedAt?: string;
+            /** Format: int64 */
+            revision: number;
+            schemaVersion: string;
+        };
+        LearningOverviewResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LearningOverviewResponse.json
+             */
+            readonly $schema?: string;
+            devices: components["schemas"]["StudentDevice"][] | null;
+            masterySummary: components["schemas"]["MasteryRecord"][] | null;
+            openAssignments: components["schemas"]["StudentAssignment"][] | null;
+            recentSessions: components["schemas"]["LearningSession"][] | null;
+            student: components["schemas"]["Student"];
+            tutor: components["schemas"]["TutorStatusResponse"];
+            tutorNotesDisable: boolean;
+        };
+        LearningSession: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LearningSession.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            activityRevisionId: string;
+            /** Format: uuid */
+            assignmentId: string;
+            clientSessionId: string;
+            /** Format: date-time */
+            completedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            deviceId: string;
+            /** Format: int64 */
+            durationSeconds: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            lastEventAt?: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** @enum {string} */
+            state: "started" | "paused" | "completed" | "abandoned";
+            /** Format: uuid */
+            studentId: string;
+            summary: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        LearningSessionArtifact: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LearningSessionArtifact.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            artifactId: string;
+            /** Format: int64 */
+            byteSize: number;
+            /** Format: date-time */
+            createdAt: string;
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            mediaType: string;
+            /** Format: uuid */
+            sessionId: string;
+            sha256: string;
+            storagePath?: string;
+        };
+        LoginRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LoginRequest.json
+             */
+            readonly $schema?: string;
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        LoginResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/LoginResponse.json
+             */
+            readonly $schema?: string;
+            educator: components["schemas"]["Educator"];
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description Opaque session token; present as Authorization Bearer. */
+            token: string;
+        };
         MasteryEvidence: {
             /**
              * Format: uri
@@ -1518,6 +2324,27 @@ export interface components {
             nextReinforcementAt?: string;
             /** @enum {string} */
             status?: "not_introduced" | "in_progress" | "approaching" | "mastered";
+        };
+        MasteryTransition: {
+            /** Format: double */
+            confidence?: number;
+            fromStatus: string;
+            reason?: string;
+            standardCode: string;
+            toStatus: string;
+        };
+        Observation: {
+            checkId: string;
+            details?: {
+                [key: string]: unknown;
+            };
+            kind: string;
+            message?: string;
+            /** Format: date-time */
+            observedAt: string;
+            optional?: boolean;
+            passed: boolean;
+            schemaVersion: string;
         };
         PageBodyAssessment: {
             /**
@@ -1699,6 +2526,60 @@ export interface components {
              */
             totalCount: number;
         };
+        PageBodyLearningActivity: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyLearningActivity.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["LearningActivity"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
+        PageBodyLearningActivityRevision: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyLearningActivityRevision.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["LearningActivityRevision"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
+        PageBodyLearningSession: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyLearningSession.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["LearningSession"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
         PageBodyMasteryEvidence: {
             /**
              * Format: uri
@@ -1771,6 +2652,42 @@ export interface components {
              */
             totalCount: number;
         };
+        PageBodyStudentAssignment: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyStudentAssignment.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["StudentAssignment"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
+        PageBodyStudentDevice: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyStudentDevice.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["StudentDevice"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
         PageBodySubject: {
             /**
              * Format: uri
@@ -1788,6 +2705,117 @@ export interface components {
              * @description Total rows matching the query, ignoring pagination.
              */
             totalCount: number;
+        };
+        PairStudentDeviceInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PairStudentDeviceInputBody.json
+             */
+            readonly $schema?: string;
+            code: string;
+            deviceName?: string;
+        };
+        PairStudentDeviceResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PairStudentDeviceResponse.json
+             */
+            readonly $schema?: string;
+            device: components["schemas"]["StudentDevice"];
+            /** Format: uuid */
+            deviceId: string;
+            student: components["schemas"]["Student"];
+            token: string;
+        };
+        PairingCodeResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PairingCodeResponse.json
+             */
+            readonly $schema?: string;
+            /** @description One-time pairing code; shown only once. */
+            code: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            studentId: string;
+        };
+        PostEventsInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PostEventsInputBody.json
+             */
+            readonly $schema?: string;
+            events: components["schemas"]["SessionEvent"][] | null;
+        };
+        ProgressionPolicy: {
+            allowReset: boolean;
+            /** Format: int64 */
+            maxAttempts?: number;
+            requireInOrder: boolean;
+            resumeFromTask: boolean;
+        };
+        PublishRevisionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PublishRevisionInputBody.json
+             */
+            readonly $schema?: string;
+            content: components["schemas"]["ActivityContent"];
+            schemaVersion?: string;
+            standards?: components["schemas"]["StandardRef"][] | null;
+        };
+        RetryAssignmentInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/RetryAssignmentInputBody.json
+             */
+            readonly $schema?: string;
+            reason?: string;
+        };
+        RotateDeviceResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/RotateDeviceResponse.json
+             */
+            readonly $schema?: string;
+            /** @description One-time pairing code for re-pairing the workstation. */
+            code: string;
+            device: components["schemas"]["StudentDevice"];
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: uuid */
+            pairingId: string;
+        };
+        SessionEvent: {
+            /** Format: date-time */
+            clientTime: string;
+            eventId: string;
+            payload?: {
+                [key: string]: unknown;
+            };
+            schemaVersion: string;
+            /** Format: int64 */
+            sequence: number;
+            type: string;
+        };
+        SetTutorInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/SetTutorInputBody.json
+             */
+            readonly $schema?: string;
+            enabled: boolean;
         };
         Standard: {
             /**
@@ -1844,6 +2872,12 @@ export interface components {
             /** @enum {string} */
             tcapWeight?: "low" | "medium" | "high";
         };
+        StandardRef: {
+            code: string;
+            role: string;
+            /** Format: double */
+            weight?: number;
+        };
         StandardUpdate: {
             /**
              * Format: uri
@@ -1869,6 +2903,17 @@ export interface components {
             /** @enum {string} */
             tcapWeight?: "low" | "medium" | "high";
         };
+        StartSessionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StartSessionInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            assignmentId: string;
+            clientSessionId: string;
+        };
         Student: {
             /**
              * Format: uri
@@ -1890,6 +2935,40 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        StudentAssignment: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StudentAssignment.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            activityRevisionId: string;
+            /** Format: uuid */
+            assignedBy?: string;
+            /** Format: date-time */
+            availableAt: string;
+            constraints?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            dueAt?: string;
+            /** Format: uuid */
+            enrollmentId?: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            priority: number;
+            reason: string;
+            /** @enum {string} */
+            state: "available" | "in_progress" | "completed" | "cancelled";
+            /** Format: uuid */
+            studentId: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         StudentCreate: {
             /**
              * Format: uri
@@ -1905,6 +2984,59 @@ export interface components {
             lastName: string;
             notes?: string;
         };
+        StudentDevice: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StudentDevice.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            lastSeenAt?: string;
+            name: string;
+            /** Format: date-time */
+            revokedAt?: string;
+            /** Format: uuid */
+            studentId: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        StudentMetricsResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StudentMetricsResponse.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            assignmentsOpen: number;
+            /** Format: int64 */
+            completionsLast24h: number;
+            /** Format: int64 */
+            devicesActive: number;
+            /** Format: int64 */
+            devicesRevoked: number;
+            /** Format: int64 */
+            sessionsActive: number;
+            /** Format: int64 */
+            tutorFailuresLast24h: number;
+        };
+        StudentProfile: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StudentProfile.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            deviceId: string;
+            deviceName: string;
+            student: components["schemas"]["Student"];
+        };
         StudentUpdate: {
             /**
              * Format: uri
@@ -1919,6 +3051,21 @@ export interface components {
             gradeLevel?: number;
             lastName?: string;
             notes?: string;
+        };
+        StudentWorkItem: {
+            activity: components["schemas"]["LearningActivity"];
+            assignment: components["schemas"]["StudentAssignment"];
+            revision: components["schemas"]["LearningActivityRevision"];
+        };
+        StudentWorkResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StudentWorkResponse.json
+             */
+            readonly $schema?: string;
+            cursor?: string;
+            items: components["schemas"]["StudentWorkItem"][] | null;
         };
         Subject: {
             /**
@@ -1958,6 +3105,97 @@ export interface components {
             code?: string;
             description?: string;
             name?: string;
+        };
+        SupersedeEvidenceInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/SupersedeEvidenceInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Parent correction note stored on replacement evidence. */
+            note?: string;
+        };
+        SupersedeEvidenceResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/SupersedeEvidenceResponse.json
+             */
+            readonly $schema?: string;
+            original: components["schemas"]["MasteryEvidence"];
+            replacement: components["schemas"]["MasteryEvidence"];
+        };
+        Task: {
+            completion: components["schemas"]["CheckTree"];
+            hintIds?: string[] | null;
+            id: string;
+            instructions: string;
+            optional?: boolean;
+            prerequisites?: string[] | null;
+            title: string;
+        };
+        TerminalContent: {
+            fixtures: components["schemas"]["FixtureEntry"][] | null;
+            initialCwd?: string;
+            runtimeProfile: string;
+            shell?: string;
+        };
+        TutorContext: {
+            constraints?: string[] | null;
+            goalSummary?: string;
+            misconceptions?: string[] | null;
+        };
+        TutorMessageInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/TutorMessageInputBody.json
+             */
+            readonly $schema?: string;
+            message: string;
+        };
+        TutorMessageResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/TutorMessageResponse.json
+             */
+            readonly $schema?: string;
+            fallback?: boolean;
+            provider?: string;
+            rateLimited?: boolean;
+            reply: string;
+        };
+        TutorStatusResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/TutorStatusResponse.json
+             */
+            readonly $schema?: string;
+            enabled: boolean;
+            provider: string;
+            /** Format: int64 */
+            recentFailureCount: number;
+            /** @description True when student.notes contains tutor:off. */
+            studentNotesDisable?: boolean;
+        };
+        TypingContent: {
+            ordering?: string;
+            promptSetId: string;
+            prompts: components["schemas"]["TypingPrompt"][] | null;
+            /** Format: double */
+            successAccuracy?: number;
+            /** Format: double */
+            successWpm?: number;
+            /** Format: int64 */
+            timeLimitSec?: number;
+        };
+        TypingPrompt: {
+            category?: string;
+            id: string;
+            text: string;
         };
     };
     responses: never;
@@ -2651,6 +3889,307 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-assignments": {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description Rows to skip. */
+                offset?: number;
+                /** @description Free-text search across the resource's searchable columns. */
+                q?: string;
+                /** @description Column to sort by (whitelisted per resource). */
+                sort?: string;
+                /** @description Sort direction. */
+                dir?: "asc" | "desc";
+                /** @description Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable. */
+                filter?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyStudentAssignment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-assignment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAssignmentInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentAssignment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "cancel-assignment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentAssignment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "retry-assignment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryAssignmentInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentAssignment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "parent-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3787,6 +5326,325 @@ export interface operations {
             };
         };
     };
+    "list-learning-activities": {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description Rows to skip. */
+                offset?: number;
+                /** @description Free-text search across the resource's searchable columns. */
+                q?: string;
+                /** @description Column to sort by (whitelisted per resource). */
+                sort?: string;
+                /** @description Sort direction. */
+                dir?: "asc" | "desc";
+                /** @description Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable. */
+                filter?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyLearningActivity"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-learning-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateActivityInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningActivity"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-activity-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyLearningActivityRevision"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "publish-activity-revision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningActivityRevision"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-learning-sessions": {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description Rows to skip. */
+                offset?: number;
+                /** @description Free-text search across the resource's searchable columns. */
+                q?: string;
+                /** @description Column to sort by (whitelisted per resource). */
+                sort?: string;
+                /** @description Sort direction. */
+                dir?: "asc" | "desc";
+                /** @description Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable. */
+                filter?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyLearningSession"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-mastery-evidences": {
         parameters: {
             query?: {
@@ -3951,6 +5809,68 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "supersede-mastery-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupersedeEvidenceInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupersedeEvidenceResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4133,6 +6053,113 @@ export interface operations {
             };
         };
     };
+    "get-student-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentMetricsResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-pairing-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePairingCodeInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingCodeResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-standards": {
         parameters: {
             query?: {
@@ -4306,6 +6333,586 @@ export interface operations {
             };
         };
     };
+    "list-student-devices": {
+        parameters: {
+            query?: {
+                /** @description Optional student UUID filter; empty lists all household devices. */
+                studentId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyStudentDevice"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "pair-student-device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairStudentDeviceInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairStudentDeviceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "revoke-student-device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentDevice"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "rotate-student-device-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotateDeviceResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-student-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentProfile"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "start-student-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSessionInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningSession"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-session-artifact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactMeta"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningSessionArtifact"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "complete-student-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletionResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-session-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostEventsInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsAck"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-session-tutor-message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TutorMessageInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorMessageResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-student-work": {
+        parameters: {
+            query?: {
+                /** @description Cursor from a previous work response. */
+                after?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentWorkResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-students": {
         parameters: {
             query?: {
@@ -4470,6 +7077,307 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "assign-next-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignNextInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignNextResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-student-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyStudentAssignment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-student-learning-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningOverviewResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "set-student-tutor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTutorInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Student"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-student-tutor-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorStatusResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

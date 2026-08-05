@@ -1,0 +1,7 @@
+# Default: disallow indexing of staging/preview.
+# Production deploys that set VITE_ALLOW_INDEX=1 should ship a robots.txt that
+# allows crawling (see investor-web/DEPLOY.md). The SPA also sets <meta name="robots">.
+User-agent: *
+Disallow: /
+
+Sitemap: /sitemap.xml
