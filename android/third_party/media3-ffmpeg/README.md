@@ -7,18 +7,20 @@ CI and local builds are deterministic (no network native compile).
 | | |
 |---|---|
 | AAR path | [`../../app/libs/media3-ffmpeg-decoder-1.4.1.aar`](../../app/libs/media3-ffmpeg-decoder-1.4.1.aar) |
-| Media3 | tag `1.4.1` (`c35a9d62baec57118ea898e271ac66819399649b`) |
-| FFmpeg | branch `release/6.0` (pinned at build time; see script) |
+| Media3 | tag `1.4.1` (commit `c35a9d62baec57118ea898e271ac66819399649b`) |
+| FFmpeg | branch `release/6.0` @ `3f92512fd1fd6f5e6d6eb45a156c352835314d69` |
 | NDK | r26b (`26.1.10909125`) — matches Media3 1.4.1 docs |
 | ANDROID_ABI | `21` (must not exceed app `minSdk` 28) |
-| Enabled decoders | `ac3`, `eac3`, `dca` (DTS) |
+| Enabled decoders | `ac3`, `eac3`, `dca` (DTS) **only** |
+| Forbidden (must not appear) | `aac`, `aac_latm`, `alac`, `flac`, `mp3`, `mlp`, `truehd`, `pcm_alaw`, `pcm_mulaw` |
 | ABIs in AAR | `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` |
 | App ABIs | `arm64-v8a`, `armeabi-v7a` only (Gradle `ndk.abiFilters`) |
+| License | FFmpeg configure reports **LGPL 2.1+** (`CONFIG_GPL 0`, `CONFIG_NONFREE 0`) |
 
 ## SHA256
 
 ```
-dfc726c8bc9d9db02e15b160f886a03bdd6dd51e88ba2de89aa74caf5e8cd181  media3-ffmpeg-decoder-1.4.1.aar
+5a4ae77bfeee2cdca4f64c76c40e0ad8675f0b721cf9e643a0e82f9e9af50314  media3-ffmpeg-decoder-1.4.1.aar
 ```
 
 Verify after rebuild:
@@ -30,10 +32,11 @@ sha256sum android/app/libs/media3-ffmpeg-decoder-1.4.1.aar
 
 ## Why vendor (not Jellyfin Maven)
 
-`org.jellyfin.media3:media3-ffmpeg-decoder` is **GPL-3**. This tree stays on the
-official Media3 extension + an LGPL FFmpeg configure (`--disable-everything` +
-explicit `--enable-decoder=` for LGPL audio codecs only). No x264/x265/fdk-aac
-or other GPL bits.
+`org.jellyfin.media3:media3-ffmpeg-decoder` is **GPL-3** and ships a broad
+decoder set (AAC/ALAC/FLAC/MP3/TrueHD/…). This tree stays on the official
+Media3 extension + an LGPL FFmpeg configure (`--disable-everything` + explicit
+`--enable-decoder=` for `ac3`/`eac3`/`dca` only). No x264/x265/fdk-aac or other
+GPL bits. Do **not** download, rename, or re-label the Jellyfin artifact.
 
 ## Licenses / notices
 
@@ -57,11 +60,17 @@ The script:
 
 1. Clones Media3 at tag `1.4.1` and FFmpeg `release/6.0` into a work dir
    (default `/tmp/primer-media3-ffmpeg-build`, override with `BUILD_ROOT=`).
-2. Runs official `libraries/decoder_ffmpeg/src/main/jni/build_ffmpeg.sh` with
+2. **Hard-fails** if Media3 `HEAD` is not the pinned commit
+   `c35a9d62baec57118ea898e271ac66819399649b`.
+3. Runs official `libraries/decoder_ffmpeg/src/main/jni/build_ffmpeg.sh` with
    `ENABLED_DECODERS=(ac3 eac3 dca)`.
-3. Assembles `:lib-decoder-ffmpeg:assembleRelease` and copies the AAR to
+4. Verifies FFmpeg `CONFIG_GPL 0` / `CONFIG_NONFREE 0` and exact decoder
+   enables in `config_components.h`.
+5. Assembles `:lib-decoder-ffmpeg:assembleRelease` and copies the AAR to
    `android/app/libs/media3-ffmpeg-decoder-1.4.1.aar`.
-4. Prints SHA256 and checks for `FfmpegAudioRenderer` + required decoder symbols.
+6. Prints SHA256 and checks for `FfmpegAudioRenderer` + **exact** decoder
+   symbol set (`ff_ac3_decoder` / `ff_eac3_decoder` / `ff_dca_decoder` only;
+   rejects Jellyfin-style extras).
 
 ## Runtime wiring
 
