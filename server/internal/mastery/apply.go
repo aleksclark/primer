@@ -313,18 +313,44 @@ func observationHasStructuredCommandEvidence(o contracts.Observation) bool {
 	if o.Details == nil {
 		return false
 	}
+	// Untrusted sources always fail closed, even if a client forges
+	// structuredCommandEvidence=true or capability marks.
+	if v, ok := o.Details["source"].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "pty-shell", "synthetic-pty", "screen":
+			return false
+		}
+	}
 	if v, ok := o.Details["structuredCommandEvidence"].(bool); ok && v {
-		return true
+		// Require an explicitly trusted source when the boolean is set, so a
+		// bare true without provenance cannot pass command-sensitive checks.
+		if src, ok := o.Details["source"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(src)) {
+			case "structured", "structured_command", "command_instrumentation", "observe-bash", "process-wait":
+				return true
+			default:
+				return false
+			}
+		}
+		return false
 	}
 	if v, ok := o.Details["capability"].(string); ok && v == contracts.CapStructuredCommandEvidence {
+		if src, ok := o.Details["source"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(src)) {
+			case "structured", "structured_command", "command_instrumentation", "observe-bash", "process-wait":
+				return true
+			case "pty-shell", "synthetic-pty", "screen":
+				return false
+			}
+		}
+		// Capability alone without source is accepted for older honest clients
+		// that advertised the runner capability but omitted source labels.
 		return true
 	}
 	if v, ok := o.Details["source"].(string); ok {
-		switch strings.ToLower(v) {
-		case "structured", "structured_command", "command_instrumentation":
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "structured", "structured_command", "command_instrumentation", "observe-bash", "process-wait":
 			return true
-		case "pty-shell", "synthetic-pty", "screen":
-			return false
 		}
 	}
 	// Default: command-sensitive checks without an explicit capability mark are untrusted.

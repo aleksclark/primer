@@ -64,10 +64,13 @@ type Options struct {
 	// sandboxed commands bind the matching Nix tool closure (or host fallback).
 	RuntimeProfile string
 	// StructuredCommandEvidence advertises CapStructuredCommandEvidence when
-	// starting sessions. The headless harness/scripted RunShell path may set
-	// this true. Interactive PTY mode must leave it false: synthetic screen
-	// text is not structured command evidence.
+	// starting sessions. Set true when the runner can produce process-wait or
+	// observe-bash evidence (Phase 2). Synthetic PTY screen text never qualifies.
+	// When unset (false zero value) the engine still advertises the capability if
+	// bash observe instrumentation is available on the host (production default).
 	StructuredCommandEvidence bool
+	// DisableStructuredCommandEvidence forces the capability off (tests).
+	DisableStructuredCommandEvidence bool
 	// Sync is optional; when nil a Loop is created from Client+Store.
 	Sync *sync.Loop
 }
@@ -96,12 +99,23 @@ func New(opts Options) (*Engine, error) {
 }
 
 // sessionCapabilities lists runner flags advertised on StartSession.
-// Interactive PTY does not produce structured command evidence (Phase 2).
+// Phase 2: advertise structured evidence when scripted RunShell and/or bash
+// observe instrumentation can produce trusted command events.
 func (e *Engine) sessionCapabilities() []string {
-	if e.opts.StructuredCommandEvidence {
+	if e.opts.DisableStructuredCommandEvidence {
+		return nil
+	}
+	if e.opts.StructuredCommandEvidence || structuredEvidenceAvailable() {
 		return []string{contracts.CapStructuredCommandEvidence}
 	}
 	return nil
+}
+
+// structuredEvidenceAvailable reports whether this host can produce structured
+// command events (bash present for observe path, or process-wait RunShell).
+func structuredEvidenceAvailable() bool {
+	_, err := exec.LookPath("bash")
+	return err == nil
 }
 
 // isIncompatibleRevisionError reports server/local capability policy rejections.

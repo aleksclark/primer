@@ -18,6 +18,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/studentclient/sandbox"
 	"github.com/aleksclark/primer/server/internal/studentclient/sync"
 	"github.com/aleksclark/primer/server/internal/studentclient/terminal"
+	"github.com/aleksclark/primer/server/internal/studentclient/terminal/observe"
 	"github.com/aleksclark/primer/server/internal/studentclient/terminal/ptyterm"
 	"github.com/aleksclark/primer/server/internal/studentclient/typing"
 )
@@ -84,6 +85,14 @@ type Session struct {
 
 	pty *ptyterm.Terminal
 
+	// observeSpool / observeReader collect bash instrumentation events (Phase 2).
+	// nil when instrumentation could not be installed (fail closed for command checks).
+	observeOK     bool
+	observeReader interface {
+		Drain() ([]contracts.ShellEvent, error)
+	}
+	observeClose func() error
+
 	message          string
 	completed        bool
 	completionQueued bool
@@ -91,9 +100,9 @@ type Session struct {
 	offline          bool
 	syncStatus       sync.Status
 	tutorHint        string
-	// lastPTYInput tracks whether recent WriteTerminal ended with newline (idle poll).
+	// lastPTYInputAt tracks recent WriteTerminal activity for observe drain debounce.
 	lastPTYInputAt time.Time
-	pendingVerify  bool
+	pendingObserve bool
 	// restored is true when this session resumed durable runner state (no re-emit of start events).
 	restored bool
 }
@@ -402,7 +411,9 @@ func (e *Engine) resumeSession(
 	return s, nil
 }
 
-// startPTY launches an interactive shell in the session workspace.
+// startPTY launches an interactive bash shell with observe instrumentation.
+// Instrumentation failure is recorded (observeOK=false) so command-sensitive
+// checks fail closed; the PTY may still start for display when AllowUnsandboxed.
 func (s *Session) startPTY(rows, cols uint16) error {
 	cwd := s.workspace
 	if tr, ok := s.runner.(*activities.TerminalRunner); ok {
@@ -410,34 +421,105 @@ func (s *Session) startPTY(rows, cols uint16) error {
 			cwd = c
 		}
 	}
-	cmd, err := s.eng.shellCommand(s.workspace, cwd)
+
+	// Prefer bash; observe hooks require bash. Without bash, refuse structured path.
+	bashPath, bashErr := exec.LookPath("bash")
+	useObserve := bashErr == nil
+
+	var spool *observe.Spool
+	var hostEvents, hostRC string
+	var sandWS string
+	if useObserve {
+		base := filepath.Join(s.eng.opts.WorkspaceRoot, ".primer-observe")
+		if s.eng.opts.WorkspaceRoot == "" {
+			base = filepath.Join(os.TempDir(), "primer-observe")
+		}
+		var err error
+		spool, err = observe.Prepare(base)
+		if err != nil {
+			useObserve = false
+			s.message = "observe spool unavailable: " + err.Error()
+		} else {
+			hostEvents = spool.EventsPath()
+			hostRC = spool.RCPath()
+			sandWS = "/workspace"
+			// Write RC using paths the shell will see (sandbox mounts spool at /primer-observe).
+			rcEvents, rcWS := hostEvents, s.workspace
+			if s.eng.opts.UseSandbox && sandbox.Available() {
+				rcEvents, rcWS = "/primer-observe/events.ndjson", sandWS
+			}
+			if err := observe.WriteBashRC(hostRC, rcEvents, rcWS); err != nil {
+				_ = spool.Close()
+				useObserve = false
+				s.message = "observe rc unavailable: " + err.Error()
+			}
+		}
+	}
+
+	cmd, sandboxed, err := s.eng.shellCommand(s.workspace, cwd, bashPath, hostRC, spool)
 	if err != nil {
+		if spool != nil {
+			_ = spool.Close()
+		}
 		return err
 	}
+
 	term, err := ptyterm.Start(ptyterm.Options{Cmd: cmd, Rows: rows, Cols: cols})
 	if err != nil {
+		if spool != nil {
+			_ = spool.Close()
+		}
 		return err
 	}
 	s.pty = term
+
+	if useObserve && spool != nil {
+		reader := observe.NewReader(spool)
+		reader.SessionID = s.clientSessionID
+		reader.Workspace = s.workspace
+		reader.RunnerVersion = activities.RunnerVersion
+		reader.VerifierVersion = terminal.VerifierVersion
+		if sandboxed {
+			reader.SandboxWorkspace = sandWS
+		}
+		s.observeReader = reader
+		s.observeClose = spool.Close
+		s.observeOK = true
+	} else {
+		s.observeOK = false
+		if s.message == "" {
+			s.message = "bash observe instrumentation unavailable; command checks fail closed"
+		}
+		if spool != nil {
+			_ = spool.Close()
+		}
+	}
 	return nil
 }
 
 // shellCommand builds the *exec.Cmd for an interactive PTY shell.
-func (e *Engine) shellCommand(workspace, cwd string) (*exec.Cmd, error) {
+// When spool is non-nil and bashPath is set, launches bash with --rcfile observe hooks.
+func (e *Engine) shellCommand(workspace, cwd, bashPath, hostRC string, spool *observe.Spool) (*exec.Cmd, bool, error) {
 	useSandbox := e.opts.UseSandbox
 	if useSandbox && !sandbox.Available() {
 		if !e.opts.AllowUnsandboxed {
-			return nil, sandbox.ErrUnavailable
+			return nil, false, sandbox.ErrUnavailable
 		}
 		useSandbox = false
 	}
 
-	shell := "sh"
-	if p, err := exec.LookPath("bash"); err == nil {
-		shell = p
-	} else if p, err := exec.LookPath("sh"); err == nil {
-		shell = p
+	shell := bashPath
+	if shell == "" {
+		if p, err := exec.LookPath("bash"); err == nil {
+			shell = p
+		} else if p, err := exec.LookPath("sh"); err == nil {
+			shell = p
+		} else {
+			return nil, false, fmt.Errorf("no shell found")
+		}
 	}
+
+	useBashRC := spool != nil && hostRC != "" && filepath.Base(shell) == "bash"
 
 	if useSandbox {
 		rel, relErr := filepath.Rel(workspace, cwd)
@@ -448,26 +530,44 @@ func (e *Engine) shellCommand(workspace, cwd string) (*exec.Cmd, error) {
 		cfg := sandbox.Config{Workspace: workspace, WorkDir: workDir}
 		if p := e.runtimeProfile(); p != "" {
 			if perr := sandbox.ApplyProfile(&cfg, p); perr != nil {
-				return nil, perr
+				return nil, true, perr
 			}
 		}
+		if useBashRC {
+			// Bind observe spool (events + rc) read-write so bash can append events.
+			cfg.ExtraBinds = append(cfg.ExtraBinds, sandbox.Bind{
+				Host: spool.Dir, Dest: "/primer-observe", ReadOnly: false,
+			})
+			cfg.Env = append([]string{
+				"PATH=/usr/bin:/bin:/usr/local/bin",
+				"HOME=/workspace",
+				"TERM=xterm-256color",
+				"PS1=$ ",
+			}, cfg.Env...)
+		}
 		name := shell
-		args := []string{"-i"}
-		if filepath.Base(shell) == "bash" {
+		var args []string
+		if useBashRC {
+			args = []string{"--noprofile", "--rcfile", "/primer-observe/rc.bash", "-i"}
+		} else if filepath.Base(shell) == "bash" {
 			args = []string{"--noprofile", "--norc", "-i"}
+		} else {
+			args = []string{"-i"}
 		}
 		cmd, err := sandbox.Command(context.Background(), cfg, name, args...)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 		cmd.Stdin = nil
 		cmd.Stdout = nil
 		cmd.Stderr = nil
-		return cmd, nil
+		return cmd, true, nil
 	}
 
 	var cmd *exec.Cmd
-	if filepath.Base(shell) == "bash" {
+	if useBashRC {
+		cmd = exec.Command(shell, "--noprofile", "--rcfile", hostRC, "-i")
+	} else if filepath.Base(shell) == "bash" {
 		cmd = exec.Command(shell, "--noprofile", "--norc", "-i")
 	} else {
 		cmd = exec.Command(shell, "-i")
@@ -479,7 +579,7 @@ func (e *Engine) shellCommand(workspace, cwd string) (*exec.Cmd, error) {
 		"TERM=xterm-256color",
 		"PS1=$ ",
 	}
-	return cmd, nil
+	return cmd, false, nil
 }
 
 // Snapshot returns a copy of the current session state for rendering.
@@ -542,6 +642,7 @@ func (s *Session) snapshotLocked() SessionSnapshot {
 }
 
 // WriteTerminal sends raw bytes to the live PTY (keystrokes).
+// On newline, schedules an observe drain — never synthesizes success from screen text.
 func (s *Session) WriteTerminal(ctx context.Context, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -559,48 +660,58 @@ func (s *Session) WriteTerminal(ctx context.Context, data []byte) error {
 	}
 	s.lastPTYInputAt = time.Now()
 	if len(data) > 0 && data[len(data)-1] == '\n' {
-		s.pendingVerify = true
-		go s.idleVerify()
+		s.pendingObserve = true
+		go s.drainObserveAfterIdle()
 	}
 	return nil
 }
 
-// idleVerify waits briefly after newline input then re-runs checks.
-func (s *Session) idleVerify() {
-	time.Sleep(400 * time.Millisecond)
+// drainObserveAfterIdle waits for the shell to return to a prompt, then drains
+// structured observe events. Does not scrape the PTY screen into command evidence.
+func (s *Session) drainObserveAfterIdle() {
+	// Allow bash PROMPT_COMMAND to fire after the command completes.
+	time.Sleep(500 * time.Millisecond)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.pendingVerify || s.completed || s.pty == nil {
+	if !s.pendingObserve || s.completed {
 		return
 	}
-	if time.Since(s.lastPTYInputAt) < 350*time.Millisecond {
+	if time.Since(s.lastPTYInputAt) < 400*time.Millisecond {
+		// More input arrived; another drain will be scheduled.
 		return
 	}
-	s.pendingVerify = false
-	screen := s.pty.ScreenPlain()
-	rel := "."
-	if tr, ok := s.runner.(*activities.TerminalRunner); ok {
-		if r, err := filepath.Rel(s.workspace, tr.Cwd()); err == nil {
-			rel = r
-		}
-	}
+	s.pendingObserve = false
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = s.runner.HandleInput(ctx, activities.Input{
-		Type: activities.InputShellResult,
-		Shell: &activities.ShellResult{
-			Cwd:          rel,
-			Executable:   "pty-shell",
-			ExitCode:     0,
-			Stdout:       screen,
-			CountCommand: true,
-			Structured:   false,
-			Source:       "pty-shell",
-		},
-	})
-	// applyRunnerEvents records command_finished + checks once (no second enqueue).
+	s.drainObserveLocked(ctx)
 	s.applyRunnerEvents(ctx)
 	_ = s.persistRunnerState(ctx)
+}
+
+// drainObserveLocked reads new shell events and feeds them to the runner.
+// Must hold s.mu.
+func (s *Session) drainObserveLocked(ctx context.Context) {
+	if s.observeReader == nil {
+		return
+	}
+	events, err := s.observeReader.Drain()
+	if err != nil {
+		s.message = "observe drain error: " + err.Error()
+		return
+	}
+	for i := range events {
+		ev := events[i]
+		// Attach workspace manifest digest around the command when feasible.
+		if man, merr := terminal.CaptureManifest(s.workspace); merr == nil {
+			if ev.ManifestAfter == "" {
+				ev.ManifestAfter = man.Digest
+			}
+		}
+		_ = s.runner.HandleInput(ctx, activities.Input{
+			Type:  activities.InputShellResult,
+			Event: &ev,
+		})
+	}
 }
 
 // TerminalScreen returns the current PTY scrollback (empty if no PTY).
@@ -694,10 +805,11 @@ func (s *Session) RunLine(ctx context.Context, line string) error {
 	return s.persistRunnerState(ctx)
 }
 
-// Verify re-runs deterministic checks against the current workspace or typing metrics.
+// Verify drains pending observe events then re-runs deterministic checks.
 func (s *Session) Verify(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.drainObserveLocked(ctx)
 	if err := s.runner.Verify(ctx); err != nil {
 		return err
 	}
@@ -719,6 +831,9 @@ func (s *Session) Complete(ctx context.Context) error {
 	if s.completed {
 		return nil
 	}
+	// Drain observe events before final verify so recent commands are not lost
+	// when Complete is called without an intervening Verify.
+	s.drainObserveLocked(ctx)
 	_ = s.runner.Verify(ctx)
 	if !s.runner.CompleteReady() {
 		rs := s.runner.Snapshot()
@@ -827,13 +942,19 @@ func (s *Session) Pause(ctx context.Context) error {
 	return s.eng.opts.Store.SaveSession(ctx, *row)
 }
 
-// Close releases the runner and PTY.
+// Close releases the runner, PTY, and observe spool.
 func (s *Session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.pty != nil {
 		_ = s.pty.Close()
 		s.pty = nil
+	}
+	if s.observeClose != nil {
+		_ = s.observeClose()
+		s.observeClose = nil
+		s.observeReader = nil
+		s.observeOK = false
 	}
 	if s.runner != nil {
 		return s.runner.Close()
@@ -850,17 +971,50 @@ func (s *Session) applyRunnerEvents(ctx context.Context) {
 	} else {
 		rs = s.runner.Snapshot()
 	}
-	if rs.EmitCommand && rs.LastShell != nil {
-		sh := rs.LastShell
-		payload := map[string]any{
-			"executable": sh.Executable,
-			"args":       sh.Args,
-			"exitCode":   sh.ExitCode,
-			"cwd":        sh.Cwd,
-			"stdoutNorm": truncate(sh.Stdout, 2048),
-			"stderrNorm": truncate(sh.Stderr, 1024),
+	if rs.EmitCommand {
+		if rs.LastEvent != nil {
+			ev := rs.LastEvent
+			payload := map[string]any{
+				"schemaVersion":        ev.SchemaVersion,
+				"sequence":             ev.Sequence,
+				"executable":           ev.Executable,
+				"argv":                 ev.Argv,
+				"argvAvailable":        ev.ArgvAvailable,
+				"exitCode":             ev.ExitCode,
+				"exitAvailable":        ev.ExitAvailable,
+				"cwd":                  ev.CwdAfter,
+				"cwdBefore":            ev.CwdBefore,
+				"cwdAvailable":         ev.CwdAvailable,
+				"submittedLine":        ev.SubmittedLine,
+				"stdoutNorm":           truncate(ev.Stdout.Text, 2048),
+				"stderrNorm":           truncate(ev.Stderr.Text, 1024),
+				"stdoutTrusted":        ev.Stdout.Trusted,
+				"stderrTrusted":        ev.Stderr.Trusted,
+				"source":               ev.Source,
+				"structured":           ev.Structured,
+				"runnerVersion":        ev.RunnerVersion,
+				"shellInstrumentation": ev.ShellInstrumentation,
+				"verifierVersion":      ev.VerifierVersion,
+				"manifestBefore":       ev.ManifestBefore,
+				"manifestAfter":        ev.ManifestAfter,
+				"writeSet":             ev.WriteSet,
+				"quality":              ev.Quality,
+			}
+			_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, payload)
+		} else if rs.LastShell != nil {
+			sh := rs.LastShell
+			payload := map[string]any{
+				"executable": sh.Executable,
+				"args":       sh.Args,
+				"exitCode":   sh.ExitCode,
+				"cwd":        sh.Cwd,
+				"stdoutNorm": truncate(sh.Stdout, 2048),
+				"stderrNorm": truncate(sh.Stderr, 1024),
+				"source":     sh.Source,
+				"structured": sh.Structured,
+			}
+			_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, payload)
 		}
-		_, _ = s.eng.enqueue(ctx, s.clientSessionID, contracts.EventCommandFinished, payload)
 	}
 	if rs.EmitSample && s.kind == contracts.KindTyping && rs.Typing != nil {
 		payload := map[string]any{

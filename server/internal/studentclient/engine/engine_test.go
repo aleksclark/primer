@@ -727,10 +727,10 @@ func TestLocalCapabilityGateRejectsCommandOnlyRevision(t *testing.T) {
 	}}))
 
 	eng, err := engine.New(engine.Options{
-		Store:                     store,
-		Offline:                   true,
-		AllowUnsandboxed:          true,
-		StructuredCommandEvidence: false, // interactive/PTY honesty default
+		Store:                            store,
+		Offline:                          true,
+		AllowUnsandboxed:                 true,
+		DisableStructuredCommandEvidence: true, // force capability off
 	})
 	require.NoError(t, err)
 	_, err = eng.OpenSession(ctx, asg.ID)

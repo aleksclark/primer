@@ -351,7 +351,11 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
 	case CheckCommandProperties:
-		allowed := map[string]bool{"executable": true, "args": true, "exitCode": true}
+		allowed := map[string]bool{
+			"executable": true, "args": true, "exitCode": true,
+			"stdoutContains": true, "stdoutEquals": true, "stdoutPattern": true,
+			"stderrContains": true, "stderrEquals": true, "stderrPattern": true,
+		}
 		if err := requireParamsSubset(ch.Params, allowed); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -366,6 +370,13 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 		if v, ok := ch.Params["exitCode"]; ok {
 			if _, err := intParam(v); err != nil {
 				return fmt.Errorf("checks[%d] (%s): params.exitCode must be an int", i, ch.ID)
+			}
+		}
+		for _, key := range []string{"stdoutPattern", "stderrPattern"} {
+			if pat, ok := stringParam(ch.Params, key); ok && pat != "" {
+				if _, err := regexp.Compile(pat); err != nil {
+					return fmt.Errorf("checks[%d] (%s): invalid %s: %w", i, ch.ID, key, err)
+				}
 			}
 		}
 	case CheckPipelineOutput:
