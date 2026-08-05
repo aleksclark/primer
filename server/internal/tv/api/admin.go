@@ -13,6 +13,7 @@ import (
 	baseapi "github.com/aleksclark/primer/server/internal/api"
 	baserepo "github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tv/auth"
+	"github.com/aleksclark/primer/server/internal/tv/directplay"
 	"github.com/aleksclark/primer/server/internal/tv/domain"
 	"github.com/aleksclark/primer/server/internal/tv/jellyfin"
 	tvrepo "github.com/aleksclark/primer/server/internal/tv/repo"
@@ -330,6 +331,9 @@ func (s *Server) markOrphaned(ctx context.Context, item domain.MediaItem) error 
 }
 
 // metadataDiff returns the columns whose cached values differ from Jellyfin.
+// It also re-evaluates direct_play_ok from the effective codecs on every sync
+// so allowlist changes (e.g. AC3/EAC3/DTS via Media3 FFmpeg) repair stale rows
+// even when codec strings themselves did not change.
 func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 	values := map[string]any{}
 	if remote.Name != "" && remote.Name != item.Title {
@@ -347,12 +351,28 @@ func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 	if remote.Container != "" && remote.Container != item.Container {
 		values["container"] = remote.Container
 	}
+
+	videoCodec := item.VideoCodec
 	if remote.VideoCodec != "" && remote.VideoCodec != item.VideoCodec {
 		values["video_codec"] = remote.VideoCodec
+		videoCodec = remote.VideoCodec
 	}
+	audioCodec := item.AudioCodec
 	if remote.AudioCodec != "" && remote.AudioCodec != item.AudioCodec {
 		values["audio_codec"] = remote.AudioCodec
+		audioCodec = remote.AudioCodec
 	}
+
+	// Reconcile direct-play policy against the post-sync codecs. Stale
+	// direct_play_ok from older allowlists is repaired here on every sync.
+	eval := directplay.Evaluate(videoCodec, audioCodec)
+	if eval.OK != item.DirectPlayOK {
+		values["direct_play_ok"] = eval.OK
+	}
+	if notes, update := directplay.ReconcileQualityNotes(item.QualityNotes, eval); update {
+		values["quality_notes"] = notes
+	}
+
 	if remote.ImageTag != "" && remote.ImageTag != item.ImageTag {
 		values["image_tag"] = remote.ImageTag
 	}

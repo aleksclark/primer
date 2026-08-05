@@ -323,6 +323,47 @@ func TestJellyfinSyncIsIdempotent(t *testing.T) {
 	}](t, resp.Body.Bytes()).Updated, "unchanged metadata triggers no writes")
 }
 
+func TestJellyfinSyncRepairsStaleDirectPlayOK(t *testing.T) {
+	t.Parallel()
+	// Codecs already match Jellyfin; only the stored policy flag is stale from
+	// an older allowlist that blocked EAC3 before the Media3 FFmpeg fallback.
+	fake := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-eac3", Name: "Atmos Night", SortName: "Atmos Night",
+		Runtime: time.Hour, Container: "mkv", VideoCodec: "h264",
+		AudioCodec: "eac3", ImageTag: "tag-1", Overview: "Same.",
+	})
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: fake})
+	item := factory.MediaItem(t, q, factory.Override{
+		"jellyfin_item_id": "jf-eac3",
+		"title":            "Atmos Night",
+		"sort_title":       "Atmos Night",
+		"overview":         "Same.",
+		"runtime_seconds":  3600,
+		"container":        "mkv",
+		"video_codec":      "h264",
+		"audio_codec":      "eac3",
+		"image_tag":        "tag-1",
+		"direct_play_ok":   false,
+		"quality_notes":    "audio codec eac3",
+	})
+
+	resp := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	summary := decode[struct {
+		Checked int `json:"checked"`
+		Updated int `json:"updated"`
+	}](t, resp.Body.Bytes())
+	assert.Equal(t, 1, summary.Checked)
+	assert.Equal(t, 1, summary.Updated)
+
+	refreshed := h.Get("/media-items/" + item.ID)
+	require.Equal(t, http.StatusOK, refreshed.Code)
+	got := decode[domain.MediaItem](t, refreshed.Body.Bytes())
+	assert.True(t, got.DirectPlayOK, "sync must re-evaluate direct_play_ok from codecs")
+	assert.Empty(t, got.QualityNotes, "stale auto codec notes are cleared")
+	assert.Equal(t, "eac3", got.AudioCodec)
+}
+
 func TestJellyfinSyncCoversTheWholeLibrary(t *testing.T) {
 	t.Parallel()
 	// More items than a single page holds: stopping after one page would leave
