@@ -310,6 +310,30 @@ func TestRunnerWithoutCapabilityRejected(t *testing.T) {
 	sess, err := repo.StartOrResumeSession(ctx, q, dev, uuid.NewString(), asg.ID, time.Now().UTC(), contracts.CapStructuredCommandEvidence)
 	require.NoError(t, err)
 	require.NotEmpty(t, sess.ID)
+
+	// Forged screen-scrape provenance must not pass command-sensitive completion
+	// even if the client sets structuredCommandEvidence / capability flags.
+	now := time.Now().UTC()
+	_, err = mastery.ApplyCompletion(ctx, q, dev, sess.ID, contracts.CompletionRequest{
+		SchemaVersion: "1",
+		CompletionID:  uuid.NewString(),
+		RequestDigest: "forged-pty",
+		Observations: []contracts.Observation{{
+			SchemaVersion: "1",
+			CheckID:       "c-ls",
+			Kind:          contracts.CheckCommandProperties,
+			Passed:        true,
+			ObservedAt:    now,
+			Details: map[string]any{
+				"structuredCommandEvidence": true,
+				"capability":                contracts.CapStructuredCommandEvidence,
+				"source":                    "pty-shell",
+			},
+		}},
+		ClientTime: now,
+	}, now)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "structured command evidence")
 }
 
 func TestEvidenceMigrationFieldsPresent(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 )
 
 // VerifierVersion identifies the observation shape produced by this package.
-const VerifierVersion = "1"
+const VerifierVersion = "2"
 
 // ShellState is optional runtime context for command/cwd/pipeline checks.
 type ShellState struct {
@@ -26,8 +26,15 @@ type ShellState struct {
 	// trusted command instrumentation. Synthetic PTY screen text must leave
 	// this false so command_properties / pipeline_output cannot pass.
 	StructuredCommandEvidence bool
-	// Source labels the observation origin (e.g. "structured", "pty-shell").
+	// Source labels the observation origin (e.g. "structured", "observe-bash").
 	Source string
+	// History is task-scoped command history for predicates that match any
+	// successful command since the current task started.
+	History *History
+	// TaskIndex selects the active task window inside History (0-based).
+	TaskIndex int
+	// ManifestDigest is the latest workspace manifest digest when captured.
+	ManifestDigest string
 }
 
 // VerifyCheck evaluates one check against workspace root and optional shell state.
@@ -284,79 +291,128 @@ func evalCheck(root string, check contracts.Check, shell *ShellState) (bool, str
 		if shell == nil {
 			return false, "no command observation available", nil, nil
 		}
+		if shell.ManifestDigest != "" {
+			details["workspaceManifestDigest"] = shell.ManifestDigest
+		}
+		match, err := commandMatchFromParams(params, true)
+		if err != nil {
+			return false, "", nil, err
+		}
+		// Prefer history so any matching successful command satisfies the check
+		// (not only the latest observation). Search from the active task window
+		// first, then fall back to session start so completed earlier tasks keep
+		// their evidence when later tasks are active.
+		if shell.History != nil && len(shell.History.Events) > 0 {
+			if hit, ok := findHistoryMatch(shell, match); ok {
+				details["source"] = hit.Source
+				details["structuredCommandEvidence"] = hit.Structured
+				details["capability"] = contracts.CapStructuredCommandEvidence
+				details["executable"] = hit.Executable
+				details["args"] = hit.Argv
+				details["exitCode"] = hit.ExitCode
+				details["sequence"] = hit.Sequence
+				if hit.ManifestAfter != "" {
+					details["workspaceManifestDigest"] = hit.ManifestAfter
+				}
+				return true, "command ok (history)", details, nil
+			}
+			details["source"] = shell.Source
+			details["structuredCommandEvidence"] = false
+			if !historyHasStructured(shell.History, 0) {
+				details["capability"] = ""
+				return false, "structured command evidence unavailable", details, nil
+			}
+			return false, "no matching command in task history", details, nil
+		}
 		details["source"] = shell.Source
 		details["structuredCommandEvidence"] = shell.StructuredCommandEvidence
-		if !shell.StructuredCommandEvidence || shell.Executable == "pty-shell" || shell.Source == "pty-shell" || shell.Source == "synthetic-pty" {
+		if !shell.StructuredCommandEvidence || shell.Executable == "pty-shell" || shell.Source == "pty-shell" || shell.Source == "synthetic-pty" || shell.Source == "screen" {
 			details["capability"] = ""
 			return false, "structured command evidence unavailable", details, nil
 		}
 		details["capability"] = contracts.CapStructuredCommandEvidence
-		exe, err := stringParam(params, "executable")
-		if err != nil {
-			return false, "", nil, err
+		obs := contracts.CommandObservation{
+			Executable:    shell.Executable,
+			Argv:          shell.Args,
+			ArgvAvailable: shell.Executable != "" || len(shell.Args) > 0,
+			ExitCode:      shell.ExitCode,
+			ExitAvailable: true,
+			Stdout:        contracts.Excerpt{Text: shell.Stdout, Trusted: true},
+			Stderr:        contracts.Excerpt{Text: shell.Stderr, Trusted: true},
+			Source:        shell.Source,
+			Structured:    shell.StructuredCommandEvidence,
+			Quality: contracts.EvidenceQuality{
+				Exit: true, Cwd: shell.Cwd != "", Argv: true, Stdout: true, Stderr: true,
+			},
+		}
+		if !matchObservation(obs, match) {
+			details["executable"] = shell.Executable
+			details["args"] = shell.Args
+			details["exitCode"] = shell.ExitCode
+			return false, "command mismatch", details, nil
 		}
 		details["executable"] = shell.Executable
-		if filepath.Base(shell.Executable) != exe && shell.Executable != exe {
-			return false, fmt.Sprintf("executable want %s got %s", exe, shell.Executable), details, nil
-		}
-		if raw, ok := params["args"]; ok {
-			wantArgs, err := asStringSlice(raw)
-			if err != nil {
-				return false, "", nil, err
-			}
-			details["args"] = shell.Args
-			if !stringSlicesEqual(shell.Args, wantArgs) {
-				return false, "args mismatch", details, nil
-			}
-		}
-		if raw, ok := params["exitCode"]; ok {
-			want, err := asInt(raw)
-			if err != nil {
-				return false, "", nil, err
-			}
-			details["exitCode"] = shell.ExitCode
-			if shell.ExitCode != want {
-				return false, fmt.Sprintf("exit code want %d got %d", want, shell.ExitCode), details, nil
-			}
-		}
+		details["args"] = shell.Args
+		details["exitCode"] = shell.ExitCode
 		return true, "command ok", details, nil
 
 	case contracts.CheckPipelineOutput:
 		if shell == nil {
 			return false, "no pipeline observation available", nil, nil
 		}
+		if shell.ManifestDigest != "" {
+			details["workspaceManifestDigest"] = shell.ManifestDigest
+		}
+		match, err := pipelineMatchFromParams(params)
+		if err != nil {
+			return false, "", nil, err
+		}
+		if shell.History != nil && len(shell.History.Events) > 0 {
+			if hit, ok := findHistoryMatch(shell, match); ok {
+				details["source"] = hit.Source
+				details["structuredCommandEvidence"] = hit.Structured
+				details["capability"] = contracts.CapStructuredCommandEvidence
+				out := normalizeOutput(hit.Stdout.Text)
+				details["stdoutNorm"] = truncate(out, 256)
+				details["sequence"] = hit.Sequence
+				return true, "output ok (history)", details, nil
+			}
+			details["source"] = shell.Source
+			if !historyHasStructured(shell.History, 0) {
+				details["capability"] = ""
+				return false, "structured command evidence unavailable", details, nil
+			}
+			return false, "no matching output in task history", details, nil
+		}
 		details["source"] = shell.Source
 		details["structuredCommandEvidence"] = shell.StructuredCommandEvidence
-		if !shell.StructuredCommandEvidence || shell.Executable == "pty-shell" || shell.Source == "pty-shell" || shell.Source == "synthetic-pty" {
+		if !shell.StructuredCommandEvidence || shell.Executable == "pty-shell" || shell.Source == "pty-shell" || shell.Source == "synthetic-pty" || shell.Source == "screen" {
 			details["capability"] = ""
 			return false, "structured command evidence unavailable", details, nil
+		}
+		// Last-observation path requires trusted stdout.
+		if match.RequireStdoutTrusted {
+			// ShellState.Stdout from structured process-wait is trusted.
+			if shell.Source != contracts.SourceStructured && shell.Source != "structured" {
+				details["capability"] = contracts.CapStructuredCommandEvidence
+				return false, "stdout not trusted for pipeline check", details, nil
+			}
 		}
 		details["capability"] = contracts.CapStructuredCommandEvidence
 		out := normalizeOutput(shell.Stdout)
 		details["stdoutNorm"] = truncate(out, 256)
-		if want, ok := params["value"].(string); ok {
-			if out == normalizeOutput(want) {
-				return true, "output equals", details, nil
-			}
+		obs := contracts.CommandObservation{
+			ExitAvailable: true,
+			ExitCode:      shell.ExitCode,
+			Stdout:        contracts.Excerpt{Text: shell.Stdout, Trusted: true},
+			Source:        shell.Source,
+			Structured:    true,
+			Quality:       contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true, Stderr: true},
+		}
+		if !matchObservation(obs, match) {
 			return false, "output mismatch", details, nil
 		}
-		if contains, ok := params["contains"].(string); ok {
-			if strings.Contains(out, normalizeOutput(contains)) {
-				return true, "output contains", details, nil
-			}
-			return false, "output missing substring", details, nil
-		}
-		if pat, ok := params["pattern"].(string); ok && pat != "" {
-			re, err := regexp.Compile(pat)
-			if err != nil {
-				return false, "", nil, err
-			}
-			if re.MatchString(out) {
-				return true, "output matches", details, nil
-			}
-			return false, "output pattern not matched", details, nil
-		}
-		return false, "no output expectation", details, nil
+		return true, "output ok", details, nil
 
 	default:
 		return false, "", nil, fmt.Errorf("unknown check kind %q", check.Kind)
@@ -454,18 +510,6 @@ func asInt(v any) (int, error) {
 	}
 }
 
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func normalizeOutput(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.TrimRight(s, "\n")
@@ -477,4 +521,119 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func commandMatchFromParams(params map[string]any, requireStructured bool) (CommandMatch, error) {
+	m := CommandMatch{RequireStructured: requireStructured}
+	if exe, err := stringParam(params, "executable"); err == nil {
+		m.Executable = exe
+	} else {
+		return m, err
+	}
+	if raw, ok := params["args"]; ok {
+		wantArgs, err := asStringSlice(raw)
+		if err != nil {
+			return m, err
+		}
+		m.Args = wantArgs
+		m.ArgsSet = true
+	}
+	if raw, ok := params["exitCode"]; ok {
+		want, err := asInt(raw)
+		if err != nil {
+			return m, err
+		}
+		m.ExitCode = &want
+	} else {
+		// Default: at least one matching successful command.
+		m.RequireSuccess = true
+	}
+	// Optional stream predicates on command_properties (Phase 2).
+	if v, ok := params["stdoutContains"].(string); ok {
+		m.StdoutContains = v
+		m.RequireStdoutTrusted = true
+	}
+	if v, ok := params["stdoutEquals"].(string); ok {
+		m.StdoutEquals = v
+		m.RequireStdoutTrusted = true
+	}
+	if v, ok := params["stdoutPattern"].(string); ok {
+		m.StdoutPattern = v
+		m.RequireStdoutTrusted = true
+	}
+	if v, ok := params["stderrContains"].(string); ok {
+		m.StderrContains = v
+		m.RequireStderrTrusted = true
+	}
+	if v, ok := params["stderrEquals"].(string); ok {
+		m.StderrEquals = v
+		m.RequireStderrTrusted = true
+	}
+	if v, ok := params["stderrPattern"].(string); ok {
+		m.StderrPattern = v
+		m.RequireStderrTrusted = true
+	}
+	return m, nil
+}
+
+func pipelineMatchFromParams(params map[string]any) (CommandMatch, error) {
+	m := CommandMatch{
+		RequireStructured:    true,
+		RequireStdoutTrusted: true,
+	}
+	if v, ok := params["value"].(string); ok {
+		m.StdoutEquals = v
+	}
+	if v, ok := params["contains"].(string); ok {
+		m.StdoutContains = v
+	}
+	if v, ok := params["pattern"].(string); ok {
+		m.StdoutPattern = v
+	}
+	if m.StdoutEquals == "" && m.StdoutContains == "" && m.StdoutPattern == "" {
+		return m, fmt.Errorf("no output expectation")
+	}
+	return m, nil
+}
+
+func historyHasStructured(h *History, taskIndex int) bool {
+	if h == nil {
+		return false
+	}
+	for _, e := range h.SinceTask(taskIndex) {
+		if e.Structured && e.Quality.MeetsStructuredBar() {
+			return true
+		}
+	}
+	return false
+}
+
+// findHistoryMatch looks for a matching command in the active task window, then
+// broader session history so evidence from earlier completed tasks remains valid.
+func findHistoryMatch(shell *ShellState, match CommandMatch) (contracts.CommandObservation, bool) {
+	if shell == nil || shell.History == nil {
+		return contracts.CommandObservation{}, false
+	}
+	// Try active task window first (pedagogical "since task start").
+	if hit, ok := shell.History.FindMatch(shell.TaskIndex, match); ok {
+		return hit, true
+	}
+	// Fall back to session start so completed prior tasks keep command evidence.
+	if shell.TaskIndex != 0 {
+		if hit, ok := shell.History.FindMatch(0, match); ok {
+			return hit, true
+		}
+	}
+	// Also try each recorded task start (covers task index past end when done).
+	if shell.History.TaskStartSeq != nil {
+		for idx := range shell.History.TaskStartSeq {
+			if idx == shell.TaskIndex || idx == 0 {
+				continue
+			}
+			if hit, ok := shell.History.FindMatch(idx, match); ok {
+				return hit, true
+			}
+		}
+	}
+	return contracts.CommandObservation{}, false
 }
