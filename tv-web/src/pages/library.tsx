@@ -31,30 +31,12 @@ import {
   textCol,
 } from "@/lib/columns";
 import { MEDIA_CLASSES } from "@/lib/constants";
+import { directPlayIssues } from "@/lib/directPlay";
 
 type Schemas = components["schemas"];
 type MediaItem = Schemas["MediaItem"];
 type BrowseItem = Schemas["BrowseItem"];
 type SyncResponse = Schemas["SyncResponse"];
-
-/**
- * Codecs and containers the RK3318 target box can hardware-decode. Anything
- * else would force Jellyfin to transcode, which the NAS cannot sustain, so an
- * import is pre-flagged as not direct-playable and the parent sees it before a
- * student hits a stalled stream.
- */
-const DIRECT_PLAY_VIDEO = ["h264", "hevc", "h265", "mpeg4", "vp8", "vp9"];
-const DIRECT_PLAY_AUDIO = ["aac", "mp3", "ac3", "opus", "vorbis", "flac"];
-
-/** directPlayIssues lists the reasons an item would need transcoding. */
-function directPlayIssues(item: Pick<BrowseItem, "videoCodec" | "audioCodec">): string[] {
-  const issues: string[] = [];
-  const video = item.videoCodec?.toLowerCase() ?? "";
-  const audio = item.audioCodec?.toLowerCase() ?? "";
-  if (video && !DIRECT_PLAY_VIDEO.includes(video)) issues.push(`video codec ${item.videoCodec}`);
-  if (audio && !DIRECT_PLAY_AUDIO.includes(audio)) issues.push(`audio codec ${item.audioCodec}`);
-  return issues;
-}
 
 /** LibraryPage manages the curated media library imported from Jellyfin. */
 export function LibraryPage() {
