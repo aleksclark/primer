@@ -6938,7 +6938,7 @@ paths:
         - Devices
   /standards:
     get:
-      description: List standards with pagination, search (code, description, domain, cluster), sorting (code, source, grade_level, domain, created_at, updated_at), and filters (source, subject_id, parent_id, grade_level, domain, tcap_weight).
+      description: List standards with pagination, search (code, description, domain, cluster), sorting (code, source, grade_level, domain, created_at, updated_at), and filters (code, source, subject_id, parent_id, grade_level, domain, tcap_weight).
       operationId: list-standards
       parameters:
         - description: Page size.
