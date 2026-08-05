@@ -129,6 +129,28 @@ CREATE TABLE IF NOT EXISTS runner_state (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_assignment_state
   ON sessions(assignment_id, state, updated_at);
+
+CREATE TABLE IF NOT EXISTS response_drafts (
+  client_session_id TEXT NOT NULL,
+  task_id           TEXT NOT NULL,
+  body              TEXT NOT NULL DEFAULT '',
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (client_session_id, task_id)
+);
+
+CREATE TABLE IF NOT EXISTS response_intents (
+  submission_id     TEXT PRIMARY KEY NOT NULL,
+  client_session_id TEXT NOT NULL,
+  server_session_id TEXT NOT NULL DEFAULT '',
+  task_id           TEXT NOT NULL,
+  request_json      TEXT NOT NULL,
+  response_json     TEXT NOT NULL DEFAULT '',
+  acked             INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_response_intents_pending
+  ON response_intents(acked) WHERE acked = 0;
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate cache schema: %w", err)
@@ -751,6 +773,140 @@ type PendingSync struct {
 	ArtifactCount int
 }
 
+// SaveResponseDraft persists an in-progress constructed response body.
+func (s *Store) SaveResponseDraft(ctx context.Context, clientSessionID, taskID, body string) error {
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO response_drafts(client_session_id, task_id, body, updated_at) VALUES(?,?,?,?)
+ON CONFLICT(client_session_id, task_id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`,
+		clientSessionID, taskID, body, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// GetResponseDraft returns a draft body or "" if missing.
+func (s *Store) GetResponseDraft(ctx context.Context, clientSessionID, taskID string) (string, error) {
+	var body string
+	err := s.db.QueryRowContext(ctx, `
+SELECT body FROM response_drafts WHERE client_session_id = ? AND task_id = ?`, clientSessionID, taskID).Scan(&body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return body, err
+}
+
+// ResponseIntent is a durable conceptual response awaiting server ack.
+type ResponseIntent struct {
+	SubmissionID    string
+	ClientSessionID string
+	ServerSessionID string
+	TaskID          string
+	Request         contracts.ResponseSubmission
+	Response        *contracts.ResponseSubmissionResult
+	Acked           bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// SaveResponseIntent queues a response submission for sync.
+func (s *Store) SaveResponseIntent(ctx context.Context, clientSessionID, serverSessionID string, req contracts.ResponseSubmission) error {
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO response_intents(
+  submission_id, client_session_id, server_session_id, task_id, request_json, response_json, acked, created_at, updated_at
+) VALUES(?,?,?,?,?,'',0,?,?)
+ON CONFLICT(submission_id) DO UPDATE SET
+  request_json = excluded.request_json,
+  server_session_id = CASE
+    WHEN excluded.server_session_id != '' THEN excluded.server_session_id
+    ELSE response_intents.server_session_id
+  END,
+  updated_at = excluded.updated_at`,
+		req.SubmissionID, clientSessionID, serverSessionID, req.TaskID, string(raw), now, now)
+	return err
+}
+
+// MarkResponseAcked records the server result for a response intent.
+func (s *Store) MarkResponseAcked(ctx context.Context, submissionID string, result contracts.ResponseSubmissionResult) error {
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+UPDATE response_intents SET acked = 1, response_json = ?, updated_at = ? WHERE submission_id = ?`,
+		string(raw), time.Now().UTC().Format(time.RFC3339Nano), submissionID)
+	return err
+}
+
+// ListPendingResponses returns unacked response intents.
+func (s *Store) ListPendingResponses(ctx context.Context) ([]ResponseIntent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT submission_id, client_session_id, server_session_id, task_id, request_json, response_json, acked, created_at, updated_at
+FROM response_intents WHERE acked = 0 ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ResponseIntent
+	for rows.Next() {
+		var r ResponseIntent
+		var reqRaw, respRaw, created, updated string
+		var acked int
+		if err := rows.Scan(&r.SubmissionID, &r.ClientSessionID, &r.ServerSessionID, &r.TaskID, &reqRaw, &respRaw, &acked, &created, &updated); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(reqRaw), &r.Request); err != nil {
+			return nil, err
+		}
+		r.Acked = acked != 0
+		r.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+		r.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		if strings.TrimSpace(respRaw) != "" {
+			var res contracts.ResponseSubmissionResult
+			if err := json.Unmarshal([]byte(respRaw), &res); err == nil {
+				r.Response = &res
+			}
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ListAckedResponseTaskIDs returns task IDs with an acked response for a client session.
+func (s *Store) ListAckedResponseTaskIDs(ctx context.Context, clientSessionID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT task_id FROM response_intents WHERE client_session_id = ? AND acked = 1`, clientSessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	// Also count unacked pending as submitted for local check progress.
+	rows2, err := s.db.QueryContext(ctx, `
+SELECT task_id FROM response_intents WHERE client_session_id = ?`, clientSessionID)
+	if err != nil {
+		return out, err
+	}
+	defer rows2.Close()
+	for rows2.Next() {
+		var id string
+		if err := rows2.Scan(&id); err != nil {
+			return out, err
+		}
+		out[id] = true
+	}
+	return out, nil
+}
+
 // GetPendingSync returns all pending outbox/completion/artifact rows.
 func (s *Store) GetPendingSync(ctx context.Context) (*PendingSync, error) {
 	evs, err := s.ListPendingEvents(ctx, 1000)
@@ -776,6 +932,8 @@ func (s *Store) GetPendingSync(ctx context.Context) (*PendingSync, error) {
 }
 
 // DecodeActivityContent converts a revision content map into ActivityContent.
+// parent_note blocks are stripped so local cache/TUI never surface them even if
+// an older server payload included them.
 func DecodeActivityContent(m map[string]any) (contracts.ActivityContent, error) {
 	raw, err := json.Marshal(m)
 	if err != nil {
@@ -785,5 +943,6 @@ func DecodeActivityContent(m map[string]any) (contracts.ActivityContent, error) 
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return contracts.ActivityContent{}, fmt.Errorf("decode activity content: %w", err)
 	}
+	c.Blocks = contracts.StudentBlocks(c.Blocks)
 	return c, nil
 }

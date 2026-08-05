@@ -227,3 +227,66 @@ func TestValidateRejectsWrongSchema(t *testing.T) {
 	doc.SchemaVersion = "999"
 	require.Error(t, contracts.ValidateDocument(doc))
 }
+
+func TestValidateInstructionBlocksAndResponseTask(t *testing.T) {
+	t.Parallel()
+	doc := sampleTerminal()
+	doc.Content.Blocks = []contracts.InstructionBlock{
+		{ID: "intro", Kind: contracts.BlockProse, Text: "The terminal displays text."},
+		{ID: "vocab", Kind: contracts.BlockVocabulary, Terms: []contracts.VocabularyTerm{
+			{Term: "shell", Definition: "interprets command lines"},
+		}},
+		{ID: "ex", Kind: contracts.BlockExample, Input: "pwd", Output: "/home/student", Explanation: "path of cwd"},
+		{ID: "warn", Kind: contracts.BlockWarning, Text: "Do not type the prompt symbol."},
+		{ID: "parent", Kind: contracts.BlockParentNote, Text: "Ask for oral explanation of whoami vs pwd."},
+	}
+	doc.Content.Checks = append(doc.Content.Checks, contracts.Check{
+		ID:     "response-done",
+		Kind:   contracts.CheckResponseSubmitted,
+		Params: map[string]any{"taskId": "explain-concepts"},
+	})
+	doc.Content.Tasks = append(doc.Content.Tasks, contracts.Task{
+		ID:           "explain-concepts",
+		Title:        "Explain concepts",
+		Instructions: "Write a short explanation.",
+		Kind:         contracts.TaskKindShortResponse,
+		Prerequisites: []string{"enter-docs"},
+		Completion:   contracts.CheckTree{CheckID: "response-done"},
+		Response: &contracts.ResponseTaskSpec{
+			Prompt:               "How do terminal and shell differ?",
+			MaxChars:             500,
+			ParentReviewRequired: true,
+			Rubric: []contracts.RubricCriterion{
+				{ID: "roles", Description: "Names distinct roles for terminal and shell", Required: true},
+				{ID: "whoami", Description: "Contrasts whoami with pwd", Required: true},
+			},
+		},
+	})
+	require.NoError(t, contracts.ValidateDocument(doc))
+	student := contracts.StudentBlocks(doc.Content.Blocks)
+	require.Len(t, student, 4)
+	for _, b := range student {
+		assert.NotEqual(t, contracts.BlockParentNote, b.Kind)
+	}
+}
+
+func TestValidateRejectsUnsafeBlockLink(t *testing.T) {
+	t.Parallel()
+	doc := sampleTerminal()
+	doc.Content.Blocks = []contracts.InstructionBlock{
+		{ID: "bad", Kind: contracts.BlockProse, Text: "See https://evil.example for more."},
+	}
+	err := contracts.ValidateDocument(doc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsafe")
+}
+
+func TestValidateRejectsResponseWithoutRubric(t *testing.T) {
+	t.Parallel()
+	doc := sampleTerminal()
+	doc.Content.Tasks[0].Kind = contracts.TaskKindShortResponse
+	doc.Content.Tasks[0].Response = &contracts.ResponseTaskSpec{Prompt: "Why?"}
+	err := contracts.ValidateDocument(doc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rubric")
+}

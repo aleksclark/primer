@@ -400,3 +400,52 @@ type LearningSessionArtifact struct {
 	StoragePath string    `json:"storagePath,omitempty" db:"storage_path"`
 	CreatedAt   time.Time `json:"createdAt" db:"created_at"`
 }
+
+// Student response status values.
+const (
+	ResponseSubmitted = "submitted"
+	ResponseAccepted  = "accepted"
+	ResponseReturned  = "returned"
+)
+
+// Parent review decision values.
+const (
+	ReviewAccept = "accept"
+	ReviewReturn = "return"
+)
+
+// StudentResponse is an immutable submitted conceptual response (one attempt).
+// Returned work creates a new row rather than overwriting body text.
+type StudentResponse struct {
+	ID                   string         `json:"id" db:"id" format:"uuid"`
+	SubmissionID         string         `json:"submissionId" db:"submission_id" format:"uuid"`
+	StudentID            string         `json:"studentId" db:"student_id" format:"uuid"`
+	SessionID            string         `json:"sessionId" db:"session_id" format:"uuid"`
+	AssignmentID         string         `json:"assignmentId" db:"assignment_id" format:"uuid"`
+	ActivityRevisionID   string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	TaskID               string         `json:"taskId" db:"task_id"`
+	Body                 string         `json:"body" db:"body"`
+	BodySHA256           string         `json:"bodySha256" db:"body_sha256"`
+	Status               string         `json:"status" db:"status" enum:"submitted,accepted,returned"`
+	RequestDigest        string         `json:"requestDigest" db:"request_digest"`
+	Attempt              int            `json:"attempt" db:"attempt"`
+	RubricSnapshot       []map[string]any `json:"rubricSnapshot,omitempty" db:"rubric_snapshot"`
+	ParentReviewRequired bool           `json:"parentReviewRequired" db:"parent_review_required"`
+	SubmittedAt          time.Time      `json:"submittedAt" db:"submitted_at"`
+	ReviewedAt           *time.Time     `json:"reviewedAt,omitempty" db:"reviewed_at"`
+	ReviewedBy           *string        `json:"reviewedBy,omitempty" db:"reviewed_by" format:"uuid"`
+	ReturnReason         string         `json:"returnReason,omitempty" db:"return_reason"`
+	CreatedAt            time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt            time.Time      `json:"updatedAt" db:"updated_at"`
+}
+
+// StudentResponseReview is one parent decision on a submitted response.
+type StudentResponseReview struct {
+	ID         string           `json:"id" db:"id" format:"uuid"`
+	ResponseID string           `json:"responseId" db:"response_id" format:"uuid"`
+	EducatorID string           `json:"educatorId" db:"educator_id" format:"uuid"`
+	Decision   string           `json:"decision" db:"decision" enum:"accept,return"`
+	Reason     string           `json:"reason" db:"reason"`
+	Criteria   []map[string]any `json:"criteria,omitempty" db:"criteria"`
+	CreatedAt  time.Time        `json:"createdAt" db:"created_at"`
+}

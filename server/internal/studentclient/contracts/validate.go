@@ -149,6 +149,10 @@ func ValidateContent(kind string, c *ActivityContent) error {
 		}
 	}
 
+	if err := validateInstructionBlocks(c.Blocks); err != nil {
+		return err
+	}
+
 	if len(c.Tasks) == 0 {
 		return fmt.Errorf("content.tasks must not be empty")
 	}
@@ -166,6 +170,22 @@ func ValidateContent(kind string, c *ActivityContent) error {
 		}
 		if strings.TrimSpace(t.Instructions) == "" {
 			return fmt.Errorf("tasks[%d]: instructions are required", i)
+		}
+		kind := t.Kind
+		if kind == "" {
+			kind = TaskKindAction
+		}
+		switch kind {
+		case TaskKindAction:
+			if t.Response != nil {
+				return fmt.Errorf("tasks[%d]: response is only valid for short_response tasks", i)
+			}
+		case TaskKindShortResponse:
+			if err := validateResponseSpec(fmt.Sprintf("tasks[%d].response", i), t.Response); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("tasks[%d]: unknown kind %q", i, t.Kind)
 		}
 		for _, pre := range t.Prerequisites {
 			if !taskIDs[pre] && pre != t.ID {
@@ -429,10 +449,195 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 		if wpm < 0 {
 			return fmt.Errorf("checks[%d] (%s): params.min_wpm must be non-negative", i, ch.ID)
 		}
+	case CheckResponseSubmitted:
+		allowed := map[string]bool{"taskId": true, "task_id": true}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
+		tid, ok := stringParam(ch.Params, "taskId")
+		if !ok {
+			tid, ok = stringParam(ch.Params, "task_id")
+		}
+		if !ok || !idRE.MatchString(tid) {
+			return fmt.Errorf("checks[%d] (%s): params.taskId is required", i, ch.ID)
+		}
 	default:
 		return fmt.Errorf("checks[%d] (%s): unknown kind %q", i, ch.ID, ch.Kind)
 	}
 	return nil
+}
+
+func validateInstructionBlocks(blocks []InstructionBlock) error {
+	seen := map[string]bool{}
+	for i, b := range blocks {
+		if !idRE.MatchString(b.ID) {
+			return fmt.Errorf("blocks[%d]: invalid id %q", i, b.ID)
+		}
+		if seen[b.ID] {
+			return fmt.Errorf("blocks[%d]: duplicate id %q", i, b.ID)
+		}
+		seen[b.ID] = true
+		switch b.Kind {
+		case BlockProse, BlockWarning, BlockQuestion, BlockPractice, BlockParentNote:
+			if strings.TrimSpace(b.Text) == "" {
+				return fmt.Errorf("blocks[%d] (%s): text is required", i, b.ID)
+			}
+			if len(b.Text) > MaxInstructionBlockText {
+				return fmt.Errorf("blocks[%d] (%s): text exceeds %d characters", i, b.ID, MaxInstructionBlockText)
+			}
+			if looksLikeUnsafeMarkup(b.Text) {
+				return fmt.Errorf("blocks[%d] (%s): unsafe markup or links are not allowed", i, b.ID)
+			}
+			if len(b.Terms) > 0 || b.Resource != nil || b.Input != "" || b.Output != "" {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for kind %s", i, b.ID, b.Kind)
+			}
+		case BlockVocabulary:
+			if len(b.Terms) == 0 {
+				return fmt.Errorf("blocks[%d] (%s): terms are required", i, b.ID)
+			}
+			for j, term := range b.Terms {
+				if strings.TrimSpace(term.Term) == "" || strings.TrimSpace(term.Definition) == "" {
+					return fmt.Errorf("blocks[%d].terms[%d]: term and definition are required", i, j)
+				}
+				if looksLikeUnsafeMarkup(term.Term) || looksLikeUnsafeMarkup(term.Definition) {
+					return fmt.Errorf("blocks[%d].terms[%d]: unsafe markup is not allowed", i, j)
+				}
+			}
+			if b.Text != "" || b.Resource != nil {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for vocabulary", i, b.ID)
+			}
+		case BlockExample:
+			if strings.TrimSpace(b.Input) == "" && strings.TrimSpace(b.Output) == "" && strings.TrimSpace(b.Explanation) == "" {
+				return fmt.Errorf("blocks[%d] (%s): example needs input, output, or explanation", i, b.ID)
+			}
+			for _, s := range []string{b.Input, b.Output, b.Explanation, b.Text} {
+				if looksLikeUnsafeMarkup(s) {
+					return fmt.Errorf("blocks[%d] (%s): unsafe markup is not allowed", i, b.ID)
+				}
+			}
+			if len(b.Terms) > 0 || b.Resource != nil {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for example", i, b.ID)
+			}
+		case BlockResource:
+			if b.Resource == nil {
+				return fmt.Errorf("blocks[%d] (%s): resource is required", i, b.ID)
+			}
+			if err := validateResourceRef(fmt.Sprintf("blocks[%d].resource", i), b.Resource); err != nil {
+				return err
+			}
+			if b.Text != "" || len(b.Terms) > 0 {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for resource", i, b.ID)
+			}
+		default:
+			return fmt.Errorf("blocks[%d] (%s): unknown kind %q", i, b.ID, b.Kind)
+		}
+	}
+	return nil
+}
+
+func validateResourceRef(path string, r *ResourceRef) error {
+	if r == nil {
+		return fmt.Errorf("%s is required", path)
+	}
+	if !sha256HexRE.MatchString(r.SHA256) {
+		return fmt.Errorf("%s.sha256 must be 64 hex chars", path)
+	}
+	if strings.TrimSpace(r.Label) == "" {
+		return fmt.Errorf("%s.label is required", path)
+	}
+	if strings.TrimSpace(r.MediaType) == "" {
+		return fmt.Errorf("%s.mediaType is required", path)
+	}
+	// Reject remote schemes in labels/media types that look like URLs.
+	if strings.Contains(r.Label, "://") || strings.HasPrefix(strings.ToLower(r.MediaType), "text/html") {
+		return fmt.Errorf("%s: remote or HTML resources are not allowed", path)
+	}
+	if r.ByteSize < 0 || r.ByteSize > MaxResourceBytes {
+		return fmt.Errorf("%s.byteSize must be between 0 and %d", path, MaxResourceBytes)
+	}
+	return nil
+}
+
+func validateResponseSpec(path string, spec *ResponseTaskSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s is required for short_response tasks", path)
+	}
+	if strings.TrimSpace(spec.Prompt) == "" {
+		return fmt.Errorf("%s.prompt is required", path)
+	}
+	if looksLikeUnsafeMarkup(spec.Prompt) {
+		return fmt.Errorf("%s.prompt: unsafe markup is not allowed", path)
+	}
+	max := spec.MaxChars
+	if max == 0 {
+		max = DefaultResponseMaxChars
+	}
+	if max < 1 || max > MaxResponseMaxChars {
+		return fmt.Errorf("%s.maxChars must be between 1 and %d", path, MaxResponseMaxChars)
+	}
+	if len(spec.Rubric) == 0 {
+		return fmt.Errorf("%s.rubric must not be empty", path)
+	}
+	seen := map[string]bool{}
+	for i, c := range spec.Rubric {
+		if !idRE.MatchString(c.ID) {
+			return fmt.Errorf("%s.rubric[%d]: invalid id %q", path, i, c.ID)
+		}
+		if seen[c.ID] {
+			return fmt.Errorf("%s.rubric[%d]: duplicate id %q", path, i, c.ID)
+		}
+		seen[c.ID] = true
+		if strings.TrimSpace(c.Description) == "" {
+			return fmt.Errorf("%s.rubric[%d]: description is required", path, i)
+		}
+	}
+	return nil
+}
+
+var (
+	sha256HexRE   = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	unsafeLinkRE  = regexp.MustCompile(`(?i)(https?://|javascript:|data:)`)
+	unsafeTagRE   = regexp.MustCompile(`(?i)<\s*(script|iframe|object|embed|link|meta|style)\b`)
+)
+
+func looksLikeUnsafeMarkup(s string) bool {
+	if s == "" {
+		return false
+	}
+	if unsafeLinkRE.MatchString(s) {
+		return true
+	}
+	if unsafeTagRE.MatchString(s) {
+		return true
+	}
+	return false
+}
+
+// StudentBlocks returns instructional blocks visible to the student client
+// (excludes parent_note).
+func StudentBlocks(blocks []InstructionBlock) []InstructionBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]InstructionBlock, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Kind == BlockParentNote {
+			continue
+		}
+		out = append(out, b)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// TaskKindOrDefault returns the effective task kind.
+func TaskKindOrDefault(t Task) string {
+	if t.Kind == "" {
+		return TaskKindAction
+	}
+	return t.Kind
 }
 
 func validateCheckStages(i int, ch Check) error {

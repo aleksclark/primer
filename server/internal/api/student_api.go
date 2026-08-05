@@ -286,6 +286,58 @@ func registerStudentAPI(h huma.API, q repo.Querier, opts Options) {
 			RateLimited: meta.RateLimited,
 		}}, nil
 	})
+
+	// Conceptual response submission (student-authored text only; never tutor output).
+	huma.Register(h, studentOp(h, q, huma.Operation{
+		OperationID:   "submit-student-response",
+		Method:        http.MethodPost,
+		Path:          "/student/sessions/{id}/responses",
+		Summary:       "Submit a constructed response",
+		Description:   "Idempotent by submissionId. Creates conceptual_response evidence. Tutor clients must not call this with generated text.",
+		Tags:          []string{"Student"},
+		DefaultStatus: http.StatusCreated,
+	}), func(ctx context.Context, in *submitResponseInput) (*submitResponseOutput, error) {
+		dev, err := studentDevice(ctx)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		req := in.Body
+		if req.SchemaVersion == "" {
+			req.SchemaVersion = contracts.ResponseSchemaVersion
+		}
+		if req.ClientTime.IsZero() {
+			req.ClientTime = now
+		}
+		resp, created, err := repo.SubmitStudentResponse(ctx, q, dev, in.ID, req, now)
+		if err != nil {
+			if errors.Is(err, repo.ErrConflict) {
+				return nil, huma.Error409Conflict(err.Error())
+			}
+			return nil, MapError(err)
+		}
+		var evidenceIDs []string
+		if created {
+			evidenceIDs, err = mastery.ApplyConceptualResponse(ctx, q, resp, now)
+			if err != nil {
+				return nil, MapError(err)
+			}
+		}
+		status := http.StatusCreated
+		if !created {
+			status = http.StatusOK
+		}
+		_ = status
+		return &submitResponseOutput{Body: contracts.ResponseSubmissionResult{
+			SchemaVersion:  contracts.ResponseSchemaVersion,
+			SubmissionID:   resp.SubmissionID,
+			ResponseID:     resp.ID,
+			Status:         resp.Status,
+			EvidenceIDs:    evidenceIDs,
+			ReviewRequired: resp.ParentReviewRequired,
+			Message:        "accepted",
+		}}, nil
+	})
 }
 
 type pairStudentDeviceInput struct {
@@ -376,6 +428,15 @@ type tutorMessageInput struct {
 	Body struct {
 		Message string `json:"message"`
 	}
+}
+
+type submitResponseInput struct {
+	ID   string                       `path:"id" format:"uuid"`
+	Body contracts.ResponseSubmission
+}
+
+type submitResponseOutput struct {
+	Body contracts.ResponseSubmissionResult
 }
 
 // TutorMessageResponse is a short coaching reply.

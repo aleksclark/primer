@@ -102,6 +102,30 @@ type ArtifactMeta struct {
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
+// ResponseSubmission is the student client's durable conceptual response payload.
+// Idempotent by SubmissionID. Body must be the student's own text — never tutor output.
+type ResponseSubmission struct {
+	SchemaVersion  string    `json:"schemaVersion"`
+	SubmissionID   string    `json:"submissionId"`
+	TaskID         string    `json:"taskId"`
+	Body           string    `json:"body"`
+	ClientTime     time.Time `json:"clientTime,omitempty"`
+	// RequestDigest is a stable hash of taskId+body for conflict detection.
+	RequestDigest string `json:"requestDigest,omitempty"`
+}
+
+// ResponseSubmissionResult is the server outcome of an idempotent response submit.
+type ResponseSubmissionResult struct {
+	SchemaVersion string   `json:"schemaVersion"`
+	SubmissionID  string   `json:"submissionId"`
+	ResponseID    string   `json:"responseId"`
+	Status        string   `json:"status"`
+	EvidenceIDs   []string `json:"evidenceIds,omitempty"`
+	Message       string   `json:"message,omitempty"`
+	// ReviewRequired is true when the task asks for parent review.
+	ReviewRequired bool `json:"reviewRequired,omitempty"`
+}
+
 // IPCEnvelope is a versioned broker↔TUI message wrapper (design stub for Phase 2+).
 type IPCEnvelope struct {
 	SchemaVersion string         `json:"schemaVersion"`

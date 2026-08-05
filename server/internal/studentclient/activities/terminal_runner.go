@@ -44,6 +44,9 @@ type TerminalRunner struct {
 	emitCommand  bool
 	pendingShell *ShellResult
 	pendingEvent *contracts.ShellEvent
+
+	// submittedTasks tracks local conceptual response submissions for response_submitted checks.
+	submittedTasks map[string]bool
 }
 
 // NewTerminal returns an unopened terminal runner.
@@ -85,11 +88,39 @@ func (r *TerminalRunner) Open(_ context.Context, opts OpenOpts) error {
 		cwd = joined
 	}
 	r.cwd = cwd
+	if r.submittedTasks == nil {
+		r.submittedTasks = map[string]bool{}
+	}
 	if man, err := terminal.CaptureManifest(r.ws); err == nil {
 		r.lastManifest = man.Digest
 	}
 	r.refreshLocked(nil, false)
 	return nil
+}
+
+// MarkResponseSubmitted records that taskID has a durable conceptual response
+// and re-evaluates checks (response_submitted).
+func (r *TerminalRunner) MarkResponseSubmitted(taskID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.submittedTasks == nil {
+		r.submittedTasks = map[string]bool{}
+	}
+	if taskID != "" {
+		r.submittedTasks[taskID] = true
+	}
+	r.refreshLocked(r.shellStateLocked(), true)
+}
+
+// SubmittedTasks returns a copy of locally known submitted task IDs.
+func (r *TerminalRunner) SubmittedTasks() map[string]bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]bool, len(r.submittedTasks))
+	for k, v := range r.submittedTasks {
+		out[k] = v
+	}
+	return out
 }
 
 // Snapshot implements Runner. Does not clear one-shot emit flags.
@@ -423,6 +454,7 @@ type terminalDurable struct {
 	History        *terminal.History           `json:"history,omitempty"`
 	NextSeq        int64                       `json:"nextSeq,omitempty"`
 	LastManifest   string                      `json:"lastManifest,omitempty"`
+	SubmittedTasks []string                    `json:"submittedTasks,omitempty"`
 	SavedAt        string                      `json:"savedAt,omitempty"`
 }
 
@@ -432,6 +464,12 @@ func (r *TerminalRunner) EncodeState() ([]byte, error) {
 	defer r.mu.Unlock()
 	rel := r.relCwdLocked()
 	hist := r.history
+	var submitted []string
+	for id, ok := range r.submittedTasks {
+		if ok {
+			submitted = append(submitted, id)
+		}
+	}
 	st := terminalDurable{
 		V:              2,
 		Kind:           contracts.KindTerminal,
@@ -447,6 +485,7 @@ func (r *TerminalRunner) EncodeState() ([]byte, error) {
 		History:        &hist,
 		NextSeq:        r.nextSeq,
 		LastManifest:   r.lastManifest,
+		SubmittedTasks: submitted,
 		SavedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if r.lastShell != nil {
@@ -509,6 +548,12 @@ func (r *TerminalRunner) RestoreState(raw []byte) error {
 			Stderr:                    st.LastStderr,
 			Source:                    st.LastSource,
 			StructuredCommandEvidence: st.LastStructured,
+		}
+	}
+	r.submittedTasks = map[string]bool{}
+	for _, id := range st.SubmittedTasks {
+		if id != "" {
+			r.submittedTasks[id] = true
 		}
 	}
 	r.refreshLocked(r.shellStateLocked(), false)
@@ -580,6 +625,7 @@ func (r *TerminalRunner) shellStateLocked() *terminal.ShellState {
 		s.History = &r.history
 		s.TaskIndex = r.currentTaskIdx
 		s.ManifestDigest = r.lastManifest
+		s.SubmittedTasks = r.submittedTasks
 		return &s
 	}
 	return &terminal.ShellState{
@@ -587,6 +633,7 @@ func (r *TerminalRunner) shellStateLocked() *terminal.ShellState {
 		History:        &r.history,
 		TaskIndex:      r.currentTaskIdx,
 		ManifestDigest: r.lastManifest,
+		SubmittedTasks: r.submittedTasks,
 	}
 }
 
@@ -601,6 +648,7 @@ func (r *TerminalRunner) refreshLocked(shell *terminal.ShellState, enqueue bool)
 		if cp.ManifestDigest == "" {
 			cp.ManifestDigest = r.lastManifest
 		}
+		cp.SubmittedTasks = r.submittedTasks
 		shell = &cp
 	}
 	obs := terminal.VerifyAll(r.ws, r.content.Checks, shell)
