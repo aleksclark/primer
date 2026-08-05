@@ -323,6 +323,187 @@ func TestJellyfinSyncIsIdempotent(t *testing.T) {
 	}](t, resp.Body.Bytes()).Updated, "unchanged metadata triggers no writes")
 }
 
+func TestJellyfinSyncRepairsStaleDirectPlayOK(t *testing.T) {
+	t.Parallel()
+	// Codecs already match Jellyfin; only the stored policy flag is stale from
+	// an older allowlist that blocked EAC3 before the Media3 FFmpeg fallback.
+	// The auto-generated quality note is the safe signal that this was policy,
+	// not a curator withhold.
+	fake := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-eac3", Name: "Atmos Night", SortName: "Atmos Night",
+		Runtime: time.Hour, Container: "mkv", VideoCodec: "h264",
+		AudioCodec: "eac3", ImageTag: "tag-1", Overview: "Same.",
+	})
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: fake})
+	item := factory.MediaItem(t, q, factory.Override{
+		"jellyfin_item_id": "jf-eac3",
+		"title":            "Atmos Night",
+		"sort_title":       "Atmos Night",
+		"overview":         "Same.",
+		"runtime_seconds":  3600,
+		"container":        "mkv",
+		"video_codec":      "h264",
+		"audio_codec":      "eac3",
+		"image_tag":        "tag-1",
+		"direct_play_ok":   false,
+		"quality_notes":    "audio codec eac3",
+	})
+
+	resp := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	summary := decode[struct {
+		Checked int `json:"checked"`
+		Updated int `json:"updated"`
+	}](t, resp.Body.Bytes())
+	assert.Equal(t, 1, summary.Checked)
+	assert.Equal(t, 1, summary.Updated)
+
+	refreshed := h.Get("/media-items/" + item.ID)
+	require.Equal(t, http.StatusOK, refreshed.Code)
+	got := decode[domain.MediaItem](t, refreshed.Body.Bytes())
+	assert.True(t, got.DirectPlayOK, "stale auto codec notes authorize false→true repair")
+	assert.Empty(t, got.QualityNotes, "stale auto codec notes are cleared")
+	assert.Equal(t, "eac3", got.AudioCodec)
+}
+
+func TestJellyfinSyncPreservesCuratorDirectPlayWithhold(t *testing.T) {
+	t.Parallel()
+	// Allowlisted codecs + curator-unchecked direct_play_ok must not be flipped
+	// back on by sync, whether the curator left a manual note or none at all.
+	cases := []struct {
+		name  string
+		jfID  string
+		notes string
+	}{
+		{name: "manual note", jfID: "jf-withhold-manual", notes: "curator: hold for movie night"},
+		{name: "blank note", jfID: "jf-withhold-blank", notes: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := jellyfin.NewFake(jellyfin.Item{
+				ID: tc.jfID, Name: "Withheld", SortName: "Withheld",
+				Runtime: time.Hour, Container: "mkv", VideoCodec: "h264",
+				AudioCodec: "eac3", ImageTag: "tag-1", Overview: "Same.",
+			})
+			h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: fake})
+			item := factory.MediaItem(t, q, factory.Override{
+				"jellyfin_item_id": tc.jfID,
+				"title":            "Withheld",
+				"sort_title":       "Withheld",
+				"overview":         "Same.",
+				"runtime_seconds":  3600,
+				"container":        "mkv",
+				"video_codec":      "h264",
+				"audio_codec":      "eac3",
+				"image_tag":        "tag-1",
+				"direct_play_ok":   false,
+				"quality_notes":    tc.notes,
+			})
+
+			resp := h.Post("/jellyfin/sync", objMap{})
+			require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+			summary := decode[struct {
+				Checked int `json:"checked"`
+				Updated int `json:"updated"`
+			}](t, resp.Body.Bytes())
+			assert.Equal(t, 1, summary.Checked)
+			assert.Equal(t, 0, summary.Updated, "curator withhold must not trigger a write")
+
+			refreshed := h.Get("/media-items/" + item.ID)
+			require.Equal(t, http.StatusOK, refreshed.Code)
+			got := decode[domain.MediaItem](t, refreshed.Body.Bytes())
+			assert.False(t, got.DirectPlayOK, "curator withhold survives jellyfin sync")
+			assert.Equal(t, tc.notes, got.QualityNotes)
+		})
+	}
+}
+
+func TestJellyfinSyncBlocksUnsupportedDirectPlay(t *testing.T) {
+	t.Parallel()
+	// Unsupported codecs always force true→false even when a curator had OK set.
+	fake := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-truehd", Name: "TrueHD Title", SortName: "TrueHD Title",
+		Runtime: time.Hour, Container: "mkv", VideoCodec: "h264",
+		AudioCodec: "truehd", ImageTag: "tag-1", Overview: "Same.",
+	})
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: fake})
+	item := factory.MediaItem(t, q, factory.Override{
+		"jellyfin_item_id": "jf-truehd",
+		"title":            "TrueHD Title",
+		"sort_title":       "TrueHD Title",
+		"overview":         "Same.",
+		"runtime_seconds":  3600,
+		"container":        "mkv",
+		"video_codec":      "h264",
+		"audio_codec":      "aac",
+		"image_tag":        "tag-1",
+		"direct_play_ok":   true,
+		"quality_notes":    "",
+	})
+
+	resp := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	summary := decode[struct {
+		Checked int `json:"checked"`
+		Updated int `json:"updated"`
+	}](t, resp.Body.Bytes())
+	assert.Equal(t, 1, summary.Checked)
+	assert.Equal(t, 1, summary.Updated)
+
+	refreshed := h.Get("/media-items/" + item.ID)
+	require.Equal(t, http.StatusOK, refreshed.Code)
+	got := decode[domain.MediaItem](t, refreshed.Body.Bytes())
+	assert.False(t, got.DirectPlayOK, "unsupported codec always blocks direct play")
+	assert.Equal(t, "truehd", got.AudioCodec)
+	assert.Equal(t, "audio codec truehd", got.QualityNotes)
+}
+
+func TestJellyfinSyncPreservesBlankWithholdAcrossTrueHDThenEAC3(t *testing.T) {
+	t.Parallel()
+	// Multi-sync regression: curator blank withhold must not be laundered into
+	// a repairable auto note by an intermediate unsupported-codec sync.
+	//   1) blank notes + false
+	//   2) truehd sync writes "audio codec truehd"
+	//   3) eac3 sync must leave direct_play_ok false
+	fake := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-multi-sync", Name: "Withheld Multi", SortName: "Withheld Multi",
+		Runtime: time.Hour, Container: "mkv", VideoCodec: "h264",
+		AudioCodec: "truehd", ImageTag: "tag-1", Overview: "Same.",
+	})
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: fake})
+	item := factory.MediaItem(t, q, factory.Override{
+		"jellyfin_item_id": "jf-multi-sync",
+		"title":            "Withheld Multi",
+		"sort_title":       "Withheld Multi",
+		"overview":         "Same.",
+		"runtime_seconds":  3600,
+		"container":        "mkv",
+		"video_codec":      "h264",
+		"audio_codec":      "aac",
+		"image_tag":        "tag-1",
+		"direct_play_ok":   false,
+		"quality_notes":    "",
+	})
+
+	resp1 := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp1.Code, resp1.Body.String())
+	afterTrueHD := decode[domain.MediaItem](t, h.Get("/media-items/"+item.ID).Body.Bytes())
+	require.False(t, afterTrueHD.DirectPlayOK)
+	require.Equal(t, "truehd", afterTrueHD.AudioCodec)
+	require.Equal(t, "audio codec truehd", afterTrueHD.QualityNotes)
+
+	// Upstream audio flips to allowlisted eac3 on a later sync.
+	fake.Items[0].AudioCodec = "eac3"
+	resp2 := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp2.Code, resp2.Body.String())
+
+	afterEAC3 := decode[domain.MediaItem](t, h.Get("/media-items/"+item.ID).Body.Bytes())
+	assert.Equal(t, "eac3", afterEAC3.AudioCodec)
+	assert.False(t, afterEAC3.DirectPlayOK,
+		"blank curator withhold must survive truehd auto-note then eac3 sync")
+}
+
 func TestJellyfinSyncCoversTheWholeLibrary(t *testing.T) {
 	t.Parallel()
 	// More items than a single page holds: stopping after one page would leave

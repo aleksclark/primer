@@ -13,6 +13,7 @@ import (
 	baseapi "github.com/aleksclark/primer/server/internal/api"
 	baserepo "github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tv/auth"
+	"github.com/aleksclark/primer/server/internal/tv/directplay"
 	"github.com/aleksclark/primer/server/internal/tv/domain"
 	"github.com/aleksclark/primer/server/internal/tv/jellyfin"
 	tvrepo "github.com/aleksclark/primer/server/internal/tv/repo"
@@ -329,7 +330,20 @@ func (s *Server) markOrphaned(ctx context.Context, item domain.MediaItem) error 
 	return nil
 }
 
+// isStaleAutoCodecBlock reports whether quality_notes are safe evidence for a
+// false→true direct_play_ok repair: a nonblank auto-generated codec note whose
+// referenced codecs are ALL currently allowlisted (stale allowlist residue).
+// Blank notes, free-form curator notes, and auto notes that still name
+// unsupported codecs (e.g. truehd/av1) are not safe.
+func isStaleAutoCodecBlock(notes string) bool {
+	return directplay.IsStaleAllowlistNote(notes)
+}
+
 // metadataDiff returns the columns whose cached values differ from Jellyfin.
+// It also re-evaluates direct_play_ok from the effective codecs on every sync
+// so allowlist changes (e.g. AC3/EAC3/DTS via Media3 FFmpeg) repair stale rows
+// even when codec strings themselves did not change — but only when the row
+// still carries a stale auto codec note, never a curator withhold.
 func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 	values := map[string]any{}
 	if remote.Name != "" && remote.Name != item.Title {
@@ -347,12 +361,36 @@ func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 	if remote.Container != "" && remote.Container != item.Container {
 		values["container"] = remote.Container
 	}
+
+	videoCodec := item.VideoCodec
 	if remote.VideoCodec != "" && remote.VideoCodec != item.VideoCodec {
 		values["video_codec"] = remote.VideoCodec
+		videoCodec = remote.VideoCodec
 	}
+	audioCodec := item.AudioCodec
 	if remote.AudioCodec != "" && remote.AudioCodec != item.AudioCodec {
 		values["audio_codec"] = remote.AudioCodec
+		audioCodec = remote.AudioCodec
 	}
+
+	// Reconcile direct-play policy against the post-sync codecs.
+	// Unsupported codecs always force true→false. Allowed codecs may repair
+	// false→true only when the existing nonblank quality note is a stale
+	// allowlist auto note (every referenced codec currently allowlisted).
+	// Blank/manual notes and auto notes naming still-unsupported codecs mean
+	// a curator withhold (or active block residue) and must not be clobbered.
+	eval := directplay.Evaluate(videoCodec, audioCodec)
+	if eval.OK != item.DirectPlayOK {
+		if !eval.OK {
+			values["direct_play_ok"] = false
+		} else if isStaleAutoCodecBlock(item.QualityNotes) {
+			values["direct_play_ok"] = true
+		}
+	}
+	if notes, update := directplay.ReconcileQualityNotes(item.QualityNotes, eval); update {
+		values["quality_notes"] = notes
+	}
+
 	if remote.ImageTag != "" && remote.ImageTag != item.ImageTag {
 		values["image_tag"] = remote.ImageTag
 	}

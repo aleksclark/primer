@@ -144,6 +144,13 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.common)
     implementation(libs.media3.datasource.okhttp)
+    // Official Media3 FFmpeg extension (LGPL audio: ac3/eac3/dca), vendored for CI.
+    // Rebuild: android/third_party/media3-ffmpeg/build-media3-ffmpeg.sh
+    implementation(
+        files("libs/media3-ffmpeg-decoder-1.4.1.aar"),
+    )
+    // decoder_ffmpeg AAR depends on media3-decoder (and already pulls exoplayer via our deps).
+    implementation(libs.media3.decoder)
 
     implementation(libs.coil.compose)
 
