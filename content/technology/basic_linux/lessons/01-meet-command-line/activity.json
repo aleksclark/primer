@@ -1,0 +1,302 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-01-meet-command-line",
+  "title": "Meet the Command Line",
+  "summary": "Distinguish the terminal, shell, prompt, command, and arguments while using pwd and echo.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "primary",
+      "weight": 1
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "nominalMinutes": "60",
+    "pacing": "mastery-paced",
+    "lesson": "01"
+  },
+  "content": {
+    "objective": "Distinguish the terminal, shell, prompt, command, argument, input, and output; use pwd and echo; and explain how whoami differs from pwd.",
+    "instructions": "The terminal displays a text conversation, while the shell reads what you type after its prompt and runs commands. Complete the tasks in order. Type only the command, not the prompt symbol. Predict each result before pressing Enter. Use pwd and echo in the sandbox. Treat whoami conceptually: it would report the current user identity, while pwd reports the current working directory.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace",
+      "shell": "sh",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "locate-workspace",
+        "title": "Ask where you are",
+        "instructions": "Find the prompt, then run the command that prints the current working directory. The result should be a path ending in workspace. Type the command only; do not type the prompt symbol.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "pwd-command"
+            },
+            {
+              "checkId": "pwd-output"
+            },
+            {
+              "checkId": "workspace-cwd"
+            }
+          ]
+        },
+        "hintIds": [
+          "pwd-hint-1",
+          "pwd-hint-2",
+          "pwd-hint-3"
+        ]
+      },
+      {
+        "id": "echo-one-argument",
+        "title": "Send one argument to a command",
+        "instructions": "Use echo as the command and Ready as its single argument. Your output must be exactly Ready. Before running it, identify the command and its argument aloud.",
+        "prerequisites": [
+          "locate-workspace"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "echo-ready-command"
+            },
+            {
+              "checkId": "echo-ready-output"
+            }
+          ]
+        },
+        "hintIds": [
+          "echo-ready-hint-1",
+          "echo-ready-hint-2",
+          "echo-ready-hint-3"
+        ]
+      },
+      {
+        "id": "echo-three-arguments",
+        "title": "Separate a command from its arguments",
+        "instructions": "Run echo with exactly three arguments: command, plus, and arguments. Predict the output first, then check where the input ends and output begins when the prompt returns.",
+        "prerequisites": [
+          "echo-one-argument"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "echo-parts-command"
+            },
+            {
+              "checkId": "echo-parts-output"
+            }
+          ]
+        },
+        "hintIds": [
+          "echo-parts-hint-1",
+          "echo-parts-hint-2",
+          "echo-parts-hint-3"
+        ]
+      },
+      {
+        "id": "explain-terminal-shell",
+        "title": "Choose the accurate relationship",
+        "instructions": "Choose the accurate statement: (A) terminal interprets shell displays, (B) prompt runs terminal waits, or (C) terminal displays shell interprets. Use echo to print only the four words of the accurate statement, without its letter or parentheses. Then explain aloud that whoami would report a user identity, while pwd reports a working directory path. Treat whoami conceptually in this lesson rather than running it.",
+        "prerequisites": [
+          "echo-three-arguments"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "relationship-command"
+            },
+            {
+              "checkId": "relationship-output"
+            }
+          ]
+        },
+        "hintIds": [
+          "relationship-hint-1",
+          "relationship-hint-2",
+          "relationship-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "pwd-command",
+        "kind": "command_properties",
+        "params": {
+          "executable": "sh",
+          "args": [
+            "-c",
+            "pwd"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "pwd-output",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(^|/)workspace$"
+        }
+      },
+      {
+        "id": "workspace-cwd",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace"
+        }
+      },
+      {
+        "id": "echo-ready-command",
+        "kind": "command_properties",
+        "params": {
+          "executable": "sh",
+          "args": [
+            "-c",
+            "echo Ready"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "echo-ready-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "Ready"
+        }
+      },
+      {
+        "id": "echo-parts-command",
+        "kind": "command_properties",
+        "params": {
+          "executable": "sh",
+          "args": [
+            "-c",
+            "echo command plus arguments"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "echo-parts-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "command plus arguments"
+        }
+      },
+      {
+        "id": "relationship-command",
+        "kind": "command_properties",
+        "params": {
+          "executable": "sh",
+          "args": [
+            "-c",
+            "echo terminal displays shell interprets"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "relationship-output",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "terminal displays shell interprets"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "pwd-hint-1",
+        "level": 1,
+        "text": "You need the current working directory, not the user identity. Look for the three-letter command introduced in the lesson."
+      },
+      {
+        "id": "pwd-hint-2",
+        "level": 2,
+        "text": "The command is pwd. It needs no argument for this task."
+      },
+      {
+        "id": "pwd-hint-3",
+        "level": 3,
+        "text": "Type exactly: pwd"
+      },
+      {
+        "id": "echo-ready-hint-1",
+        "level": 1,
+        "text": "The first word should name the command that repeats text; the second word should be its argument."
+      },
+      {
+        "id": "echo-ready-hint-2",
+        "level": 2,
+        "text": "Put echo first, then one space, then the capitalized argument Ready."
+      },
+      {
+        "id": "echo-ready-hint-3",
+        "level": 3,
+        "text": "Type exactly: echo Ready"
+      },
+      {
+        "id": "echo-parts-hint-1",
+        "level": 1,
+        "text": "A command line starts with the command name. Spaces separate the three requested arguments that follow it."
+      },
+      {
+        "id": "echo-parts-hint-2",
+        "level": 2,
+        "text": "Use echo first, followed by command, plus, and arguments in that order."
+      },
+      {
+        "id": "echo-parts-hint-3",
+        "level": 3,
+        "text": "Type exactly: echo command plus arguments"
+      },
+      {
+        "id": "relationship-hint-1",
+        "level": 1,
+        "text": "Recall the roles: one provides the visible text interface; the other reads and interprets command lines."
+      },
+      {
+        "id": "relationship-hint-2",
+        "level": 2,
+        "text": "The accurate choice says the terminal displays the text interface and the shell interprets command lines. Put echo before that choice's four words."
+      },
+      {
+        "id": "relationship-hint-3",
+        "level": 3,
+        "text": "Type exactly: echo terminal displays shell interprets"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "The learner distinguishes terminal, shell, prompt, command, argument, input, and output; uses pwd and echo accurately; and conceptually contrasts pwd with whoami.",
+      "misconceptions": [
+        "The terminal and shell are the same thing; instead, the terminal displays the interaction and the shell interprets command lines.",
+        "The prompt symbol must be typed; instead, it signals that the shell is ready and the learner types after it.",
+        "Every word is a command; instead, the first word names the command and following words are arguments.",
+        "pwd reports the user identity; instead, pwd reports the current working directory and whoami would report identity.",
+        "A successful command always prints output; some commands can succeed silently before the prompt returns."
+      ],
+      "constraints": [
+        "Use only commands available in the declared coreutils-basic profile during demonstrations.",
+        "Teach whoami conceptually in this lesson and do not require the learner to run it.",
+        "Give hints in level order and do not reveal an exact command before the learner has tried the earlier hints.",
+        "Ask the learner to predict output and identify command versus arguments before running each command.",
+        "Do not treat deterministic output alone as proof of the oral conceptual distinctions."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}
