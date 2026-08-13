@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
 
 // PolicyConfig controls response shaping and safety limits.
@@ -119,6 +121,10 @@ func (p *PolicyService) Coach(ctx context.Context, req Request) (Response, error
 
 	// Never pass raw student text as system policy; sanitize first.
 	req.StudentMessage = SanitizeStudentMessage(req.StudentMessage)
+	// Strip parent-only instructional blocks from coaching context.
+	if len(req.Activity.Blocks) > 0 {
+		req.Activity.Blocks = contracts.StudentBlocks(req.Activity.Blocks)
+	}
 
 	callCtx := ctx
 	var cancel context.CancelFunc

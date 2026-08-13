@@ -6,6 +6,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/humatest"
 
 	"github.com/aleksclark/primer/server/internal/api"
+	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tutor"
 )
@@ -20,6 +21,9 @@ type Options struct {
 	TutorProviderName string
 	// TutorEnabled gates tutoring when Tutor is set.
 	TutorEnabled *bool
+	// ArtifactStoreDir configures filesystem artifact storage for tests.
+	// When empty, a temporary directory is used automatically.
+	ArtifactStoreDir string
 }
 
 // API returns a humatest API wired to the full route set, plus the
@@ -43,6 +47,13 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, repo.Querier) {
 		} else {
 			apiOpts.TutorEnabled = true
 		}
+	}
+	dir := o.ArtifactStoreDir
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	if store, err := artifacts.NewStore(dir); err == nil {
+		apiOpts.ArtifactStore = store
 	}
 	api.RegisterRoutes(testAPI, q, apiOpts)
 	return testAPI, q

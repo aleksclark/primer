@@ -4,9 +4,9 @@ package mastery
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,14 +16,15 @@ import (
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
 
-// ConfidenceBump is added per successful primary-standard completion.
+// ConfidenceBump is added per successful primary-standard completion when policy permits.
 const ConfidenceBump = 0.35
 
 // MasteredThreshold is the confidence at which status becomes mastered.
 const MasteredThreshold = 0.8
 
 // ApplyCompletion validates and records a session completion, writing mastery
-// evidence and updating aggregates in one transaction.
+// evidence and updating aggregates only when the revision-standard evidence
+// policy permits. Assignment completion is independent of mastery transitions.
 func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.StudentDevice, sessionID string, req contracts.CompletionRequest, now time.Time) (contracts.CompletionResult, error) {
 	var result contracts.CompletionResult
 
@@ -77,11 +78,37 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 		if asg.StudentID != device.StudentID {
 			return repo.ErrNotFound
 		}
+		// Cancelled assignments never create mastery. Offline completion after cancel
+		// is recorded as an explicit rejected result so clients can ack and retain evidence.
 		if asg.State == domain.AssignmentCancelled {
-			return repo.ErrBadRequest{Msg: "assignment is cancelled"}
+			result = contracts.CompletionResult{
+				SchemaVersion: contracts.CompletionSchemaVersion,
+				CompletionID:  req.CompletionID,
+				Accepted:      false,
+				RequestDigest: req.RequestDigest,
+				Observations:  req.Observations,
+				Message:       "assignment cancelled; evidence retained for parent review (cancelled-after-work)",
+				AssignmentCompletion: &contracts.AssignmentCompletion{
+					AssignmentID: session.AssignmentID,
+					SessionID:    session.ID,
+					State:        domain.AssignmentCancelled,
+					Summary:      "cancelled-after-work",
+				},
+			}
+			// Persist rejection so retries are idempotent; do not mark assignment completed
+			// and do not write mastery evidence.
+			if _, err := repo.InsertCompletion(ctx, tx, session.ID, req.CompletionID, req.RequestDigest, result); err != nil {
+				return err
+			}
+			// Leave session open/abandoned path: label via summary event is optional MVP.
+			return nil
 		}
 
 		rev, err := repo.GetRevision(ctx, tx, session.ActivityRevisionID)
+		if err != nil {
+			return err
+		}
+		act, err := repo.LearningActivities.Get(ctx, tx, rev.ActivityID)
 		if err != nil {
 			return err
 		}
@@ -92,12 +119,16 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 		if err := validateRequiredChecks(content, req.Observations); err != nil {
 			return err
 		}
+		if err := validateObservationCapabilities(content, req.Observations); err != nil {
+			return err
+		}
 
 		links, err := repo.ListRevisionStandards(ctx, tx, rev.ID)
 		if err != nil {
 			return err
 		}
 
+		evidenceClass := contracts.EvidenceProceduralContinuous
 		primaryCheck := primaryCheckID(content, req.Observations)
 		var evidenceIDs []string
 		var transitions []contracts.MasteryTransition
@@ -107,67 +138,128 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 			if err != nil {
 				return err
 			}
+			if !standardEligibleForActivity(act.Kind, std.Code) {
+				continue
+			}
+
+			policy := policyFromLink(link, act.Kind)
 			sourceRef := fmt.Sprintf("student-client:%s:%s:%s", session.ID, primaryCheck, std.ID)
-			rec, created, err := upsertMasteryRecord(ctx, tx, session.StudentID, link.StandardID)
+			rec, _, err := upsertMasteryRecord(ctx, tx, session.StudentID, link.StandardID)
 			if err != nil {
 				return err
 			}
-			_ = created
 
 			fromStatus := rec.Status
 			fromConf := rec.Confidence
 
-			evID, inserted, err := insertEvidence(ctx, tx, rec.ID, sourceRef, now, session.ID, primaryCheck)
+			prov := map[string]any{
+				"sessionId":     session.ID,
+				"assignmentId":  session.AssignmentID,
+				"revisionId":    rev.ID,
+				"checkId":       primaryCheck,
+				"deviceId":      device.ID,
+				"activityKind":  act.Kind,
+				"evidenceClass": evidenceClass,
+				"standardCode":  std.Code,
+				"role":          link.Role,
+			}
+			evID, inserted, err := insertEvidence(ctx, tx, rec.ID, sourceRef, evidenceClass, prov, policy.Version, now, session.ID, primaryCheck)
+			if err != nil {
+				return err
+			}
+			evidenceIDs = append(evidenceIDs, evID)
+
+			accepted, err := listAcceptedEvidenceClasses(ctx, tx, rec.ID)
 			if err != nil {
 				return err
 			}
 			if inserted {
-				evidenceIDs = append(evidenceIDs, evID)
-				bump := ConfidenceBump * link.Weight
-				if bump <= 0 {
-					bump = ConfidenceBump
+				// Newly inserted class is already in DB; ensure set includes it.
+				accepted = addClass(accepted, evidenceClass)
+			}
+
+			candidateStatus, candidateConf := proposedStatus(fromStatus, fromConf, link.Role, link.Weight)
+			allowedStatus, missing, satisfied := highestAllowedStatus(fromStatus, candidateStatus, accepted, policy)
+
+			tr := contracts.MasteryTransition{
+				StandardCode:     std.Code,
+				FromStatus:       fromStatus,
+				ToStatus:         fromStatus,
+				Confidence:       fromConf,
+				EvidenceClass:    evidenceClass,
+				AcceptedEvidence: accepted,
+				MissingEvidence:  missing,
+				PolicySatisfied:  satisfied && allowedStatus == candidateStatus,
+				StatusChanged:    false,
+			}
+
+			if !inserted {
+				tr.Reason = "already recorded"
+				transitions = append(transitions, tr)
+				continue
+			}
+
+			newStatus := fromStatus
+			newConf := fromConf
+			if statusRank(allowedStatus) > statusRank(fromStatus) {
+				// Partial or full advance permitted by evidence policy.
+				if statusRank(allowedStatus) >= statusRank(candidateStatus) {
+					newStatus = candidateStatus
+					newConf = candidateConf
+				} else {
+					newStatus = allowedStatus
+					newConf = confForStatus(allowedStatus, fromConf, link.Weight)
 				}
-				newConf := clamp01(fromConf + bump)
-				newStatus := statusFor(fromStatus, newConf, link.Role)
+			} else if statusRank(allowedStatus) >= statusRank(candidateStatus) && candidateConf > fromConf {
+				// Same status band fully permitted: confidence may rise.
+				newStatus = candidateStatus
+				newConf = candidateConf
+			}
+
+			if newStatus != fromStatus || newConf != fromConf {
 				if err := updateMasteryAggregate(ctx, tx, rec.ID, newStatus, newConf, now); err != nil {
 					return err
 				}
-				transitions = append(transitions, contracts.MasteryTransition{
-					StandardCode: std.Code,
-					FromStatus:   fromStatus,
-					ToStatus:     newStatus,
-					Confidence:   newConf,
-					Reason:       "student-client completion",
-				})
+				tr.ToStatus = newStatus
+				tr.Confidence = newConf
+				tr.StatusChanged = true
+				tr.Reason = "student-client completion"
+				tr.PolicySatisfied = len(missingForStatus(candidateStatus, accepted, policy)) == 0
+				tr.MissingEvidence = missingForStatus(nextUnsatisfiedStatus(newStatus, accepted, policy), accepted, policy)
 			} else {
-				// Evidence already present (retry mid-flight); report current state.
-				transitions = append(transitions, contracts.MasteryTransition{
-					StandardCode: std.Code,
-					FromStatus:   fromStatus,
-					ToStatus:     rec.Status,
-					Confidence:   rec.Confidence,
-					Reason:       "already recorded",
-				})
-				evidenceIDs = append(evidenceIDs, evID)
+				tr.Reason = "evidence recorded; policy limits mastery transition"
+				if len(missing) == 0 {
+					missing = missingForStatus(candidateStatus, accepted, policy)
+				}
+				tr.MissingEvidence = missing
+				tr.PolicySatisfied = len(missingForStatus(candidateStatus, accepted, policy)) == 0
 			}
+			transitions = append(transitions, tr)
 		}
 
-		result = contracts.CompletionResult{
-			SchemaVersion:   contracts.CompletionSchemaVersion,
-			CompletionID:    req.CompletionID,
-			Accepted:        true,
-			RequestDigest:   req.RequestDigest,
-			Observations:    req.Observations,
-			EvidenceIDs:     evidenceIDs,
-			MasterySnapshot: transitions,
-			Message:         "accepted",
-		}
-		if _, err := repo.InsertCompletion(ctx, tx, session.ID, req.CompletionID, req.RequestDigest, result); err != nil {
-			return err
-		}
 		summary := req.Summary
 		if summary == "" {
 			summary = "completed"
+		}
+		result = contracts.CompletionResult{
+			SchemaVersion:      contracts.CompletionSchemaVersion,
+			CompletionID:       req.CompletionID,
+			Accepted:           true,
+			RequestDigest:      req.RequestDigest,
+			Observations:       req.Observations,
+			EvidenceIDs:        evidenceIDs,
+			MasterySnapshot:    transitions,
+			MasteryTransitions: transitions,
+			AssignmentCompletion: &contracts.AssignmentCompletion{
+				AssignmentID: session.AssignmentID,
+				SessionID:    session.ID,
+				State:        domain.AssignmentCompleted,
+				Summary:      summary,
+			},
+			Message: "accepted",
+		}
+		if _, err := repo.InsertCompletion(ctx, tx, session.ID, req.CompletionID, req.RequestDigest, result); err != nil {
+			return err
 		}
 		return repo.MarkSessionCompleted(ctx, tx, session, summary, now)
 	})
@@ -175,15 +267,185 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 }
 
 func decodeContent(m map[string]any) (contracts.ActivityContent, error) {
-	raw, err := json.Marshal(m)
-	if err != nil {
-		return contracts.ActivityContent{}, err
+	return repo.DecodeActivityContent(m)
+}
+
+// ApplyConceptualResponse records conceptual_response evidence for a newly
+// submitted student response. Does not invent parent attestation. Idempotent
+// via source_ref on mastery_evidence.
+func ApplyConceptualResponse(ctx context.Context, q repo.Querier, resp *domain.StudentResponse, now time.Time) ([]string, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("response is nil")
 	}
-	var c contracts.ActivityContent
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return contracts.ActivityContent{}, fmt.Errorf("decode activity content: %w", err)
+	var evidenceIDs []string
+	err := repo.WithTx(ctx, q, func(tx repo.Querier) error {
+		rev, err := repo.GetRevision(ctx, tx, resp.ActivityRevisionID)
+		if err != nil {
+			return err
+		}
+		act, err := repo.LearningActivities.Get(ctx, tx, rev.ActivityID)
+		if err != nil {
+			return err
+		}
+		links, err := repo.ListRevisionStandards(ctx, tx, rev.ID)
+		if err != nil {
+			return err
+		}
+		for _, link := range links {
+			std, err := repo.Standards.Get(ctx, tx, link.StandardID)
+			if err != nil {
+				return err
+			}
+			if !standardEligibleForActivity(act.Kind, std.Code) {
+				continue
+			}
+			policy := policyFromLink(link, act.Kind)
+			rec, _, err := upsertMasteryRecord(ctx, tx, resp.StudentID, link.StandardID)
+			if err != nil {
+				return err
+			}
+			sourceRef := fmt.Sprintf("conceptual-response:%s:%s", resp.ID, std.ID)
+			prov := map[string]any{
+				"responseId":   resp.ID,
+				"submissionId": resp.SubmissionID,
+				"sessionId":    resp.SessionID,
+				"taskId":       resp.TaskID,
+				"attempt":      resp.Attempt,
+				"bodySha256":   resp.BodySHA256,
+				"standardCode": std.Code,
+				"role":         link.Role,
+				"source":       "student_response",
+			}
+			evID, inserted, err := insertEvidence(ctx, tx, rec.ID, sourceRef, contracts.EvidenceConceptualResponse, prov, policy.Version, now, resp.SessionID, resp.TaskID)
+			if err != nil {
+				return err
+			}
+			evidenceIDs = append(evidenceIDs, evID)
+			if !inserted {
+				continue
+			}
+			// Recording conceptual evidence does not auto-jump to mastered;
+			// apply the same policy ladder as completions with this class present.
+			accepted, err := listAcceptedEvidenceClasses(ctx, tx, rec.ID)
+			if err != nil {
+				return err
+			}
+			accepted = addClass(accepted, contracts.EvidenceConceptualResponse)
+			fromStatus := rec.Status
+			fromConf := rec.Confidence
+			candidateStatus, candidateConf := proposedStatus(fromStatus, fromConf, link.Role, link.Weight)
+			allowedStatus, _, _ := highestAllowedStatus(fromStatus, candidateStatus, accepted, policy)
+			newStatus := fromStatus
+			newConf := fromConf
+			if statusRank(allowedStatus) > statusRank(fromStatus) {
+				if statusRank(allowedStatus) >= statusRank(candidateStatus) {
+					newStatus = candidateStatus
+					newConf = candidateConf
+				} else {
+					newStatus = allowedStatus
+					newConf = confForStatus(allowedStatus, fromConf, link.Weight)
+				}
+			} else if statusRank(allowedStatus) >= statusRank(candidateStatus) && candidateConf > fromConf {
+				newStatus = candidateStatus
+				newConf = candidateConf
+			}
+			if newStatus != fromStatus || newConf != fromConf {
+				if err := updateMasteryAggregate(ctx, tx, rec.ID, newStatus, newConf, now); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return evidenceIDs, err
+}
+
+// ApplyParentAttestation records parent_attestation evidence after a parent
+// accepts a conceptual response. Idempotent via source_ref.
+func ApplyParentAttestation(ctx context.Context, q repo.Querier, resp *domain.StudentResponse, educatorID string, now time.Time) ([]string, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("response is nil")
 	}
-	return c, nil
+	var evidenceIDs []string
+	err := repo.WithTx(ctx, q, func(tx repo.Querier) error {
+		rev, err := repo.GetRevision(ctx, tx, resp.ActivityRevisionID)
+		if err != nil {
+			return err
+		}
+		act, err := repo.LearningActivities.Get(ctx, tx, rev.ActivityID)
+		if err != nil {
+			return err
+		}
+		links, err := repo.ListRevisionStandards(ctx, tx, rev.ID)
+		if err != nil {
+			return err
+		}
+		for _, link := range links {
+			std, err := repo.Standards.Get(ctx, tx, link.StandardID)
+			if err != nil {
+				return err
+			}
+			if !standardEligibleForActivity(act.Kind, std.Code) {
+				continue
+			}
+			policy := policyFromLink(link, act.Kind)
+			rec, _, err := upsertMasteryRecord(ctx, tx, resp.StudentID, link.StandardID)
+			if err != nil {
+				return err
+			}
+			sourceRef := fmt.Sprintf("parent-attestation:%s:%s", resp.ID, std.ID)
+			prov := map[string]any{
+				"responseId":   resp.ID,
+				"submissionId": resp.SubmissionID,
+				"sessionId":    resp.SessionID,
+				"taskId":       resp.TaskID,
+				"educatorId":   educatorID,
+				"standardCode": std.Code,
+				"role":         link.Role,
+				"source":       "parent_review",
+			}
+			evID, inserted, err := insertEvidence(ctx, tx, rec.ID, sourceRef, contracts.EvidenceParentAttestation, prov, policy.Version, now, resp.SessionID, resp.TaskID)
+			if err != nil {
+				return err
+			}
+			evidenceIDs = append(evidenceIDs, evID)
+			if !inserted {
+				continue
+			}
+			accepted, err := listAcceptedEvidenceClasses(ctx, tx, rec.ID)
+			if err != nil {
+				return err
+			}
+			// Count only real evidence rows. Do not fabricate conceptual_response
+			// here — submission already recorded it via ApplyConceptualResponse.
+			accepted = addClass(accepted, contracts.EvidenceParentAttestation)
+			fromStatus := rec.Status
+			fromConf := rec.Confidence
+			candidateStatus, candidateConf := proposedStatus(fromStatus, fromConf, link.Role, link.Weight)
+			allowedStatus, _, _ := highestAllowedStatus(fromStatus, candidateStatus, accepted, policy)
+			newStatus := fromStatus
+			newConf := fromConf
+			if statusRank(allowedStatus) > statusRank(fromStatus) {
+				if statusRank(allowedStatus) >= statusRank(candidateStatus) {
+					newStatus = candidateStatus
+					newConf = candidateConf
+				} else {
+					newStatus = allowedStatus
+					newConf = confForStatus(allowedStatus, fromConf, link.Weight)
+				}
+			} else if statusRank(allowedStatus) >= statusRank(candidateStatus) && candidateConf > fromConf {
+				newStatus = candidateStatus
+				newConf = candidateConf
+			}
+			if newStatus != fromStatus || newConf != fromConf {
+				if err := updateMasteryAggregate(ctx, tx, rec.ID, newStatus, newConf, now); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return evidenceIDs, err
 }
 
 func validateRequiredChecks(content contracts.ActivityContent, obs []contracts.Observation) error {
@@ -191,7 +453,6 @@ func validateRequiredChecks(content contracts.ActivityContent, obs []contracts.O
 	for _, o := range obs {
 		byID[o.CheckID] = o
 	}
-	// All non-optional checks defined on the revision must pass.
 	for _, check := range content.Checks {
 		if check.Optional {
 			continue
@@ -201,7 +462,6 @@ func validateRequiredChecks(content contracts.ActivityContent, obs []contracts.O
 			return repo.ErrBadRequest{Msg: "required check not passed: " + check.ID}
 		}
 	}
-	// Also require each task completion tree (required nodes).
 	for _, task := range content.Tasks {
 		if task.Optional {
 			continue
@@ -211,6 +471,80 @@ func validateRequiredChecks(content contracts.ActivityContent, obs []contracts.O
 		}
 	}
 	return nil
+}
+
+// validateObservationCapabilities rejects completions that claim structured
+// command evidence from an untrusted observation source (e.g. synthetic PTY).
+func validateObservationCapabilities(content contracts.ActivityContent, obs []contracts.Observation) error {
+	byID := map[string]contracts.Check{}
+	for _, c := range content.Checks {
+		byID[c.ID] = c
+	}
+	for _, o := range obs {
+		if !o.Passed || o.Optional {
+			continue
+		}
+		check, ok := byID[o.CheckID]
+		if !ok {
+			continue
+		}
+		if !contracts.RequiresStructuredCommandEvidence(check.Kind) {
+			continue
+		}
+		if observationHasStructuredCommandEvidence(o) {
+			continue
+		}
+		return repo.ErrBadRequest{Msg: "required check needs structured command evidence: " + check.ID}
+	}
+	return nil
+}
+
+func observationHasStructuredCommandEvidence(o contracts.Observation) bool {
+	if o.Details == nil {
+		return false
+	}
+	// Untrusted sources always fail closed, even if a client forges
+	// structuredCommandEvidence=true or capability marks.
+	if v, ok := o.Details["source"].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "pty-shell", "synthetic-pty", "screen":
+			return false
+		}
+	}
+	if v, ok := o.Details["structuredCommandEvidence"].(bool); ok && v {
+		// Require an explicitly trusted source when the boolean is set, so a
+		// bare true without provenance cannot pass command-sensitive checks.
+		if src, ok := o.Details["source"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(src)) {
+			case "structured", "structured_command", "command_instrumentation", "observe-bash", "process-wait":
+				return true
+			default:
+				return false
+			}
+		}
+		return false
+	}
+	if v, ok := o.Details["capability"].(string); ok && v == contracts.CapStructuredCommandEvidence {
+		if src, ok := o.Details["source"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(src)) {
+			case "structured", "structured_command", "command_instrumentation", "observe-bash", "process-wait":
+				return true
+			case "pty-shell", "synthetic-pty", "screen":
+				return false
+			}
+		}
+		// Capability alone without source is accepted for older honest clients
+		// that advertised the runner capability but omitted source labels.
+		return true
+	}
+	if v, ok := o.Details["source"].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "structured", "structured_command", "command_instrumentation", "observe-bash", "process-wait":
+			return true
+		}
+	}
+	// Default: command-sensitive checks without an explicit capability mark are untrusted.
+	return false
 }
 
 func evalTree(t contracts.CheckTree, byID map[string]contracts.Observation) bool {
@@ -252,6 +586,29 @@ func primaryCheckID(content contracts.ActivityContent, obs []contracts.Observati
 	return "unknown"
 }
 
+// standardEligibleForActivity keeps typing evidence isolated from terminal standards.
+func standardEligibleForActivity(kind, code string) bool {
+	isTyping := strings.Contains(code, ".TYPE.")
+	switch kind {
+	case contracts.KindTyping:
+		return isTyping
+	case contracts.KindTerminal:
+		return !isTyping
+	default:
+		return true
+	}
+}
+
+func policyFromLink(link domain.LearningActivityRevisionStandard, kind string) contracts.EvidencePolicy {
+	if p, ok := repo.ParseEvidencePolicy(link.EvidencePolicy); ok {
+		return p
+	}
+	if kind == contracts.KindTyping {
+		return contracts.DefaultTypingEvidencePolicy()
+	}
+	return contracts.DefaultTerminalEvidencePolicy()
+}
+
 func upsertMasteryRecord(ctx context.Context, q repo.Querier, studentID, standardID string) (*domain.MasteryRecord, bool, error) {
 	const sel = `
 SELECT id, student_id, standard_id, status, confidence, decay_rate,
@@ -276,7 +633,6 @@ FROM mastery_records WHERE student_id = $1 AND standard_id = $2 FOR UPDATE`
 		"decay_rate":  0.02,
 	})
 	if err != nil {
-		// concurrent insert
 		rows2, err2 := q.Query(ctx, sel, studentID, standardID)
 		if err2 != nil {
 			return nil, false, err
@@ -290,15 +646,21 @@ FROM mastery_records WHERE student_id = $1 AND standard_id = $2 FOR UPDATE`
 	return created, true, nil
 }
 
-func insertEvidence(ctx context.Context, q repo.Querier, masteryRecordID, sourceRef string, now time.Time, sessionID, checkID string) (id string, inserted bool, err error) {
-	ctxStr := fmt.Sprintf("session=%s check=%s", sessionID, checkID)
+func insertEvidence(ctx context.Context, q repo.Querier, masteryRecordID, sourceRef, evidenceClass string, provenance map[string]any, policyVersion int, now time.Time, sessionID, checkID string) (id string, inserted bool, err error) {
+	ctxStr := fmt.Sprintf("session=%s check=%s class=%s", sessionID, checkID, evidenceClass)
+	if provenance == nil {
+		provenance = map[string]any{}
+	}
 	const ins = `
-INSERT INTO mastery_evidence (mastery_record_id, kind, occurred_on, context, source_ref)
-VALUES ($1, 'continuous', $2::date, $3, $4)
+INSERT INTO mastery_evidence (
+    mastery_record_id, kind, evidence_class, provenance, policy_version,
+    occurred_on, context, source_ref
+)
+VALUES ($1, 'continuous', $2, $3, $4, $5::date, $6, $7)
 ON CONFLICT (mastery_record_id, source_ref) WHERE source_ref <> '' DO NOTHING
 RETURNING id`
 	var newID string
-	err = q.QueryRow(ctx, ins, masteryRecordID, now, ctxStr, sourceRef).Scan(&newID)
+	err = q.QueryRow(ctx, ins, masteryRecordID, evidenceClass, provenance, policyVersion, now, ctxStr, sourceRef).Scan(&newID)
 	if err == nil {
 		return newID, true, nil
 	}
@@ -312,6 +674,29 @@ RETURNING id`
 	return newID, false, nil
 }
 
+func listAcceptedEvidenceClasses(ctx context.Context, q repo.Querier, masteryRecordID string) ([]string, error) {
+	const sqlStr = `
+SELECT DISTINCT evidence_class
+FROM mastery_evidence
+WHERE mastery_record_id = $1
+  AND context NOT ILIKE '%superseded by parent%'
+ORDER BY evidence_class`
+	rows, err := q.Query(ctx, sqlStr, masteryRecordID)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence classes: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 func updateMasteryAggregate(ctx context.Context, q repo.Querier, id, status string, confidence float64, now time.Time) error {
 	_, err := q.Exec(ctx, `
 UPDATE mastery_records
@@ -321,6 +706,15 @@ WHERE id = $1`, id, status, confidence, now)
 		return fmt.Errorf("update mastery: %w", err)
 	}
 	return nil
+}
+
+func proposedStatus(from string, fromConf float64, role string, weight float64) (string, float64) {
+	bump := ConfidenceBump * weight
+	if bump <= 0 {
+		bump = ConfidenceBump
+	}
+	newConf := clamp01(fromConf + bump)
+	return statusFor(from, newConf, role), newConf
 }
 
 func statusFor(from string, conf float64, role string) string {
@@ -342,6 +736,117 @@ func statusFor(from string, conf float64, role string) string {
 	return "in_progress"
 }
 
+func confForStatus(status string, fromConf, weight float64) float64 {
+	bump := ConfidenceBump * weight
+	if bump <= 0 {
+		bump = ConfidenceBump
+	}
+	switch status {
+	case "in_progress":
+		if fromConf > 0 {
+			return clamp01(fromConf + bump*0.25)
+		}
+		return clamp01(0.2)
+	case "approaching":
+		return clamp01(maxFloat(fromConf, 0.45))
+	case "mastered":
+		return clamp01(maxFloat(fromConf, MasteredThreshold))
+	default:
+		return fromConf
+	}
+}
+
+func highestAllowedStatus(from, candidate string, accepted []string, policy contracts.EvidencePolicy) (allowed string, missing []string, fullySatisfied bool) {
+	order := []string{"in_progress", "approaching", "mastered"}
+	fromRank := statusRank(from)
+	candRank := statusRank(candidate)
+	allowed = from
+	if from == "" {
+		allowed = "not_introduced"
+	}
+	fullySatisfied = true
+	for _, st := range order {
+		r := statusRank(st)
+		if r <= fromRank {
+			continue
+		}
+		if r > candRank {
+			break
+		}
+		miss := missingForStatus(st, accepted, policy)
+		if len(miss) > 0 {
+			fullySatisfied = false
+			missing = miss
+			break
+		}
+		allowed = st
+	}
+	if statusRank(allowed) < candRank {
+		fullySatisfied = false
+		if len(missing) == 0 {
+			missing = missingForStatus(candidate, accepted, policy)
+		}
+	}
+	return allowed, missing, fullySatisfied && allowed == candidate
+}
+
+func missingForStatus(status string, accepted []string, policy contracts.EvidencePolicy) []string {
+	if status == "" || status == "not_introduced" {
+		return nil
+	}
+	req, ok := policy.StatusRequirements[status]
+	if !ok {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, a := range accepted {
+		have[a] = true
+	}
+	var missing []string
+	for _, need := range req {
+		if !have[need] {
+			missing = append(missing, need)
+		}
+	}
+	return missing
+}
+
+func nextUnsatisfiedStatus(current string, accepted []string, policy contracts.EvidencePolicy) string {
+	for _, st := range []string{"in_progress", "approaching", "mastered"} {
+		if statusRank(st) <= statusRank(current) {
+			continue
+		}
+		if len(missingForStatus(st, accepted, policy)) > 0 {
+			return st
+		}
+	}
+	return ""
+}
+
+func statusRank(s string) int {
+	switch s {
+	case "not_introduced", "":
+		return 0
+	case "in_progress":
+		return 1
+	case "approaching":
+		return 2
+	case "mastered":
+		return 3
+	default:
+		return 0
+	}
+}
+
+func addClass(classes []string, c string) []string {
+	for _, x := range classes {
+		if x == c {
+			return classes
+		}
+	}
+	return append(append([]string{}, classes...), c)
+}
+
 func clamp01(v float64) float64 {
 	if v < 0 {
 		return 0
@@ -350,4 +855,11 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }

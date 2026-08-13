@@ -67,18 +67,21 @@ func TestTerminalRunnerShellResultAndCD(t *testing.T) {
 	snap := r.Snapshot()
 	assert.GreaterOrEqual(t, snap.CommandsRun, 1)
 
-	// Bad cd
-	require.Error(t, r.HandleInput(context.Background(), activities.Input{
+	// Bad cd is recorded as structured evidence (exit 1) without failing HandleInput.
+	require.NoError(t, r.HandleInput(context.Background(), activities.Input{
 		Type: activities.InputCommand, Line: "cd ../../../../../../etc",
 	}))
+	snap = r.Snapshot()
+	assert.NotEmpty(t, snap.LastError)
+	assert.Contains(t, snap.LastError, "outside")
 
-	// Regular shell line merges stderr into last output.
+	// Regular shell line: structured evidence keeps stdout in LastOutput.
+	// stderr is retained on the event/history, not merged into LastOutput.
 	require.NoError(t, r.HandleInput(context.Background(), activities.Input{
 		Type: activities.InputCommand, Line: "echo hi",
 	}))
 	snap = r.Snapshot()
 	assert.Contains(t, snap.LastOutput, "shell-out")
-	assert.Contains(t, snap.LastOutput, "err-side")
 
 	// External PTY shell_result path (applyShellLocked).
 	require.NoError(t, r.HandleInput(context.Background(), activities.Input{

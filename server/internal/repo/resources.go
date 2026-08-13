@@ -42,9 +42,9 @@ var Standards = NewResource[domain.Standard](ListConfig{
 // Curricula is the curriculum repository.
 var Curricula = NewResource[domain.Curriculum](ListConfig{
 	Table:             "curricula",
-	SearchColumns:     []string{"name", "description"},
-	SortableColumns:   []string{"name", "approach", "grade_level", "created_at", "updated_at"},
-	FilterableColumns: []string{"approach", "grade_level"},
+	SearchColumns:     []string{"name", "description", "slug", "subject_code"},
+	SortableColumns:   []string{"name", "slug", "approach", "grade_level", "status", "created_at", "updated_at"},
+	FilterableColumns: []string{"approach", "grade_level", "slug", "status", "subject_code"},
 })
 
 // CurriculumStandards is the curriculum-standard placement repository.
@@ -55,11 +55,59 @@ var CurriculumStandards = NewResource[domain.CurriculumStandard](ListConfig{
 	FilterableColumns: []string{"curriculum_id", "standard_id", "unit"},
 })
 
+// CurriculumRevisions is the immutable curriculum revision repository.
+var CurriculumRevisions = NewResource[domain.CurriculumRevision](ListConfig{
+	Table:             "curriculum_revisions",
+	SearchColumns:     []string{"title", "description", "subject_code", "version"},
+	SortableColumns:   []string{"revision", "title", "published_at", "created_at"},
+	FilterableColumns: []string{"curriculum_id", "revision", "subject_code", "version"},
+})
+
+// CurriculumActivities is ordered activity membership for a curriculum revision.
+var CurriculumActivities = NewResource[domain.CurriculumActivity](ListConfig{
+	Table:             "curriculum_activities",
+	SearchColumns:     []string{"activity_slug", "module"},
+	SortableColumns:   []string{"position", "activity_slug", "created_at"},
+	FilterableColumns: []string{"curriculum_revision_id", "activity_slug", "module", "capstone"},
+})
+
+// CurriculumActivityPrerequisites is the prerequisite edge repository.
+var CurriculumActivityPrerequisites = NewResource[domain.CurriculumActivityPrerequisite](ListConfig{
+	Table:             "curriculum_activity_prerequisites",
+	SearchColumns:     []string{"activity_slug", "requires_slug", "description"},
+	SortableColumns:   []string{"activity_slug", "requires_slug", "created_at"},
+	FilterableColumns: []string{"curriculum_revision_id", "activity_slug", "requires_slug", "requirement"},
+})
+
+// CurriculumActivityGates is the evidence/parent-review gate repository.
+var CurriculumActivityGates = NewResource[domain.CurriculumActivityGate](ListConfig{
+	Table:             "curriculum_activity_gates",
+	SearchColumns:     []string{"activity_slug", "description"},
+	SortableColumns:   []string{"activity_slug", "kind", "created_at"},
+	FilterableColumns: []string{"curriculum_revision_id", "activity_slug", "kind"},
+})
+
+// CurriculumActivityRemediations is the remediation branch repository.
+var CurriculumActivityRemediations = NewResource[domain.CurriculumActivityRemediation](ListConfig{
+	Table:             "curriculum_activity_remediation",
+	SearchColumns:     []string{"for_activity_slug", "branch_slug", "description"},
+	SortableColumns:   []string{"for_activity_slug", "branch_slug", "created_at"},
+	FilterableColumns: []string{"curriculum_revision_id", "for_activity_slug", "branch_slug", "kind"},
+})
+
 // Enrollments is the enrollment repository.
 var Enrollments = NewResource[domain.Enrollment](ListConfig{
 	Table:             "enrollments",
-	SortableColumns:   []string{"status", "started_on", "ended_on", "created_at", "updated_at"},
-	FilterableColumns: []string{"student_id", "curriculum_id", "status"},
+	SortableColumns:   []string{"status", "priority", "started_on", "ended_on", "created_at", "updated_at"},
+	FilterableColumns: []string{"student_id", "curriculum_id", "curriculum_revision_id", "status"},
+})
+
+// EnrollmentAuditEvents is the enrollment audit trail repository.
+var EnrollmentAuditEvents = NewResource[domain.EnrollmentAuditEvent](ListConfig{
+	Table:             "enrollment_audit_events",
+	SearchColumns:     []string{"action", "reason"},
+	SortableColumns:   []string{"created_at", "action"},
+	FilterableColumns: []string{"enrollment_id", "educator_id", "action"},
 })
 
 // MasteryRecords is the mastery record repository.
@@ -72,9 +120,9 @@ var MasteryRecords = NewResource[domain.MasteryRecord](ListConfig{
 // MasteryEvidences is the mastery evidence repository.
 var MasteryEvidences = NewResource[domain.MasteryEvidence](ListConfig{
 	Table:             "mastery_evidence",
-	SearchColumns:     []string{"context", "source_ref"},
-	SortableColumns:   []string{"kind", "occurred_on", "created_at", "updated_at"},
-	FilterableColumns: []string{"mastery_record_id", "kind"},
+	SearchColumns:     []string{"context", "source_ref", "migration_note"},
+	SortableColumns:   []string{"kind", "evidence_class", "occurred_on", "created_at", "updated_at"},
+	FilterableColumns: []string{"mastery_record_id", "kind", "evidence_class"},
 })
 
 // InstructionLogs is the instruction log repository. Instructional time

@@ -1,0 +1,483 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-06-create-files-directories",
+  "title": "Create files and directories",
+  "summary": "Build and verify a clearly named directory tree with mkdir, mkdir -p, touch, and a recursive listing.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "06",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Create a precise, clearly named directory tree with mkdir and mkdir -p, create empty regular files with touch, and verify every path and type with a recursive listing.",
+    "instructions": "Work only in the supplied build-zone and complete the tasks in order. Create field-notes, add its nested research/sources path, create the two requested empty files with clear names, and verify the finished tree. Use the exact relative paths requested and create no extra entries. If you make a naming mistake, reset rather than using commands from later lessons.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/build-zone",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/build-zone",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/build-zone/PLAN.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "TARGET TREE\nfield-notes/\n  README.txt\n  research/\n    sources/\n      web-links.txt\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "create-project-directory",
+        "title": "Create the project directory",
+        "instructions": "Use plain mkdir to create one directory named field-notes in the current build-zone. Before running the command, predict that the relative name will create a child of the current working directory.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-mkdir-field-notes"
+            },
+            {
+              "checkId": "field-notes-is-directory"
+            },
+            {
+              "checkId": "cwd-remains-build-zone-after-mkdir"
+            }
+          ]
+        },
+        "hintIds": [
+          "project-hint-1",
+          "project-hint-2",
+          "project-hint-3"
+        ]
+      },
+      {
+        "id": "create-nested-directories",
+        "title": "Create the nested research path",
+        "instructions": "In one command, use mkdir with its parent-creation option to create field-notes/research/sources. The field-notes directory already exists; research and sources do not.",
+        "prerequisites": [
+          "create-project-directory"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-mkdir-parents"
+            },
+            {
+              "checkId": "research-is-directory"
+            },
+            {
+              "checkId": "sources-is-directory"
+            },
+            {
+              "checkId": "cwd-remains-build-zone-after-nesting"
+            }
+          ]
+        },
+        "hintIds": [
+          "nested-hint-1",
+          "nested-hint-2",
+          "nested-hint-3"
+        ]
+      },
+      {
+        "id": "create-clearly-named-files",
+        "title": "Create two clearly named files",
+        "instructions": "Use one touch command to create field-notes/README.txt and field-notes/research/sources/web-links.txt, in that order. Both names communicate purpose, and both parent directories now exist.",
+        "prerequisites": [
+          "create-nested-directories"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-touch-for-both-files"
+            },
+            {
+              "checkId": "readme-is-file"
+            },
+            {
+              "checkId": "web-links-is-file"
+            },
+            {
+              "checkId": "readme-is-empty"
+            },
+            {
+              "checkId": "web-links-is-empty"
+            }
+          ]
+        },
+        "hintIds": [
+          "files-hint-1",
+          "files-hint-2",
+          "files-hint-3"
+        ]
+      },
+      {
+        "id": "verify-created-tree",
+        "title": "Verify the complete tree",
+        "instructions": "Run ls -R field-notes to list this small tree recursively. Use the section headings and names to verify that README.txt is directly in field-notes and web-links.txt is under research/sources. Leave the finished structure unchanged.",
+        "prerequisites": [
+          "create-clearly-named-files"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-recursive-verification"
+            },
+            {
+              "checkId": "verification-shows-readme"
+            },
+            {
+              "checkId": "verification-shows-research"
+            },
+            {
+              "checkId": "verification-shows-sources"
+            },
+            {
+              "checkId": "verification-shows-web-links"
+            },
+            {
+              "checkId": "final-field-notes-is-directory"
+            },
+            {
+              "checkId": "final-research-is-directory"
+            },
+            {
+              "checkId": "final-sources-is-directory"
+            },
+            {
+              "checkId": "final-readme-is-file"
+            },
+            {
+              "checkId": "final-web-links-is-file"
+            },
+            {
+              "checkId": "plan-card-unchanged"
+            },
+            {
+              "checkId": "cwd-remains-build-zone-at-finish"
+            }
+          ]
+        },
+        "hintIds": [
+          "verify-hint-1",
+          "verify-hint-2",
+          "verify-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-mkdir-field-notes",
+        "kind": "command_properties",
+        "params": {
+          "executable": "mkdir",
+          "args": [
+            "field-notes"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "field-notes-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "cwd-remains-build-zone-after-mkdir",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/build-zone"
+        }
+      },
+      {
+        "id": "used-mkdir-parents",
+        "kind": "command_properties",
+        "params": {
+          "executable": "mkdir",
+          "args": [
+            "-p",
+            "field-notes/research/sources"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "research-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "sources-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research/sources",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "cwd-remains-build-zone-after-nesting",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/build-zone"
+        }
+      },
+      {
+        "id": "used-touch-for-both-files",
+        "kind": "command_properties",
+        "params": {
+          "executable": "touch",
+          "args": [
+            "field-notes/README.txt",
+            "field-notes/research/sources/web-links.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "readme-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/README.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "web-links-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research/sources/web-links.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "readme-is-empty",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/build-zone/field-notes/README.txt",
+          "value": ""
+        }
+      },
+      {
+        "id": "web-links-is-empty",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research/sources/web-links.txt",
+          "value": ""
+        }
+      },
+      {
+        "id": "used-recursive-verification",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "-R",
+            "field-notes"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "verification-shows-readme",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])README\\.txt([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "verification-shows-research",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])research([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "verification-shows-sources",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])sources([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "verification-shows-web-links",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])web-links\\.txt([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "final-field-notes-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "final-research-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "final-sources-is-directory",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research/sources",
+          "type": "directory"
+        }
+      },
+      {
+        "id": "final-readme-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/README.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "final-web-links-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/build-zone/field-notes/research/sources/web-links.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "plan-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/build-zone/PLAN.txt",
+          "value": "TARGET TREE\nfield-notes/\n  README.txt\n  research/\n    sources/\n      web-links.txt\n"
+        }
+      },
+      {
+        "id": "cwd-remains-build-zone-at-finish",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/build-zone"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "project-hint-1",
+        "level": 1,
+        "text": "Use the command whose name means make directory. Give it one clear relative name so the new directory becomes a child of the cwd."
+      },
+      {
+        "id": "project-hint-2",
+        "level": 2,
+        "text": "The command is mkdir, and the required child name is field-notes. Do not add an option for this first single directory."
+      },
+      {
+        "id": "project-hint-3",
+        "level": 3,
+        "text": "Run: mkdir field-notes"
+      },
+      {
+        "id": "nested-hint-1",
+        "level": 1,
+        "text": "Plain mkdir needs the immediate parent to exist. Add mkdir's option for creating missing parent components, then provide the complete nested path."
+      },
+      {
+        "id": "nested-hint-2",
+        "level": 2,
+        "text": "Use -p with mkdir. Resolve field-notes/research/sources from left to right; field-notes exists, while the last two components need creation."
+      },
+      {
+        "id": "nested-hint-3",
+        "level": 3,
+        "text": "Run: mkdir -p field-notes/research/sources"
+      },
+      {
+        "id": "files-hint-1",
+        "level": 1,
+        "text": "Use the command that creates a missing empty file. It accepts more than one file path, but every parent directory must already exist."
+      },
+      {
+        "id": "files-hint-2",
+        "level": 2,
+        "text": "Use touch followed first by the README path directly under field-notes and then by the web-links path under research/sources. Preserve capitalization and the hyphen."
+      },
+      {
+        "id": "files-hint-3",
+        "level": 3,
+        "text": "Run: touch field-notes/README.txt field-notes/research/sources/web-links.txt"
+      },
+      {
+        "id": "verify-hint-1",
+        "level": 1,
+        "text": "Use the familiar listing command with its recursive option and field-notes as the path. Compare every heading and name with the target tree."
+      },
+      {
+        "id": "verify-hint-2",
+        "level": 2,
+        "text": "The recursive option is uppercase -R. A correct listing shows README.txt and research, then sources below research, then web-links.txt below sources."
+      },
+      {
+        "id": "verify-hint-3",
+        "level": 3,
+        "text": "Run: ls -R field-notes"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student plans relative paths, creates one directory with mkdir, creates missing nested parents with mkdir -p, creates two precisely named empty files with touch, and verifies the resulting types and nesting instead of assuming success.",
+      "misconceptions": [
+        "mkdir creates directories, while touch creates the empty regular files required in this lesson.",
+        "Plain mkdir requires the immediate parent to exist; mkdir -p creates missing parent components but also reproduces any mistyped component.",
+        "touch does not create missing parent directories, write the filename as content, or normally erase an existing file.",
+        "Relative creation paths begin at the current working directory, so the student should predict the complete location before running a command.",
+        "Linux names are case-sensitive; README.txt and readme.txt are different paths.",
+        "A successful silent command is not a substitute for verifying the complete resulting tree."
+      ],
+      "constraints": [
+        "Keep coaching within mkdir, mkdir -p, touch, clear naming, relative-path reasoning, and verification with ls -R.",
+        "Do not suggest rm, rmdir, mv, cp, redirection, editors, shell loops, command chaining, or absolute creation paths.",
+        "Give each task's hints in level order; ask the student to predict the resulting path or listing before revealing the exact command at level 3.",
+        "Do not provide all four commands as one pasteable sequence or complete later tasks for the student.",
+        "Require exact capitalization, hyphenation, and nesting; do not accept extra or vaguely named entries as craftsmanship.",
+        "If the student creates an incorrect entry, direct them to reset rather than teaching removal or renaming ahead of sequence.",
+        "Keep all work under workspace/build-zone and remind the student that fixture directories are writable mode 0755 for safe materialization and creation.",
+        "After completion, ask why -p was needed, why touch came after directory creation, and what evidence in ls -R established the nesting."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

@@ -64,6 +64,23 @@ func studentDevice(ctx context.Context) (*domain.StudentDevice, error) {
 	return d, nil
 }
 
+func deviceCapsToMap(c DeviceCapabilitiesBody) map[string]any {
+	m := map[string]any{}
+	if len(c.RuntimeProfiles) > 0 {
+		m["runtimeProfiles"] = c.RuntimeProfiles
+	}
+	if len(c.ProfileDigests) > 0 {
+		m["profileDigests"] = c.ProfileDigests
+	}
+	if c.RunnerVersion != "" {
+		m["runnerVersion"] = c.RunnerVersion
+	}
+	if len(c.Capabilities) > 0 {
+		m["capabilities"] = c.Capabilities
+	}
+	return m
+}
+
 func studentOp(h huma.API, q repo.Querier, op huma.Operation) huma.Operation {
 	op.Security = []map[string][]string{{deviceTokenSecurityScheme: {}}}
 	op.Middlewares = huma.Middlewares{StudentDeviceGuard(h, q)}
@@ -133,20 +150,43 @@ func registerStudentAPI(h huma.API, q repo.Querier, opts Options) {
 		Method:      http.MethodGet,
 		Path:        "/student/work",
 		Summary:     "Work queue for the paired student",
+		Description: "Returns assignment upserts. Empty after starts a full snapshot; a valid cursor is incremental. Paginate while hasMore is true before advancing the durable client cursor.",
 		Tags:        []string{"Student"},
 	}), func(ctx context.Context, in *studentWorkInput) (*studentWorkOutput, error) {
 		dev, err := studentDevice(ctx)
 		if err != nil {
 			return nil, err
 		}
-		items, cursor, err := repo.ListStudentWork(ctx, q, dev.StudentID, in.After, in.Limit)
+		page, err := repo.ListStudentWorkPage(ctx, q, dev.StudentID, in.After, in.Limit)
 		if err != nil {
 			return nil, MapError(err)
 		}
 		return &studentWorkOutput{Body: StudentWorkResponse{
-			Items:  items,
-			Cursor: cursor,
+			Items:   page.Items,
+			Cursor:  page.Cursor,
+			Mode:    page.Mode,
+			HasMore: page.HasMore,
 		}}, nil
+	})
+
+	huma.Register(h, studentOp(h, q, huma.Operation{
+		OperationID:   "report-device-capabilities",
+		Method:        http.MethodPost,
+		Path:          "/student/device/capabilities",
+		Summary:       "Report installed runtime profiles and runner capabilities",
+		Tags:          []string{"Student"},
+		DefaultStatus: http.StatusNoContent,
+	}), func(ctx context.Context, in *reportCapabilitiesInput) (*struct{}, error) {
+		dev, err := studentDevice(ctx)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		caps := deviceCapsToMap(in.Body.DeviceCapabilities)
+		if err := repo.StoreDeviceCapabilities(ctx, q, dev.ID, caps, now); err != nil {
+			return nil, MapError(err)
+		}
+		return nil, nil
 	})
 
 	huma.Register(h, studentOp(h, q, huma.Operation{
@@ -161,7 +201,12 @@ func registerStudentAPI(h huma.API, q repo.Querier, opts Options) {
 		if err != nil {
 			return nil, err
 		}
-		sess, err := repo.StartOrResumeSession(ctx, q, dev, in.Body.ClientSessionID, in.Body.AssignmentID, time.Now().UTC())
+		now := time.Now().UTC()
+		if in.Body.DeviceCapabilities != nil {
+			_ = repo.StoreDeviceCapabilities(ctx, q, dev.ID, deviceCapsToMap(*in.Body.DeviceCapabilities), now)
+		}
+		caps := in.Body.Capabilities
+		sess, err := repo.StartOrResumeSession(ctx, q, dev, in.Body.ClientSessionID, in.Body.AssignmentID, now, caps...)
 		if err != nil {
 			return nil, MapError(err)
 		}
@@ -285,6 +330,58 @@ func registerStudentAPI(h huma.API, q repo.Querier, opts Options) {
 			RateLimited: meta.RateLimited,
 		}}, nil
 	})
+
+	// Conceptual response submission (student-authored text only; never tutor output).
+	huma.Register(h, studentOp(h, q, huma.Operation{
+		OperationID:   "submit-student-response",
+		Method:        http.MethodPost,
+		Path:          "/student/sessions/{id}/responses",
+		Summary:       "Submit a constructed response",
+		Description:   "Idempotent by submissionId. Creates conceptual_response evidence. Tutor clients must not call this with generated text.",
+		Tags:          []string{"Student"},
+		DefaultStatus: http.StatusCreated,
+	}), func(ctx context.Context, in *submitResponseInput) (*submitResponseOutput, error) {
+		dev, err := studentDevice(ctx)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		req := in.Body
+		if req.SchemaVersion == "" {
+			req.SchemaVersion = contracts.ResponseSchemaVersion
+		}
+		if req.ClientTime.IsZero() {
+			req.ClientTime = now
+		}
+		resp, created, err := repo.SubmitStudentResponse(ctx, q, dev, in.ID, req, now)
+		if err != nil {
+			if errors.Is(err, repo.ErrConflict) {
+				return nil, huma.Error409Conflict(err.Error())
+			}
+			return nil, MapError(err)
+		}
+		var evidenceIDs []string
+		if created {
+			evidenceIDs, err = mastery.ApplyConceptualResponse(ctx, q, resp, now)
+			if err != nil {
+				return nil, MapError(err)
+			}
+		}
+		status := http.StatusCreated
+		if !created {
+			status = http.StatusOK
+		}
+		_ = status
+		return &submitResponseOutput{Body: contracts.ResponseSubmissionResult{
+			SchemaVersion:  contracts.ResponseSchemaVersion,
+			SubmissionID:   resp.SubmissionID,
+			ResponseID:     resp.ID,
+			Status:         resp.Status,
+			EvidenceIDs:    evidenceIDs,
+			ReviewRequired: resp.ParentReviewRequired,
+			Message:        "accepted",
+		}}, nil
+	})
 }
 
 type pairStudentDeviceInput struct {
@@ -318,24 +415,42 @@ type studentProfileOutput struct {
 }
 
 type studentWorkInput struct {
-	After string `query:"after" doc:"Cursor from a previous work response."`
+	After string `query:"after" doc:"Cursor from a previous work response. Empty requests a full snapshot."`
 	Limit int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
 }
 
 // StudentWorkResponse is the work queue sync payload.
 type StudentWorkResponse struct {
-	Items  []repo.StudentWorkItem `json:"items"`
-	Cursor string                 `json:"cursor,omitempty"`
+	Items   []repo.StudentWorkItem `json:"items"`
+	Cursor  string                 `json:"cursor,omitempty"`
+	Mode    string                 `json:"mode,omitempty" enum:"snapshot,incremental" doc:"snapshot when after was empty; incremental for cursor walks."`
+	HasMore bool                   `json:"hasMore,omitempty" doc:"True when another page follows; do not advance durable cursor until false."`
 }
 
 type studentWorkOutput struct {
 	Body StudentWorkResponse
 }
 
+// DeviceCapabilitiesBody is the structured capability report from a workstation.
+type DeviceCapabilitiesBody struct {
+	RuntimeProfiles []string          `json:"runtimeProfiles,omitempty"`
+	ProfileDigests  map[string]string `json:"profileDigests,omitempty"`
+	RunnerVersion   string            `json:"runnerVersion,omitempty"`
+	Capabilities    []string          `json:"capabilities,omitempty"`
+}
+
+type reportCapabilitiesInput struct {
+	Body struct {
+		DeviceCapabilities DeviceCapabilitiesBody `json:"deviceCapabilities"`
+	}
+}
+
 type startSessionInput struct {
 	Body struct {
-		ClientSessionID string `json:"clientSessionId" minLength:"1"`
-		AssignmentID    string `json:"assignmentId" format:"uuid"`
+		ClientSessionID    string                  `json:"clientSessionId" minLength:"1"`
+		AssignmentID       string                  `json:"assignmentId" format:"uuid"`
+		Capabilities       []string                `json:"capabilities,omitempty" doc:"Runner capability flags such as structured_command_evidence."`
+		DeviceCapabilities *DeviceCapabilitiesBody `json:"deviceCapabilities,omitempty"`
 	}
 }
 
@@ -374,6 +489,15 @@ type tutorMessageInput struct {
 	Body struct {
 		Message string `json:"message"`
 	}
+}
+
+type submitResponseInput struct {
+	ID   string                       `path:"id" format:"uuid"`
+	Body contracts.ResponseSubmission
+}
+
+type submitResponseOutput struct {
+	Body contracts.ResponseSubmissionResult
 }
 
 // TutorMessageResponse is a short coaching reply.

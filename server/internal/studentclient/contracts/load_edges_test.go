@@ -34,8 +34,9 @@ func TestLoadDocumentAndParseErrorPaths(t *testing.T) {
 	assert.Contains(t, err.Error(), "json")
 
 	// Valid parse but Validate fails on LoadDocument.
+	// YAML wire format uses snake_case (schema_version); camelCase is rejected by KnownFields.
 	path := filepath.Join(dir, "activity.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("schemaVersion: \"1\"\nslug: x\n"), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte("schema_version: \"1\"\nslug: x\n"), 0o644))
 	_, err = contracts.LoadDocument(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "validate")
@@ -60,7 +61,7 @@ func TestLoadDocumentsDirErrorPaths(t *testing.T) {
 	// Dir with invalid activity.
 	bad := filepath.Join(root, "bad-act")
 	require.NoError(t, os.Mkdir(bad, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bad, "activity.yaml"), []byte("schemaVersion: \"1\"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(bad, "activity.yaml"), []byte("schema_version: \"1\"\n"), 0o644))
 
 	// Dir with slug mismatch (valid document content, wrong slug vs directory).
 	mismatch := filepath.Join(root, "dir-name")

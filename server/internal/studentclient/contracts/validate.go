@@ -58,6 +58,34 @@ func ValidateDocument(doc *ActivityDocument) error {
 	if err := ValidateContent(doc.Kind, &doc.Content); err != nil {
 		return err
 	}
+	if err := validateReferenceSolution(doc.ReferenceSolution); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateReferenceSolution(ref *ReferenceSolution) error {
+	if ref == nil {
+		return nil
+	}
+	if len(ref.Steps) == 0 {
+		return fmt.Errorf("referenceSolution.steps must not be empty")
+	}
+	for i, step := range ref.Steps {
+		if len(step.Argv) == 0 {
+			return fmt.Errorf("referenceSolution.steps[%d].argv must not be empty", i)
+		}
+		for j, a := range step.Argv {
+			if strings.TrimSpace(a) == "" {
+				return fmt.Errorf("referenceSolution.steps[%d].argv[%d] must not be empty", i, j)
+			}
+		}
+		if step.WorkDir != "" {
+			if _, err := SafeRelPath(step.WorkDir); err != nil {
+				return fmt.Errorf("referenceSolution.steps[%d].workDir: %w", i, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -121,6 +149,10 @@ func ValidateContent(kind string, c *ActivityContent) error {
 		}
 	}
 
+	if err := validateInstructionBlocks(c.Blocks); err != nil {
+		return err
+	}
+
 	if len(c.Tasks) == 0 {
 		return fmt.Errorf("content.tasks must not be empty")
 	}
@@ -138,6 +170,22 @@ func ValidateContent(kind string, c *ActivityContent) error {
 		}
 		if strings.TrimSpace(t.Instructions) == "" {
 			return fmt.Errorf("tasks[%d]: instructions are required", i)
+		}
+		kind := t.Kind
+		if kind == "" {
+			kind = TaskKindAction
+		}
+		switch kind {
+		case TaskKindAction:
+			if t.Response != nil {
+				return fmt.Errorf("tasks[%d]: response is only valid for short_response tasks", i)
+			}
+		case TaskKindShortResponse:
+			if err := validateResponseSpec(fmt.Sprintf("tasks[%d].response", i), t.Response); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("tasks[%d]: unknown kind %q", i, t.Kind)
 		}
 		for _, pre := range t.Prerequisites {
 			if !taskIDs[pre] && pre != t.ID {
@@ -253,12 +301,21 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 	if ch.Params == nil {
 		ch.Params = map[string]any{}
 	}
+	if err := validateCheckStages(i, ch); err != nil {
+		return err
+	}
 	switch ch.Kind {
 	case CheckFileExists, CheckFileNotExists:
+		if err := requireExactParams(ch.Params, "path"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
 	case CheckContentEquals, CheckContentContains:
+		if err := requireExactParams(ch.Params, "path", "value"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -266,6 +323,9 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): params.value is required", i, ch.ID)
 		}
 	case CheckContentMatch:
+		if err := requireExactParams(ch.Params, "path", "pattern"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -277,6 +337,9 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): invalid pattern: %w", i, ch.ID, err)
 		}
 	case CheckPathType:
+		if err := requireExactParams(ch.Params, "path", "type"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -290,6 +353,9 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): unknown path type %q", i, ch.ID, pt)
 		}
 	case CheckPathMode:
+		if err := requireExactParams(ch.Params, "path", "mode"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
@@ -298,10 +364,21 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			return fmt.Errorf("checks[%d] (%s): params.mode must be octal like 0644", i, ch.ID)
 		}
 	case CheckCwd:
+		if err := requireExactParams(ch.Params, "path"); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if err := requireSafePathParam(ch.Params, "path"); err != nil {
 			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
 		}
 	case CheckCommandProperties:
+		allowed := map[string]bool{
+			"executable": true, "args": true, "exitCode": true,
+			"stdoutContains": true, "stdoutEquals": true, "stdoutPattern": true,
+			"stderrContains": true, "stderrEquals": true, "stderrPattern": true,
+		}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if _, ok := stringParam(ch.Params, "executable"); !ok {
 			return fmt.Errorf("checks[%d] (%s): params.executable is required", i, ch.ID)
 		}
@@ -315,7 +392,18 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 				return fmt.Errorf("checks[%d] (%s): params.exitCode must be an int", i, ch.ID)
 			}
 		}
+		for _, key := range []string{"stdoutPattern", "stderrPattern"} {
+			if pat, ok := stringParam(ch.Params, key); ok && pat != "" {
+				if _, err := regexp.Compile(pat); err != nil {
+					return fmt.Errorf("checks[%d] (%s): invalid %s: %w", i, ch.ID, key, err)
+				}
+			}
+		}
 	case CheckPipelineOutput:
+		allowed := map[string]bool{"value": true, "contains": true, "pattern": true}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if _, ok := stringParam(ch.Params, "value"); !ok {
 			if _, ok2 := stringParam(ch.Params, "contains"); !ok2 {
 				if _, ok3 := stringParam(ch.Params, "pattern"); !ok3 {
@@ -329,6 +417,13 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 			}
 		}
 	case CheckTypingMetrics:
+		allowed := map[string]bool{
+			"min_wpm": true, "minWpm": true,
+			"min_accuracy": true, "minAccuracy": true,
+		}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
 		if _, err := floatParam(ch.Params["min_wpm"]); err != nil {
 			// Also accept camelCase from JSON content.
 			if _, err2 := floatParam(ch.Params["minWpm"]); err2 != nil {
@@ -354,8 +449,238 @@ func validateCheck(i int, ch Check, seen map[string]bool) error {
 		if wpm < 0 {
 			return fmt.Errorf("checks[%d] (%s): params.min_wpm must be non-negative", i, ch.ID)
 		}
+	case CheckResponseSubmitted:
+		allowed := map[string]bool{"taskId": true, "task_id": true}
+		if err := requireParamsSubset(ch.Params, allowed); err != nil {
+			return fmt.Errorf("checks[%d] (%s): %w", i, ch.ID, err)
+		}
+		tid, ok := stringParam(ch.Params, "taskId")
+		if !ok {
+			tid, ok = stringParam(ch.Params, "task_id")
+		}
+		if !ok || !idRE.MatchString(tid) {
+			return fmt.Errorf("checks[%d] (%s): params.taskId is required", i, ch.ID)
+		}
 	default:
 		return fmt.Errorf("checks[%d] (%s): unknown kind %q", i, ch.ID, ch.Kind)
+	}
+	return nil
+}
+
+func validateInstructionBlocks(blocks []InstructionBlock) error {
+	seen := map[string]bool{}
+	for i, b := range blocks {
+		if !idRE.MatchString(b.ID) {
+			return fmt.Errorf("blocks[%d]: invalid id %q", i, b.ID)
+		}
+		if seen[b.ID] {
+			return fmt.Errorf("blocks[%d]: duplicate id %q", i, b.ID)
+		}
+		seen[b.ID] = true
+		switch b.Kind {
+		case BlockProse, BlockWarning, BlockQuestion, BlockPractice, BlockParentNote:
+			if strings.TrimSpace(b.Text) == "" {
+				return fmt.Errorf("blocks[%d] (%s): text is required", i, b.ID)
+			}
+			if len(b.Text) > MaxInstructionBlockText {
+				return fmt.Errorf("blocks[%d] (%s): text exceeds %d characters", i, b.ID, MaxInstructionBlockText)
+			}
+			if looksLikeUnsafeMarkup(b.Text) {
+				return fmt.Errorf("blocks[%d] (%s): unsafe markup or links are not allowed", i, b.ID)
+			}
+			if len(b.Terms) > 0 || b.Resource != nil || b.Input != "" || b.Output != "" {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for kind %s", i, b.ID, b.Kind)
+			}
+		case BlockVocabulary:
+			if len(b.Terms) == 0 {
+				return fmt.Errorf("blocks[%d] (%s): terms are required", i, b.ID)
+			}
+			for j, term := range b.Terms {
+				if strings.TrimSpace(term.Term) == "" || strings.TrimSpace(term.Definition) == "" {
+					return fmt.Errorf("blocks[%d].terms[%d]: term and definition are required", i, j)
+				}
+				if looksLikeUnsafeMarkup(term.Term) || looksLikeUnsafeMarkup(term.Definition) {
+					return fmt.Errorf("blocks[%d].terms[%d]: unsafe markup is not allowed", i, j)
+				}
+			}
+			if b.Text != "" || b.Resource != nil {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for vocabulary", i, b.ID)
+			}
+		case BlockExample:
+			if strings.TrimSpace(b.Input) == "" && strings.TrimSpace(b.Output) == "" && strings.TrimSpace(b.Explanation) == "" {
+				return fmt.Errorf("blocks[%d] (%s): example needs input, output, or explanation", i, b.ID)
+			}
+			for _, s := range []string{b.Input, b.Output, b.Explanation, b.Text} {
+				if looksLikeUnsafeMarkup(s) {
+					return fmt.Errorf("blocks[%d] (%s): unsafe markup is not allowed", i, b.ID)
+				}
+			}
+			if len(b.Terms) > 0 || b.Resource != nil {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for example", i, b.ID)
+			}
+		case BlockResource:
+			if b.Resource == nil {
+				return fmt.Errorf("blocks[%d] (%s): resource is required", i, b.ID)
+			}
+			if err := validateResourceRef(fmt.Sprintf("blocks[%d].resource", i), b.Resource); err != nil {
+				return err
+			}
+			if b.Text != "" || len(b.Terms) > 0 {
+				return fmt.Errorf("blocks[%d] (%s): unexpected fields for resource", i, b.ID)
+			}
+		default:
+			return fmt.Errorf("blocks[%d] (%s): unknown kind %q", i, b.ID, b.Kind)
+		}
+	}
+	return nil
+}
+
+func validateResourceRef(path string, r *ResourceRef) error {
+	if r == nil {
+		return fmt.Errorf("%s is required", path)
+	}
+	if !sha256HexRE.MatchString(r.SHA256) {
+		return fmt.Errorf("%s.sha256 must be 64 hex chars", path)
+	}
+	if strings.TrimSpace(r.Label) == "" {
+		return fmt.Errorf("%s.label is required", path)
+	}
+	if strings.TrimSpace(r.MediaType) == "" {
+		return fmt.Errorf("%s.mediaType is required", path)
+	}
+	// Reject remote schemes in labels/media types that look like URLs.
+	if strings.Contains(r.Label, "://") || strings.HasPrefix(strings.ToLower(r.MediaType), "text/html") {
+		return fmt.Errorf("%s: remote or HTML resources are not allowed", path)
+	}
+	if r.ByteSize < 0 || r.ByteSize > MaxResourceBytes {
+		return fmt.Errorf("%s.byteSize must be between 0 and %d", path, MaxResourceBytes)
+	}
+	return nil
+}
+
+func validateResponseSpec(path string, spec *ResponseTaskSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s is required for short_response tasks", path)
+	}
+	if strings.TrimSpace(spec.Prompt) == "" {
+		return fmt.Errorf("%s.prompt is required", path)
+	}
+	if looksLikeUnsafeMarkup(spec.Prompt) {
+		return fmt.Errorf("%s.prompt: unsafe markup is not allowed", path)
+	}
+	max := spec.MaxChars
+	if max == 0 {
+		max = DefaultResponseMaxChars
+	}
+	if max < 1 || max > MaxResponseMaxChars {
+		return fmt.Errorf("%s.maxChars must be between 1 and %d", path, MaxResponseMaxChars)
+	}
+	if len(spec.Rubric) == 0 {
+		return fmt.Errorf("%s.rubric must not be empty", path)
+	}
+	seen := map[string]bool{}
+	for i, c := range spec.Rubric {
+		if !idRE.MatchString(c.ID) {
+			return fmt.Errorf("%s.rubric[%d]: invalid id %q", path, i, c.ID)
+		}
+		if seen[c.ID] {
+			return fmt.Errorf("%s.rubric[%d]: duplicate id %q", path, i, c.ID)
+		}
+		seen[c.ID] = true
+		if strings.TrimSpace(c.Description) == "" {
+			return fmt.Errorf("%s.rubric[%d]: description is required", path, i)
+		}
+	}
+	return nil
+}
+
+var (
+	sha256HexRE   = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	unsafeLinkRE  = regexp.MustCompile(`(?i)(https?://|javascript:|data:)`)
+	unsafeTagRE   = regexp.MustCompile(`(?i)<\s*(script|iframe|object|embed|link|meta|style)\b`)
+)
+
+func looksLikeUnsafeMarkup(s string) bool {
+	if s == "" {
+		return false
+	}
+	if unsafeLinkRE.MatchString(s) {
+		return true
+	}
+	if unsafeTagRE.MatchString(s) {
+		return true
+	}
+	return false
+}
+
+// StudentBlocks returns instructional blocks visible to the student client
+// (excludes parent_note).
+func StudentBlocks(blocks []InstructionBlock) []InstructionBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]InstructionBlock, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Kind == BlockParentNote {
+			continue
+		}
+		out = append(out, b)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// TaskKindOrDefault returns the effective task kind.
+func TaskKindOrDefault(t Task) string {
+	if t.Kind == "" {
+		return TaskKindAction
+	}
+	return t.Kind
+}
+
+func validateCheckStages(i int, ch Check) error {
+	seenStage := map[string]bool{}
+	for _, s := range ch.Stages {
+		switch s {
+		case StageFixture, StageTask, StageFinal:
+		default:
+			return fmt.Errorf("checks[%d] (%s): unknown stage %q", i, ch.ID, s)
+		}
+		if seenStage[s] {
+			return fmt.Errorf("checks[%d] (%s): duplicate stage %q", i, ch.ID, s)
+		}
+		seenStage[s] = true
+	}
+	seenInv := map[string]bool{}
+	for _, b := range ch.InvariantAt {
+		switch b {
+		case InvariantAtFixture, InvariantAtAfterTask, InvariantAtFinal:
+		default:
+			return fmt.Errorf("checks[%d] (%s): unknown invariantAt %q", i, ch.ID, b)
+		}
+		if seenInv[b] {
+			return fmt.Errorf("checks[%d] (%s): duplicate invariantAt %q", i, ch.ID, b)
+		}
+		seenInv[b] = true
+	}
+	return nil
+}
+
+func requireExactParams(params map[string]any, keys ...string) error {
+	allowed := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		allowed[k] = true
+	}
+	return requireParamsSubset(params, allowed)
+}
+
+func requireParamsSubset(params map[string]any, allowed map[string]bool) error {
+	for k := range params {
+		if !allowed[k] {
+			return fmt.Errorf("unknown params.%s", k)
+		}
 	}
 	return nil
 }
@@ -465,6 +790,12 @@ func intParam(v any) (int, error) {
 		return int(n), nil
 	case float64:
 		return int(n), nil
+	case jsonNumber:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, err
+		}
+		return int(i), nil
 	case string:
 		return strconv.Atoi(n)
 	default:
@@ -494,6 +825,7 @@ func floatParam(v any) (float64, error) {
 // jsonNumber is satisfied by encoding/json.Number without importing encoding/json here.
 type jsonNumber interface {
 	Float64() (float64, error)
+	Int64() (int64, error)
 }
 
 // TypingMinWPM extracts min_wpm / minWpm from typing_metrics check params.

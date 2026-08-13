@@ -33,6 +33,7 @@ const (
 	ScreenPairing
 	ScreenQueue
 	ScreenActivity
+	ScreenLesson
 	ScreenSummary
 )
 
@@ -93,6 +94,14 @@ type Model struct {
 	termScreen      string
 	chatLog         []string
 
+	// lesson reading (blocks from immutable revision)
+	lessonLines  []string
+	lessonOffset int
+	lessonIdx    int // focused block index in student-visible blocks
+
+	// response drafting (short_response tasks)
+	respInput textinput.Model
+
 	// summary
 	summaryTitle string
 	summaryBody  string
@@ -135,6 +144,12 @@ func NewModel(opts Options) Model {
 	ci.SetWidth(60)
 	ci.Prompt = "$ "
 
+	ri := textinput.New()
+	ri.Placeholder = "type your response (your own words)"
+	ri.CharLimit = contracts.MaxResponseMaxChars
+	ri.SetWidth(70)
+	ri.Prompt = "> "
+
 	delegate := list.NewDefaultDelegate()
 	delegate.SetHeight(2)
 	delegate.SetSpacing(0)
@@ -149,6 +164,7 @@ func NewModel(opts Options) Model {
 		screen:    ScreenBoot,
 		pairInput: pi,
 		cmdInput:  ci,
+		respInput: ri,
 		workList:  l,
 		syncSt:    sync.StatusIdle,
 		focusCmd:  true,
@@ -445,6 +461,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.termTickCmd()
 
+	case responseDoneMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.activityMsg = msg.err.Error()
+		} else {
+			m.snap = msg.snap
+			m.activityMsg = "Response submitted"
+			if msg.snap.ResponseQueued {
+				m.activityMsg = "Response submitted — awaiting sync"
+			}
+			m.respInput.Blur()
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
@@ -537,6 +567,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleTerminalActivityKey(msg)
 
+	case ScreenLesson:
+		return m.handleLessonKey(msg)
+
 	case ScreenSummary:
 		switch key {
 		case "enter", "q", "esc", "ctrl+g":
@@ -593,6 +626,32 @@ func (m Model) handleTerminalActivityKey(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 			return m, nil
 		}
 		return m, m.hintCmd()
+	case "ctrl+l":
+		// Open lesson reader from immutable revision blocks.
+		if !m.hasSession() {
+			return m, nil
+		}
+		m.openLesson()
+		m.screen = ScreenLesson
+		return m, nil
+	}
+
+	// Short-response task: route typing to response field when instructions pane focused
+	// or when there is no PTY and current task is short_response.
+	if m.currentTaskIsResponse() && (!m.snap.HasTerminal || m.activePane == paneInstructions) {
+		if key == "ctrl+enter" || key == "alt+enter" {
+			return m, m.submitResponseCmd()
+		}
+		if !m.busy {
+			var cmd tea.Cmd
+			m.respInput, cmd = m.respInput.Update(msg)
+			// Persist draft periodically on enter-less edits.
+			if key != "enter" {
+				return m, tea.Batch(cmd, m.saveDraftCmd())
+			}
+			// Enter alone inserts nothing special; keep draft.
+			return m, tea.Batch(cmd, m.saveDraftCmd())
+		}
 	}
 
 	// Live PTY: forward keystrokes when terminal pane focused.
@@ -1117,6 +1176,8 @@ func (m Model) View() tea.View {
 			content = m.viewQueue()
 		case ScreenActivity:
 			content = m.viewActivity()
+		case ScreenLesson:
+			content = m.viewLesson()
 		case ScreenSummary:
 			content = m.viewSummary()
 		default:
@@ -1126,6 +1187,220 @@ func (m Model) View() tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
+}
+
+func (m *Model) openLesson() {
+	blocks := m.snap.Blocks
+	var lines []string
+	if len(blocks) == 0 {
+		lines = append(lines, "No typed instructional blocks on this revision.")
+		lines = append(lines, "")
+		lines = append(lines, m.snap.Objective)
+		lines = append(lines, "")
+		for _, ln := range wrapWords(m.snap.Instructions, 72) {
+			lines = append(lines, ln)
+		}
+	} else {
+		for i, b := range blocks {
+			title := b.Title
+			if title == "" {
+				title = b.Kind
+			}
+			lines = append(lines, fmt.Sprintf("── %d. %s ──", i+1, title))
+			lines = append(lines, formatBlockLines(b, 72)...)
+			lines = append(lines, "")
+		}
+	}
+	m.lessonLines = lines
+	m.lessonOffset = 0
+	m.lessonIdx = 0
+}
+
+func formatBlockLines(b contracts.InstructionBlock, width int) []string {
+	var out []string
+	switch b.Kind {
+	case contracts.BlockVocabulary:
+		for _, t := range b.Terms {
+			out = append(out, wrapWords(fmt.Sprintf("• %s — %s", t.Term, t.Definition), width)...)
+		}
+	case contracts.BlockExample:
+		if b.Input != "" {
+			out = append(out, "Input:")
+			out = append(out, wrapWords(b.Input, width)...)
+		}
+		if b.Output != "" {
+			out = append(out, "Output:")
+			out = append(out, wrapWords(b.Output, width)...)
+		}
+		if b.Explanation != "" {
+			out = append(out, wrapWords(b.Explanation, width)...)
+		}
+	case contracts.BlockResource:
+		if b.Resource != nil {
+			out = append(out, wrapWords(fmt.Sprintf("[%s] %s", b.Resource.MediaType, b.Resource.Label), width)...)
+		}
+	default:
+		out = append(out, wrapWords(b.Text, width)...)
+	}
+	return out
+}
+
+func wrapWords(s string, width int) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if width < 20 {
+		width = 20
+	}
+	words := strings.Fields(s)
+	var lines []string
+	var cur strings.Builder
+	for _, w := range words {
+		if cur.Len() == 0 {
+			cur.WriteString(w)
+			continue
+		}
+		if cur.Len()+1+len(w) > width {
+			lines = append(lines, cur.String())
+			cur.Reset()
+			cur.WriteString(w)
+			continue
+		}
+		cur.WriteByte(' ')
+		cur.WriteString(w)
+	}
+	if cur.Len() > 0 {
+		lines = append(lines, cur.String())
+	}
+	return lines
+}
+
+func (m Model) handleLessonKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	page := max(8, m.height-6)
+	switch key {
+	case "q", "esc", "ctrl+g", "ctrl+l":
+		m.screen = ScreenActivity
+		return m, nil
+	case "up", "k":
+		if m.lessonOffset > 0 {
+			m.lessonOffset--
+		}
+	case "down", "j":
+		if m.lessonOffset+page < len(m.lessonLines) {
+			m.lessonOffset++
+		}
+	case "pgup", "b":
+		m.lessonOffset -= page
+		if m.lessonOffset < 0 {
+			m.lessonOffset = 0
+		}
+	case "pgdown", "f", "space":
+		m.lessonOffset += page
+		if m.lessonOffset > len(m.lessonLines) {
+			m.lessonOffset = max(0, len(m.lessonLines)-1)
+		}
+	case "home", "g":
+		m.lessonOffset = 0
+	case "end", "G":
+		m.lessonOffset = max(0, len(m.lessonLines)-page)
+	case "n":
+		if m.lessonIdx+1 < len(m.snap.Blocks) {
+			m.lessonIdx++
+			// Jump offset near block header lines (best-effort).
+			m.lessonOffset = min(len(m.lessonLines)-1, m.lessonIdx*4)
+		}
+	case "p":
+		if m.lessonIdx > 0 {
+			m.lessonIdx--
+			m.lessonOffset = max(0, m.lessonIdx*4)
+		}
+	}
+	return m, nil
+}
+
+func (m Model) viewLesson() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Lesson — " + m.snap.ActivityTitle))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("immutable revision blocks · parent notes hidden"))
+	b.WriteString("\n\n")
+	h := max(12, m.height-6)
+	w := max(60, m.width-2)
+	end := min(len(m.lessonLines), m.lessonOffset+h)
+	if m.lessonOffset >= len(m.lessonLines) {
+		m.lessonOffset = max(0, len(m.lessonLines)-1)
+	}
+	for i := m.lessonOffset; i < end; i++ {
+		line := m.lessonLines[i]
+		if len(line) > w {
+			line = line[:w-1] + "…"
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if len(m.lessonLines) == 0 {
+		b.WriteString(dimStyle.Render("(empty)"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s\n", dimStyle.Render(fmt.Sprintf("lines %d-%d / %d · j/k scroll · n/p section · esc back",
+		m.lessonOffset+1, end, len(m.lessonLines))))
+	return b.String()
+}
+
+func (m Model) currentTaskIsResponse() bool {
+	idx := m.snap.CurrentTaskIdx
+	if idx < 0 || idx >= len(m.snap.Tasks) {
+		return false
+	}
+	return contracts.TaskKindOrDefault(m.snap.Tasks[idx]) == contracts.TaskKindShortResponse
+}
+
+func (m Model) currentResponseTask() *contracts.Task {
+	idx := m.snap.CurrentTaskIdx
+	if idx < 0 || idx >= len(m.snap.Tasks) {
+		return nil
+	}
+	t := m.snap.Tasks[idx]
+	if contracts.TaskKindOrDefault(t) != contracts.TaskKindShortResponse {
+		return nil
+	}
+	return &t
+}
+
+func (m Model) saveDraftCmd() tea.Cmd {
+	t := m.currentResponseTask()
+	if t == nil || m.sess == nil {
+		return nil
+	}
+	body := m.respInput.Value()
+	taskID := t.ID
+	sess := m.sess
+	return func() tea.Msg {
+		_ = sess.SaveResponseDraft(context.Background(), taskID, body)
+		return nil
+	}
+}
+
+type responseDoneMsg struct {
+	snap engine.SessionSnapshot
+	err  error
+}
+
+func (m Model) submitResponseCmd() tea.Cmd {
+	t := m.currentResponseTask()
+	if t == nil || m.sess == nil {
+		return nil
+	}
+	body := m.respInput.Value()
+	taskID := t.ID
+	sess := m.sess
+	return func() tea.Msg {
+		err := sess.SubmitResponse(context.Background(), taskID, body)
+		return responseDoneMsg{snap: sess.Snapshot(), err: err}
+	}
 }
 
 func (m Model) viewPairing() string {
@@ -1290,11 +1565,21 @@ func (m Model) viewTerminalActivity() string {
 		t := s.Tasks[s.CurrentTaskIdx]
 		taskTitle = t.Title
 		taskBody = strings.TrimSpace(t.Instructions)
+		if contracts.TaskKindOrDefault(t) == contracts.TaskKindShortResponse && t.Response != nil {
+			taskBody = strings.TrimSpace(t.Response.Prompt)
+			if taskBody == "" {
+				taskBody = strings.TrimSpace(t.Instructions)
+			}
+			taskBody += "\n\n(Write your own words. Tutor text cannot be submitted as evidence.)"
+		}
 	} else if s.RequiredPassed {
 		taskTitle = "All tasks complete"
 		taskBody = "Required checks passed. Press ctrl+s (or complete) to finish."
 	}
 	instr := fmt.Sprintf("%s\n\n%s", taskTitle, taskBody)
+	if len(s.Blocks) > 0 {
+		instr += fmt.Sprintf("\n\n[ctrl+l lesson · %d blocks]", len(s.Blocks))
+	}
 	if s.TutorHint != "" {
 		instr += "\n\nHint: " + s.TutorHint
 	}
@@ -1399,8 +1684,18 @@ func (m Model) viewTerminalActivity() string {
 		b.WriteString("\n")
 
 		if m.activePane == paneInstructions {
-			b.WriteString(m.cmdInput.View())
-			b.WriteString("\n")
+			if m.currentTaskIsResponse() {
+				if m.snap.ResponseDraft != "" && m.respInput.Value() == "" {
+					m.respInput.SetValue(m.snap.ResponseDraft)
+				}
+				b.WriteString(m.respInput.View())
+				b.WriteString("\n")
+				b.WriteString(dimStyle.Render("ctrl+enter submit response · drafts save locally"))
+				b.WriteString("\n")
+			} else {
+				b.WriteString(m.cmdInput.View())
+				b.WriteString("\n")
+			}
 		}
 	} else {
 		// Legacy two-panel + command box when no PTY.
@@ -1446,9 +1741,9 @@ func (m Model) viewTerminalActivity() string {
 		b.WriteString("\n")
 	}
 	if s.HasTerminal {
-		b.WriteString(dimStyle.Render("tab focus · ctrl+v verify · ctrl+s complete · ctrl+h hint · ctrl+g back"))
+		b.WriteString(dimStyle.Render("tab focus · ctrl+l lesson · ctrl+v verify · ctrl+s complete · ctrl+h hint · ctrl+g back"))
 	} else {
-		b.WriteString(dimStyle.Render("enter run · verify/complete/hint · ctrl+g back"))
+		b.WriteString(dimStyle.Render("enter run · ctrl+l lesson · verify/complete/hint · ctrl+g back"))
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -1519,6 +1814,8 @@ func (m Model) ScreenName() string {
 		return "queue"
 	case ScreenActivity:
 		return "activity"
+	case ScreenLesson:
+		return "lesson"
 	case ScreenSummary:
 		return "summary"
 	default:

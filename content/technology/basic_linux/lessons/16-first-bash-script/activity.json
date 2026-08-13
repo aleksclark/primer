@@ -1,0 +1,427 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-16-first-bash-script",
+  "title": "Your first Bash script",
+  "summary": "Create a small Bash script with a shebang, a useful comment, and simple commands; make it executable with chmod; run it; and verify its predictable output file.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.SCRIPT.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "16",
+    "runtime": "terminal/coreutils-basic",
+    "standardsStatus": "pending-scripting-standards"
+  },
+  "content": {
+    "objective": "Create a short Bash script whose first line is a Bash shebang, whose comment explains its purpose to human readers, and whose simple commands create one predictable report; add only the user execute permission with chmod, run the script by relative path, and verify both the executable mode and generated output.",
+    "instructions": "Work only in workspace/script-lab and complete the four tasks in order. A script is a text file containing commands for an interpreter. Put #!/bin/bash on the first line so direct execution selects Bash. Put a useful # comment on the second line for human readers; Bash ignores that comment as an instruction. The script will use mkdir -p to ensure output exists and printf with > to replace one predictable report. Create exactly first-report.sh and output/first-report.txt; keep README.txt unchanged. Before running chmod or the script, inspect each exact path. Use chmod u+x rather than a broad numeric mode, then run the script as ./first-report.sh. Do not add variables, arguments, conditions, loops, downloads, or commands outside the supplied workspace.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/script-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/script-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/script-lab/README.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Build one small script here. Keep this note unchanged.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "write-script",
+        "title": "Write a readable Bash script",
+        "instructions": "Run exactly: printf '%s\\n' '#!/bin/bash' '# Create a small, predictable field report for human readers.' 'mkdir -p output' \"printf 'System check: ready\\\\nFiles are organized\\\\n' > output/first-report.txt\" > first-report.sh. This writes four script lines without executing them. Identify the shebang on line 1, the human-facing comment on line 2, and the two simple commands on lines 3-4. The final redirection belongs inside the script and will replace the generated report each time the script runs.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "script-structure-match"
+            },
+            {
+              "checkId": "script-starts-nonexecutable"
+            },
+            {
+              "checkId": "report-not-created-while-writing"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-script-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "write-hint-1",
+          "write-hint-2",
+          "write-hint-3"
+        ]
+      },
+      {
+        "id": "inspect-script",
+        "title": "Inspect before granting execution",
+        "instructions": "Run cat first-report.sh. Read the file from top to bottom before making it executable. Confirm that #!/bin/bash is the first line with no text before it, that the comment explains purpose rather than merely repeating a command, and that every command names only the expected output directory or report path. Explain that the shebang selects an interpreter during direct execution, while the ordinary comment exists for people maintaining the file.",
+        "prerequisites": [
+          "write-script"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-cat-to-inspect-script"
+            },
+            {
+              "checkId": "script-structure-match"
+            },
+            {
+              "checkId": "script-still-nonexecutable"
+            },
+            {
+              "checkId": "report-still-not-created"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-script-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "inspect-hint-1",
+          "inspect-hint-2",
+          "inspect-hint-3"
+        ]
+      },
+      {
+        "id": "make-script-executable",
+        "title": "Add user execute permission",
+        "instructions": "Run chmod u+x first-report.sh. The symbolic mode u+x adds execute permission for the user while preserving the existing read and write bits and leaving group and other permissions unchanged. Confirm conceptually that execute on this regular file permits it to be launched as a program; it does not execute the file merely because the bit was added.",
+        "prerequisites": [
+          "inspect-script"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "script-is-executable"
+            },
+            {
+              "checkId": "script-content-preserved-after-chmod"
+            },
+            {
+              "checkId": "report-still-not-created"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-script-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "chmod-hint-1",
+          "chmod-hint-2",
+          "chmod-hint-3"
+        ]
+      },
+      {
+        "id": "run-and-verify-script",
+        "title": "Run the script and verify its report",
+        "instructions": "Run ./first-report.sh. The ./ prefix names the executable file in the current directory. The operating system reads the first-line shebang and starts /bin/bash to interpret the remaining lines. Bash creates output if needed and replaces output/first-report.txt with exactly two lines. Explain why running the script again is predictable: mkdir -p tolerates the existing directory, and > replaces rather than appends to the report.",
+        "prerequisites": [
+          "make-script-executable"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ran-first-report-script"
+            },
+            {
+              "checkId": "generated-output-is-file"
+            },
+            {
+              "checkId": "generated-output-exact"
+            },
+            {
+              "checkId": "generated-output-format-match"
+            },
+            {
+              "checkId": "script-remains-executable"
+            },
+            {
+              "checkId": "script-content-preserved-at-finish"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-script-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "run-hint-1",
+          "run-hint-2",
+          "run-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "script-structure-match",
+        "kind": "content_match",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "pattern": "^#!/bin/bash\\n# Create a small, predictable field report for human readers\\.\\nmkdir -p output\\nprintf 'System check: ready\\\\nFiles are organized\\\\n' > output/first-report\\.txt\\n$"
+        }
+      },
+      {
+        "id": "script-starts-nonexecutable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "report-not-created-while-writing",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/script-lab/output/first-report.txt"
+        }
+      },
+      {
+        "id": "used-cat-to-inspect-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "first-report.sh"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-still-nonexecutable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "report-still-not-created",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/script-lab/output/first-report.txt"
+        }
+      },
+      {
+        "id": "script-is-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-content-preserved-after-chmod",
+        "kind": "content_match",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "pattern": "^#!/bin/bash\\n# Create a small, predictable field report for human readers\\.\\nmkdir -p output\\nprintf 'System check: ready\\\\nFiles are organized\\\\n' > output/first-report\\.txt\\n$"
+        }
+      },
+      {
+        "id": "ran-first-report-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "first-report.sh",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "generated-output-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/script-lab/output/first-report.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "generated-output-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/script-lab/output/first-report.txt",
+          "value": "System check: ready\nFiles are organized\n"
+        }
+      },
+      {
+        "id": "generated-output-format-match",
+        "kind": "content_match",
+        "params": {
+          "path": "workspace/script-lab/output/first-report.txt",
+          "pattern": "^System check: ready\\nFiles are organized\\n$"
+        }
+      },
+      {
+        "id": "script-remains-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-content-preserved-at-finish",
+        "kind": "content_match",
+        "params": {
+          "path": "workspace/script-lab/first-report.sh",
+          "pattern": "^#!/bin/bash\\n# Create a small, predictable field report for human readers\\.\\nmkdir -p output\\nprintf 'System check: ready\\\\nFiles are organized\\\\n' > output/first-report\\.txt\\n$"
+        }
+      },
+      {
+        "id": "readme-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/script-lab/README.txt",
+          "value": "Build one small script here. Keep this note unchanged.\n"
+        }
+      },
+      {
+        "id": "cwd-remains-script-lab",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/script-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "write-hint-1",
+        "level": 1,
+        "text": "Use one printf command to write four literal lines into first-report.sh. The first two lines begin with #, but only the first is the interpreter directive; the second is an explanation for readers."
+      },
+      {
+        "id": "write-hint-2",
+        "level": 2,
+        "text": "Use printf with the format '%s\\n', followed by four quoted line arguments: the Bash shebang, the purpose comment, mkdir -p output, and the report-producing printf command. Redirect the outer printf to first-report.sh."
+      },
+      {
+        "id": "write-hint-3",
+        "level": 3,
+        "text": "Run: printf '%s\\n' '#!/bin/bash' '# Create a small, predictable field report for human readers.' 'mkdir -p output' \"printf 'System check: ready\\\\nFiles are organized\\\\n' > output/first-report.txt\" > first-report.sh"
+      },
+      {
+        "id": "inspect-hint-1",
+        "level": 1,
+        "text": "Use the familiar read-only command that prints a text file. Inspect the script itself, not the output path that does not exist yet."
+      },
+      {
+        "id": "inspect-hint-2",
+        "level": 2,
+        "text": "Use cat followed by the script filename. Check the first character of the first line and every relative destination."
+      },
+      {
+        "id": "inspect-hint-3",
+        "level": 3,
+        "text": "Run: cat first-report.sh"
+      },
+      {
+        "id": "chmod-hint-1",
+        "level": 1,
+        "text": "Use symbolic chmod to add, not replace, one permission. The class is the file's user and the permission is execute."
+      },
+      {
+        "id": "chmod-hint-2",
+        "level": 2,
+        "text": "The symbolic change is u+x. Apply it only to first-report.sh."
+      },
+      {
+        "id": "chmod-hint-3",
+        "level": 3,
+        "text": "Run: chmod u+x first-report.sh"
+      },
+      {
+        "id": "run-hint-1",
+        "level": 1,
+        "text": "Name the executable in the current directory with a relative path beginning dot-slash. Do not invoke bash explicitly; direct execution is what makes the shebang relevant."
+      },
+      {
+        "id": "run-hint-2",
+        "level": 2,
+        "text": "The command is the script filename prefixed by ./ and takes no arguments."
+      },
+      {
+        "id": "run-hint-3",
+        "level": 3,
+        "text": "Run: ./first-report.sh"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student creates and reads a four-line Bash script, distinguishes its shebang from its human-facing comment, explains each simple command and redirection, adds only user execute permission, runs the script by relative path, and verifies an exact generated report.",
+      "misconceptions": [
+        "A script is a text file containing commands for an interpreter; it does not become a compiled binary when execute permission is added.",
+        "The shebang must be the first line and begins #!; it directs the operating system to /bin/bash during direct execution.",
+        "An ordinary line beginning # is ignored by Bash as a command but should still communicate useful purpose or reasoning to human readers.",
+        "The shebang and an ordinary comment both begin with #, but they serve different purposes and the shebang has a required position.",
+        "chmod u+x changes permission metadata; it does not run the script or alter the script's text.",
+        "Execute permission on a regular file permits direct execution, while execute permission on a directory means traversal.",
+        "The ./ prefix names a file in the current directory; shells do not normally search the current directory merely because a bare filename was typed.",
+        "The commands run when the script is executed, not while the outer printf command is writing the script text.",
+        "mkdir -p output is predictable because it succeeds whether the directory is newly created or already present.",
+        "> replaces output/first-report.txt on each run; it does not append, so repeated runs produce the same two lines rather than duplicates.",
+        "The script's stdout is redirected by its own final line into the report file, so an empty terminal display does not mean the script failed.",
+        "A matching output file alone is insufficient evidence of understanding; the student must explain the shebang, comment, permissions, relative execution path, and both commands."
+      ],
+      "constraints": [
+        "Keep coaching to this four-line Bash script, its exact two generated lines, cat inspection, chmod u+x, and direct execution with ./first-report.sh.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Require the student to predict filesystem changes before each command and explain observed state afterward.",
+        "Do not suggest text editors, sed, awk, tee, here-documents, command substitution, variables, positional arguments, functions, conditions, loops, pipelines, background execution, or additional scripts; later lessons introduce further scripting syntax.",
+        "Do not replace the required #!/bin/bash shebang with #!/bin/sh, /usr/bin/env bash, or an explicit bash invocation; this lesson assesses the declared direct-execution path.",
+        "Do not suggest broad permission changes such as chmod 777, chmod +x, or a numeric replacement; add only user execute permission with chmod u+x.",
+        "Treat README.txt as immutable and allow creation or replacement only of first-report.sh and output/first-report.txt, with output as the script-created directory.",
+        "Emphasize that the report path is safe and disposable in this isolated workspace because > replaces existing content.",
+        "Reset after unrelated filesystem changes, changed script wording, changed report text, or work outside workspace/script-lab.",
+        "After checks pass, require an oral line-by-line explanation and ask why a second run leaves the same exact report rather than adding two more lines."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

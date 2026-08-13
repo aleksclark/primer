@@ -132,10 +132,21 @@ print("open_assignments", len(ov.get("openAssignments") or []))
 print("sessions", len(ov.get("recentSessions") or []))
 print("mastery", len(ov.get("masterySummary") or []))
 assert any(s.get("state") == "completed" for s in (ov.get("recentSessions") or [])), "expected a completed session"
+assert "evidenceStatuses" in ov, "learning overview must expose evidenceStatuses"
+statuses = ov.get("evidenceStatuses") or []
+print("evidence_statuses", len(statuses))
+# Phase 0 honesty: procedural evidence must not claim formal mastery alone.
+for st in statuses:
+    assert st.get("formalMastery") is not True or st.get("evidenceStatus") == "formal_mastery"
+    if st.get("proceduralAccepted") and st.get("missingEvidenceClasses"):
+        assert st.get("additionalEvidenceRequired") is True or st.get("evidenceStatus") == "additional_evidence_required"
+        assert "mastered" not in (st.get("masteryStatus") or "")
+        print("truthful_status", st.get("standardCode"), st.get("evidenceStatus"), "missing", st.get("missingEvidenceClasses"))
 if not ov.get("masterySummary"):
     print("WARN: no mastery records yet (publish standards + activity links)")
 else:
     print("mastery_ok")
+    assert statuses, "expected evidenceStatuses when masterySummary is non-empty"
 PY
 
 log "Metrics"

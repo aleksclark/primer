@@ -1,0 +1,403 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-03-paths-and-movement",
+  "title": "Paths and movement",
+  "summary": "Track the current working directory and navigate a safe directory tree with cd, ., .., relative paths, and an absolute path.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "03",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Use pwd and cd to track and change the current working directory, interpret . and .., and distinguish relative paths from absolute paths inside a fixed workspace.",
+    "instructions": "Navigate the supplied expedition tree in order without changing its contents. Predict the destination before each move, use the exact relative or absolute path form requested, and check how the current working directory changes.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/START-HERE.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Navigation practice starts in this directory.\nOnly change the shell's current working directory.\n"
+        },
+        {
+          "path": "workspace/expedition",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/expedition/maps",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/expedition/maps/trail.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "North ridge route\n"
+        },
+        {
+          "path": "workspace/expedition/logs",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/expedition/logs/day-1.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": "Camp established before sunset.\n"
+        },
+        {
+          "path": "workspace/reference",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/reference/path-key.txt",
+          "type": "file",
+          "mode": "0644",
+          "content": ". means current directory\n.. means parent directory\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "report-starting-cwd",
+        "title": "Report the starting directory",
+        "instructions": "Run pwd to print the current working directory. Read the absolute path and confirm that its final component is workspace.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-pwd-at-start"
+            },
+            {
+              "checkId": "pwd-shows-starting-workspace"
+            },
+            {
+              "checkId": "still-in-starting-workspace"
+            }
+          ]
+        },
+        "hintIds": [
+          "start-hint-1",
+          "start-hint-2",
+          "start-hint-3"
+        ]
+      },
+      {
+        "id": "follow-dot-relative-path",
+        "title": "Follow a relative path beginning with dot",
+        "instructions": "From the starting workspace, change directory to ./expedition/maps. Before running the command, identify . as the current directory and predict the resulting cwd.",
+        "prerequisites": [
+          "report-starting-cwd"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-dot-relative-cd"
+            },
+            {
+              "checkId": "cwd-is-maps-after-relative-path"
+            }
+          ]
+        },
+        "hintIds": [
+          "dot-hint-1",
+          "dot-hint-2",
+          "dot-hint-3"
+        ]
+      },
+      {
+        "id": "move-to-parent",
+        "title": "Move to the parent directory",
+        "instructions": "From maps, use cd with only .. as its path. Predict which path component will disappear and finish in expedition.",
+        "prerequisites": [
+          "follow-dot-relative-path"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-parent-cd"
+            },
+            {
+              "checkId": "cwd-is-expedition-parent"
+            }
+          ]
+        },
+        "hintIds": [
+          "parent-hint-1",
+          "parent-hint-2",
+          "parent-hint-3"
+        ]
+      },
+      {
+        "id": "enter-relative-child",
+        "title": "Enter a child with a relative path",
+        "instructions": "From expedition, change directory to logs using only the relative child name. Explain why the shell starts resolving that name from the current cwd.",
+        "prerequisites": [
+          "move-to-parent"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-relative-child-cd"
+            },
+            {
+              "checkId": "cwd-is-logs-after-relative-child"
+            }
+          ]
+        },
+        "hintIds": [
+          "child-hint-1",
+          "child-hint-2",
+          "child-hint-3"
+        ]
+      },
+      {
+        "id": "return-with-absolute-path",
+        "title": "Return with an absolute path",
+        "instructions": "From logs, change directory to maps with the absolute path /workspace/workspace/expedition/maps. Notice that the leading / makes the path start at the filesystem root rather than at logs.",
+        "prerequisites": [
+          "enter-relative-child"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-absolute-cd"
+            },
+            {
+              "checkId": "cwd-is-maps-after-absolute-path"
+            }
+          ]
+        },
+        "hintIds": [
+          "absolute-hint-1",
+          "absolute-hint-2",
+          "absolute-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-pwd-at-start",
+        "kind": "command_properties",
+        "params": {
+          "executable": "pwd",
+          "args": [],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "pwd-shows-starting-workspace",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "/workspace/workspace\n"
+        }
+      },
+      {
+        "id": "still-in-starting-workspace",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace"
+        }
+      },
+      {
+        "id": "used-dot-relative-cd",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cd",
+          "args": [
+            "./expedition/maps"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "cwd-is-maps-after-relative-path",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/expedition/maps"
+        }
+      },
+      {
+        "id": "used-parent-cd",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cd",
+          "args": [
+            ".."
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "cwd-is-expedition-parent",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/expedition"
+        }
+      },
+      {
+        "id": "used-relative-child-cd",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cd",
+          "args": [
+            "logs"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "cwd-is-logs-after-relative-child",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/expedition/logs"
+        }
+      },
+      {
+        "id": "used-absolute-cd",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cd",
+          "args": [
+            "/workspace/workspace/expedition/maps"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "cwd-is-maps-after-absolute-path",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/expedition/maps"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "start-hint-1",
+        "level": 1,
+        "text": "Use the orientation command that prints the shell's current working directory; do not use ls, which lists names instead."
+      },
+      {
+        "id": "start-hint-2",
+        "level": 2,
+        "text": "The command's initials come from print working directory. It takes no path argument here."
+      },
+      {
+        "id": "start-hint-3",
+        "level": 3,
+        "text": "Run: pwd"
+      },
+      {
+        "id": "dot-hint-1",
+        "level": 1,
+        "text": "Use cd with the requested relative path. The first component, ., means begin at the cwd you just reported."
+      },
+      {
+        "id": "dot-hint-2",
+        "level": 2,
+        "text": "Keep all three path components in order: current directory, expedition, then maps."
+      },
+      {
+        "id": "dot-hint-3",
+        "level": 3,
+        "text": "Run: cd ./expedition/maps"
+      },
+      {
+        "id": "parent-hint-1",
+        "level": 1,
+        "text": "The special path component for one directory above the cwd is made of two dots."
+      },
+      {
+        "id": "parent-hint-2",
+        "level": 2,
+        "text": "Give .. as the only path argument to cd; from maps its parent is expedition."
+      },
+      {
+        "id": "parent-hint-3",
+        "level": 3,
+        "text": "Run: cd .."
+      },
+      {
+        "id": "child-hint-1",
+        "level": 1,
+        "text": "Because logs is a child of the current expedition directory, its name alone is a sufficient relative path."
+      },
+      {
+        "id": "child-hint-2",
+        "level": 2,
+        "text": "Use cd followed by the child directory's name, with no leading slash."
+      },
+      {
+        "id": "child-hint-3",
+        "level": 3,
+        "text": "Run: cd logs"
+      },
+      {
+        "id": "absolute-hint-1",
+        "level": 1,
+        "text": "An absolute path begins with / and is resolved from the filesystem root, so it can name maps directly from logs."
+      },
+      {
+        "id": "absolute-hint-2",
+        "level": 2,
+        "text": "Use the complete supplied path after cd: /workspace/workspace/expedition/maps."
+      },
+      {
+        "id": "absolute-hint-3",
+        "level": 3,
+        "text": "Run: cd /workspace/workspace/expedition/maps"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student predicts and verifies cwd changes while using cd with ., .., a relative child path, and an absolute path, and explains where each path begins resolving.",
+      "misconceptions": [
+        "cd changes the shell's current working directory; it does not relocate or edit the directory itself.",
+        ". means the current directory, while / means the filesystem root.",
+        ".. means the current directory's parent, not the previously visited directory.",
+        "A relative path is resolved from the current cwd, so its destination can change when the cwd changes.",
+        "An absolute path is independent of cwd but still depends on that filesystem tree existing.",
+        "pwd reports the cwd; ls only lists directory entries and does not move the shell."
+      ],
+      "constraints": [
+        "Keep coaching within pwd, cd, cwd, path components, ., .., and relative-versus-absolute path reasoning.",
+        "Do not suggest commands that create, edit, copy, rename, move, or delete fixture entries.",
+        "Give each task's hints in level order; first ask the student to predict the destination, and reveal the exact command only at level 3.",
+        "Do not provide the five commands as one pasteable sequence or perform later navigation steps for the student.",
+        "Treat /workspace as the sandbox mount for this activity and never direct the student outside the supplied fixture tree.",
+        "After each successful move, ask which directory is now the cwd and whether the path began at the previous cwd or at /.",
+        "After completion, ask the student to contrast . with / and .. with command-history backtracking."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

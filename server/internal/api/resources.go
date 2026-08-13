@@ -89,18 +89,24 @@ type StandardUpdate struct {
 
 // CurriculumCreate is the body for creating a curriculum.
 type CurriculumCreate struct {
+	Slug        string          `json:"slug" db:"slug" minLength:"1"`
 	Name        string          `json:"name" db:"name" minLength:"1"`
 	Description *string         `json:"description,omitempty" db:"description" required:"false"`
 	Approach    string          `json:"approach" db:"approach" enum:"mastery_based,spiral,classical,unit_study,custom"`
+	SubjectCode *string         `json:"subjectCode,omitempty" db:"subject_code" required:"false"`
+	Status      *string         `json:"status,omitempty" db:"status" enum:"draft,published,retired" required:"false"`
 	GradeLevel  *int            `json:"gradeLevel,omitempty" db:"grade_level" required:"false"`
 	Metadata    *map[string]any `json:"metadata,omitempty" db:"metadata" required:"false"`
 }
 
 // CurriculumUpdate is the body for updating a curriculum.
 type CurriculumUpdate struct {
+	Slug        *string         `json:"slug,omitempty" db:"slug" required:"false"`
 	Name        *string         `json:"name,omitempty" db:"name" required:"false"`
 	Description *string         `json:"description,omitempty" db:"description" required:"false"`
 	Approach    *string         `json:"approach,omitempty" db:"approach" enum:"mastery_based,spiral,classical,unit_study,custom" required:"false"`
+	SubjectCode *string         `json:"subjectCode,omitempty" db:"subject_code" required:"false"`
+	Status      *string         `json:"status,omitempty" db:"status" enum:"draft,published,retired" required:"false"`
 	GradeLevel  *int            `json:"gradeLevel,omitempty" db:"grade_level" required:"false"`
 	Metadata    *map[string]any `json:"metadata,omitempty" db:"metadata" required:"false"`
 }
@@ -123,17 +129,21 @@ type CurriculumStandardUpdate struct {
 
 // EnrollmentCreate enrolls a student in a curriculum.
 type EnrollmentCreate struct {
-	StudentID    string     `json:"studentId" db:"student_id" format:"uuid"`
-	CurriculumID string     `json:"curriculumId" db:"curriculum_id" format:"uuid"`
-	Status       *string    `json:"status,omitempty" db:"status" enum:"active,paused,completed,withdrawn" required:"false"`
-	StartedOn    *time.Time `json:"startedOn,omitempty" db:"started_on" required:"false"`
+	StudentID            string     `json:"studentId" db:"student_id" format:"uuid"`
+	CurriculumID         string     `json:"curriculumId" db:"curriculum_id" format:"uuid"`
+	CurriculumRevisionID *string    `json:"curriculumRevisionId,omitempty" db:"curriculum_revision_id" format:"uuid" required:"false"`
+	Status               *string    `json:"status,omitempty" db:"status" enum:"active,paused,completed,withdrawn" required:"false"`
+	Priority             *int       `json:"priority,omitempty" db:"priority" required:"false"`
+	StartedOn            *time.Time `json:"startedOn,omitempty" db:"started_on" required:"false"`
 }
 
 // EnrollmentUpdate updates an enrollment.
 type EnrollmentUpdate struct {
-	Status    *string    `json:"status,omitempty" db:"status" enum:"active,paused,completed,withdrawn" required:"false"`
-	StartedOn *time.Time `json:"startedOn,omitempty" db:"started_on" required:"false"`
-	EndedOn   *time.Time `json:"endedOn,omitempty" db:"ended_on" required:"false"`
+	Status               *string    `json:"status,omitempty" db:"status" enum:"active,paused,completed,withdrawn" required:"false"`
+	Priority             *int       `json:"priority,omitempty" db:"priority" required:"false"`
+	CurriculumRevisionID *string    `json:"curriculumRevisionId,omitempty" db:"curriculum_revision_id" format:"uuid" required:"false"`
+	StartedOn            *time.Time `json:"startedOn,omitempty" db:"started_on" required:"false"`
+	EndedOn              *time.Time `json:"endedOn,omitempty" db:"ended_on" required:"false"`
 }
 
 // MasteryRecordCreate creates a mastery record for a (student, standard).
@@ -160,19 +170,25 @@ type MasteryRecordUpdate struct {
 
 // MasteryEvidenceCreate attaches evidence to a mastery record.
 type MasteryEvidenceCreate struct {
-	MasteryRecordID string     `json:"masteryRecordId" db:"mastery_record_id" format:"uuid"`
-	Kind            string     `json:"kind" db:"kind" enum:"continuous,formal,project,portfolio"`
-	OccurredOn      *time.Time `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
-	Context         *string    `json:"context,omitempty" db:"context" required:"false"`
-	SourceRef       *string    `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
+	MasteryRecordID string          `json:"masteryRecordId" db:"mastery_record_id" format:"uuid"`
+	Kind            string          `json:"kind" db:"kind" enum:"continuous,formal,project,portfolio"`
+	EvidenceClass   *string         `json:"evidenceClass,omitempty" db:"evidence_class" enum:"procedural_continuous,conceptual_response,parent_attestation,formal_assessment,portfolio" required:"false"`
+	Provenance      *map[string]any `json:"provenance,omitempty" db:"provenance" required:"false"`
+	PolicyVersion   *int            `json:"policyVersion,omitempty" db:"policy_version" required:"false"`
+	OccurredOn      *time.Time      `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
+	Context         *string         `json:"context,omitempty" db:"context" required:"false"`
+	SourceRef       *string         `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
 }
 
 // MasteryEvidenceUpdate updates evidence.
 type MasteryEvidenceUpdate struct {
-	Kind       *string    `json:"kind,omitempty" db:"kind" enum:"continuous,formal,project,portfolio" required:"false"`
-	OccurredOn *time.Time `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
-	Context    *string    `json:"context,omitempty" db:"context" required:"false"`
-	SourceRef  *string    `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
+	Kind          *string         `json:"kind,omitempty" db:"kind" enum:"continuous,formal,project,portfolio" required:"false"`
+	EvidenceClass *string         `json:"evidenceClass,omitempty" db:"evidence_class" enum:"procedural_continuous,conceptual_response,parent_attestation,formal_assessment,portfolio" required:"false"`
+	Provenance    *map[string]any `json:"provenance,omitempty" db:"provenance" required:"false"`
+	PolicyVersion *int            `json:"policyVersion,omitempty" db:"policy_version" required:"false"`
+	OccurredOn    *time.Time      `json:"occurredOn,omitempty" db:"occurred_on" required:"false"`
+	Context       *string         `json:"context,omitempty" db:"context" required:"false"`
+	SourceRef     *string         `json:"sourceRef,omitempty" db:"source_ref" required:"false"`
 }
 
 // AssessmentCreate creates an assessment definition.
@@ -294,7 +310,9 @@ func registerAll(h huma.API, q repo.Querier, opts Options) {
 	registerInstructionLogs(h, q, opts)
 	registerParentAuth(h, q)
 	registerParentLearning(h, q, opts)
+	registerParentCourse(h, q)
 	registerStudentAPI(h, q, opts)
+	registerArtifactsAndImport(h, q, opts)
 }
 
 func normalizeOptions(opts Options) Options {

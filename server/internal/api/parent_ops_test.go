@@ -124,6 +124,16 @@ func TestLearningOverviewAndMetrics(t *testing.T) {
 		Student         domain.Student             `json:"student"`
 		Devices         []domain.StudentDevice     `json:"devices"`
 		OpenAssignments []domain.StudentAssignment `json:"openAssignments"`
+		EvidenceStatuses []struct {
+			StandardCode            string   `json:"standardCode"`
+			MasteryStatus           string   `json:"masteryStatus"`
+			AcceptedEvidenceClasses []string `json:"acceptedEvidenceClasses"`
+			MissingEvidenceClasses  []string `json:"missingEvidenceClasses"`
+			EvidenceStatus          string   `json:"evidenceStatus"`
+			ProceduralAccepted      bool     `json:"proceduralAccepted"`
+			AdditionalEvidenceRequired bool  `json:"additionalEvidenceRequired"`
+			FormalMastery           bool     `json:"formalMastery"`
+		} `json:"evidenceStatuses"`
 		Tutor           struct {
 			Enabled             bool   `json:"enabled"`
 			Provider            string `json:"provider"`
@@ -135,6 +145,8 @@ func TestLearningOverviewAndMetrics(t *testing.T) {
 	require.Len(t, ov.Devices, 1)
 	assert.Equal(t, deviceID, ov.Devices[0].ID)
 	require.NotEmpty(t, ov.OpenAssignments)
+	// evidenceStatuses is always present (empty until mastery evidence exists).
+	assert.NotNil(t, ov.EvidenceStatuses)
 	assert.False(t, ov.TutorNotesDisable)
 	assert.NotEmpty(t, ov.Tutor.Provider)
 

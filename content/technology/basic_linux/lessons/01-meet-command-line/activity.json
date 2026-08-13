@@ -20,7 +20,7 @@
   },
   "content": {
     "objective": "Distinguish the terminal, shell, prompt, command, argument, input, and output; use pwd and echo; and explain how whoami differs from pwd.",
-    "instructions": "The terminal displays a text conversation, while the shell reads what you type after its prompt and runs commands. Complete the tasks in order. Type only the command, not the prompt symbol. Predict each result before pressing Enter. Use pwd and echo in the sandbox. Treat whoami conceptually: it would report the current user identity, while pwd reports the current working directory.",
+    "instructions": "Read the lesson blocks (ctrl+l), then complete the tasks in order. Type only the command, not the prompt symbol. Predict each result before pressing Enter. Use pwd and echo in the sandbox. Submit a short written explanation for the conceptual task in your own words.",
     "terminal": {
       "runtimeProfile": "coreutils-basic",
       "initialCwd": "workspace",
@@ -103,27 +103,43 @@
         ]
       },
       {
-        "id": "explain-terminal-shell",
-        "title": "Choose the accurate relationship",
-        "instructions": "Choose the accurate statement: (A) terminal interprets shell displays, (B) prompt runs terminal waits, or (C) terminal displays shell interprets. Use echo to print only the four words of the accurate statement, without its letter or parentheses. Then explain aloud that whoami would report a user identity, while pwd reports a working directory path. Treat whoami conceptually in this lesson rather than running it.",
+        "id": "explain-concepts",
+        "title": "Explain terminal, shell, and identity",
+        "kind": "short_response",
+        "instructions": "In your own words, explain how the terminal differs from the shell, and how pwd differs from whoami. Do not paste tutor text.",
         "prerequisites": [
           "echo-three-arguments"
         ],
         "completion": {
-          "all": [
-            {
-              "checkId": "relationship-command"
-            },
-            {
-              "checkId": "relationship-output"
-            }
-          ]
+          "checkId": "concepts-response-submitted"
         },
         "hintIds": [
           "relationship-hint-1",
           "relationship-hint-2",
           "relationship-hint-3"
-        ]
+        ],
+        "response": {
+          "prompt": "Write a short explanation: (1) How do the terminal and the shell differ? (2) Why is the prompt not part of the command you type? (3) What question would whoami answer, and how is that different from pwd?",
+          "maxChars": 1200,
+          "parentReviewRequired": true,
+          "rubric": [
+            {
+              "id": "terminal-shell",
+              "description": "Names distinct roles for terminal (display) and shell (interpret)",
+              "required": true
+            },
+            {
+              "id": "prompt",
+              "description": "Explains that the prompt is a ready signal, not part of the typed command",
+              "required": true
+            },
+            {
+              "id": "whoami-pwd",
+              "description": "Contrasts user identity (whoami) with working directory path (pwd)",
+              "required": true
+            }
+          ]
+        }
       }
     ],
     "checks": [
@@ -192,23 +208,15 @@
         }
       },
       {
-        "id": "relationship-command",
-        "kind": "command_properties",
+        "id": "concepts-response-submitted",
+        "kind": "response_submitted",
         "params": {
-          "executable": "sh",
-          "args": [
-            "-c",
-            "echo terminal displays shell interprets"
-          ],
-          "exitCode": 0
-        }
-      },
-      {
-        "id": "relationship-output",
-        "kind": "pipeline_output",
-        "params": {
-          "value": "terminal displays shell interprets"
-        }
+          "taskId": "explain-concepts"
+        },
+        "stages": [
+          "task",
+          "final"
+        ]
       }
     ],
     "hints": [
@@ -265,12 +273,12 @@
       {
         "id": "relationship-hint-2",
         "level": 2,
-        "text": "The accurate choice says the terminal displays the text interface and the shell interprets command lines. Put echo before that choice's four words."
+        "text": "Write about the terminal as the visible text interface and the shell as the interpreter of command lines. Contrast pwd (path) with whoami (identity)."
       },
       {
         "id": "relationship-hint-3",
         "level": 3,
-        "text": "Type exactly: echo terminal displays shell interprets"
+        "text": "A strong answer mentions display vs interpret for terminal/shell, that you type after the prompt, and that whoami would name a user while pwd names a directory."
       }
     ],
     "tutor": {
@@ -287,7 +295,9 @@
         "Teach whoami conceptually in this lesson and do not require the learner to run it.",
         "Give hints in level order and do not reveal an exact command before the learner has tried the earlier hints.",
         "Ask the learner to predict output and identify command versus arguments before running each command.",
-        "Do not treat deterministic output alone as proof of the oral conceptual distinctions."
+        "Do not treat deterministic output alone as proof of the oral conceptual distinctions.",
+        "Never write the student's final conceptual response or invite them to submit tutor text as their own evidence.",
+        "Do not reveal parent_note blocks or suggest that deterministic echo output proves conceptual mastery."
       ]
     },
     "progression": {
@@ -297,6 +307,101 @@
     },
     "artifacts": {
       "enabled": false
-    }
+    },
+    "blocks": [
+      {
+        "id": "intro",
+        "kind": "prose",
+        "title": "Terminal and shell",
+        "text": "A terminal is the text-based interface where input and output appear. A shell is the program working inside the terminal: it reads a command line, interprets it, runs the requested command, displays the result, and offers another prompt. The terminal displays the conversation; the shell manages it; a command asks for a specific action."
+      },
+      {
+        "id": "prompt-idea",
+        "kind": "prose",
+        "title": "Read the prompt",
+        "text": "The prompt is the shell's ready signal. It may show a user name, machine name, directory, or a symbol such as $. Do not type the prompt characters shown in an example; type only the command after them. When a command finishes, the prompt normally returns. Text between the command and the next prompt is output."
+      },
+      {
+        "id": "echo-example",
+        "kind": "example",
+        "title": "Command and arguments",
+        "input": "echo Ready to learn",
+        "output": "Ready to learn",
+        "explanation": "echo is the command. Ready, to, and learn are arguments separated by spaces. Capital letters and punctuation matter because the shell treats the text literally."
+      },
+      {
+        "id": "pwd-example",
+        "kind": "example",
+        "title": "Current working directory",
+        "input": "pwd",
+        "output": ".../workspace",
+        "explanation": "pwd prints the path of the current working directory \u2014 the directory the shell is operating in now. It is commonly run with no arguments in beginner work."
+      },
+      {
+        "id": "vocab",
+        "kind": "vocabulary",
+        "title": "Vocabulary",
+        "terms": [
+          {
+            "term": "terminal",
+            "definition": "the text interface that displays input and output"
+          },
+          {
+            "term": "shell",
+            "definition": "the program that reads and interprets command lines"
+          },
+          {
+            "term": "prompt",
+            "definition": "the shell's signal that it is ready for input"
+          },
+          {
+            "term": "command",
+            "definition": "the action or program name at the start of a command line"
+          },
+          {
+            "term": "argument",
+            "definition": "information supplied after a command"
+          },
+          {
+            "term": "current working directory",
+            "definition": "the directory in which the shell is currently operating"
+          },
+          {
+            "term": "user identity",
+            "definition": "the account under which a process is running"
+          }
+        ]
+      },
+      {
+        "id": "whoami-concept",
+        "kind": "prose",
+        "title": "Identity is not location",
+        "text": "whoami conceptually asks which user identity is running this shell. Its answer is a user name. pwd asks which directory you are working in. Its answer is a path. These are different questions. This lesson treats whoami conceptually rather than asking you to run it."
+      },
+      {
+        "id": "predict",
+        "kind": "question",
+        "title": "Before you type",
+        "text": "Before each command, predict the result. For pwd, will you see a user name or a directory path? For echo Ready, what is the command and what is the single argument?"
+      },
+      {
+        "id": "warn-prompt",
+        "kind": "warning",
+        "title": "Do not type the prompt",
+        "text": "Examples often show a leading $. That symbol is usually the prompt. Type only what follows it. Typing the prompt itself is a common beginner mistake."
+      },
+      {
+        "id": "practice",
+        "kind": "practice",
+        "title": "Guided practice",
+        "text": "Find the prompt. Run pwd and locate the printed path between your command and the next prompt. Run echo Ready and point to the command and its argument. Run echo command argument and identify two arguments. Without running whoami, state what question it would answer."
+      },
+      {
+        "id": "parent-oral",
+        "kind": "parent_note",
+        "title": "Oral check",
+        "text": "Ask the learner to explain why the prompt is not part of the command; how terminal, shell, command, and argument relate; and why pwd and whoami answer different questions. If they can reproduce output but cannot explain these distinctions, request another attempt rather than accepting conceptual mastery."
+      }
+    ]
   }
 }

@@ -1,0 +1,550 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-04-filesystem-structure",
+  "title": "The Linux filesystem",
+  "summary": "Explore a safe simulated root and connect /, /home, /etc, /var, /tmp, /usr, and /bin with their common Linux filesystem roles.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.OS.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.NAV.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "04",
+    "runtime": "terminal/coreutils-basic"
+  },
+  "content": {
+    "objective": "Use read-only commands and relative paths inside a safe simulated root to identify the filesystem root and explain the common roles of /home, /etc, /var, /tmp, /usr, and /bin.",
+    "instructions": "Inspect only the supplied simulated-root fixture. List its modeled root-level directories, then read the role cards in the requested order. Use paths beginning with simulated-root/, never inspect the sandbox's real /, and do not create, edit, move, or remove anything.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/README.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "SAFE MODEL ONLY\nsimulated-root represents the Linux filesystem root /.\nInspect only this fixture with read-only commands.\n"
+        },
+        {
+          "path": "workspace/simulated-root/home",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/home/ROLE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "/home: personal directories and files for users\n"
+        },
+        {
+          "path": "workspace/simulated-root/home/ada",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/home/ada/notes.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "A user's personal note belongs in the user's home directory.\n"
+        },
+        {
+          "path": "workspace/simulated-root/etc",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/etc/ROLE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "/etc: system-wide configuration\n"
+        },
+        {
+          "path": "workspace/simulated-root/etc/example.conf",
+          "type": "file",
+          "mode": "0444",
+          "content": "setting=practice-only\n"
+        },
+        {
+          "path": "workspace/simulated-root/var",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/var/ROLE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "/var: changing data such as logs, queues, and caches\n"
+        },
+        {
+          "path": "workspace/simulated-root/var/log",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/var/log/example.log",
+          "type": "file",
+          "mode": "0444",
+          "content": "practice service started\n"
+        },
+        {
+          "path": "workspace/simulated-root/tmp",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/tmp/ROLE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "/tmp: short-lived working files that may be removed\n"
+        },
+        {
+          "path": "workspace/simulated-root/tmp/scratch.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Temporary practice data; do not depend on it for long-term storage.\n"
+        },
+        {
+          "path": "workspace/simulated-root/usr",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/usr/ROLE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "/usr: installed programs, libraries, and shared data\n"
+        },
+        {
+          "path": "workspace/simulated-root/usr/share",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/usr/share/example.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Example shared resource\n"
+        },
+        {
+          "path": "workspace/simulated-root/bin",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/simulated-root/bin/ROLE.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "/bin: basic command programs; often linked into /usr on modern systems\n"
+        },
+        {
+          "path": "workspace/simulated-root/bin/example-command.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "This text label represents a basic command program.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "list-modeled-root",
+        "title": "Survey the simulated root",
+        "instructions": "Run ls simulated-root. Treat the listed home, etc, var, tmp, usr, and bin directories as safe models of directories immediately below /. The simulated-root directory is not the real filesystem root.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-ls-simulated-root"
+            },
+            {
+              "checkId": "root-list-has-home"
+            },
+            {
+              "checkId": "root-list-has-etc"
+            },
+            {
+              "checkId": "root-list-has-var"
+            },
+            {
+              "checkId": "root-list-has-tmp"
+            },
+            {
+              "checkId": "root-list-has-usr"
+            },
+            {
+              "checkId": "root-list-has-bin"
+            }
+          ]
+        },
+        "hintIds": [
+          "root-hint-1",
+          "root-hint-2",
+          "root-hint-3"
+        ]
+      },
+      {
+        "id": "inspect-home-role",
+        "title": "Identify personal user space",
+        "instructions": "Use cat with the relative path simulated-root/home/ROLE.txt. Read how /home commonly organizes users' personal directories and files.",
+        "prerequisites": [
+          "list-modeled-root"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-cat-home-role"
+            },
+            {
+              "checkId": "home-role-output-exact"
+            }
+          ]
+        },
+        "hintIds": [
+          "home-hint-1",
+          "home-hint-2",
+          "home-hint-3"
+        ]
+      },
+      {
+        "id": "contrast-system-data-roles",
+        "title": "Contrast configuration, changing data, and temporary data",
+        "instructions": "In one cat command, read these three relative paths in exactly this order: simulated-root/etc/ROLE.txt, simulated-root/var/ROLE.txt, simulated-root/tmp/ROLE.txt. Contrast system-wide settings, changing operational data, and short-lived working files.",
+        "prerequisites": [
+          "inspect-home-role"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-cat-system-data-roles"
+            },
+            {
+              "checkId": "system-data-role-output-exact"
+            }
+          ]
+        },
+        "hintIds": [
+          "system-data-hint-1",
+          "system-data-hint-2",
+          "system-data-hint-3"
+        ]
+      },
+      {
+        "id": "contrast-program-roles",
+        "title": "Contrast installed resources and basic commands",
+        "instructions": "In one cat command, read simulated-root/usr/ROLE.txt and simulated-root/bin/ROLE.txt in that order. Connect /usr with installed programs, libraries, and shared data, and /bin with basic command programs.",
+        "prerequisites": [
+          "contrast-system-data-roles"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "used-cat-program-roles"
+            },
+            {
+              "checkId": "program-role-output-exact"
+            },
+            {
+              "checkId": "home-role-card-unchanged"
+            },
+            {
+              "checkId": "etc-role-card-unchanged"
+            },
+            {
+              "checkId": "var-role-card-unchanged"
+            },
+            {
+              "checkId": "tmp-role-card-unchanged"
+            },
+            {
+              "checkId": "usr-role-card-unchanged"
+            },
+            {
+              "checkId": "bin-role-card-unchanged"
+            }
+          ]
+        },
+        "hintIds": [
+          "program-hint-1",
+          "program-hint-2",
+          "program-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "used-ls-simulated-root",
+        "kind": "command_properties",
+        "params": {
+          "executable": "ls",
+          "args": [
+            "simulated-root"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "root-list-has-home",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])home([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "root-list-has-etc",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])etc([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "root-list-has-var",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])var([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "root-list-has-tmp",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])tmp([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "root-list-has-usr",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])usr([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "root-list-has-bin",
+        "kind": "pipeline_output",
+        "params": {
+          "pattern": "(?m)(^|[[:space:]])bin([[:space:]]|$)"
+        }
+      },
+      {
+        "id": "used-cat-home-role",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "simulated-root/home/ROLE.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "home-role-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "/home: personal directories and files for users\n"
+        }
+      },
+      {
+        "id": "used-cat-system-data-roles",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "simulated-root/etc/ROLE.txt",
+            "simulated-root/var/ROLE.txt",
+            "simulated-root/tmp/ROLE.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "system-data-role-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "/etc: system-wide configuration\n/var: changing data such as logs, queues, and caches\n/tmp: short-lived working files that may be removed\n"
+        }
+      },
+      {
+        "id": "used-cat-program-roles",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "simulated-root/usr/ROLE.txt",
+            "simulated-root/bin/ROLE.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "program-role-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "/usr: installed programs, libraries, and shared data\n/bin: basic command programs; often linked into /usr on modern systems\n"
+        }
+      },
+      {
+        "id": "home-role-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/simulated-root/home/ROLE.txt",
+          "value": "/home: personal directories and files for users\n"
+        }
+      },
+      {
+        "id": "etc-role-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/simulated-root/etc/ROLE.txt",
+          "value": "/etc: system-wide configuration\n"
+        }
+      },
+      {
+        "id": "var-role-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/simulated-root/var/ROLE.txt",
+          "value": "/var: changing data such as logs, queues, and caches\n"
+        }
+      },
+      {
+        "id": "tmp-role-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/simulated-root/tmp/ROLE.txt",
+          "value": "/tmp: short-lived working files that may be removed\n"
+        }
+      },
+      {
+        "id": "usr-role-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/simulated-root/usr/ROLE.txt",
+          "value": "/usr: installed programs, libraries, and shared data\n"
+        }
+      },
+      {
+        "id": "bin-role-card-unchanged",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/simulated-root/bin/ROLE.txt",
+          "value": "/bin: basic command programs; often linked into /usr on modern systems\n"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "root-hint-1",
+        "level": 1,
+        "text": "Use the read-only listing command with the fixture directory's relative name. Do not add a leading /, because / is the sandbox's actual filesystem root."
+      },
+      {
+        "id": "root-hint-2",
+        "level": 2,
+        "text": "The command is ls and its one argument is simulated-root. Look for six directory names in the output."
+      },
+      {
+        "id": "root-hint-3",
+        "level": 3,
+        "text": "Run: ls simulated-root"
+      },
+      {
+        "id": "home-hint-1",
+        "level": 1,
+        "text": "Use the short-text reading command with a relative path through simulated-root, then home, then ROLE.txt."
+      },
+      {
+        "id": "home-hint-2",
+        "level": 2,
+        "text": "Use cat. The required path begins simulated-root/home/ and ends with ROLE.txt."
+      },
+      {
+        "id": "home-hint-3",
+        "level": 3,
+        "text": "Run: cat simulated-root/home/ROLE.txt"
+      },
+      {
+        "id": "system-data-hint-1",
+        "level": 1,
+        "text": "One cat command can accept several file arguments. Keep the requested order: configuration first, changing data second, temporary data third."
+      },
+      {
+        "id": "system-data-hint-2",
+        "level": 2,
+        "text": "After cat, provide the ROLE.txt paths under etc, var, and tmp, each beginning with simulated-root/."
+      },
+      {
+        "id": "system-data-hint-3",
+        "level": 3,
+        "text": "Run: cat simulated-root/etc/ROLE.txt simulated-root/var/ROLE.txt simulated-root/tmp/ROLE.txt"
+      },
+      {
+        "id": "program-hint-1",
+        "level": 1,
+        "text": "Use one read-only cat command for the two remaining role cards. Read the broader installed-resource role before the basic-command role."
+      },
+      {
+        "id": "program-hint-2",
+        "level": 2,
+        "text": "The ordered paths are the ROLE.txt files under simulated-root/usr and simulated-root/bin."
+      },
+      {
+        "id": "program-hint-3",
+        "level": 3,
+        "text": "Run: cat simulated-root/usr/ROLE.txt simulated-root/bin/ROLE.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student safely inspects a simulated root, identifies / as the top of the Linux filesystem tree, and accurately contrasts the common roles of /home, /etc, /var, /tmp, /usr, and /bin.",
+      "misconceptions": [
+        "simulated-root is an ordinary fixture directory that models selected children of /; it is not the sandbox's real filesystem root.",
+        "The filesystem root / is a directory and is distinct from the administrative user account named root.",
+        "/home commonly holds users' personal directories, whereas /etc commonly holds system-wide configuration.",
+        "/var refers to changing operational data such as logs, not storage for shell variables.",
+        "/tmp is for short-lived work and should not be assumed permanent or automatically private.",
+        "/usr commonly holds installed programs, libraries, and shared data; it is not one user's personal home.",
+        "/bin has the traditional role of basic command programs, although modern systems often link it into /usr.",
+        "Directory roles are conventions and do not grant permission to inspect or alter a real system."
+      ],
+      "constraints": [
+        "Keep all terminal coaching inside workspace/simulated-root and use only workspace-relative fixture paths beginning with simulated-root/.",
+        "Never suggest cd /, ls /, cat with an absolute system path, or any exploration of the sandbox or host root.",
+        "Use only read-only ls and cat commands; do not suggest commands that create, edit, copy, move, rename, change permissions, or delete entries.",
+        "Give each task's hints in level order, ask the student to predict the directory role first, and reveal the exact command only at level 3.",
+        "Do not provide all four commands as a pasteable sequence or complete later tasks for the student.",
+        "Describe these roles as common Linux conventions and acknowledge distribution differences, especially the modern relationship between /bin and /usr.",
+        "After completion, ask the student to place a personal document, system setting, changing log, and disposable scratch file into /home, /etc, /var, and /tmp with reasons.",
+        "Require the student to explain why simulated-root is safe practice rather than the real /."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

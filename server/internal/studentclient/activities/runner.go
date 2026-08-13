@@ -100,8 +100,10 @@ type Input struct {
 	Rune rune `json:"rune,omitempty"`
 	// Text is bulk input for InputString.
 	Text string `json:"text,omitempty"`
-	// Shell carries observation state for InputShellResult.
+	// Shell carries observation state for InputShellResult (legacy transport).
 	Shell *ShellResult `json:"shell,omitempty"`
+	// Event is a versioned structured command observation (preferred).
+	Event *contracts.ShellEvent `json:"event,omitempty"`
 }
 
 // ShellResult is a lightweight shell observation from PTY or scripted exec.
@@ -114,6 +116,10 @@ type ShellResult struct {
 	Stderr     string   `json:"stderr,omitempty"`
 	// CountCommand increments CommandsRun when true.
 	CountCommand bool `json:"countCommand,omitempty"`
+	// Structured is true only for trusted command instrumentation (not PTY screen).
+	Structured bool `json:"structured,omitempty"`
+	// Source labels the observation origin (structured, pty-shell, …).
+	Source string `json:"source,omitempty"`
 }
 
 // CheckStatus is one check row for TUI / snapshots.
@@ -161,7 +167,9 @@ type Snapshot struct {
 	EmitChecks bool `json:"-"`
 	// LastShell is the most recent shell observation (terminal); host may enqueue command_finished.
 	LastShell *ShellResult `json:"-"`
-	// EmitCommand is true when LastShell represents a newly finished command to record.
+	// LastEvent is the structured shell event when available (preferred over LastShell).
+	LastEvent *contracts.ShellEvent `json:"-"`
+	// EmitCommand is true when LastShell/LastEvent represents a newly finished command to record.
 	EmitCommand bool `json:"-"`
 }
 

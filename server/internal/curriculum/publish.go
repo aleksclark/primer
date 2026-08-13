@@ -16,16 +16,16 @@ import (
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
 
-// StandardSeed is one row from curriculum/standards/*.yaml.
+// StandardSeed is one row from curriculum/standards/*.yaml or an import bundle.
 type StandardSeed struct {
-	Code        string   `yaml:"code"`
-	Source      string   `yaml:"source"`
-	SubjectCode string   `yaml:"subject_code"`
-	GradeLevel  *int     `yaml:"grade_level"`
-	Domain      string   `yaml:"domain"`
-	Cluster     string   `yaml:"cluster"`
-	Description string   `yaml:"description"`
-	Criteria    []string `yaml:"mastery_criteria"`
+	Code        string   `json:"code" yaml:"code"`
+	Source      string   `json:"source,omitempty" yaml:"source"`
+	SubjectCode string   `json:"subjectCode,omitempty" yaml:"subject_code"`
+	GradeLevel  *int     `json:"gradeLevel,omitempty" yaml:"grade_level" required:"false"`
+	Domain      string   `json:"domain,omitempty" yaml:"domain"`
+	Cluster     string   `json:"cluster,omitempty" yaml:"cluster"`
+	Description string   `json:"description,omitempty" yaml:"description"`
+	Criteria    []string `json:"masteryCriteria,omitempty" yaml:"mastery_criteria" required:"false"`
 }
 
 type standardsFile struct {
@@ -108,6 +108,19 @@ func Publish(ctx context.Context, q repo.Querier, opts PublishOptions) (*Publish
 	return out, nil
 }
 
+// PublishCourse loads a course.json and publishes an immutable curriculum revision.
+// Activities referenced by the course must already be published.
+func PublishCourse(ctx context.Context, q repo.Querier, coursePath string, now time.Time) (*repo.PublishCourseResult, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	doc, err := contracts.LoadCourseDocument(coursePath)
+	if err != nil {
+		return nil, err
+	}
+	return repo.PublishCourseDocument(ctx, q, doc, now)
+}
+
 // PublishDocument publishes a single in-memory activity document (tests/helpers).
 func PublishDocument(ctx context.Context, q repo.Querier, doc *contracts.ActivityDocument, now time.Time) (*domain.LearningActivity, *domain.LearningActivityRevision, error) {
 	if now.IsZero() {
@@ -139,6 +152,11 @@ func PublishDocument(ctx context.Context, q repo.Querier, doc *contracts.Activit
 			"description": ref.Code,
 		})
 		if err != nil {
+			var id string
+			if err2 := q.QueryRow(ctx, `SELECT id FROM standards WHERE source = $1 AND code = $2`, "custom", ref.Code).Scan(&id); err2 == nil {
+				codeToID[ref.Code] = id
+				continue
+			}
 			return nil, nil, err
 		}
 		codeToID[ref.Code] = std.ID
@@ -197,6 +215,13 @@ func ensureSubject(ctx context.Context, q repo.Querier, code string, cache map[s
 		"name": code,
 	})
 	if err != nil {
+		page, err2 := repo.Subjects.List(ctx, q, repo.ListParams{
+			Limit: 1, Filters: map[string]any{"code": code},
+		})
+		if err2 == nil && page.TotalCount > 0 {
+			cache[code] = page.Items[0].ID
+			return page.Items[0].ID, nil
+		}
 		return "", err
 	}
 	cache[code] = s.ID
@@ -261,6 +286,11 @@ func upsertStandard(ctx context.Context, q repo.Querier, s StandardSeed, subject
 	}
 	std, err := repo.Standards.Create(ctx, q, values)
 	if err != nil {
+		// Concurrent insert of the same code: re-select.
+		err2 := q.QueryRow(ctx, sqlStr, source, s.Code).Scan(&id)
+		if err2 == nil {
+			return id, nil
+		}
 		return "", err
 	}
 	return std.ID, nil

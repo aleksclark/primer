@@ -67,11 +67,13 @@ func TestVerifyCwdAndCommand(t *testing.T) {
 		{Path: "home/docs", Type: contracts.FixtureDirectory},
 	}))
 	shell := &terminal.ShellState{
-		Cwd:        filepath.Join(root, "home", "docs"),
-		Executable: "ls",
-		Args:       []string{"-la"},
-		ExitCode:   0,
-		Stdout:     "guide.txt\n",
+		Cwd:                       filepath.Join(root, "home", "docs"),
+		Executable:                "ls",
+		Args:                      []string{"-la"},
+		ExitCode:                  0,
+		Stdout:                    "guide.txt\n",
+		StructuredCommandEvidence: true,
+		Source:                    "structured",
 	}
 	checks := []contracts.Check{
 		{ID: "cwd", Kind: contracts.CheckCwd, Params: map[string]any{"path": "home/docs"}},

@@ -72,8 +72,8 @@ func TestAssignNextCurriculumOrder(t *testing.T) {
 	res, err := overseer.AssignNext(ctx, q, student.ID, overseer.Options{PreferReinforcement: &prefer})
 	require.NoError(t, err)
 	require.True(t, res.Created)
-	// alphabetically first unassigned published slug
-	assert.Contains(t, res.Reason, "curriculum:basic-navigation")
+	// alphabetically first unassigned published slug (unsequenced library fallback)
+	assert.Contains(t, res.Reason, "library:basic-navigation")
 }
 
 func TestAssignNextReinforcementTyping(t *testing.T) {

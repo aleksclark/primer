@@ -1,0 +1,513 @@
+{
+  "schemaVersion": "1",
+  "slug": "linux-cli-17-variables-arguments",
+  "title": "Variables and arguments",
+  "summary": "Use valid Bash assignment syntax, quote variable expansions and positional arguments, understand $1, $2, and \"$@\", and build an executable script that writes stable output with printf.",
+  "kind": "terminal",
+  "subjectCode": "digital-literacy",
+  "standards": [
+    {
+      "code": "PRIMER.DL.6.SCRIPT.1",
+      "role": "primary",
+      "weight": 1
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.1",
+      "role": "reinforcement",
+      "weight": 0.5
+    },
+    {
+      "code": "PRIMER.DL.6.FILES.2",
+      "role": "reinforcement",
+      "weight": 0.5
+    }
+  ],
+  "minRunnerVersion": "1",
+  "metadata": {
+    "lesson": "17",
+    "runtime": "terminal/coreutils-basic",
+    "standardsStatus": "pending-scripting-standards"
+  },
+  "content": {
+    "objective": "Assign a Bash variable with no spaces around =, preserve spaces by quoting stored values and expansions, explain that $1 and $2 name the first two positional arguments while \"$@\" expands to every positional argument as a separate quoted word, and build, inspect, execute, and verify a bounded script that uses printf to generate one exact report.",
+    "instructions": "Work only in workspace/argument-lab and complete the five tasks in order. A shell variable assignment has the form name=value with no spaces around =. Quote a value that contains spaces, and normally expand it as \"$name\" so it remains one word. When a script is run with arguments, $1 is the first, $2 is the second, and \"$@\" represents all positional arguments while preserving each argument's boundary. This lesson's final printf reuses its format once per argument, making every argument visible without a loop. Use printf rather than echo for stable, explicit formatting. Create and edit only argument-report.sh, add only its user execute permission, and allow it to create only output/argument-report.txt. Keep README.txt unchanged. Do not add conditions, loops, command substitution, downloads, or work outside the supplied workspace.",
+    "terminal": {
+      "runtimeProfile": "coreutils-basic",
+      "initialCwd": "workspace/argument-lab",
+      "shell": "/bin/bash",
+      "fixtures": [
+        {
+          "path": "workspace",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/argument-lab",
+          "type": "directory",
+          "mode": "0755"
+        },
+        {
+          "path": "workspace/argument-lab/README.txt",
+          "type": "file",
+          "mode": "0444",
+          "content": "Complete the bounded argument script. Keep this note unchanged.\n"
+        }
+      ]
+    },
+    "tasks": [
+      {
+        "id": "practice-assignment-and-quoting",
+        "title": "Assign and expand one spaced value",
+        "instructions": "Run: bash -c 'place=\"north ridge\"; printf \"Place: %s\\n\" \"$place\"'. Read the assignment as name=value: there are no spaces around =, while the two-word value is quoted. In the printf command, \"$place\" expands the stored text and preserves it as one argument. Predict and confirm the exact line Place: north ridge.",
+        "completion": {
+          "all": [
+            {
+              "checkId": "assignment-command-used"
+            },
+            {
+              "checkId": "assignment-output-exact"
+            },
+            {
+              "checkId": "script-not-yet-created"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-argument-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "assignment-hint-1",
+          "assignment-hint-2",
+          "assignment-hint-3"
+        ]
+      },
+      {
+        "id": "edit-and-inspect-script",
+        "title": "Build and inspect the bounded script",
+        "instructions": "Create the script by running exactly: printf '%s\\n' '#!/bin/bash' '# Report a label and positional arguments without changing them.' \"label='Field report'\" 'mkdir -p output' \"printf 'Title: %s\\\\nFirst: %s\\\\nSecond: %s\\\\nAll:' \\\"\\$label\\\" \\\"\\$1\\\" \\\"\\$2\\\" > output/argument-report.txt\" \"printf ' <%s>' \\\"\\$@\\\" >> output/argument-report.txt\" \"printf '\\\\n' >> output/argument-report.txt\" > argument-report.sh. Then run cat argument-report.sh and inspect all seven lines. Explain why label='Field report' is an assignment, why the expansions are double-quoted, and why writing the script has not yet created its output file.",
+        "prerequisites": [
+          "practice-assignment-and-quoting"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "inspected-edited-script"
+            },
+            {
+              "checkId": "script-content-exact"
+            },
+            {
+              "checkId": "script-still-nonexecutable"
+            },
+            {
+              "checkId": "report-not-created-during-edit"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-argument-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "edit-hint-1",
+          "edit-hint-2",
+          "edit-hint-3"
+        ]
+      },
+      {
+        "id": "make-script-executable",
+        "title": "Add only user execute permission",
+        "instructions": "Run chmod u+x argument-report.sh. This changes the mode from 0644 to 0744 without changing the script text and without running it. Explain why the output report must still be absent after a permission-only change.",
+        "prerequisites": [
+          "edit-and-inspect-script"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "script-is-executable"
+            },
+            {
+              "checkId": "script-content-after-chmod"
+            },
+            {
+              "checkId": "report-not-created-by-chmod"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-argument-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "chmod-hint-1",
+          "chmod-hint-2",
+          "chmod-hint-3"
+        ]
+      },
+      {
+        "id": "run-script-with-arguments",
+        "title": "Supply three positional arguments",
+        "instructions": "Run: ./argument-report.sh 'north ridge' 'kit box' map. The quotes make north ridge one argument and kit box one argument; map is the third. Inside the script, $1 expands to north ridge, $2 expands to kit box, and \"$@\" expands to all three arguments as three separate quoted words. The first printf replaces the report, and the next two append a bracketed argument list and final newline, so each run reaches the same exact final content.",
+        "prerequisites": [
+          "make-script-executable"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "ran-script-with-exact-arguments"
+            },
+            {
+              "checkId": "generated-report-is-file"
+            },
+            {
+              "checkId": "generated-report-exact"
+            },
+            {
+              "checkId": "script-remains-executable"
+            },
+            {
+              "checkId": "script-content-at-finish"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-argument-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "run-hint-1",
+          "run-hint-2",
+          "run-hint-3"
+        ]
+      },
+      {
+        "id": "verify-generated-report",
+        "title": "Read and account for the generated report",
+        "instructions": "Run cat output/argument-report.txt. Verify the exact title, first argument, second argument, and the three bracketed entries on the All line. Explain why the first two arguments keep their internal spaces, why map appears only through \"$@\", and why printf produces a stable final newline and the same report on another identical run.",
+        "prerequisites": [
+          "run-script-with-arguments"
+        ],
+        "completion": {
+          "all": [
+            {
+              "checkId": "read-generated-report"
+            },
+            {
+              "checkId": "generated-report-is-file"
+            },
+            {
+              "checkId": "generated-report-exact"
+            },
+            {
+              "checkId": "generated-report-format-match"
+            },
+            {
+              "checkId": "script-remains-executable"
+            },
+            {
+              "checkId": "script-content-at-finish"
+            },
+            {
+              "checkId": "readme-preserved"
+            },
+            {
+              "checkId": "cwd-remains-argument-lab"
+            }
+          ]
+        },
+        "hintIds": [
+          "verify-hint-1",
+          "verify-hint-2",
+          "verify-hint-3"
+        ]
+      }
+    ],
+    "checks": [
+      {
+        "id": "assignment-command-used",
+        "kind": "command_properties",
+        "params": {
+          "executable": "bash",
+          "args": [
+            "-c",
+            "place=\"north ridge\"; printf \"Place: %s\\n\" \"$place\""
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "assignment-output-exact",
+        "kind": "pipeline_output",
+        "params": {
+          "value": "Place: north ridge\n"
+        }
+      },
+      {
+        "id": "script-not-yet-created",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh"
+        }
+      },
+      {
+        "id": "inspected-edited-script",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "argument-report.sh"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-content-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh",
+          "value": "#!/bin/bash\n# Report a label and positional arguments without changing them.\nlabel='Field report'\nmkdir -p output\nprintf 'Title: %s\\nFirst: %s\\nSecond: %s\\nAll:' \"$label\" \"$1\" \"$2\" > output/argument-report.txt\nprintf ' <%s>' \"$@\" >> output/argument-report.txt\nprintf '\\n' >> output/argument-report.txt\n"
+        }
+      },
+      {
+        "id": "script-still-nonexecutable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh",
+          "mode": "0644"
+        }
+      },
+      {
+        "id": "report-not-created-during-edit",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/argument-lab/output/argument-report.txt"
+        }
+      },
+      {
+        "id": "script-is-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-content-after-chmod",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh",
+          "value": "#!/bin/bash\n# Report a label and positional arguments without changing them.\nlabel='Field report'\nmkdir -p output\nprintf 'Title: %s\\nFirst: %s\\nSecond: %s\\nAll:' \"$label\" \"$1\" \"$2\" > output/argument-report.txt\nprintf ' <%s>' \"$@\" >> output/argument-report.txt\nprintf '\\n' >> output/argument-report.txt\n"
+        }
+      },
+      {
+        "id": "report-not-created-by-chmod",
+        "kind": "file_not_exists",
+        "params": {
+          "path": "workspace/argument-lab/output/argument-report.txt"
+        }
+      },
+      {
+        "id": "ran-script-with-exact-arguments",
+        "kind": "command_properties",
+        "params": {
+          "executable": "argument-report.sh",
+          "args": [
+            "north ridge",
+            "kit box",
+            "map"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "generated-report-is-file",
+        "kind": "path_type",
+        "params": {
+          "path": "workspace/argument-lab/output/argument-report.txt",
+          "type": "file"
+        }
+      },
+      {
+        "id": "generated-report-exact",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/argument-lab/output/argument-report.txt",
+          "value": "Title: Field report\nFirst: north ridge\nSecond: kit box\nAll: <north ridge> <kit box> <map>\n"
+        }
+      },
+      {
+        "id": "generated-report-format-match",
+        "kind": "content_match",
+        "params": {
+          "path": "workspace/argument-lab/output/argument-report.txt",
+          "pattern": "^Title: Field report\\nFirst: north ridge\\nSecond: kit box\\nAll: <north ridge> <kit box> <map>\\n$"
+        }
+      },
+      {
+        "id": "read-generated-report",
+        "kind": "command_properties",
+        "params": {
+          "executable": "cat",
+          "args": [
+            "output/argument-report.txt"
+          ],
+          "exitCode": 0
+        }
+      },
+      {
+        "id": "script-remains-executable",
+        "kind": "path_mode",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh",
+          "mode": "0744"
+        }
+      },
+      {
+        "id": "script-content-at-finish",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/argument-lab/argument-report.sh",
+          "value": "#!/bin/bash\n# Report a label and positional arguments without changing them.\nlabel='Field report'\nmkdir -p output\nprintf 'Title: %s\\nFirst: %s\\nSecond: %s\\nAll:' \"$label\" \"$1\" \"$2\" > output/argument-report.txt\nprintf ' <%s>' \"$@\" >> output/argument-report.txt\nprintf '\\n' >> output/argument-report.txt\n"
+        }
+      },
+      {
+        "id": "readme-preserved",
+        "kind": "content_equals",
+        "params": {
+          "path": "workspace/argument-lab/README.txt",
+          "value": "Complete the bounded argument script. Keep this note unchanged.\n"
+        }
+      },
+      {
+        "id": "cwd-remains-argument-lab",
+        "kind": "cwd",
+        "params": {
+          "path": "workspace/argument-lab"
+        }
+      }
+    ],
+    "hints": [
+      {
+        "id": "assignment-hint-1",
+        "level": 1,
+        "text": "An assignment is one shell word: name=value. Quote the two-word value, then pass the quoted expansion to printf."
+      },
+      {
+        "id": "assignment-hint-2",
+        "level": 2,
+        "text": "Run a child Bash whose command assigns north ridge to place and prints that variable with the %s format. Keep the child command single-quoted so the child expands $place."
+      },
+      {
+        "id": "assignment-hint-3",
+        "level": 3,
+        "text": "Run: bash -c 'place=\"north ridge\"; printf \"Place: %s\\n\" \"$place\"'"
+      },
+      {
+        "id": "edit-hint-1",
+        "level": 1,
+        "text": "Use the supplied outer printf command to create seven literal script lines. The backslashes before dollar signs prevent the interactive shell from expanding the script's variables too early."
+      },
+      {
+        "id": "edit-hint-2",
+        "level": 2,
+        "text": "The finished script assigns Field report, ensures output exists, replaces the report with title/$1/$2 lines, appends one bracketed field per argument through \"$@\", and appends a newline. Then inspect it with cat."
+      },
+      {
+        "id": "edit-hint-3",
+        "level": 3,
+        "text": "Copy the exact printf command from the task, then run: cat argument-report.sh"
+      },
+      {
+        "id": "chmod-hint-1",
+        "level": 1,
+        "text": "Add one permission to the file's user class. Do not use a broad numeric mode."
+      },
+      {
+        "id": "chmod-hint-2",
+        "level": 2,
+        "text": "Use chmod with the symbolic change u+x and only the script path."
+      },
+      {
+        "id": "chmod-hint-3",
+        "level": 3,
+        "text": "Run: chmod u+x argument-report.sh"
+      },
+      {
+        "id": "run-hint-1",
+        "level": 1,
+        "text": "Run the current-directory script with three arguments. Quote each argument containing a space so it remains one positional argument."
+      },
+      {
+        "id": "run-hint-2",
+        "level": 2,
+        "text": "The first two arguments are north ridge and kit box; the unspaced third argument is map."
+      },
+      {
+        "id": "run-hint-3",
+        "level": 3,
+        "text": "Run: ./argument-report.sh 'north ridge' 'kit box' map"
+      },
+      {
+        "id": "verify-hint-1",
+        "level": 1,
+        "text": "Use the familiar read-only command on the generated report inside output."
+      },
+      {
+        "id": "verify-hint-2",
+        "level": 2,
+        "text": "Read output/argument-report.txt with cat, then account for each line and each bracketed argument."
+      },
+      {
+        "id": "verify-hint-3",
+        "level": 3,
+        "text": "Run: cat output/argument-report.txt"
+      }
+    ],
+    "tutor": {
+      "goalSummary": "Student uses exact Bash assignment syntax, quotes values and expansions to preserve spaces, distinguishes $1 and $2 from the all-arguments expansion \"$@\", and builds, inspects, permissions, runs, and verifies one bounded printf-based report script.",
+      "misconceptions": [
+        "Bash assignment syntax has no spaces around =. name=value assigns; name = value is parsed as a command and arguments.",
+        "Quotes used while assigning are syntax that protect the value; the quote characters are not stored as part of Field report.",
+        "A variable expansion such as \"$label\" should normally be double-quoted so spaces and wildcard characters remain data rather than changing word boundaries or filename matching.",
+        "$1 and $2 are positional parameters supplied when the script is invoked; they are not the first and second words after expansion inside the script.",
+        "The invocation quotes make north ridge one argument and kit box one argument. Those quote characters are shell syntax and are not included in the argument values.",
+        "\"$@\" expands to all positional arguments while preserving each as a separate word. It is not one combined string and is not the same as unquoted $@.",
+        "In printf ' <%s>' \"$@\", Bash supplies three arguments and Bash's printf reuses the format for each extra argument, producing three bracketed fields without a loop.",
+        "printf uses an explicit format string. %s receives data arguments, and \\n in the format produces a newline; the values are not treated as formats.",
+        "The first report printf uses > to replace the generated file, so the following >> operations append only within that fresh run. Repeating the same invocation does not duplicate old content.",
+        "Editing, inspecting, and changing mode do not execute the script. The report appears only after direct execution.",
+        "Matching output alone is not mastery; the student must explain assignment parsing, argument positions, quoting, \"$@\", permission mode, and each redirection."
+      ],
+      "constraints": [
+        "Keep coaching to the exact assignment experiment and seven-line argument-report.sh used in this activity.",
+        "Give hints in level order and reveal only the current task's exact command at level 3.",
+        "Require the student to predict whether each command changes script content, mode, generated output, or nothing before executing it.",
+        "Teach double quotes as preserving an expanded value or each positional argument; do not introduce advanced expansion operators, arrays, eval, indirect expansion, export, readonly, or environment configuration.",
+        "Explain \"$@\" conceptually and through printf format reuse only; do not introduce loops, conditions, functions, shift, $*, $#, $?, command substitution, or arithmetic expansion.",
+        "Do not suggest echo for generated content; require printf with fixed format strings and values supplied as data arguments.",
+        "Do not alter the required #!/bin/bash shebang, purpose comment, assignment, relative paths, report text, or argument order.",
+        "Do not suggest chmod 777, chmod +x, or numeric replacement; add only user execute permission with chmod u+x.",
+        "Treat README.txt as immutable. Permit creation or changes only to argument-report.sh and creation or replacement only of output/argument-report.txt, with output created by the script.",
+        "Reset after unrelated filesystem changes, changed script text, broad permissions, work outside workspace/argument-lab, or a run with different arguments.",
+        "After deterministic checks pass, require an oral explanation of why assignment spaces are forbidden, where invocation quotes go, what $1/$2 mean, how \"$@\" preserves three boundaries, and why the report is stable on repeat."
+      ]
+    },
+    "progression": {
+      "allowReset": true,
+      "resumeFromTask": true,
+      "requireInOrder": true
+    },
+    "artifacts": {
+      "enabled": false
+    }
+  }
+}

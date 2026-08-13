@@ -69,18 +69,15 @@ func TestTerminalRunnerOpenGuardsAndCDEdges(t *testing.T) {
 	assert.Equal(t, filepath.Join(ws, "home", "docs"), r.Cwd())
 	// Absolute cd inside workspace.
 	require.NoError(t, r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd " + filepath.Join(ws, "home")}))
-	// Absolute outside rejected (returns error after stamping lastError).
-	err := r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd /tmp"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "outside")
+	// Absolute outside rejected: stamped on LastError, recorded as structured evidence.
+	require.NoError(t, r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd /tmp"}))
+	assert.Contains(t, r.Snapshot().LastError, "outside")
 	// cd to file.
-	err = r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd a.txt"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not a directory")
+	require.NoError(t, r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd a.txt"}))
+	assert.Contains(t, r.Snapshot().LastError, "not a directory")
 	// Missing path.
-	err = r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd nope"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cd:")
+	require.NoError(t, r.HandleInput(ctx, activities.Input{Type: activities.InputCommand, Line: "cd nope"}))
+	assert.Contains(t, r.Snapshot().LastError, "cd:")
 
 	// Shell result input path.
 	require.NoError(t, r.HandleInput(ctx, activities.Input{

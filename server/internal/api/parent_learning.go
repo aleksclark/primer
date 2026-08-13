@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/aleksclark/primer/server/internal/domain"
+	"github.com/aleksclark/primer/server/internal/mastery"
 	"github.com/aleksclark/primer/server/internal/overseer"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
@@ -325,15 +326,20 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 		if err != nil {
 			return nil, MapError(err)
 		}
-		status := http.StatusCreated
-		if !res.Created {
-			status = http.StatusOK
+		if res.Assignment == nil {
+			return &assignNextOutput{Body: AssignNextResponse{
+				Reason:      res.Reason,
+				Created:     false,
+				BlockReason: res.BlockReason,
+				Candidates:  res.Candidates,
+			}}, nil
 		}
-		_ = status // huma DefaultStatus is Created; clients accept 200/201
 		return &assignNextOutput{Body: AssignNextResponse{
-			Assignment: *res.Assignment,
-			Reason:     res.Reason,
-			Created:    res.Created,
+			Assignment:  res.Assignment,
+			Reason:      res.Reason,
+			Created:     res.Created,
+			BlockReason: res.BlockReason,
+			Candidates:  res.Candidates,
 		}}, nil
 	})
 
@@ -513,6 +519,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 			OpenAssignments:   ov.OpenAssignments,
 			RecentSessions:    ov.RecentSessions,
 			MasterySummary:    ov.MasterySummary,
+			EvidenceStatuses:  ov.EvidenceStatuses,
 			Tutor:             tutorStatus,
 			TutorNotesDisable: ov.TutorNotesDisable,
 		}}, nil
@@ -535,6 +542,80 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 			return nil, MapError(err)
 		}
 		return &itemOutput[domain.Student]{Body: *st}, nil
+	})
+
+	// Conceptual response review queue
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "list-response-reviews",
+		Method:      http.MethodGet,
+		Path:        "/response-reviews",
+		Summary:     "List conceptual responses for review",
+		Description: "Defaults to status=submitted. Does not expose tutor chat transcripts.",
+		Tags:        []string{"Response Review"},
+	}), func(ctx context.Context, in *listResponseReviewsInput) (*listResponseReviewsOutput, error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		items, err := repo.ListResponsesForReview(ctx, q, in.StudentID, in.Status, in.Limit)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &listResponseReviewsOutput{Body: ResponseReviewList{Items: items}}, nil
+	})
+
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "get-response-review",
+		Method:      http.MethodGet,
+		Path:        "/response-reviews/{id}",
+		Summary:     "Get conceptual response detail for review",
+		Tags:        []string{"Response Review"},
+	}), func(ctx context.Context, in *getInput) (*responseReviewDetailOutput, error) {
+		if _, err := parentEducator(ctx); err != nil {
+			return nil, err
+		}
+		detail, err := repo.GetResponseDetail(ctx, q, in.ID)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		return &responseReviewDetailOutput{Body: *detail}, nil
+	})
+
+	huma.Register(h, parentOp(h, q, huma.Operation{
+		OperationID: "decide-response-review",
+		Method:      http.MethodPost,
+		Path:        "/response-reviews/{id}/decision",
+		Summary:     "Accept or return a conceptual response",
+		Description: "Accept creates parent_attestation evidence. Return keeps prior evidence and allows a new student attempt.",
+		Tags:        []string{"Response Review"},
+	}), func(ctx context.Context, in *responseDecisionInput) (*responseDecisionOutput, error) {
+		ed, err := parentEducator(ctx)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		resp, review, err := repo.ApplyResponseReview(ctx, q, ed.ID, in.ID, repo.ReviewDecisionInput{
+			Decision: in.Body.Decision,
+			Reason:   in.Body.Reason,
+			Criteria: in.Body.Criteria,
+		}, now)
+		if err != nil {
+			return nil, MapError(err)
+		}
+		var evidenceIDs []string
+		if resp.Status == domain.ResponseAccepted {
+			evidenceIDs, err = mastery.ApplyParentAttestation(ctx, q, resp, ed.ID, now)
+			if err != nil {
+				return nil, MapError(err)
+			}
+		}
+		out := ResponseDecisionResult{
+			Response:    *resp,
+			EvidenceIDs: evidenceIDs,
+		}
+		if review != nil {
+			out.Review = review
+		}
+		return &responseDecisionOutput{Body: out}, nil
 	})
 
 	// Parent correction: supersede mastery evidence
@@ -665,9 +746,11 @@ type assignNextInput struct {
 
 // AssignNextResponse is the overseer assign-next result.
 type AssignNextResponse struct {
-	Assignment domain.StudentAssignment `json:"assignment"`
-	Reason     string                   `json:"reason"`
-	Created    bool                     `json:"created"`
+	Assignment  *domain.StudentAssignment `json:"assignment,omitempty"`
+	Reason      string                    `json:"reason"`
+	Created     bool                      `json:"created"`
+	BlockReason string                    `json:"blockReason,omitempty"`
+	Candidates  []string                  `json:"candidates,omitempty"`
 }
 
 type assignNextOutput struct {
@@ -707,13 +790,14 @@ type retryAssignmentInput struct {
 
 // LearningOverviewResponse is the parent dashboard aggregate for one student.
 type LearningOverviewResponse struct {
-	Student           domain.Student             `json:"student"`
-	Devices           []domain.StudentDevice     `json:"devices"`
-	OpenAssignments   []domain.StudentAssignment `json:"openAssignments"`
-	RecentSessions    []domain.LearningSession   `json:"recentSessions"`
-	MasterySummary    []domain.MasteryRecord     `json:"masterySummary"`
-	Tutor             TutorStatusResponse        `json:"tutor"`
-	TutorNotesDisable bool                       `json:"tutorNotesDisable"`
+	Student           domain.Student                 `json:"student"`
+	Devices           []domain.StudentDevice         `json:"devices"`
+	OpenAssignments   []domain.StudentAssignment     `json:"openAssignments"`
+	RecentSessions    []domain.LearningSession       `json:"recentSessions"`
+	MasterySummary    []domain.MasteryRecord         `json:"masterySummary"`
+	EvidenceStatuses  []repo.StandardEvidenceStatus  `json:"evidenceStatuses"`
+	Tutor             TutorStatusResponse            `json:"tutor"`
+	TutorNotesDisable bool                           `json:"tutorNotesDisable"`
 }
 
 type learningOverviewOutput struct {
@@ -756,4 +840,43 @@ type StudentMetricsResponse struct {
 
 type studentMetricsOutput struct {
 	Body StudentMetricsResponse
+}
+
+type listResponseReviewsInput struct {
+	StudentID string `query:"studentId,omitempty" format:"uuid"`
+	Status    string `query:"status,omitempty" enum:"submitted,accepted,returned"`
+	Limit     int    `query:"limit,omitempty" minimum:"1" maximum:"200" default:"50"`
+}
+
+// ResponseReviewList is GET /response-reviews.
+type ResponseReviewList struct {
+	Items []repo.ResponseListItem `json:"items"`
+}
+
+type listResponseReviewsOutput struct {
+	Body ResponseReviewList
+}
+
+type responseReviewDetailOutput struct {
+	Body repo.ResponseDetail
+}
+
+type responseDecisionInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		Decision string           `json:"decision" enum:"accept,return"`
+		Reason   string           `json:"reason,omitempty"`
+		Criteria []map[string]any `json:"criteria,omitempty"`
+	}
+}
+
+// ResponseDecisionResult is POST /response-reviews/{id}/decision.
+type ResponseDecisionResult struct {
+	Response    domain.StudentResponse         `json:"response"`
+	Review      *domain.StudentResponseReview  `json:"review,omitempty"`
+	EvidenceIDs []string                       `json:"evidenceIds,omitempty"`
+}
+
+type responseDecisionOutput struct {
+	Body ResponseDecisionResult
 }

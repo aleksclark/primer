@@ -155,7 +155,8 @@ func PublishActivityRevision(ctx context.Context, q Querier, doc *contracts.Acti
 			if role == "" {
 				role = contracts.StandardRolePrimary
 			}
-			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight); err != nil {
+			pol := resolveLinkPolicy(ref, doc.Kind)
+			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight, pol); err != nil {
 				return err
 			}
 		}
@@ -219,13 +220,14 @@ func nextRevisionNumber(ctx context.Context, q Querier, activityID string) (int,
 	return *max + 1, nil
 }
 
-func qCreateRevisionStandard(ctx context.Context, q Querier, revID, standardID, role string, weight float64) (*domain.LearningActivityRevisionStandard, error) {
+func qCreateRevisionStandard(ctx context.Context, q Querier, revID, standardID, role string, weight float64, policy contracts.EvidencePolicy) (*domain.LearningActivityRevisionStandard, error) {
+	pol := EvidencePolicyMap(policy)
 	const sqlStr = `
 INSERT INTO learning_activity_revision_standards
-    (activity_revision_id, standard_id, role, weight)
-VALUES ($1, $2, $3, $4)
-RETURNING id, activity_revision_id, standard_id, role, weight, mastery_criterion, created_at`
-	rows, err := q.Query(ctx, sqlStr, revID, standardID, role, weight)
+    (activity_revision_id, standard_id, role, weight, evidence_policy)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, activity_revision_id, standard_id, role, weight, mastery_criterion, evidence_policy, created_at`
+	rows, err := q.Query(ctx, sqlStr, revID, standardID, role, weight, pol)
 	if err != nil {
 		return nil, fmt.Errorf("insert revision standard: %w", err)
 	}
@@ -236,10 +238,62 @@ RETURNING id, activity_revision_id, standard_id, role, weight, mastery_criterion
 	return &link, nil
 }
 
+// EvidencePolicyMap converts a typed policy to JSONB map storage.
+func EvidencePolicyMap(p contracts.EvidencePolicy) map[string]any {
+	if p.Version == 0 {
+		p.Version = 1
+	}
+	req := map[string]any{}
+	for k, v := range p.StatusRequirements {
+		arr := make([]any, len(v))
+		for i, s := range v {
+			arr[i] = s
+		}
+		req[k] = arr
+	}
+	return map[string]any{
+		"version":            p.Version,
+		"statusRequirements": req,
+	}
+}
+
+// ParseEvidencePolicy decodes a stored policy map.
+func ParseEvidencePolicy(m map[string]any) (contracts.EvidencePolicy, bool) {
+	if len(m) == 0 {
+		return contracts.EvidencePolicy{}, false
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return contracts.EvidencePolicy{}, false
+	}
+	var p contracts.EvidencePolicy
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return contracts.EvidencePolicy{}, false
+	}
+	if p.Version == 0 || len(p.StatusRequirements) == 0 {
+		return contracts.EvidencePolicy{}, false
+	}
+	return p, true
+}
+
+func defaultPolicyForKind(kind string) contracts.EvidencePolicy {
+	if kind == contracts.KindTyping {
+		return contracts.DefaultTypingEvidencePolicy()
+	}
+	return contracts.DefaultTerminalEvidencePolicy()
+}
+
+func resolveLinkPolicy(ref contracts.StandardRef, activityKind string) contracts.EvidencePolicy {
+	if ref.EvidencePolicy != nil && ref.EvidencePolicy.Version > 0 && len(ref.EvidencePolicy.StatusRequirements) > 0 {
+		return *ref.EvidencePolicy
+	}
+	return defaultPolicyForKind(activityKind)
+}
+
 // ListRevisionStandards returns standards linked to a revision.
 func ListRevisionStandards(ctx context.Context, q Querier, revisionID string) ([]domain.LearningActivityRevisionStandard, error) {
 	const sqlStr = `
-SELECT id, activity_revision_id, standard_id, role, weight, mastery_criterion, created_at
+SELECT id, activity_revision_id, standard_id, role, weight, mastery_criterion, evidence_policy, created_at
 FROM learning_activity_revision_standards
 WHERE activity_revision_id = $1
 ORDER BY role, created_at`
@@ -334,7 +388,8 @@ func PublishDraftRevision(ctx context.Context, q Querier, activityID string, con
 			if role == "" {
 				role = contracts.StandardRolePrimary
 			}
-			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight); err != nil {
+			pol := resolveLinkPolicy(ref, act.Kind)
+			if _, err := qCreateRevisionStandard(ctx, tx, rev.ID, stdID, role, weight, pol); err != nil {
 				return err
 			}
 		}
@@ -349,16 +404,46 @@ func PublishDraftRevision(ctx context.Context, q Querier, activityID string, con
 
 // CreateAssignment assigns a published revision to a student.
 func CreateAssignment(ctx context.Context, q Querier, studentID, revisionID string, assignedBy *string, priority int, reason string) (*domain.StudentAssignment, error) {
+	return CreateAssignmentFull(ctx, q, AssignmentCreate{
+		StudentID:          studentID,
+		ActivityRevisionID: revisionID,
+		AssignedBy:         assignedBy,
+		Priority:           priority,
+		Reason:             reason,
+	})
+}
+
+// AssignmentCreate carries optional course provenance for an assignment.
+type AssignmentCreate struct {
+	StudentID            string
+	ActivityRevisionID   string
+	EnrollmentID         *string
+	CurriculumActivityID *string
+	SelectionReason      string
+	AssignedBy           *string
+	Priority             int
+	Reason               string
+}
+
+// CreateAssignmentFull assigns a published revision with optional enrollment provenance.
+func CreateAssignmentFull(ctx context.Context, q Querier, in AssignmentCreate) (*domain.StudentAssignment, error) {
 	values := map[string]any{
-		"student_id":           studentID,
-		"activity_revision_id": revisionID,
+		"student_id":           in.StudentID,
+		"activity_revision_id": in.ActivityRevisionID,
 		"state":                domain.AssignmentAvailable,
-		"priority":             priority,
-		"reason":               reason,
+		"priority":             in.Priority,
+		"reason":               in.Reason,
+		"selection_reason":     in.SelectionReason,
 		"constraints":          map[string]any{},
 	}
-	if assignedBy != nil {
-		values["assigned_by"] = *assignedBy
+	if in.AssignedBy != nil {
+		values["assigned_by"] = *in.AssignedBy
+	}
+	if in.EnrollmentID != nil {
+		values["enrollment_id"] = *in.EnrollmentID
+	}
+	if in.CurriculumActivityID != nil {
+		values["curriculum_activity_id"] = *in.CurriculumActivityID
 	}
 	return StudentAssignments.Create(ctx, q, values)
 }
@@ -366,7 +451,8 @@ func CreateAssignment(ctx context.Context, q Querier, studentID, revisionID stri
 // ListAssignmentsForStudent returns assignments ordered for the work queue.
 func ListAssignmentsForStudent(ctx context.Context, q Querier, studentID string) ([]domain.StudentAssignment, error) {
 	const sqlStr = `
-SELECT id, student_id, activity_revision_id, enrollment_id, state, priority,
+SELECT id, student_id, activity_revision_id, enrollment_id, curriculum_activity_id,
+       selection_reason, state, priority,
        available_at, due_at, assigned_by, reason, constraints, created_at, updated_at
 FROM student_assignments
 WHERE student_id = $1 AND state <> 'cancelled'
@@ -389,28 +475,57 @@ type StudentWorkItem struct {
 	Activity   domain.LearningActivity         `json:"activity"`
 }
 
+// StudentWorkPage is one page of the work queue with sync metadata.
+type StudentWorkPage struct {
+	Items   []StudentWorkItem
+	Cursor  string
+	Mode    string // "snapshot" or "incremental"
+	HasMore bool
+}
+
+// Work modes for GET /student/work.
+const (
+	WorkModeSnapshot    = "snapshot"
+	WorkModeIncremental = "incremental"
+)
+
 // ListStudentWork returns assignment upserts after an optional cursor (updated_at|id).
+// Empty after yields a full snapshot page stream; a valid after is incremental.
+// Fetches limit+1 rows to set HasMore without a second query.
 func ListStudentWork(ctx context.Context, q Querier, studentID, after string, limit int) ([]StudentWorkItem, string, error) {
+	page, err := ListStudentWorkPage(ctx, q, studentID, after, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	return page.Items, page.Cursor, nil
+}
+
+// ListStudentWorkPage is the Phase 5 work sync entry point with mode/hasMore.
+func ListStudentWorkPage(ctx context.Context, q Querier, studentID, after string, limit int) (*StudentWorkPage, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	mode := WorkModeIncremental
 	var afterTime time.Time
 	var afterID string
-	if after != "" {
+	if after == "" {
+		mode = WorkModeSnapshot
+	} else {
 		// cursor format: RFC3339Nano|uuid
 		parts := splitCursor(after)
 		if len(parts) != 2 {
-			return nil, "", ErrBadRequest{Msg: "invalid after cursor"}
+			return nil, ErrBadRequest{Msg: "invalid after cursor"}
 		}
 		t, err := time.Parse(time.RFC3339Nano, parts[0])
 		if err != nil {
-			return nil, "", ErrBadRequest{Msg: "invalid after cursor time"}
+			return nil, ErrBadRequest{Msg: "invalid after cursor time"}
 		}
 		afterTime, afterID = t, parts[1]
 	}
 
 	const sqlStr = `
-SELECT a.id, a.student_id, a.activity_revision_id, a.enrollment_id, a.state, a.priority,
+SELECT a.id, a.student_id, a.activity_revision_id, a.enrollment_id, a.curriculum_activity_id,
+       a.selection_reason, a.state, a.priority,
        a.available_at, a.due_at, a.assigned_by, a.reason, a.constraints, a.created_at, a.updated_at,
        r.id, r.activity_id, r.revision, r.schema_version, r.content, r.content_sha256, r.published_at, r.created_at,
        la.id, la.slug, la.title, la.summary, la.kind, la.subject_id, la.status, la.created_at, la.updated_at
@@ -435,9 +550,10 @@ LIMIT $4`
 		idArg = afterID
 	}
 
-	rows, err := q.Query(ctx, sqlStr, studentID, tArg, idArg, limit)
+	// Fetch one extra row to detect another page.
+	rows, err := q.Query(ctx, sqlStr, studentID, tArg, idArg, limit+1)
 	if err != nil {
-		return nil, "", fmt.Errorf("list student work: %w", err)
+		return nil, fmt.Errorf("list student work: %w", err)
 	}
 	defer rows.Close()
 
@@ -448,20 +564,38 @@ LIMIT $4`
 		var r domain.LearningActivityRevision
 		var la domain.LearningActivity
 		if err := rows.Scan(
-			&a.ID, &a.StudentID, &a.ActivityRevisionID, &a.EnrollmentID, &a.State, &a.Priority,
+			&a.ID, &a.StudentID, &a.ActivityRevisionID, &a.EnrollmentID, &a.CurriculumActivityID,
+			&a.SelectionReason, &a.State, &a.Priority,
 			&a.AvailableAt, &a.DueAt, &a.AssignedBy, &a.Reason, &a.Constraints, &a.CreatedAt, &a.UpdatedAt,
 			&r.ID, &r.ActivityID, &r.Revision, &r.SchemaVersion, &r.Content, &r.ContentSHA256, &r.PublishedAt, &r.CreatedAt,
 			&la.ID, &la.Slug, &la.Title, &la.Summary, &la.Kind, &la.SubjectID, &la.Status, &la.CreatedAt, &la.UpdatedAt,
 		); err != nil {
-			return nil, "", fmt.Errorf("scan student work: %w", err)
+			return nil, fmt.Errorf("scan student work: %w", err)
 		}
+		// Student devices must never receive parent_note blocks (hidden authoring notes).
+		// ContentSHA256 remains the published digest; payload is a student-safe projection.
+		r.Content = StudentSafeRevisionContent(r.Content)
 		items = append(items, StudentWorkItem{Assignment: a, Revision: r, Activity: la})
 		cursor = a.UpdatedAt.UTC().Format(time.RFC3339Nano) + "|" + a.ID
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return items, cursor, nil
+	hasMore := false
+	if len(items) > limit {
+		hasMore = true
+		items = items[:limit]
+		last := items[len(items)-1]
+		cursor = last.Assignment.UpdatedAt.UTC().Format(time.RFC3339Nano) + "|" + last.Assignment.ID
+	}
+	// Snapshot mode continues for the whole pagination walk that started with empty after.
+	// Clients track mode from the first page of a walk.
+	return &StudentWorkPage{
+		Items:   items,
+		Cursor:  cursor,
+		Mode:    mode,
+		HasMore: hasMore,
+	}, nil
 }
 
 func splitCursor(s string) []string {
@@ -476,4 +610,34 @@ func splitCursor(s string) []string {
 // GetRevision returns a revision by id.
 func GetRevision(ctx context.Context, q Querier, id string) (*domain.LearningActivityRevision, error) {
 	return LearningActivityRevisions.Get(ctx, q, id)
+}
+
+// StudentSafeRevisionContent returns revision content safe for student devices:
+// parent_note instructional blocks are removed. The published content_sha256 is
+// unchanged and still identifies the full authoring revision server-side.
+func StudentSafeRevisionContent(content map[string]any) map[string]any {
+	if content == nil {
+		return nil
+	}
+	c, err := DecodeActivityContent(content)
+	if err != nil {
+		return content
+	}
+	if len(c.Blocks) == 0 {
+		return content
+	}
+	safe := contracts.StudentBlocks(c.Blocks)
+	if len(safe) == len(c.Blocks) {
+		return content
+	}
+	c.Blocks = safe
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return content
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return content
+	}
+	return out
 }

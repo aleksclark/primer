@@ -34,10 +34,10 @@ func TestGoldenActivityJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(want, &wantObj))
 	assert.Equal(t, wantObj, gotObj)
 
-	// Round-trip must still validate.
-	var loaded contracts.ActivityDocument
-	require.NoError(t, json.Unmarshal(want, &loaded))
-	require.NoError(t, contracts.ValidateDocument(&loaded))
+	// Round-trip must still validate under strict decoding.
+	loaded, err := contracts.DecodeActivityJSON(want, path)
+	require.NoError(t, err)
+	require.NoError(t, contracts.ValidateDocument(loaded))
 }
 
 func TestGoldenObservationEventCompletion(t *testing.T) {
