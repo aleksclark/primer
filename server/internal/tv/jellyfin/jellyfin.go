@@ -86,6 +86,15 @@ type BrowseParams struct {
 	IncludePath bool
 }
 
+// Page is one /Items response after optional client-side filters.
+type Page struct {
+	Items []Item
+	// TotalRecordCount is Jellyfin's unfiltered library total for the query.
+	TotalRecordCount int
+	// RawPageLen is the number of items Jellyfin returned before client filters.
+	RawPageLen int
+}
+
 // Client is the Jellyfin behaviour the TV server depends on. It is an
 // interface so tests can substitute a fake without an HTTP server.
 type Client interface {
@@ -93,6 +102,8 @@ type Client interface {
 	Ping(ctx context.Context) error
 	// Browse lists library items available for import.
 	Browse(ctx context.Context, p BrowseParams) ([]Item, error)
+	// BrowsePage lists one page and reports unfiltered TotalRecordCount / RawPageLen.
+	BrowsePage(ctx context.Context, p BrowseParams) (Page, error)
 	// Item fetches metadata for a single item.
 	Item(ctx context.Context, id string) (*Item, error)
 	// StreamURL builds a direct-play URL for an item.
@@ -161,7 +172,8 @@ func (c *HTTPClient) Ping(ctx context.Context) error {
 
 // itemsResponse is the envelope Jellyfin returns from /Items.
 type itemsResponse struct {
-	Items []itemDTO `json:"Items"`
+	Items            []itemDTO `json:"Items"`
+	TotalRecordCount int       `json:"TotalRecordCount"`
 }
 
 // itemDTO mirrors the Jellyfin BaseItemDto fields the TV server reads.
@@ -246,6 +258,17 @@ func (i Item) ProviderID(key string) string {
 
 // Browse lists library items available for import.
 func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error) {
+	page, err := c.BrowsePage(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// BrowsePage lists one /Items page and reports Jellyfin's unfiltered
+// TotalRecordCount plus the raw (pre-filter) page length so callers can
+// paginate even when PathContains / provider filters empty the first page.
+func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, error) {
 	q := url.Values{}
 	q.Set("Recursive", "true")
 	types := p.IncludeItemTypes
@@ -287,11 +310,14 @@ func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error)
 
 	var resp itemsResponse
 	if err := c.get(ctx, "/Items", q, &resp); err != nil {
-		return nil, err
+		return Page{}, err
 	}
-	items := make([]Item, 0, len(resp.Items))
+	raw := make([]Item, 0, len(resp.Items))
 	for _, d := range resp.Items {
-		it := d.toItem()
+		raw = append(raw, d.toItem())
+	}
+	items := make([]Item, 0, len(raw))
+	for _, it := range raw {
 		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
 			continue
 		}
@@ -302,7 +328,11 @@ func (c *HTTPClient) Browse(ctx context.Context, p BrowseParams) ([]Item, error)
 		}
 		items = append(items, it)
 	}
-	return items, nil
+	total := resp.TotalRecordCount
+	if total == 0 && len(raw) > 0 {
+		total = len(raw)
+	}
+	return Page{Items: items, TotalRecordCount: total, RawPageLen: len(raw)}, nil
 }
 
 // ProviderMatch checks the "Key=Value|…" form against an item's ProviderIds.

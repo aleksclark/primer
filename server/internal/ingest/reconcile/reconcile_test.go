@@ -99,7 +99,7 @@ func TestPlanResolveAndAcquire(t *testing.T) {
 		},
 		jellyfin.Item{
 			ID: "jf-ps-1", Name: "Dovetails", Type: "Video",
-			Path:    "/media/Shows/paul-sellers/Season 01/paul-sellers - S01E001 - Dovetails.mkv",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/paul-sellers - S01E001 - Dovetails [dQw4w9wgxcQ].mkv",
 			Runtime: 20 * time.Minute,
 		},
 	)
@@ -169,6 +169,17 @@ func TestPlanResolveAndAcquire(t *testing.T) {
 	assert.True(t, ids["jf-lp-e1"])
 	assert.False(t, ids["jf-lp-e7"], "excluded episode must not be imported")
 	assert.True(t, ids["jf-ps-1"])
+	var psTitle string
+	for _, it := range items {
+		if it.JellyfinItemID == "jf-ps-1" {
+			psTitle = it.Title
+			assert.Equal(t, "paul-sellers S01E001", it.SortTitle)
+			assert.Equal(t, "dQw4w9wgxcQ", it.YouTubeVideoID)
+			assert.Equal(t, "paul-sellers", it.ManifestSlug)
+			assert.Equal(t, "S01E001", it.EpisodeKey)
+		}
+	}
+	assert.Equal(t, "Paul Sellers S01E001 — Dovetails", psTitle)
 
 	// TV catalog mirrored + present marked for Jellyfin hits.
 	assert.GreaterOrEqual(t, tv.ManifestSyncCalls, 1)

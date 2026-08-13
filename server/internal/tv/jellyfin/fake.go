@@ -54,12 +54,23 @@ func (f *Fake) Ping(context.Context) error {
 }
 
 // Browse returns the seeded items, honouring SearchTerm, StartIndex and Limit.
-func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
+func (f *Fake) Browse(ctx context.Context, p BrowseParams) ([]Item, error) {
+	page, err := f.BrowsePage(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// BrowsePage pages the type-filtered library first, then applies PathContains /
+// provider filters. TotalRecordCount / RawPageLen reflect the unfiltered
+// (type-filtered) library so an empty first filtered page still paginates.
+func (f *Fake) BrowsePage(_ context.Context, p BrowseParams) (Page, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.BrowseCalls++
 	if f.Err != nil {
-		return nil, f.Err
+		return Page{}, f.Err
 	}
 	wantTypes := map[string]bool{}
 	if p.IncludeItemTypes != "" {
@@ -67,19 +78,13 @@ func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
 			wantTypes[strings.TrimSpace(t)] = true
 		}
 	}
-	out := make([]Item, 0, len(f.Items))
+	unfiltered := make([]Item, 0, len(f.Items))
 	for _, it := range f.Items {
 		if len(wantTypes) > 0 && !wantTypes[it.Type] {
 			continue
 		}
 		if p.SearchTerm != "" && !strings.Contains(strings.ToLower(it.Name), strings.ToLower(p.SearchTerm)) &&
 			!strings.Contains(strings.ToLower(it.SeriesName), strings.ToLower(p.SearchTerm)) {
-			continue
-		}
-		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
-			continue
-		}
-		if p.AnyProviderIDEquals != "" && !ProviderMatch(it, p.AnyProviderIDEquals) {
 			continue
 		}
 		if p.SeriesID != "" && it.SeriesID != p.SeriesID && it.ID != p.SeriesID {
@@ -96,18 +101,29 @@ func (f *Fake) Browse(_ context.Context, p BrowseParams) ([]Item, error) {
 		if p.ParentID != "" && it.ParentID != p.ParentID && it.SeriesID != p.ParentID {
 			continue
 		}
+		unfiltered = append(unfiltered, it)
+	}
+	total := len(unfiltered)
+	if p.StartIndex > 0 {
+		if p.StartIndex >= len(unfiltered) {
+			return Page{TotalRecordCount: total}, nil
+		}
+		unfiltered = unfiltered[p.StartIndex:]
+	}
+	if p.Limit > 0 && p.Limit < len(unfiltered) {
+		unfiltered = unfiltered[:p.Limit]
+	}
+	out := make([]Item, 0, len(unfiltered))
+	for _, it := range unfiltered {
+		if p.PathContains != "" && !strings.Contains(it.Path, p.PathContains) {
+			continue
+		}
+		if p.AnyProviderIDEquals != "" && !ProviderMatch(it, p.AnyProviderIDEquals) {
+			continue
+		}
 		out = append(out, it)
 	}
-	if p.StartIndex > 0 {
-		if p.StartIndex >= len(out) {
-			return nil, nil
-		}
-		out = out[p.StartIndex:]
-	}
-	if p.Limit > 0 && p.Limit < len(out) {
-		out = out[:p.Limit]
-	}
-	return out, nil
+	return Page{Items: out, TotalRecordCount: total, RawPageLen: len(unfiltered)}, nil
 }
 
 // RefreshLibrary records a refresh call.

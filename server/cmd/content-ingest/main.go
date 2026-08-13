@@ -168,8 +168,10 @@ func buildDeps(cfg *config.Config) (reconcile.Deps, error) {
 		SonarrRootFolder:       cfg.SonarrRootFolder,
 		SonarrTag:              cfg.SonarrTag,
 		YtDlpOutputDir:         cfg.YtDlpOutputDir,
-		YtDlpArchivePath:       cfg.YtDlpArchivePath,
+		YtDlpArchivePath:       cfg.YtDlpArchivePath, // deprecated unused for new downloads
 		YtDlpBinary:            cfg.YtDlpPath,
+		YtDlpCookiesPath:       cfg.YtDlpCookiesPath,
+		YtDlpJSRuntime:         cfg.YtDlpJSRuntime,
 		SyncWait:               cfg.SyncWait,
 		SyncPollInterval:       cfg.SyncPollInterval,
 		ManifestPath:           cfg.ManifestPath,
