@@ -46,6 +46,9 @@ type Runner struct {
 	parentRunID atomic.Value // string
 	// lastRunID is the most recent Run invocation id on this runner.
 	lastRunID atomic.Value // string
+	// pendingRunID, when set, is consumed by the next Run() so StartChild-before-Run
+	// (e.g. SSE BuildChildTool) shares the same run identity as parent events.
+	pendingRunID atomic.Value // string
 }
 
 // runLineage is shared root state for a delegation tree.
@@ -90,7 +93,7 @@ func (r *Runner) Orchestration() Orchestration {
 	}
 }
 
-// LastRunID returns the most recent run id assigned by Run on this runner.
+// LastRunID returns the most recent run id assigned by Run/PrepareRun on this runner.
 func (r *Runner) LastRunID() string {
 	if v := r.lastRunID.Load(); v != nil {
 		if s, ok := v.(string); ok {
@@ -107,15 +110,54 @@ func (r *Runner) Depth() int {
 	return r.depth
 }
 
-// Run executes the agent once and emits events with a fresh RunID.
+// PrepareRun assigns the run identity that the next Run will use and that
+// StartChild should attribute as parent_run_id. Call before StartChild when
+// children are wired prior to Run (SSE path). Idempotent while a pending id
+// remains unconsumed: returns the existing pending/last id.
+func (r *Runner) PrepareRun() string {
+	if r == nil {
+		return ""
+	}
+	if v := r.pendingRunID.Load(); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	runID := newRunID()
+	r.pendingRunID.Store(runID)
+	r.lastRunID.Store(runID)
+	if r.lineage != nil {
+		r.lineage.mu.Lock()
+		if r.lineage.rootID == "" {
+			r.lineage.rootID = runID
+		}
+		r.lineage.mu.Unlock()
+	}
+	return runID
+}
+
+// consumeRunID returns the pending prepared id or a fresh one, and clears pending.
+func (r *Runner) consumeRunID() string {
+	if v := r.pendingRunID.Swap(""); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			r.lastRunID.Store(s)
+			return s
+		}
+	}
+	runID := newRunID()
+	r.lastRunID.Store(runID)
+	return runID
+}
+
+// Run executes the agent once and emits events with a RunID.
+// If PrepareRun was called, that id is reused so pre-wired children share lineage.
 func (r *Runner) Run(ctx context.Context, userText string, opts ...agent.Option) error {
 	if r == nil || r.agent == nil {
 		return fmt.Errorf("runner: nil agent")
 	}
-	runID := newRunID()
-	r.lastRunID.Store(runID)
+	runID := r.consumeRunID()
 
-	// Establish root run id once for the tree.
+	// Establish root run id once for the tree (matches PrepareRun if used).
 	rootID := runID
 	if r.lineage != nil {
 		r.lineage.mu.Lock()
@@ -246,24 +288,16 @@ func (r *Runner) StartChild(ctx context.Context, child ChildSpec) (tool.FuncTool
 	parentSpec := r.spec
 	lineage := r.lineage
 	sink := r.sink
-	parentRunID := r.LastRunID()
 	r.mu.Unlock()
 
+	// Parent attribution must match the current/upcoming parent Run id.
+	// If neither PrepareRun nor Run has assigned identity yet, prepare one now
+	// so a later Run() reuses the same id (SSE StartChild-before-Run path).
+	parentRunID := r.LastRunID()
 	if parentRunID == "" {
-		// Parent hasn't Run yet: establish a stable root/parent id for attribution.
-		parentRunID = r.rootRunID()
-		if parentRunID == "" {
-			parentRunID = newRunID()
-			if lineage != nil {
-				lineage.mu.Lock()
-				if lineage.rootID == "" {
-					lineage.rootID = parentRunID
-				}
-				parentRunID = lineage.rootID
-				lineage.mu.Unlock()
-			}
-		}
+		parentRunID = r.PrepareRun()
 	}
+	_ = lineage // shared via r.lineage on child runner
 
 	// Authority checks (may fail — roll back budget reservation).
 	if err := AssertNoAuthorityExpansion(parentSpec.Tools, child.Tools); err != nil {

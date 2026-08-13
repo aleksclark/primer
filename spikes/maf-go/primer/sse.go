@@ -93,6 +93,9 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		spec.Name = h.Agent.Name()
 	}
 	runner := NewRunner(spec, h.Agent, bridge)
+	// Assign run identity before BuildChildTool so StartChild parent/root ids
+	// match the subsequent Run events (no synthetic-id drift).
+	_ = runner.PrepareRun()
 
 	var opts []agent.Option
 	if h.BuildChildTool != nil {

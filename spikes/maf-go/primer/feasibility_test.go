@@ -580,6 +580,86 @@ func TestF1_RunIDsDistinctAcrossInvocations(t *testing.T) {
 	}
 }
 
+func TestF1_PrepareRun_StartChildBeforeRun_LineageCoherent(t *testing.T) {
+	// Mirrors SSE path: PrepareRun → StartChild → Run must share one parent/root id.
+	sink := &primer.CollectingSink{}
+	parent := scriptedAgent(t, "O", "p-agent", textUpdate("parent-text"))
+	r := primer.NewRunner(primer.AgentSpec{
+		Name: "O", MaxChildren: 1, MaxDepth: 1, MaxTotalChildren: 5,
+	}, parent, sink)
+	prepared := r.PrepareRun()
+	if prepared == "" || prepared == parent.ID() {
+		t.Fatalf("prepared=%q agent=%q", prepared, parent.ID())
+	}
+	child := scriptedAgent(t, "C", "c-agent", textUpdate("child-text"))
+	ct, _, err := r.StartChild(context.Background(), primer.ChildSpec{Type: "c", Name: "C", Agent: child})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ct.Call(context.Background(), `{"query":"q"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	if r.LastRunID() != prepared {
+		t.Fatalf("Run id=%q want prepared %q", r.LastRunID(), prepared)
+	}
+	var parentStart, childStart *primer.RunEvent
+	for i := range sink.Snapshot() {
+		e := sink.Snapshot()[i]
+		if e.Kind == primer.KindStart && parentStart == nil {
+			parentStart = &e
+		}
+		if e.Kind == primer.KindChildStart && childStart == nil {
+			childStart = &e
+		}
+	}
+	// Re-snapshot once.
+	evs := sink.Snapshot()
+	parentStart, childStart = nil, nil
+	for i := range evs {
+		e := evs[i]
+		if e.Kind == primer.KindStart && parentStart == nil {
+			cp := e
+			parentStart = &cp
+		}
+		if e.Kind == primer.KindChildStart && childStart == nil {
+			cp := e
+			childStart = &cp
+		}
+	}
+	if parentStart == nil || childStart == nil {
+		t.Fatalf("missing events: %+v", evs)
+	}
+	if parentStart.RunID != prepared || parentStart.RootRunID != prepared {
+		t.Fatalf("parent start run=%q root=%q want %q", parentStart.RunID, parentStart.RootRunID, prepared)
+	}
+	if childStart.ParentRunID != prepared || childStart.RootRunID != prepared {
+		t.Fatalf("child parent=%q root=%q want %q", childStart.ParentRunID, childStart.RootRunID, prepared)
+	}
+}
+
+func TestF1_MaxTotalChildrenIndependentOfDirect(t *testing.T) {
+	// Direct budget still open (MaxChildren=5) but total tree budget is 1.
+	parent := scriptedAgent(t, "O", "p", textUpdate("x"))
+	r := primer.NewRunner(primer.AgentSpec{
+		MaxChildren:      5,
+		MaxDepth:         3,
+		MaxTotalChildren: 1,
+	}, parent, primer.NoopSink{})
+	child := scriptedAgent(t, "C", "c", textUpdate("x"))
+	ct, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: child})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ct.Call(context.Background(), `{"query":"x"}`)
+	_, _, err = r.StartChild(context.Background(), primer.ChildSpec{Agent: child})
+	if err == nil || !strings.Contains(err.Error(), "total child budget") {
+		t.Fatalf("err=%v, want total child budget", err)
+	}
+}
+
 // --- F2 MCP scope ---
 
 func TestF2_MCP_FailClosedFilter(t *testing.T) {
@@ -679,10 +759,13 @@ func TestF5_CancelPropagatesToChildAndMCP(t *testing.T) {
 		_, err := st.Call(ctx, `{"query":"x"}`)
 		done <- err
 	}()
-	// Wait until MCP is entered (deterministic barrier via AllowCalls or short spin).
+	// Wait until MCP handler is entered (AllowCalls) then cancel.
 	deadline := time.Now().Add(2 * time.Second)
 	for env.AllowCalls.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
+	}
+	if env.AllowCalls.Load() == 0 {
+		t.Fatal("MCP allow_me never entered before cancel")
 	}
 	cancel()
 	select {
@@ -696,14 +779,15 @@ func TestF5_CancelPropagatesToChildAndMCP(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for cancel")
 	}
+	// HARD: blocking MCP tool must observe ctx cancel (not merely child Call error).
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if env.AllowSawCancel.Load() {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
-	t.Logf("AllowSawCancel=%v AllowCalls=%d (cancel returned to caller)", env.AllowSawCancel.Load(), env.AllowCalls.Load())
+	t.Fatalf("AllowSawCancel=false after cancel (MCP did not observe ctx cancel); AllowCalls=%d", env.AllowCalls.Load())
 }
 
 func TestF5_SlowSinkDoesNotFailRun(t *testing.T) {
@@ -1043,8 +1127,49 @@ func TestF4_PrimerSSE_ParentAndChildAttributed(t *testing.T) {
 	if !strings.Contains(s, `"kind":"child_start"`) && !strings.Contains(s, "child_start") {
 		t.Fatalf("missing child_start: %s", s)
 	}
-	if !strings.Contains(s, "root_run_id") {
-		t.Fatalf("missing root_run_id in envelope: %s", s)
+
+	// Parse SSE data lines and hard-assert lineage coherence:
+	// parent start.run_id == parent start.root_run_id == child.parent_run_id == child.root_run_id
+	var parentStart, childStart *primer.RunEvent
+	sc := bufio.NewScanner(strings.NewReader(s))
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var ev primer.RunEvent
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+			continue
+		}
+		switch {
+		case ev.Kind == primer.KindStart && parentStart == nil:
+			e := ev
+			parentStart = &e
+		case ev.Kind == primer.KindChildStart && childStart == nil:
+			e := ev
+			childStart = &e
+		}
+	}
+	if parentStart == nil {
+		t.Fatalf("missing parsed parent start event in %s", s)
+	}
+	if childStart == nil {
+		t.Fatalf("missing parsed child_start event in %s", s)
+	}
+	if parentStart.RunID == "" || parentStart.RunID != parentStart.RootRunID {
+		t.Fatalf("parent run_id=%q root_run_id=%q want equal non-empty", parentStart.RunID, parentStart.RootRunID)
+	}
+	if parentStart.RunID == parent.ID() {
+		t.Fatalf("parent run_id must not equal agent id %q", parent.ID())
+	}
+	if childStart.ParentRunID != parentStart.RunID {
+		t.Fatalf("child parent_run_id=%q want parent run_id %q", childStart.ParentRunID, parentStart.RunID)
+	}
+	if childStart.RootRunID != parentStart.RootRunID {
+		t.Fatalf("child root_run_id=%q want %q", childStart.RootRunID, parentStart.RootRunID)
+	}
+	if childStart.RunID == "" || childStart.RunID == child.ID() || childStart.RunID == parentStart.RunID {
+		t.Fatalf("child run_id=%q must be fresh (agent=%q parent=%q)", childStart.RunID, child.ID(), parentStart.RunID)
 	}
 }
 
