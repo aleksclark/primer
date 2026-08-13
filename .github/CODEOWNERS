@@ -1,0 +1,4 @@
+# Deploy contract ownership (plan-03).
+/deploy/nomad/ @aleksclark
+/.github/workflows/nomad-contract.yml @aleksclark
+/.github/workflows/release*.yml @aleksclark

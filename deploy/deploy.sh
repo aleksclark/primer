@@ -1,187 +1,84 @@
 #!/usr/bin/env bash
-# Deploy Primer LMS and/or the TV channel to the Nomad fleet.
+# DEPRECATED as a production Nomad writer (plan-03 / I30).
 #
-# Images are built by the docker-image GitHub Actions workflow (which has
-# packages:write) and pushed to ghcr.io. This script triggers that workflow
-# for the current HEAD, waits for it, renders the Nomad job specs, and
-# submits them. Set BUILD=local to build and push from this machine instead
-# (requires a docker login to ghcr.io with write:packages).
+# The primer release set is declared under deploy/nomad/ and is enrolled for
+# fleet pull-reconciler ownership. This script no longer renders secrets via
+# envsubst or runs `nomad job run`.
 #
-# What gets deployed:
-#   SERVICE=all    (default) primer + primer-tv + content-ingest
-#   SERVICE=lms    LMS only
-#   SERVICE=tv     TV channel only
-#   SERVICE=ingest content-ingest periodic batch only
+# Allowed local helpers:
+#   ./deploy/deploy.sh contract   # static contract tests
+#   ./deploy/deploy.sh plan-hint  # print reconciler-oriented plan guidance
 #
-# Configuration comes from deploy/.env (see deploy/.env.example).
+# Production submit path: fleet pull reconciler (CAS) after reviewed source SHA.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${ROOT}"
 
-ENV_FILE="deploy/.env"
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-fi
+cmd="${1:-}"
 
-: "${NOMAD_ADDR:?set NOMAD_ADDR in deploy/.env or the environment}"
-: "${NOMAD_TOKEN:?set NOMAD_TOKEN in deploy/.env or the environment}"
+refuse_production() {
+  cat >&2 <<'EOF'
+ERROR: deploy/deploy.sh refuses production Nomad submit.
 
-SERVICE="${SERVICE:-all}"
-IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
-BUILD="${BUILD:-ci}"
-LMS_IMAGE_REPO="${IMAGE_REPO:-ghcr.io/aleksclark/primer}"
-TV_IMAGE_REPO="${TV_IMAGE_REPO:-ghcr.io/aleksclark/primer-tv}"
-INGEST_IMAGE_REPO="${INGEST_IMAGE_REPO:-ghcr.io/aleksclark/content-ingest}"
-export NOMAD_ADDR NOMAD_TOKEN
+The authoritative deploy contract is deploy/nomad/ (plan-03):
+  - deployment.yaml
+  - jobs/{primer,primer-tv,content-ingest}.nomad.hcl
+  - env/home.nomadvars.hcl
+  - images.lock.hcl
 
-need_lms=false
-need_tv=false
-need_ingest=false
-case "$SERVICE" in
-  all)    need_lms=true; need_tv=true; need_ingest=true ;;
-  lms)    need_lms=true ;;
-  tv)     need_tv=true ;;
-  ingest) need_ingest=true ;;
+Production writer: fleet pull reconciler (serial release set, explicit-only prune).
+Do not envsubst secrets. Do not `nomad job run` from this repo script.
+Do not dispatch content-ingest from CI.
+
+Local checks:
+  ./deploy/deploy.sh contract
+  ./deploy/nomad/tests/contract.sh
+
+Legacy templates under deploy/*.nomad.hcl.tmpl remain only for dual-source
+rollback until S3; they are not the production submit path.
+EOF
+  exit 2
+}
+
+case "${cmd}" in
+  contract|test)
+    exec bash "${ROOT}/deploy/nomad/tests/contract.sh"
+    ;;
+  plan-hint|plan)
+    cat <<'EOF'
+Read-only plan guidance (no cluster write):
+
+  1. Ensure Nomad Variables exist (key names only; see deploy/nomad/README.md).
+  2. From a machine with Nomad ACL + fleet tooling:
+       nomad job plan \
+         -var-file=deploy/nomad/images.lock.hcl \
+         -var-file=deploy/nomad/env/home.nomadvars.hcl \
+         deploy/nomad/jobs/primer.nomad.hcl
+     (repeat for primer-tv, content-ingest — serial)
+  3. content-ingest: pause periodic / prove no child BEFORE S2 handoff.
+  4. Apply only via fleet pull reconciler CAS for the release-set SHA.
+  5. Never dispatch content-ingest from CI or this script.
+
+This script does not run plan or apply.
+EOF
+    ;;
+  -h|--help|help)
+    cat <<'EOF'
+Usage: ./deploy/deploy.sh <command>
+
+Commands:
+  contract   Run deploy/nomad/tests/contract.sh
+  plan-hint  Print read-only reconciler plan guidance
+  help       Show this help
+
+Any legacy deploy target (lms|tv|ingest|all|...) is refused.
+EOF
+    ;;
+  ""|lms|tv|ingest|all|primer|primer-tv|content-ingest|deploy|run|push|build)
+    refuse_production
+    ;;
   *)
-    echo "error: SERVICE must be all, lms, tv, or ingest (got $SERVICE)" >&2
-    exit 1
+    refuse_production
     ;;
 esac
-
-if $need_lms; then
-  : "${DATABASE_URL:?set DATABASE_URL in deploy/.env or the environment}"
-fi
-if $need_tv; then
-  : "${TV_DATABASE_URL:?set TV_DATABASE_URL in deploy/.env or the environment}"
-  : "${TV_JELLYFIN_BASE_URL:?set TV_JELLYFIN_BASE_URL in deploy/.env or the environment}"
-  : "${TV_JELLYFIN_API_KEY:?set TV_JELLYFIN_API_KEY in deploy/.env or the environment}"
-  : "${TV_ADMIN_API_KEY:?set TV_ADMIN_API_KEY in deploy/.env or the environment}"
-  # Optional — empty is valid (server warns and stays unconfigured).
-  TV_JELLYFIN_USER_ID="${TV_JELLYFIN_USER_ID:-}"
-  TV_PRIMER_BASE_URL="${TV_PRIMER_BASE_URL:-https://primer.fleet.clark.team}"
-  TV_PRIMER_SERVICE_TOKEN="${TV_PRIMER_SERVICE_TOKEN:-${SERVICE_TOKEN:-}}"
-  TV_MANIFEST_FAIL_MAX_ATTEMPTS="${TV_MANIFEST_FAIL_MAX_ATTEMPTS:-10}"
-  TV_MANIFEST_FAIL_MAX_DAYS="${TV_MANIFEST_FAIL_MAX_DAYS:-14}"
-fi
-if $need_ingest; then
-  : "${INGEST_TV_BASE_URL:?set INGEST_TV_BASE_URL in deploy/.env or the environment}"
-  : "${INGEST_TV_ADMIN_KEY:?set INGEST_TV_ADMIN_KEY in deploy/.env or the environment}"
-  INGEST_RADARR_BASE_URL="${INGEST_RADARR_BASE_URL:-}"
-  INGEST_RADARR_API_KEY="${INGEST_RADARR_API_KEY:-}"
-  INGEST_RADARR_ROOT_FOLDER="${INGEST_RADARR_ROOT_FOLDER:-/data/media/movies}"
-  INGEST_RADARR_QUALITY_PROFILE_ID="${INGEST_RADARR_QUALITY_PROFILE_ID:-}"
-  INGEST_SONARR_BASE_URL="${INGEST_SONARR_BASE_URL:-}"
-  INGEST_SONARR_API_KEY="${INGEST_SONARR_API_KEY:-}"
-  INGEST_SONARR_ROOT_FOLDER="${INGEST_SONARR_ROOT_FOLDER:-/data/media/tv}"
-  INGEST_SONARR_QUALITY_PROFILE_ID="${INGEST_SONARR_QUALITY_PROFILE_ID:-}"
-  INGEST_JELLYFIN_BASE_URL="${INGEST_JELLYFIN_BASE_URL:-${TV_JELLYFIN_BASE_URL:-}}"
-  INGEST_JELLYFIN_API_KEY="${INGEST_JELLYFIN_API_KEY:-${TV_JELLYFIN_API_KEY:-}}"
-  INGEST_JELLYFIN_USER_ID="${INGEST_JELLYFIN_USER_ID:-${TV_JELLYFIN_USER_ID:-}}"
-  INGEST_YTDLP_OUTPUT_DIR="${INGEST_YTDLP_OUTPUT_DIR:-/data/media}"
-  INGEST_YTDLP_ARCHIVE_PATH="${INGEST_YTDLP_ARCHIVE_PATH:-/data/media/ytdlp-archive.txt}"
-fi
-# Optional on the LMS side too.
-SERVICE_TOKEN="${SERVICE_TOKEN:-}"
-
-if [[ "$BUILD" == "local" ]]; then
-  if $need_lms; then
-    echo "==> Building ${LMS_IMAGE_REPO}:${IMAGE_TAG} locally"
-    docker build -t "${LMS_IMAGE_REPO}:${IMAGE_TAG}" -t "${LMS_IMAGE_REPO}:latest" .
-    docker push "${LMS_IMAGE_REPO}:${IMAGE_TAG}"
-    docker push "${LMS_IMAGE_REPO}:latest"
-  fi
-  if $need_tv; then
-    echo "==> Building ${TV_IMAGE_REPO}:${IMAGE_TAG} locally"
-    docker build -f Dockerfile.tv -t "${TV_IMAGE_REPO}:${IMAGE_TAG}" -t "${TV_IMAGE_REPO}:latest" .
-    docker push "${TV_IMAGE_REPO}:${IMAGE_TAG}"
-    docker push "${TV_IMAGE_REPO}:latest"
-  fi
-  if $need_ingest; then
-    echo "==> Building ${INGEST_IMAGE_REPO}:${IMAGE_TAG} locally"
-    docker build -f Dockerfile.ingest -t "${INGEST_IMAGE_REPO}:${IMAGE_TAG}" -t "${INGEST_IMAGE_REPO}:latest" .
-    docker push "${INGEST_IMAGE_REPO}:${IMAGE_TAG}"
-    docker push "${INGEST_IMAGE_REPO}:latest"
-  fi
-else
-  if [[ -n "$(git status --porcelain)" ]]; then
-    echo "error: working tree is dirty; commit and push before a CI deploy (or use BUILD=local)" >&2
-    exit 1
-  fi
-  if ! git merge-base --is-ancestor HEAD "origin/$(git rev-parse --abbrev-ref HEAD)" 2>/dev/null; then
-    echo "error: HEAD is not pushed to origin; push first so CI can build it" >&2
-    exit 1
-  fi
-
-  echo "==> Triggering docker-image workflow for $(git rev-parse --abbrev-ref HEAD) @ ${IMAGE_TAG}"
-  gh workflow run docker-image.yml --ref "$(git rev-parse --abbrev-ref HEAD)"
-  sleep 5
-  RUN_ID="$(gh run list --workflow=docker-image.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-  echo "==> Waiting for workflow run ${RUN_ID}"
-  gh run watch "$RUN_ID" --exit-status
-fi
-
-TMPDIR_DEPLOY="$(mktemp -d /tmp/primer-deploy.XXXXXX)"
-trap 'rm -rf "$TMPDIR_DEPLOY"' EXIT
-
-if $need_lms; then
-  echo "==> Rendering LMS job spec"
-  JOB_FILE="$TMPDIR_DEPLOY/primer.nomad.hcl"
-  IMAGE_TAG="$IMAGE_TAG" DATABASE_URL="$DATABASE_URL" SERVICE_TOKEN="$SERVICE_TOKEN" \
-    envsubst '${IMAGE_TAG} ${DATABASE_URL} ${SERVICE_TOKEN}' \
-    < deploy/primer.nomad.hcl.tmpl > "$JOB_FILE"
-  echo "==> Submitting primer to ${NOMAD_ADDR}"
-  nomad job run "$JOB_FILE"
-  nomad job status primer | sed -n '/^Latest Deployment/,/^$/p' || true
-  echo "==> LMS: https://primer.fleet.clark.team"
-fi
-
-if $need_tv; then
-  echo "==> Rendering TV job spec"
-  JOB_FILE="$TMPDIR_DEPLOY/primer-tv.nomad.hcl"
-  IMAGE_TAG="$IMAGE_TAG" \
-  TV_DATABASE_URL="$TV_DATABASE_URL" \
-  TV_JELLYFIN_BASE_URL="$TV_JELLYFIN_BASE_URL" \
-  TV_JELLYFIN_API_KEY="$TV_JELLYFIN_API_KEY" \
-  TV_JELLYFIN_USER_ID="$TV_JELLYFIN_USER_ID" \
-  TV_ADMIN_API_KEY="$TV_ADMIN_API_KEY" \
-  TV_PRIMER_BASE_URL="$TV_PRIMER_BASE_URL" \
-  TV_PRIMER_SERVICE_TOKEN="$TV_PRIMER_SERVICE_TOKEN" \
-  TV_MANIFEST_FAIL_MAX_ATTEMPTS="$TV_MANIFEST_FAIL_MAX_ATTEMPTS" \
-  TV_MANIFEST_FAIL_MAX_DAYS="$TV_MANIFEST_FAIL_MAX_DAYS" \
-    envsubst '${IMAGE_TAG} ${TV_DATABASE_URL} ${TV_JELLYFIN_BASE_URL} ${TV_JELLYFIN_API_KEY} ${TV_JELLYFIN_USER_ID} ${TV_ADMIN_API_KEY} ${TV_PRIMER_BASE_URL} ${TV_PRIMER_SERVICE_TOKEN} ${TV_MANIFEST_FAIL_MAX_ATTEMPTS} ${TV_MANIFEST_FAIL_MAX_DAYS}' \
-    < deploy/primer-tv.nomad.hcl.tmpl > "$JOB_FILE"
-
-  echo "==> Submitting primer-tv to ${NOMAD_ADDR}"
-  nomad job run "$JOB_FILE"
-  nomad job status primer-tv | sed -n '/^Latest Deployment/,/^$/p' || true
-  echo "==> TV:  https://tv.fleet.clark.team"
-fi
-
-if $need_ingest; then
-  echo "==> Rendering content-ingest job spec"
-  JOB_FILE="$TMPDIR_DEPLOY/content-ingest.nomad.hcl"
-  IMAGE_TAG="$IMAGE_TAG" \
-  INGEST_RADARR_BASE_URL="$INGEST_RADARR_BASE_URL" \
-  INGEST_RADARR_API_KEY="$INGEST_RADARR_API_KEY" \
-  INGEST_RADARR_ROOT_FOLDER="$INGEST_RADARR_ROOT_FOLDER" \
-  INGEST_RADARR_QUALITY_PROFILE_ID="$INGEST_RADARR_QUALITY_PROFILE_ID" \
-  INGEST_SONARR_BASE_URL="$INGEST_SONARR_BASE_URL" \
-  INGEST_SONARR_API_KEY="$INGEST_SONARR_API_KEY" \
-  INGEST_SONARR_ROOT_FOLDER="$INGEST_SONARR_ROOT_FOLDER" \
-  INGEST_SONARR_QUALITY_PROFILE_ID="$INGEST_SONARR_QUALITY_PROFILE_ID" \
-  INGEST_JELLYFIN_BASE_URL="$INGEST_JELLYFIN_BASE_URL" \
-  INGEST_JELLYFIN_API_KEY="$INGEST_JELLYFIN_API_KEY" \
-  INGEST_JELLYFIN_USER_ID="$INGEST_JELLYFIN_USER_ID" \
-  INGEST_TV_BASE_URL="$INGEST_TV_BASE_URL" \
-  INGEST_TV_ADMIN_KEY="$INGEST_TV_ADMIN_KEY" \
-  INGEST_YTDLP_OUTPUT_DIR="$INGEST_YTDLP_OUTPUT_DIR" \
-  INGEST_YTDLP_ARCHIVE_PATH="$INGEST_YTDLP_ARCHIVE_PATH" \
-    envsubst '${IMAGE_TAG} ${INGEST_RADARR_BASE_URL} ${INGEST_RADARR_API_KEY} ${INGEST_RADARR_ROOT_FOLDER} ${INGEST_RADARR_QUALITY_PROFILE_ID} ${INGEST_SONARR_BASE_URL} ${INGEST_SONARR_API_KEY} ${INGEST_SONARR_ROOT_FOLDER} ${INGEST_SONARR_QUALITY_PROFILE_ID} ${INGEST_JELLYFIN_BASE_URL} ${INGEST_JELLYFIN_API_KEY} ${INGEST_JELLYFIN_USER_ID} ${INGEST_TV_BASE_URL} ${INGEST_TV_ADMIN_KEY} ${INGEST_YTDLP_OUTPUT_DIR} ${INGEST_YTDLP_ARCHIVE_PATH}' \
-    < deploy/content-ingest.nomad.hcl.tmpl > "$JOB_FILE"
-
-  echo "==> Submitting content-ingest to ${NOMAD_ADDR}"
-  nomad job run "$JOB_FILE"
-  nomad job status content-ingest || true
-  echo "==> content-ingest: periodic batch every 6h"
-fi
