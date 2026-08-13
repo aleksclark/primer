@@ -11,17 +11,17 @@ Workspace path: `architecture/curriculum-studio/`
 | Document | Role |
 | --- | --- |
 | `agent_docs/plans/primer-curriculum-studio-product-plan.md` | Product boundary, modules, Primer contract, events |
-| `AGENTS.md` | Existing LMS/TV independently deployed services, separate PostgreSQL, HTTP + directional secrets, no shared DB |
+| `agent_docs/plans/curriculum-studio-foundation-crosswalk.md` | **Authoritative** vocabulary, ownership, auth, enum crosswalk |
+| `agent_docs/plans/primer-identity-service-design.md` | Decided Primer Identity boundaries and JWT/BFF mechanics |
+| `curriculum-studio/contracts/` | OpenAPI + protobuf wire contracts |
+| `curriculum-studio/db/` | Standalone Studio PostgreSQL schema |
+| `AGENTS.md` | Existing LMS/TV independently deployed services, separate PostgreSQL |
 
 LMS/TV code was inspected only to name real interface shapes already
 in the repo (LMS `POST /auth/login` bearer sessions; LMS
 `POST /curriculum/import/{plan,apply}`; TV→LMS
 `POST /instruction-logs/ingest` with `X-Service-Token`). Those shapes
 inform the **integration boundary**, not Studio internals.
-
-Do not treat this model as an auth design decision. The proposed
-identity/auth service is modeled as an **external/adjacent** system
-with `#uncertainty` on every auth edge.
 
 ## Layout
 
@@ -57,16 +57,18 @@ LikeC4 recursively merges `*.c4` in this directory.
    process. It is not a peer `softwareSystem`.
 4. **Separate PostgreSQL and artifact/object store.** No direct
    cross-database access in either direction.
-5. **Sync + async integration.** Primer → Studio HTTPS materialization
-   API, and Studio → Primer domain events/webhooks. Both are required
-   by the plan; events are optional for Primer.
-6. **Proposed identity/auth service is adjacent and unsettled.**
-   Current LMS authenticates parents in-process. Studio standalone use
-   cannot require live LMS sessions. Protocol, account store, and LMS
-   migration are open.
+5. **Sync + async integration.** Primer → Studio HTTPS/gRPC
+   materialization API, and Studio → Primer domain events/webhooks.
+   Both are required by the plan; events are optional for Primer.
+6. **Primer Identity is decided and adjacent.** Google OIDC, host-only
+   BFF cookies, single-audience JWTs + JWKS. Studio API validates JWKS
+   only; product authorization stays in Studio. See crosswalk L3–L4.
 7. **Existing LMS import is not silently the Phase 3 adapter.**
    `POST /curriculum/import/{plan,apply}` is parent-session guarded
-   today. A Studio→LMS bundle push is tagged `#uncertainty`.
+   today. A Studio→LMS bundle push remains `#uncertainty` / deferred.
+8. **Contracts live under the Studio service tree** at
+   `curriculum-studio/contracts/` (OpenAPI authoring vs protobuf
+   integration ownership split).
 
 ## Pinned CLI
 
@@ -89,11 +91,11 @@ them.
 
 | View ID | Concern |
 | --- | --- |
-| `studio_system_context` | Authors, Studio, proposed IdP, model providers, Primer |
+| `studio_system_context` | Authors, Studio, Identity, model providers, Primer |
 | `studio_containers` | Studio UI, service modules, DB, artifact store |
 | `primer_integration` | Sync materialization API + async events |
 | `data_ownership_deployment` | Separate DBs, no cross-DB edges |
-| `auth_trust` | Proposed identity service and trust boundaries |
+| `auth_trust` | Decided Identity trust boundaries (JWKS, BFF, no shared DB) |
 
 LikeC4 may also emit a generated `index` view.
 
@@ -106,6 +108,8 @@ are not proof):
 - `primer_lms.lms_api` → `curriculum_studio.studio` (sync API)
 - `curriculum_studio.studio` → `primer_lms.lms_api` (events/callbacks)
 - `curriculum_studio.studio` → `curriculum_studio.postgres`
+- `curriculum_studio.studio.curriculum_api` → `identity_service` (JWKS)
+- `curriculum_studio.studio_ui` → `identity_service` (OIDC/BFF)
 - **Absence** of `curriculum_studio.*` → `primer_lms.lms_postgres`
 - **Absence** of `primer_lms.*` → `curriculum_studio.postgres`
 
@@ -113,5 +117,5 @@ are not proof):
 
 - Primer TV channel, content-ingest, and student TUI internals
 - Splitting Studio modules into separately deployed services
-- Choosing OIDC vs session tokens vs LMS-owned auth
 - Committing generated LikeC4 site/JSON
+- Implementing Identity or Studio service code

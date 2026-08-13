@@ -1,9 +1,9 @@
 # Primer Identity Service Design
 
-**Status:** Decision-complete foundational design  
-**Scope:** Independently deployable identity/auth service for Curriculum Studio and Primer LMS  
-**Not this document:** Full phased implementation plan, product authorization rules inside Studio/LMS, TV media device pairing redesign beyond scope boundaries  
-**Branch base:** `a1f1e90fded0fd810183e4eec18d3e1e95f3973a` (`planning/curriculum-studio-auth`)  
+**Status:** Decision-complete foundational design
+**Scope:** Independently deployable identity/auth service for Curriculum Studio and Primer LMS
+**Not this document:** Full phased implementation plan, product authorization rules inside Studio/LMS, TV media device pairing redesign beyond scope boundaries
+**Branch base:** `a1f1e90fded0fd810183e4eec18d3e1e95f3973a` (`planning/curriculum-studio-auth`)
 **Coordinates with (read-only):** architecture `6768b4ed`, contracts `e1c80a3d`, DB `8c229caf`
 
 ---
@@ -32,7 +32,7 @@ Curriculum Studio and Primer LMS remain authorization owners. They validate iden
 | TV admin | Static `TV_ADMIN_API_KEY` as `X-Admin-Key`; SPA stores key in `localStorage` | `server/internal/tv/api/auth.go`, `tv-web/src/api/auth.ts` |
 | TV device | Opaque device bearer after pairing; product-local | `server/internal/tv/auth`, `server/internal/tv/api/auth.go` |
 | TV → LMS | `X-Service-Token` = LMS `SERVICE_TOKEN` | `server/internal/tv/primer/primer.go` |
-| Studio contracts | Bearer JWT from future IdP; machine via `X-Service-Token` or Bearer; Studio does not store passwords | `contracts/README.md`, OpenAPI `bearerAuth` + `serviceCredential` |
+| Studio contracts | Bearer JWT end-state; `X-Service-Token` migration-only | `curriculum-studio/contracts/README.md`, OpenAPI `bearerAuth` + `serviceCredential` |
 | Studio DB | `workspace_memberships.subject_ref` opaque; no credentials | `curriculum-studio/db/migrations/00001_identity_and_catalogs.sql` |
 | LikeC4 | `identity_service` adjacent with `#uncertainty` on every auth edge | `architecture/curriculum-studio/relationships/actors-auth.c4` |
 
@@ -397,7 +397,7 @@ oauth_clients
 service_principals / credentials / grants
 ```
 
-**Stable external key:** `(provider, provider_subject)`.  
+**Stable external key:** `(provider, provider_subject)`.
 **Stable internal key:** `accounts.id` as JWT `sub`.
 
 ### 11.2 No auto-link by email
@@ -745,57 +745,53 @@ Propagate W3C trace context; never put tokens in span attributes.
 
 ---
 
-## 25. Reconciliations required in sibling artifacts
+## 25. Reconciliations with sibling artifacts
 
-### 25.1 Architecture (LikeC4) — commit `6768b4ed` lineage
+**Applied** on `planning/curriculum-studio-integration` (see
+`curriculum-studio-foundation-crosswalk.md`). Summary:
 
-| Item | Change |
+### 25.1 Architecture (LikeC4)
+
+| Item | Status |
 | --- | --- |
-| `identity_service` | Remove `#uncertainty` from edges once this design is accepted; mark as external/adjacent **decided** system |
-| Relationships | Studio UI → Identity (OIDC authorize); Studio API → Identity (JWKS only, not login); LMS web → Identity; LMS API → JWKS validate; services → Identity token endpoint |
-| Description | Replace “protocol unset” with OIDC OP + Google RP + BFF sessions + client-credentials |
-| Views | `auth_trust` becomes decided trust view; note host-only cookies and no shared DB |
+| `identity_service` | Decided external system; `#uncertainty` removed from auth edges |
+| Relationships | Studio UI → OIDC/BFF; Studio API → JWKS only; LMS web/API → Identity migration target |
+| Views | `auth_trust` is decided trust view |
+| Remaining `#uncertainty` | Studio→LMS JSON import push adapter only |
 
-### 25.2 Contracts — commit `e1c80a3d` lineage
+### 25.2 Contracts
 
-| Item | Change |
+| Item | Status |
 | --- | --- |
-| README Authentication | State Identity issues JWTs; humans Bearer only; services Bearer JWT preferred |
-| `X-Service-Token` | Document as **migration alias** for the same access token or legacy static secret, sunset stage S7 |
-| `bearerFormat: JWT` | Keep; add `aud` / scope expectations in description |
-| gRPC | Metadata `authorization: Bearer <jwt>`; do not invent a second service auth |
-| Optional | Add small `identity` discovery note or link to this design doc |
+| Path | Relocated to `curriculum-studio/contracts/` |
+| Auth README + OpenAPI | Bearer JWT end-state; `X-Service-Token` migration-only |
+| gRPC | `authorization: Bearer` only |
+| Item kinds | Union closed set aligned with DB |
 
-**Explicit reconciliation of dual presentation**
+**Dual presentation (frozen):**
 
-Contracts today: humans Bearer JWT; machines `X-Service-Token` **or** Bearer (LMS `SharedSecretGuard` parallel).  
-**Decided end state:** one credential type (JWT) in `Authorization: Bearer`.  
-**Transition:** validators accept:
-
-1. `Authorization: Bearer <JWT>` (primary),
+1. `Authorization: Bearer <JWT>` (primary end-state),
 2. `X-Service-Token: <JWT>` (alias, discouraged),
-3. `X-Service-Token: <legacy static>` (temporary).
+3. `X-Service-Token: <legacy static>` (temporary through S7).
 
-### 25.3 DB (Studio) — commit `8c229caf` lineage
+### 25.3 DB (Studio)
 
-| Item | Change |
+| Item | Status |
 | --- | --- |
-| SCHEMA.md | Document `subject_ref` convention `identity:<uuid>` |
-| `integration_identities.system` | Ensure `oidc` / `primer_identity` value allowed (today `primer_lms`, `oidc`, `other` — OK) |
-| No credentials in Studio | Unchanged — reaffirm |
-| Optional event consumer tables | Out of scope unless implementing event projections |
+| `subject_ref` | Documented `identity:<uuid>` / `identity:svc:<id>` |
+| `integration_identities.system` | `primer_lms`, `primer_identity`, `oidc`, `other` |
+| No credentials in Studio | Reaffirmed |
+| Item kinds | Union with contracts |
 
 ### 25.4 LMS (this repo, future implementation)
 
-| Item | Change |
+| Item | Change (still future code) |
 | --- | --- |
 | `educators.identity_subject` | Additive column |
 | Parent guard | JWT path |
 | `SharedSecretGuard` | Dual-accept then fail-closed |
 | SPA auth | BFF cookies |
 | Startup | Refuse empty service auth in prod |
-
----
 
 ## 26. Decided vs deferred
 
@@ -863,8 +859,9 @@ Contracts today: humans Bearer JWT; machines `X-Service-Token` **or** Bearer (LM
 | `server/internal/tv/api/auth.go` | TV admin key + device token |
 | `web/src/api/auth.ts` | SPA bearer localStorage |
 | `tv-web/src/api/auth.ts` | SPA admin key localStorage |
-| Sibling architecture `architecture/curriculum-studio/**` | LikeC4 uncertainty edges |
-| Sibling `contracts/openapi/v1/curriculum-studio.yaml` | bearerAuth + serviceCredential |
+| Sibling architecture `architecture/curriculum-studio/**` | LikeC4 decided Identity edges |
+| Foundation crosswalk | `curriculum-studio-foundation-crosswalk.md` | Authoritative vocabulary/ownership |
+| Sibling `curriculum-studio/contracts/openapi/v1/curriculum-studio.yaml` | bearerAuth + serviceCredential |
 | Sibling `curriculum-studio/db/migrations/00001_identity_and_catalogs.sql` | membership projections |
 
 ---
@@ -874,7 +871,7 @@ Contracts today: humans Bearer JWT; machines `X-Service-Token` **or** Bearer (LM
 This foundational design is complete when:
 
 1. Decisions D1–D20 are accepted or explicitly amended in a follow-up commit.
-2. Sibling architecture/contracts/DB reconciliations (§25) are scheduled or applied in their branches.
+2. Sibling architecture/contracts/DB reconciliations (§25) are **applied** on the integration branch (crosswalk).
 3. A later **implementation plan** can phase S1–S7 without re-opening boundary questions.
 4. Security self-review table (§23) remains satisfied by the implementation plan’s test matrix.
 

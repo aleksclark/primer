@@ -116,12 +116,13 @@ model {
       integration_gateway = component 'Integration gateway' {
         #public
         description '
-          API keys, directional service credentials, webhooks, domain
-          events, and the Primer adapter. Synchronous materialization
-          API and asynchronous events both terminate here.
-          Source: primer-curriculum-studio-product-plan.md Primer
-          integration contract (sync API + domain events) and Internal
-          modules (Integration gateway).
+          Machine JWT validation (Bearer; X-Service-Token migration
+          alias), webhooks, domain events, and the Primer adapter.
+          Synchronous materialization API and asynchronous events both
+          terminate here. Does not store shared static secrets long-term.
+          Sources: primer-curriculum-studio-product-plan.md Primer
+          integration contract; curriculum-studio-foundation-crosswalk.md
+          auth presentation; Internal modules (Integration gateway).
         '
       }
     }

@@ -16,6 +16,33 @@ use a dedicated goose version table (`studio_goose_db_version`) and keep the
   as opaque `TEXT` (`subject_ref`, `external_ref`) plus optional JSON snapshots.
 - Memberships are authorization projections. Credentials are never stored here.
 
+## Subject and external identity conventions
+
+| Field | Canonical form | Owner |
+| --- | --- | --- |
+| `workspace_memberships.subject_ref` (human) | `identity:<uuid>` | UUID is Primer Identity account `sub` |
+| `workspace_memberships.subject_ref` (service) | `identity:svc:<id>` | Identity service principal id |
+| `*_subject_ref` columns generally | same opaque text convention | Never FK to Identity/LMS DBs |
+| `integration_identities.system` | `primer_lms` \| `primer_identity` \| `oidc` \| `other` | Snapshot source system |
+| `integration_identities.external_ref` | opaque foreign id | LMS learner id, OIDC sub, etc. |
+
+`primer_identity` is preferred when the snapshot is an Identity-issued
+subject. `oidc` remains for generic/external OIDC provider snapshots that
+are not routed through Primer Identity. Memberships store **authorization
+projections only** — no passwords, token hashes, or secrets
+(`secret_ref` pointer only if ever needed).
+
+See `agent_docs/plans/curriculum-studio-foundation-crosswalk.md`.
+
+## Item lifecycle vs lock
+
+| Dimension | Storage | API/proto |
+| --- | --- | --- |
+| Lifecycle | `materialized_items.status` ∈ draft/ready/published/superseded | `MaterializedItemStatus` |
+| Lock | `locked` boolean + `locked_at` + `locked_by_subject_ref` | `ItemLockState` editable\|locked |
+
+Locked items cannot be overwritten by rematerialize; unlock is explicit.
+
 ## Enumerations (CHECK constraints)
 
 PostgreSQL enums are avoided so values can evolve with CHECK + migration. The
@@ -29,12 +56,12 @@ closed sets below are the contract:
 | `workspace_memberships.subject_kind` | `human`, `service` |
 | `workspace_memberships.role` | `owner`, `admin`, `author`, `reviewer`, `viewer` |
 | `workspace_memberships.status` | `active`, `invited`, `revoked` |
-| `integration_identities.system` | `primer_lms`, `oidc`, `other` |
+| `integration_identities.system` | `primer_lms`, `primer_identity`, `oidc`, `other` |
 | `integration_identities.external_kind` | `learner`, `educator`, `class`, `auth_subject`, `service` |
 | `standard_crosswalks.relationship` | `equivalent`, `broader`, `narrower`, `related` |
 | `resources.kind` | `book`, `document`, `video`, `tool`, `project_supply`, `url`, `other` |
 | `curricula.approach` | `mastery_based`, `spiral`, `classical`, `unit_study`, `project_based`, `custom` |
-| `curricula.status` | `draft`, `active`, `retired` |
+| `curricula.status` | `draft`, `active`, `retired` (API `archived` ⇔ `retired`; see crosswalk) |
 | `plan_revisions.status` | `draft`, `published`, `superseded` |
 | `outcome_standard_mappings.alignment` | `addresses`, `assesses`, `introduces`, `reinforces` |
 | `outcome_prerequisites.requirement` | `introduced`, `completed`, `mastered` |
@@ -48,7 +75,7 @@ closed sets below are the contract:
 | `materialization_runs.status` | `requested`, `running`, `ready`, `failed`, `cancelled` |
 | `workflow_stages.status` | `pending`, `running`, `succeeded`, `failed`, `skipped` |
 | `workflow_attempts.status` | `running`, `succeeded`, `failed` |
-| `materialized_items.kind` | `lesson`, `assignment`, `assessment`, `rubric`, `answer_key`, `project_task`, `discussion_guide`, `media_prompt`, `teacher_guide`, `worksheet`, `session_spec` |
+| `materialized_items.kind` | `lesson`, `teacher_guide`, `student_instructions`, `practice`, `assignment`, `discussion_guide`, `worksheet`, `assessment`, `rubric`, `project_task`, `answer_key`, `media_prompt`, `printable_packet`, `session_spec` |
 | `materialized_items.status` | `draft`, `ready`, `published`, `superseded` |
 | `exports.format` | `pdf`, `markdown`, `docx`, `csv`, `json`, `ical` |
 | `exports.status` | `requested`, `ready`, `failed` |

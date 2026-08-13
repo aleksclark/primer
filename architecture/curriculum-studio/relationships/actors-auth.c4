@@ -1,4 +1,4 @@
-// Actor and identity-trust relationships.
+// Actor and identity-trust relationships (Identity design decided).
 
 model {
   teacher -> curriculum_studio.studio_ui 'Authors plans, reviews generated work, materializes windows, exports packets' {
@@ -22,65 +22,69 @@ model {
     '
   }
 
-  teacher -> identity_service 'Authenticates as a Studio author when the proposed IdP is adopted' {
-    #uncertainty
+  teacher -> identity_service 'Authenticates via Google OIDC through Primer Identity' {
     description '
-      Auth design is not settled. Current Primer parents authenticate
-      in-process on LMS POST /auth/login. Studio standalone use cannot
-      depend on live LMS sessions. Whether teachers use the proposed
-      identity service, Studio-local accounts, or a later shared IdP
-      is open.
-      Sources: primer-curriculum-studio-product-plan.md standalone
-      product; AGENTS.md LMS auth.
+      Interactive login: OAuth 2.1 authorization code + PKCE against
+      Primer Identity (Google as upstream IdP). No Studio-local
+      passwords; no dependence on live LMS sessions.
+      Sources: primer-identity-service-design.md D1–D8;
+      curriculum-studio-foundation-crosswalk.md L3–L4.
     '
   }
 
-  homeschool_parent -> identity_service 'Authenticates as a Studio author when the proposed IdP is adopted' {
-    #uncertainty
+  homeschool_parent -> identity_service 'Authenticates via Google OIDC through Primer Identity' {
     description '
-      Same unsettled auth path as teacher. Distinct from this actor\'s
-      possible later Primer parent session.
+      Same Identity path as teacher when acting as Studio author.
+      Distinct from any later LMS parent product session (separate
+      host-only BFF cookie).
+      Source: primer-identity-service-design.md trust boundaries.
     '
   }
 
-  curriculum_author -> identity_service 'Authenticates as a Studio author when the proposed IdP is adopted' {
-    #uncertainty
-    description 'Same unsettled auth path. Collaborative IdP tenancy is Phase 5.'
-  }
-
-  curriculum_studio.studio_ui -> identity_service 'Delegates interactive login / token acquisition (proposed)' {
-    #uncertainty
+  curriculum_author -> identity_service 'Authenticates via Google OIDC through Primer Identity' {
     description '
-      Browser UI would redirect or exchange tokens with the proposed
-      identity service. Protocol (OIDC vs opaque session) is unset.
+      Same Identity interactive path. Collaborative tenancy is Phase 5
+      product authz inside Studio, not Identity ownership.
     '
   }
 
-  curriculum_studio.studio.curriculum_api -> identity_service 'Validates author sessions or JWT/introspection (proposed)' {
-    #uncertainty
+  curriculum_studio.studio_ui -> identity_service 'OIDC authorize / BFF token acquisition' {
     description '
-      Studio API must authorize authors without reading Primer LMS
-      educator tables. Exact verification (local JWKS, introspection,
-      or Studio-issued sessions) is not decided.
+      Browser UI uses the Studio BFF as confidential client. Host-only
+      session cookie on the Studio origin; Identity issues single-
+      audience access JWTs (aud=curriculum-studio). No parent-domain
+      cookie.
+      Sources: primer-identity-service-design.md BFF pattern;
+      curriculum-studio-foundation-crosswalk.md Auth presentation.
     '
   }
 
-  primer_lms.lms_api -> identity_service 'May later validate shared human or machine identity (proposed)' {
-    #uncertainty
+  curriculum_studio.studio.curriculum_api -> identity_service 'Fetches JWKS; validates access JWTs locally' {
     description '
-      Today LMS owns parent sessions and educators in its own database.
-      Migration of LMS auth onto this adjacent service is not decided
-      and must not be assumed.
-      Source: AGENTS.md LMS Server auth; Product plan does not specify
-      LMS identity extraction.
+      Studio API does not perform interactive login and does not require
+      token introspection. Validates Bearer JWT signature/exp/aud/scope
+      via Identity JWKS. Authorizes via local workspace_memberships
+      projections (subject_ref = identity:<uuid>).
+      Sources: primer-identity-service-design.md JWKS;
+      curriculum-studio-foundation-crosswalk.md subject conventions.
     '
   }
 
-  primer_lms.lms_web -> identity_service 'May later authenticate parents/admins via the proposed IdP' {
-    #uncertainty
+  primer_lms.lms_api -> identity_service 'Validates access JWTs via JWKS (migration target)' {
     description '
-      Current LMS SPA uses POST /auth/login bearer tokens stored in
-      the browser. A shared IdP is a proposal, not current topology.
+      End-state: LMS validates Identity-issued JWTs (aud=primer-lms)
+      locally via JWKS. Dual-run accepts legacy parent sessions and
+      static X-Service-Token until sunset stage S7.
+      Sources: primer-identity-service-design.md S0–S7;
+      curriculum-studio-foundation-crosswalk.md L4.
+    '
+  }
+
+  primer_lms.lms_web -> identity_service 'OIDC authorize / BFF token acquisition (migration target)' {
+    description '
+      LMS SPA migrates from localStorage bearer to host-only BFF
+      cookies with Identity as OP. Separate browser session from Studio.
+      Source: primer-identity-service-design.md SPA cookie cutover.
     '
   }
 }

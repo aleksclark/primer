@@ -168,3 +168,7 @@ erDiagram
         │ TV DB     │
         └───────────┘
 ```
+
+## Identity refs
+
+`subject_ref` uses `identity:<uuid>` / `identity:svc:<id>`. `integration_identities.system` ∈ primer_lms, primer_identity, oidc, other. No edges to Identity or LMS databases.

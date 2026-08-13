@@ -30,23 +30,19 @@ model {
     '
   }
 
-  identity_service = softwareSystem 'Proposed identity / auth service' {
+  identity_service = softwareSystem 'Primer Identity' {
     #external
-    #uncertainty
     #trustBoundary
     description '
-      Proposed separate identity and authentication service, adjacent to
-      both Curriculum Studio and Primer LMS. Auth design is not settled:
-      current Primer LMS authenticates parents in-process via
-      POST /auth/login and opaque bearer sessions (AGENTS.md LMS Server;
-      server/internal/api/auth_parent.go). Studio must work standalone,
-      so it cannot require live Primer LMS sessions. Protocol (OIDC/SAML
-      vs session tokens), account store, and whether LMS migrates off
-      in-process educators remain open.
-      Sources: primer-curriculum-studio-product-plan.md Product boundary
-      (standalone use); AGENTS.md LMS auth; schools-and-compliance.md
-      (future SAML/OIDC for districts) as deferred school-readiness, not
-      a decided Studio IdP.
+      Independently deployable identity/auth service with its own
+      PostgreSQL. Owns accounts, external identities (provider+sub),
+      human sessions, signing keys/JWKS, OAuth clients, and service
+      principals. Does not own Studio workspace roles or LMS product
+      authorization. Google OIDC is the primary interactive IdP;
+      Identity is OP to Studio and LMS BFFs. Host-only cookies; no
+      cross-product session cookie; no email auto-link.
+      Sources: agent_docs/plans/primer-identity-service-design.md;
+      agent_docs/plans/curriculum-studio-foundation-crosswalk.md L3–L4.
     '
   }
 

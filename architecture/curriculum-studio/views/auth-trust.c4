@@ -2,13 +2,12 @@ views {
   view auth_trust {
     title 'Auth and trust boundaries'
     description '
-      Proposed identity/auth service is adjacent and explicitly
-      uncertain. Studio authors must authenticate without depending
-      on live Primer LMS sessions. LMS currently owns in-process
-      parent sessions. Neither product reads the other\'s database
-      for identity or mastery.
-      Sources: primer-curriculum-studio-product-plan.md standalone
-      product; AGENTS.md LMS POST /auth/login; identity design unset.
+      Primer Identity is the decided external authn system. Studio and
+      LMS validate single-audience JWTs via JWKS and own product
+      authorization locally. Host-only BFF cookies; no shared identity
+      or product database. X-Service-Token is migration-only.
+      Sources: primer-identity-service-design.md;
+      curriculum-studio-foundation-crosswalk.md L3–L4.
     '
     include teacher
     include homeschool_parent

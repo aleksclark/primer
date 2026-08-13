@@ -5,7 +5,7 @@ package curriculumstudio.v1;
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+option go_package = "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
 
 // MaterializationStatus is the production-run lifecycle.
 enum MaterializationStatus {
@@ -18,6 +18,8 @@ enum MaterializationStatus {
 }
 
 // MaterializedItemKind classifies a generated artifact.
+// MaterializedItemKind is the closed wire set shared with OpenAPI and DB.
+// See curriculum-studio-foundation-crosswalk.md.
 enum MaterializedItemKind {
   MATERIALIZED_ITEM_KIND_UNSPECIFIED = 0;
   MATERIALIZED_ITEM_KIND_LESSON = 1;
@@ -32,6 +34,8 @@ enum MaterializedItemKind {
   MATERIALIZED_ITEM_KIND_ANSWER_KEY = 10;
   MATERIALIZED_ITEM_KIND_MEDIA_PROMPT = 11;
   MATERIALIZED_ITEM_KIND_PRINTABLE_PACKET = 12;
+  MATERIALIZED_ITEM_KIND_ASSIGNMENT = 13;
+  MATERIALIZED_ITEM_KIND_SESSION_SPEC = 14;
 }
 
 // ItemLockState records whether a generated item may be overwritten.

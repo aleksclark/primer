@@ -109,9 +109,10 @@ CREATE TABLE curriculum_studio.materialized_items (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (kind IN (
-        'lesson', 'assignment', 'assessment', 'rubric', 'answer_key',
-        'project_task', 'discussion_guide', 'media_prompt', 'teacher_guide',
-        'worksheet', 'session_spec'
+        'lesson', 'teacher_guide', 'student_instructions', 'practice',
+        'assignment', 'discussion_guide', 'worksheet', 'assessment',
+        'rubric', 'project_task', 'answer_key', 'media_prompt',
+        'printable_packet', 'session_spec'
     )),
     CHECK (title <> ''),
     CHECK (status IN ('draft', 'ready', 'published', 'superseded')),

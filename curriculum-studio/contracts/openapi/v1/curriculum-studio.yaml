@@ -7,12 +7,19 @@ info:
 
     **Contract ownership:** this OpenAPI document is the source of truth for
     authoring REST. Primer and other services consume the gRPC API in
-    `contracts/proto/curriculumstudio/v1/`. Integration payloads
+    `curriculum-studio/contracts/proto/curriculumstudio/v1/`. Integration payloads
     (`MaterializationContext`, `MaterializationBundle`, `DomainEvent`) are
     defined only in protobuf and are not restated here.
 
-    Authentication is a bearer token issued by a separate identity service,
-    or a scoped service credential. Curriculum Studio does not store passwords.
+    Authentication: Primer Identity issues short-lived single-audience JWTs.
+    Callers present `Authorization: Bearer <JWT>` (end state). `X-Service-Token`
+    is a migration-only alias (JWT or legacy static until Identity S7).
+    Curriculum Studio does not store passwords. See
+    agent_docs/plans/curriculum-studio-foundation-crosswalk.md and
+    agent_docs/plans/primer-identity-service-design.md.
+
+    **Contract path:** curriculum-studio/contracts/ (service tree).
+    Integration payloads live only in protobuf under proto/curriculumstudio/v1/.
   license:
     name: Proprietary
 jsonSchemaDialect: https://spec.openapis.org/oas/3.1/dialect/base
@@ -1229,17 +1236,21 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: |
-        Bearer token issued by the separate auth/identity service. Studio
-        validates signature, expiry, and workspace/service scopes. Studio
-        never issues passwords or stores password hashes.
+        End-state credential for humans and services. JWT issued by Primer
+        Identity: short-lived, single audience `aud=curriculum-studio`,
+        verified via Identity JWKS (iss/exp/nbf/kid). Human `sub` maps to
+        `workspace_memberships.subject_ref` as `identity:<uuid>`. Services
+        use `identity:svc:<id>`. Studio never issues passwords or stores
+        password hashes.
     serviceCredential:
       type: apiKey
       in: header
       name: X-Service-Token
       description: |
-        Scoped service credential for machine callers. Also accepted as
-        `Authorization: Bearer` when the token is a service credential
-        (same presentation rule as the LMS SharedSecretGuard).
+        **Migration only** (Identity sunset stage S7). Accept either the same
+        access JWT (discouraged alias for Authorization Bearer) or a legacy
+        static shared secret during dual-run. Not a permanent parallel
+        credential system. Prefer Authorization Bearer JWT.
   parameters:
     Limit:
       name: limit
@@ -2267,11 +2278,13 @@ components:
           format: int32
     MaterializedItemKind:
       type: string
+      description: Closed set shared with protobuf and DB CHECK (crosswalk).
       enum:
         - lesson
         - teacher_guide
         - student_instructions
         - practice
+        - assignment
         - discussion_guide
         - worksheet
         - assessment
@@ -2280,13 +2293,18 @@ components:
         - answer_key
         - media_prompt
         - printable_packet
+        - session_spec
     ItemLockState:
       type: string
       enum: [editable, locked]
+    MaterializedItemStatus:
+      type: string
+      description: Lifecycle status (orthogonal to lockState). DB-aligned.
+      enum: [draft, ready, published, superseded]
     MaterializedItem:
       type: object
       additionalProperties: false
-      required: [id, materializationId, kind, title, lockState]
+      required: [id, materializationId, kind, title, lockState, status]
       properties:
         id:
           type: string
@@ -2300,10 +2318,14 @@ components:
           type: string
         body:
           type: string
+        status:
+          $ref: "#/components/schemas/MaterializedItemStatus"
         lockState:
           $ref: "#/components/schemas/ItemLockState"
+          description: editable|locked maps to DB locked boolean.
         editedBy:
           type: string
+          description: identity:<uuid> subject_ref of last editor.
         editedAt:
           type: string
           format: date-time

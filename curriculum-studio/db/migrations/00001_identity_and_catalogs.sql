@@ -42,7 +42,8 @@ CREATE INDEX idx_studio_workspaces_tenant ON curriculum_studio.workspaces(tenant
 CREATE INDEX idx_studio_workspaces_kind ON curriculum_studio.workspaces(kind);
 
 -- Authorization projections only. No passwords, tokens, or credential hashes.
--- subject_ref is an opaque IdP / Primer / service identity.
+-- subject_ref is opaque text. Canonical Identity humans: identity:<uuid>;
+-- services: identity:svc:<id>. See curriculum-studio-foundation-crosswalk.md.
 CREATE TABLE curriculum_studio.workspace_memberships (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id    UUID NOT NULL REFERENCES curriculum_studio.workspaces(id) ON DELETE CASCADE,
@@ -76,7 +77,7 @@ CREATE TABLE curriculum_studio.integration_identities (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (workspace_id, system, external_kind, external_ref),
-    CHECK (system IN ('primer_lms', 'oidc', 'other')),
+    CHECK (system IN ('primer_lms', 'primer_identity', 'oidc', 'other')),
     CHECK (external_kind IN ('learner', 'educator', 'class', 'auth_subject', 'service')),
     CHECK (external_ref <> ''),
     CHECK (jsonb_typeof(snapshot) = 'object')

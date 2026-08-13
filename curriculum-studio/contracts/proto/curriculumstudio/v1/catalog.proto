@@ -4,7 +4,7 @@ package curriculumstudio.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+option go_package = "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
 
 // StandardSource identifies a standards authority.
 enum StandardSource {

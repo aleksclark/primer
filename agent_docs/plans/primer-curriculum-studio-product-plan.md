@@ -2,6 +2,8 @@
 
 ## Standalone Product and Primer Ecosystem Plan
 
+> **Foundation crosswalk (cite for integration work):** [curriculum-studio-foundation-crosswalk.md](./curriculum-studio-foundation-crosswalk.md) freezes service/DB/auth/contract ownership after the four foundation artifacts were reconciled.
+
 ## Product concept
 
 Build the curriculum planning tool as a standalone **Curriculum Studio**: a planning and lesson-production product for teachers and homeschool parents, with Primer acting as one consumer of its APIs.

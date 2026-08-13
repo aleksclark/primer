@@ -4,7 +4,7 @@ package curriculumstudio.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+option go_package = "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
 
 // Resource identifiers are opaque, prefixed strings (for example ws_, cur_, prev_).
 // They are not LMS database UUIDs.
@@ -61,7 +61,7 @@ message ErrorDetail {
 
 // Actor identifies the principal that issued a mutation. Studio never stores passwords.
 message Actor {
-  // Subject from the identity service token (`sub` claim) or service credential id.
+  // Identity subject. Humans: identity:<uuid> (token sub). Services: identity:svc:<id>.
   string subject = 1;
   // Actor kind.
   ActorKind kind = 2;

@@ -1,8 +1,12 @@
 # Curriculum Studio API contracts
 
-Versioned, design-first contracts for **Curriculum Studio**, a standalone
+Versioned, design-time contracts for **Curriculum Studio**, a standalone
 planning and lesson-production product. Primer LMS consumes Studio through
 these contracts; it does not share a database with Studio.
+
+**Service tree location:** `curriculum-studio/contracts/` (co-located with
+`curriculum-studio/db/`). See
+`agent_docs/plans/curriculum-studio-foundation-crosswalk.md`.
 
 ## Contract ownership
 
@@ -18,6 +22,11 @@ plan (`MaterializationContext`, `MaterializationBundle`, `DomainEvent`) live
 only in protobuf. Authoring REST may expose a *subset* needed by the Studio
 UI (generic learner profile, run status, lock/edit, export, webhook CRUD)
 but must not restate the Primer context/bundle schema.
+
+**Parity rule:** closed enum **wire strings** (statuses, item kinds, event
+type names, error codes) must match across OpenAPI, protobuf (suffix after
+enum prefix), and DB CHECK constraints. Documented in the foundation
+crosswalk.
 
 When a Huma server exists, authoring OpenAPI should be *regenerated from
 handler signatures* and this YAML becomes the compatibility baseline, not a
@@ -38,22 +47,37 @@ contracts. They are not Studio contracts.
 
 ## Authentication
 
-Studio does **not** store passwords or issue login sessions.
+Studio does **not** store passwords or issue login sessions. Primer Identity
+issues credentials; Studio authorizes locally.
 
-- Human callers present a bearer token issued by a separate future
-  auth/identity service (`Authorization: Bearer`).
-- Machine callers present a scoped service credential as
-  `X-Service-Token` or as a bearer token (same presentation rule as the
-  existing LMS `SharedSecretGuard`).
-- Tokens carry workspace and scope claims. Studio authorizes; identity
-  authenticates.
+**End state (required):**
+
+- Humans and services present `Authorization: Bearer <JWT>`.
+- JWT is short-lived, single-audience (`aud=curriculum-studio`), verified
+  locally via Identity JWKS (`iss`, `exp`, `nbf`, `kid`).
+- Human `sub` maps to `workspace_memberships.subject_ref` as
+  `identity:<uuid>`. Service principals use `identity:svc:<id>`.
+- gRPC metadata uses the same `authorization: Bearer <JWT>` scheme only.
+
+**Migration only (sunset with Identity S7):**
+
+- `X-Service-Token: <JWT>` accepted as a discouraged alias for the same
+  access token.
+- `X-Service-Token: <legacy static secret>` accepted only while dual-run
+  metrics show callers still migrating (same temporary pattern as LMS
+  `SharedSecretGuard`).
+
+Studio never treats `X-Service-Token` as a permanent parallel credential
+system. See `agent_docs/plans/primer-identity-service-design.md` and the
+foundation crosswalk.
 
 ## Generated artifact policy
 
 Generated sources are **build outputs and are not committed**:
 
-- `contracts/gen/**` (language stubs)
-- descriptor images produced by `buf build` / `protoc` under `contracts/.tmp/`
+- `curriculum-studio/contracts/gen/**` (language stubs)
+- descriptor images produced by `buf build` / `protoc` under
+  `curriculum-studio/contracts/.tmp/`
 
 Commit only:
 
@@ -68,7 +92,7 @@ clients derived from these files.
 ## Layout
 
 ```text
-contracts/
+curriculum-studio/contracts/
   README.md
   buf.yaml
   buf.gen.yaml
@@ -81,7 +105,7 @@ contracts/
 
 ## Validate offline
 
-From `contracts/`:
+From `curriculum-studio/contracts/`:
 
 ```bash
 ./scripts/validate.sh
@@ -111,7 +135,7 @@ Primer supplies `curriculumstudio.v1.MaterializationContext` and receives
 `CurriculumIntegrationService.Materialize` /
 `CurriculumIntegrationService.GetMaterializationBundle`.
 
-Domain events:
+Domain events (wire strings):
 
 - `curriculum.created`
 - `plan_revision.published`
