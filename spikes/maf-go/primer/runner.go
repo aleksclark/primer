@@ -169,9 +169,9 @@ func (r *Runner) StartChild(ctx context.Context, parentRunID string, child Child
 	if err := AssertNoAuthorityExpansion(r.spec.Tools, child.Tools); err != nil {
 		return nil, err
 	}
-	// Also re-filter by allowlist names for defense in depth.
+	// Fail-closed: empty AllowedTools means no tools (types.go contract).
+	// Child.Tools must be ⊆ FilterToolsFailClosed(parent, allowlist) always.
 	filtered := FilterToolsFailClosed(r.spec.Tools, child.AllowedTools)
-	// Child.Tools should already be filtered; ensure names ⊆ filtered.
 	allowedNames := make(map[string]struct{}, len(filtered))
 	for _, t := range filtered {
 		allowedNames[t.Name()] = struct{}{}
@@ -180,7 +180,7 @@ func (r *Runner) StartChild(ctx context.Context, parentRunID string, child Child
 		if t == nil {
 			continue
 		}
-		if _, ok := allowedNames[t.Name()]; !ok && len(child.AllowedTools) > 0 {
+		if _, ok := allowedNames[t.Name()]; !ok {
 			return nil, fmt.Errorf("start child: tool %q not in allowlist intersection", t.Name())
 		}
 	}

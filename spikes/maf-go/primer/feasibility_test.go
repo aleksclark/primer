@@ -322,6 +322,34 @@ func TestF1_ChildBudgetExhausted(t *testing.T) {
 	}
 }
 
+func TestF1_EmptyAllowlistRejectsTools(t *testing.T) {
+	shared := mustTool(t, "shared_calc")
+	parent := scriptedAgent(t, "O", "p", textUpdate("x"))
+	r := primer.NewRunner(primer.AgentSpec{
+		MaxChildren: 1,
+		MaxDepth:    1,
+		Tools:       []tool.Tool{shared},
+	}, parent, primer.NoopSink{})
+	child := scriptedAgent(t, "C", "c", textUpdate("x"))
+	// Empty AllowedTools means no tools — non-empty child.Tools must fail.
+	_, err := r.StartChild(context.Background(), "r", primer.ChildSpec{
+		Agent:        child,
+		AllowedTools: nil,
+		Tools:        []tool.Tool{shared},
+	})
+	if err == nil || !strings.Contains(err.Error(), "allowlist") {
+		t.Fatalf("err = %v, want allowlist rejection", err)
+	}
+	// Explicit empty allowlist + empty tools OK.
+	if _, err := r.StartChild(context.Background(), "r", primer.ChildSpec{
+		Agent:        child,
+		AllowedTools: nil,
+		Tools:        nil,
+	}); err != nil {
+		t.Fatalf("empty tools should be allowed: %v", err)
+	}
+}
+
 // --- F2 MCP scope ---
 
 func TestF2_MCP_FailClosedFilter(t *testing.T) {
@@ -584,17 +612,20 @@ func TestF4_AGUI_ParentTextOnly_NoChildAttribution(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	s := string(body)
-	// Parent final text present
-	if !strings.Contains(s, "agui-parent") && !strings.Contains(s, "secret-child-delta") {
-		// AG-UI may format differently; require some content
-		t.Logf("AG-UI body: %s", s)
+	// Parent final collected text must appear (stock agenttool Collect path).
+	if !strings.Contains(s, "agui-parent") {
+		t.Fatalf("missing parent marker in AG-UI SSE body: %s", s)
 	}
-	// Child stream deltas are not independently attributed as nested agent events in AG-UI payload
-	// when using stock agenttool — only collected text appears inside parent message.
-	// We assert there is no separate child agent id stream marker for child-id "c".
-	if strings.Count(s, "secret-child-delta") > 1 {
-		// multiple stream chunks of child would be surprising via Collect
-		t.Logf("child text occurrences=%d (Collect usually 1)", strings.Count(s, "secret-child-delta"))
+	if !strings.Contains(s, "secret-child-delta") {
+		t.Fatalf("missing collected child text in AG-UI SSE body: %s", s)
+	}
+	// Collect collapses child stream: expect a single occurrence of child text,
+	// not independent nested child-attributed event kinds.
+	if n := strings.Count(s, "secret-child-delta"); n != 1 {
+		t.Fatalf("secret-child-delta occurrences=%d want 1 (Collect), body=%s", n, s)
+	}
+	if strings.Contains(s, "child_start") || strings.Contains(s, `"agent_type":"math_tutor"`) {
+		t.Fatalf("unexpected nested child attribution in AG-UI body: %s", s)
 	}
 }
 

@@ -63,7 +63,7 @@ events:
   kind=start/text/end agent=Overseer ...
 ```
 
-### Test inventory (16 PASS)
+### Test inventory (17 PASS)
 
 | Test | Maps to |
 |------|---------|
@@ -72,13 +72,14 @@ events:
 | `TestF1_TailoredSubagent_OwnIdentityAndReducedTools` | F1 |
 | `TestF1_UntrustedMaxChildrenZero` | F1 student policy |
 | `TestF1_ChildBudgetExhausted` | F1 budgets |
+| `TestF1_EmptyAllowlistRejectsTools` | F1 fail-closed empty allowlist |
 | `TestF2_MCP_FailClosedFilter` | F2 |
 | `TestF2_MCP_DeniedToolNotInvokedThroughChild` | F2 negative |
 | `TestF5_CancelPropagatesToChildAndMCP` | F5 |
 | `TestF5_SlowSinkDoesNotFailRun` | F5 backpressure |
 | `TestF5_DisconnectedConsumer_RunStillCompletes` | F5 disconnect |
 | `TestF4_PrimerSSE_ParentAndChildAttributed` | F4 Primer SSE |
-| `TestF4_AGUI_ParentTextOnly_NoChildAttribution` | F4 AG-UI baseline |
+| `TestF4_AGUI_ParentTextOnly_NoChildAttribution` | F4 AG-UI baseline (hard asserts) |
 | `TestF6_SingleShotNoSession` | F6 |
 | `TestF6_SessionJSONRoundTrip` | F6 Session JSON |
 | `TestF7_OpenAIProvider_CustomBaseURL_NoRealCredentials` | F7 |
@@ -205,10 +206,21 @@ Adopt MAF Go as a **short-term in-process agent SDK** only if Primer:
 
 If the team prefers zero new preview framework surface and already invests in Fantasy/Charm TUI, a **thin Fantasy wrapper + own MCP** may be cheaper for TUI-only short-term — but MAF wins on provider breadth and MCP/AG-UI batteries for a multi-agent runner service.
 
+## Independent review
+
+Fresh child review @ pre-fix tip `68f558c`: **CHANGES_REQUIRED** (2 Important).
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | `StartChild` skipped allowlist check when `AllowedTools` empty | Always require `child.Tools ⊆ filtered`; `TestF1_EmptyAllowlistRejectsTools` |
+| 2 | F4 AG-UI test only `t.Logf` | Hard `t.Fatalf` on missing parent/collected child text; single Collect occurrence; no nested attribution markers |
+
+Post-fix gates: **17 PASS**, race/vet/build clean → treated as **APPROVED**.
+
 ## Final git state
 
-Filled after commits:
-
 - Branch: `spike/maf-go-feasibility`
-- HEAD: _(see commit after this file lands)_
-- Commits on branch beyond base: plan + spike artifact + this report
+- Base: `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
+- Commits: plan → spike artifact → review fixes
+- HEAD: `91a9e60d2fe90344371db4590df3992b7a713f81`
+- Push/PR: **none** (local only)
