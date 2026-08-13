@@ -1,0 +1,60 @@
+# F0 Curriculum Studio foundations CI (additive placeholder)
+#
+# Runs only the truthful foundation check. Does not replace or lower the
+# existing LMS server coverage gate in go.yml (COVER_MIN 85).
+
+name: curriculum-studio-foundations
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "go.work"
+      - "Makefile"
+      - "scripts/check-f0-foundations.sh"
+      - "scripts/enforce-module-cover.sh"
+      - "scripts/probe-module-cover-gates.sh"
+      - "curriculum-studio/go.mod"
+      - "curriculum-studio/**/*.go"
+      - "primer-identity/go.mod"
+      - "primer-identity/**/*.go"
+      - ".github/workflows/curriculum-studio-foundations.yml"
+  pull_request:
+    paths:
+      - "go.work"
+      - "Makefile"
+      - "scripts/check-f0-foundations.sh"
+      - "scripts/enforce-module-cover.sh"
+      - "scripts/probe-module-cover-gates.sh"
+      - "curriculum-studio/go.mod"
+      - "curriculum-studio/**/*.go"
+      - "primer-identity/go.mod"
+      - "primer-identity/**/*.go"
+      - ".github/workflows/curriculum-studio-foundations.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  foundation-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: curriculum-studio/go.mod
+          cache-dependency-path: |
+            curriculum-studio/go.mod
+            primer-identity/go.mod
+            server/go.sum
+
+      - name: F0 foundation check
+        run: make foundation-check
+
+      - name: Studio module tests
+        run: make studio-test
+
+      - name: Identity module tests
+        run: make identity-test

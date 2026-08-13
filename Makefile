@@ -7,6 +7,9 @@ export
 endif
 
 COVER_MIN := 85
+# Module coverage floors (Identity starts lower; Studio matches root COVER_MIN).
+STUDIO_COVER_MIN := 85
+IDENTITY_COVER_MIN := 80
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
@@ -14,7 +17,12 @@ COVER_MIN := 85
 	activity-validate activity-publish student-build student-deploy student-acceptance \
 	student-stub student-harness \
 	workstation-package workstation-check update-student-vendor-hash \
-	investor-web investor-web-dev investor-web-test investor-web-ci
+	investor-web investor-web-dev investor-web-test investor-web-ci \
+	foundation-check \
+	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
+	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
+	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
+	identity-e2e dev-db-identity migrate-identity
 
 all: build openapi openapi-tv client tv-client
 
@@ -228,3 +236,96 @@ workstation-check:
 ## Recompute packages/primer-student.nix vendorHash after go.mod changes.
 update-student-vendor-hash:
 	./workstation/scripts/update-primer-student-vendor-hash.sh
+
+# =============================================================================
+# Curriculum Studio + Primer Identity foundations (delivery wave F0)
+# Honest targets only: compile/test where modules exist; clear deferral otherwise.
+# Binaries, migrations, coverage floors, OpenAPI clients, and E2E are owned by
+# later S1/I1+ waves — do not claim them green here.
+# =============================================================================
+
+## Mechanical F0 foundation check (module paths, go.work, Make names, no coupling).
+foundation-check:
+	./scripts/check-f0-foundations.sh
+
+## Studio module unit/package tests (minimal F0 root; no business coverage claim).
+studio-test:
+	cd curriculum-studio && go test ./...
+
+## Studio binary build — deferred until cmd/studio-server exists (S1).
+studio-build:
+	@if [ -d curriculum-studio/cmd/studio-server ]; then \
+		cd curriculum-studio && go build -o ../bin/studio-server ./cmd/studio-server; \
+	else \
+		echo "studio-build: deferred until curriculum-studio/cmd/studio-server exists (S1)"; \
+		exit 2; \
+	fi
+
+## Studio coverage gate (≥85%) — deferred until internal packages exist.
+studio-cover:
+	@./scripts/enforce-module-cover.sh curriculum-studio $(STUDIO_COVER_MIN) studio
+
+## Studio OpenAPI emission — deferred until cmd/openapi-gen exists.
+studio-openapi:
+	@echo "studio-openapi: deferred until Studio OpenAPI generator exists (S*/C*)"; exit 2
+
+## Studio TS client codegen — deferred until OpenAPI + web surface exist.
+studio-client:
+	@echo "studio-client: deferred until Studio OpenAPI client pipeline exists (C*/S9)"; exit 2
+
+## Studio SPA build — deferred until web surface exists.
+studio-web:
+	@echo "studio-web: deferred until Studio SPA exists (S9–S10)"; exit 2
+
+## Studio process/UI E2E — deferred.
+studio-e2e:
+	@echo "studio-e2e: deferred until Studio E2E harness exists"; exit 2
+
+## Studio Go process E2E — deferred.
+studio-e2e-go:
+	@echo "studio-e2e-go: deferred until Studio Go E2E harness exists"; exit 2
+
+## Create Studio dev database — deferred (no hollow compose/DB claim in F0).
+dev-db-studio:
+	@echo "dev-db-studio: deferred — no additive compose surface in F0; use S1/D1 for curriculum_studio DB"; exit 2
+
+## Apply Studio migrations — deferred until migrator exists (D1/S1).
+migrate-studio:
+	@echo "migrate-studio: deferred until Studio migrator exists (D1/S1)"; exit 2
+
+## Identity module unit/package tests (minimal F0 root; no business coverage claim).
+identity-test:
+	cd primer-identity && go test ./...
+
+## Identity binary build — deferred until cmd/identity-server exists (I1).
+identity-build:
+	@if [ -d primer-identity/cmd/identity-server ]; then \
+		cd primer-identity && go build -o ../bin/identity-server ./cmd/identity-server; \
+	else \
+		echo "identity-build: deferred until primer-identity/cmd/identity-server exists (I1)"; \
+		exit 2; \
+	fi
+
+## Identity coverage gate (≥80%) — deferred until internal packages exist (I1+; raise later).
+identity-cover:
+	@./scripts/enforce-module-cover.sh primer-identity $(IDENTITY_COVER_MIN) identity
+
+## Identity OpenAPI emission — deferred.
+identity-openapi:
+	@echo "identity-openapi: deferred until Identity OpenAPI generator exists (I1+)"; exit 2
+
+## Identity OAuth adversarial suite — deferred until OAuth packages exist (I4+).
+identity-test-oauth:
+	@echo "identity-test-oauth: deferred until Identity OAuth packages exist (I4+)"; exit 2
+
+## Identity process E2E — deferred.
+identity-e2e:
+	@echo "identity-e2e: deferred until Identity E2E harness exists"; exit 2
+
+## Create Identity dev database — deferred (no hollow compose/DB claim in F0).
+dev-db-identity:
+	@echo "dev-db-identity: deferred — no additive compose surface in F0; use I1 for primer_identity DB"; exit 2
+
+## Apply Identity migrations — deferred until migrator exists (I1).
+migrate-identity:
+	@echo "migrate-identity: deferred until Identity migrator exists (I1)"; exit 2
