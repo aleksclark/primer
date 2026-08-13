@@ -254,7 +254,7 @@ button {
 }
 
 .site-header__brand img {
-  height: 28px;
+  height: 56px;
   width: auto;
 }
 
@@ -297,6 +297,16 @@ button {
   align-items: center;
   gap: var(--primer-space-3);
   flex-shrink: 0;
+}
+
+.site-header__actions .site-header__cta {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .site-header__actions .site-header__cta {
+    display: inline-flex;
+  }
 }
 
 .site-header__menu-toggle {
