@@ -59,6 +59,9 @@ type DownloadOpts struct {
 	// ExcludeLive when non-nil false allows explicit /streams URLs.
 	// Nil or true rejects explicit /streams tab URLs.
 	ExcludeLive *bool
+	// AllowPastLive, when true, keeps completed past streams (was_live)
+	// while still rejecting currently live/upcoming videos.
+	AllowPastLive bool
 	// MatchFilter overrides the computed default when non-empty.
 	MatchFilter string
 	// ShowTitle is used by FinalizeStaging after download (optional here).
@@ -95,18 +98,23 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 	if opts.ArchivePath == "" {
 		opts.ArchivePath = PerShowArchivePath(opts.OutputDir, opts.Slug)
 	}
+	persistentArchive := opts.ArchivePath
 	if err := os.MkdirAll(opts.OutputDir, 0o755); err != nil {
 		return fmt.Errorf("ytdlp: create output dir: %w", err)
-	}
-	if opts.ArchivePath != "" {
-		if err := os.MkdirAll(filepath.Dir(opts.ArchivePath), 0o755); err != nil {
-			return fmt.Errorf("ytdlp: create archive dir: %w", err)
-		}
 	}
 	// Ensure staging dir exists.
 	if err := os.MkdirAll(StagingDir(opts.OutputDir, opts.Slug), 0o755); err != nil {
 		return fmt.Errorf("ytdlp: create staging dir: %w", err)
 	}
+
+	// yt-dlp appends IDs as soon as a file is downloaded. Pass only a
+	// run-temporary archive so a failed finalize cannot permanently suppress retries.
+	runArchive, cleanup, err := seedRunArchive(persistentArchive)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	opts.ArchivePath = runArchive
 
 	args := BuildArgs(opts)
 	cmd := exec.CommandContext(ctx, binary, args...)
@@ -117,14 +125,49 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 		return fmt.Errorf("ytdlp: download failed: %w", err)
 	}
 	if !opts.SkipFinalize {
-		_, _ = FinalizeStaging(FinalizeOpts{
-			OutputDir:   opts.OutputDir,
-			Slug:        opts.Slug,
-			ShowTitle:   opts.ShowTitle,
-			MinDuration: effectiveMinDuration(opts.MinDurationSeconds),
-		})
+		if _, err := FinalizeStaging(FinalizeOpts{
+			OutputDir:     opts.OutputDir,
+			Slug:          opts.Slug,
+			ShowTitle:     opts.ShowTitle,
+			MinDuration:   effectiveMinDuration(opts.MinDurationSeconds),
+			AllowPastLive: opts.AllowPastLive,
+		}); err != nil {
+			return fmt.Errorf("ytdlp: finalize: %w", err)
+		}
 	}
 	return nil
+}
+
+// seedRunArchive copies the persistent per-show archive into a sibling temp
+// file so yt-dlp still skips known IDs without mutating the durable ledger.
+// The returned cleanup always removes the temp (best-effort). Errors never
+// include filesystem paths.
+func seedRunArchive(persistent string) (string, func(), error) {
+	noop := func() {}
+	if persistent == "" {
+		return "", noop, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(persistent), 0o755); err != nil {
+		return "", noop, fmt.Errorf("ytdlp: create archive dir: %w", err)
+	}
+	f, err := os.CreateTemp(filepath.Dir(persistent), ".ytdlp-archive-run-*.txt")
+	if err != nil {
+		return "", noop, fmt.Errorf("ytdlp: create run archive: %w", err)
+	}
+	runPath := f.Name()
+	cleanup := func() { _ = os.Remove(runPath) }
+	if existing, rerr := os.ReadFile(persistent); rerr == nil && len(existing) > 0 {
+		if _, werr := f.Write(existing); werr != nil {
+			_ = f.Close()
+			cleanup()
+			return "", noop, fmt.Errorf("ytdlp: seed run archive: %w", werr)
+		}
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("ytdlp: close run archive: %w", err)
+	}
+	return runPath, cleanup, nil
 }
 
 // BuildArgs constructs the yt-dlp argv (without the binary). Exported for tests.
@@ -173,14 +216,16 @@ func BuildArgs(opts DownloadOpts) []string {
 // opts may be nil.
 func DefaultMatchFilter(opts *DownloadOpts) string {
 	minDur := DefaultMinDurationSeconds
+	allowPastLive := false
 	if opts != nil {
 		minDur = effectiveMinDuration(opts.MinDurationSeconds)
+		allowPastLive = opts.AllowPastLive
 	}
-	parts := []string{
-		"!is_live",
-		"!was_live",
-		"live_status!=is_upcoming",
+	parts := []string{"!is_live"}
+	if !allowPastLive {
+		parts = append(parts, "!was_live")
 	}
+	parts = append(parts, "live_status!=is_upcoming")
 	if minDur >= 0 {
 		parts = append(parts, "duration>"+strconv.Itoa(minDur))
 	}

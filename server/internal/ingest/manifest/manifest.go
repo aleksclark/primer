@@ -156,6 +156,9 @@ func (m *Manifest) Validate() error {
 		if err := ValidatePlaylists(it); err != nil {
 			return err
 		}
+		if err := validateMinDuration(it); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -302,11 +305,19 @@ func OverrideFor(it Item, youtubeID string) *VideoOverride {
 }
 
 // EffectiveMinDuration returns Filters.MinDurationSeconds, or DefaultMinDurationSeconds when unset (0).
+// -1 disables the duration floor (explicit shorts). Other negatives are rejected by Validate.
 func EffectiveMinDuration(f Filters) int {
-	if f.MinDurationSeconds <= 0 {
+	if f.MinDurationSeconds == 0 {
 		return DefaultMinDurationSeconds
 	}
 	return f.MinDurationSeconds
+}
+
+func validateMinDuration(it Item) error {
+	if it.Filters.MinDurationSeconds < -1 {
+		return fmt.Errorf("item %q: filters.min_duration_seconds must be -1 or nonnegative", it.ID)
+	}
+	return nil
 }
 
 // EffectiveExcludeShorts returns the exclude_shorts setting; nil pointer defaults to true.

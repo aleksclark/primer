@@ -29,6 +29,7 @@
 - Episode ordinals: per-slug `.primer-index.json`. First-seen by `upload_date` then `id`, `S01E{nnn}`. Never `playlist_index`.
 - Mark Rober: three slugs. `mark-rober` `/videos` 130 `mixed`; `mark-rober-science-class` `/streams` 8 `educational`; `mark-rober-shorts` `/shorts` 128 `mixed`. Official `UCY1kMZp36IQSyNx_9h4mpCg`.
 - Explicit `/shorts` or `/streams` allowed only with `exclude_shorts=false` or `exclude_live=false`.
+- W10 three-slug filters (do **not** add live YAML before Gate A): `mark-rober` defaults; `mark-rober-science-class` `exclude_live: false` (completed past streams only); `mark-rober-shorts` `exclude_shorts: false` + `min_duration_seconds: -1`. `-1` is the only allowed negative duration.
 - YouTube `present` must still run yt-dlp. `failed` stays operator-gated.
 - Schema `00003_youtube_identity.sql`: `youtube_video_id` UNIQUE+format, `manifest_slug`, `episode_key`, `upload_date`, `title_locked`, `overview_locked`, `classification_locked`.
 - Delete poison `{OutputDir}/tvshow.nfo` only. Never write show NFO at Primer root.

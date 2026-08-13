@@ -179,7 +179,15 @@ func TestExecRunner_ArgvDumpStub(t *testing.T) {
 	assert.Contains(t, lines, "--js-runtimes")
 	assert.Contains(t, lines, "node")
 	assert.Contains(t, lines, "--download-archive")
-	assert.Contains(t, lines, archive)
+	var usedArchive string
+	for i, l := range lines {
+		if l == "--download-archive" && i+1 < len(lines) {
+			usedArchive = lines[i+1]
+		}
+	}
+	require.NotEmpty(t, usedArchive)
+	assert.NotEqual(t, archive, usedArchive, "yt-dlp must receive the run-temp archive, not the persistent file")
+	assert.Contains(t, usedArchive, ".ytdlp-archive-run-")
 	// staging -o
 	foundO := false
 	for i, l := range lines {
@@ -337,4 +345,115 @@ func TestDefaultMatchFilter(t *testing.T) {
 	assert.Contains(t, mf, "!was_live")
 	assert.Contains(t, mf, "live_status!=is_upcoming")
 	assert.Contains(t, mf, "duration>59")
+}
+
+func TestDefaultMatchFilter_AllowPastLiveOmitsWasLive(t *testing.T) {
+	t.Parallel()
+	mf := ytdlp.DefaultMatchFilter(&ytdlp.DownloadOpts{AllowPastLive: true})
+	assert.Contains(t, mf, "!is_live")
+	assert.Contains(t, mf, "live_status!=is_upcoming")
+	assert.NotContains(t, mf, "!was_live")
+	assert.Contains(t, mf, "duration>59")
+}
+
+func TestDefaultMatchFilter_NegativeDurationDisablesFloor(t *testing.T) {
+	t.Parallel()
+	mf := ytdlp.DefaultMatchFilter(&ytdlp.DownloadOpts{MinDurationSeconds: -1})
+	assert.Contains(t, mf, "!is_live")
+	assert.NotContains(t, mf, "duration>")
+}
+
+func TestFinalizeStaging_AllowsPastLiveWhenConfigured(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	slug := "mark-rober-science-class"
+	staging := ytdlp.StagingDir(dir, slug)
+	require.NoError(t, os.MkdirAll(staging, 0o755))
+
+	id := "pastliveid1"
+	stem := slug + " - Science Class [" + id + "]"
+	require.NoError(t, os.WriteFile(filepath.Join(staging, stem+".mkv"), []byte("video"), 0o644))
+	infoObj := map[string]any{
+		"id":          id,
+		"title":       "Science Class",
+		"upload_date": "20220101",
+		"duration":    2400.0,
+		"was_live":    true,
+		"live_status": "was_live",
+	}
+	raw, err := json.Marshal(infoObj)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(staging, stem+".info.json"), raw, 0o644))
+
+	res, err := ytdlp.FinalizeStaging(ytdlp.FinalizeOpts{
+		OutputDir:     dir,
+		Slug:          slug,
+		ShowTitle:     "Mark Rober Science Class",
+		Now:           time.Now().UTC(),
+		MinDuration:   59,
+		AllowPastLive: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, id, res[0].ID)
+}
+
+func TestFinalizeStaging_StillRejectsLiveAndUpcomingWhenAllowPastLive(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	slug := "x"
+	staging := ytdlp.StagingDir(dir, slug)
+	require.NoError(t, os.MkdirAll(staging, 0o755))
+
+	writeInfo := func(id string, extra map[string]any) {
+		stem := "x - t [" + id + "]"
+		require.NoError(t, os.WriteFile(filepath.Join(staging, stem+".mkv"), []byte("v"), 0o644))
+		m := map[string]any{"id": id, "title": "t", "upload_date": "20200101", "duration": 600.0}
+		for k, v := range extra {
+			m[k] = v
+		}
+		b, err := json.Marshal(m)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(staging, stem+".info.json"), b, 0o644))
+	}
+	writeInfo("nowlivevide", map[string]any{"is_live": true, "live_status": "is_live"})
+	writeInfo("upcomingvid", map[string]any{"live_status": "is_upcoming"})
+
+	res, err := ytdlp.FinalizeStaging(ytdlp.FinalizeOpts{
+		OutputDir: dir, Slug: slug, ShowTitle: "X", Now: time.Now().UTC(),
+		MinDuration: 59, AllowPastLive: true,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, res)
+}
+
+func TestFinalizeStaging_AllowsShortWhenDurationDisabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	slug := "mark-rober-shorts"
+	staging := ytdlp.StagingDir(dir, slug)
+	require.NoError(t, os.MkdirAll(staging, 0o755))
+
+	id := "shortclip01"
+	stem := slug + " - Tiny [" + id + "]"
+	require.NoError(t, os.WriteFile(filepath.Join(staging, stem+".mkv"), []byte("v"), 0o644))
+	infoObj := map[string]any{
+		"id":          id,
+		"title":       "Tiny",
+		"upload_date": "20230101",
+		"duration":    30.0,
+		"was_live":    false,
+		"live_status": "not_live",
+	}
+	raw, err := json.Marshal(infoObj)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(staging, stem+".info.json"), raw, 0o644))
+
+	res, err := ytdlp.FinalizeStaging(ytdlp.FinalizeOpts{
+		OutputDir: dir, Slug: slug, ShowTitle: "Mark Rober Shorts",
+		Now: time.Now().UTC(), MinDuration: -1,
+	})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, id, res[0].ID)
 }

@@ -129,10 +129,10 @@ Failure (bot/challenge): fix cookies path + node runtime before any MR YAML or b
 - **Protect** the source 1779 archive; never delete `/mnt/moosefs/media/Shows`.
 - **No schedule / VOD** mutations from ingest.
 - Mark Rober later: three slugs only —
-  `mark-rober` (`/videos`, 130, mixed),
-  `mark-rober-science-class` (`/streams`, 8, educational),
-  `mark-rober-shorts` (`/shorts`, 128, mixed). Official channel
-  `UCY1kMZp36IQSyNx_9h4mpCg`. One-slug canary before bulk.
+  `mark-rober` (`/videos`, 130, mixed, default filters),
+  `mark-rober-science-class` (`/streams`, 8, educational, `exclude_live: false`),
+  `mark-rober-shorts` (`/shorts`, 128, mixed, `exclude_shorts: false`, `min_duration_seconds: -1`). Official channel
+  `UCY1kMZp36IQSyNx_9h4mpCg`. One-slug canary before bulk. Do not add live YAML before Gate A.
 
 ## Related paths
 

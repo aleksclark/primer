@@ -180,6 +180,9 @@ func TestDefaultFilterEffectiveValues(t *testing.T) {
 	f := manifest.Filters{MinDurationSeconds: min}
 	assert.Equal(t, 120, manifest.EffectiveMinDuration(f))
 
+	// -1 disables duration filter (explicit shorts)
+	assert.Equal(t, -1, manifest.EffectiveMinDuration(manifest.Filters{MinDurationSeconds: -1}))
+
 	// pointer false → opt out
 	fFalse := false
 	fTrue := true
@@ -187,6 +190,74 @@ func TestDefaultFilterEffectiveValues(t *testing.T) {
 	assert.False(t, manifest.EffectiveExcludeLive(manifest.Filters{ExcludeLive: &fFalse}))
 	assert.True(t, manifest.EffectiveExcludeShorts(manifest.Filters{ExcludeShorts: &fTrue}))
 	assert.True(t, manifest.EffectiveExcludeLive(manifest.Filters{ExcludeLive: &fTrue}))
+}
+
+func TestValidateMinDurationSeconds(t *testing.T) {
+	t.Parallel()
+	base := func(min int) *manifest.Manifest {
+		return &manifest.Manifest{Items: []manifest.Item{{
+			ID: "yt", Title: "YT", Kind: manifest.KindYouTubeChannel,
+			URL: "https://www.youtube.com/@x", Class: manifest.ClassMixed,
+			Filters: manifest.Filters{MinDurationSeconds: min},
+		}}}
+	}
+	require.NoError(t, base(0).Validate())
+	require.NoError(t, base(-1).Validate())
+	require.NoError(t, base(60).Validate())
+	err := base(-2).Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "min_duration_seconds")
+}
+
+func TestW10MarkRoberThreeSlugFiltersExpressible(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifest.yaml")
+	yaml := `
+items:
+  - id: mark-rober
+    title: "Mark Rober"
+    kind: youtube_channel
+    url: https://www.youtube.com/@MarkRober/videos
+    class: mixed
+  - id: mark-rober-science-class
+    title: "Mark Rober Science Class"
+    kind: youtube_channel
+    url: https://www.youtube.com/@MarkRober/streams
+    class: educational
+    filters:
+      exclude_live: false
+  - id: mark-rober-shorts
+    title: "Mark Rober Shorts"
+    kind: youtube_channel
+    url: https://www.youtube.com/@MarkRober/shorts
+    class: mixed
+    filters:
+      exclude_shorts: false
+      min_duration_seconds: -1
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
+	m, err := manifest.Load(path)
+	require.NoError(t, err)
+
+	videos := m.ByID("mark-rober")
+	require.NotNil(t, videos)
+	assert.Equal(t, 60, manifest.EffectiveMinDuration(videos.Filters))
+	assert.True(t, manifest.EffectiveExcludeShorts(videos.Filters))
+	assert.True(t, manifest.EffectiveExcludeLive(videos.Filters))
+
+	streams := m.ByID("mark-rober-science-class")
+	require.NotNil(t, streams)
+	require.NotNil(t, streams.Filters.ExcludeLive)
+	assert.False(t, *streams.Filters.ExcludeLive)
+	assert.False(t, manifest.EffectiveExcludeLive(streams.Filters))
+
+	shorts := m.ByID("mark-rober-shorts")
+	require.NotNil(t, shorts)
+	require.NotNil(t, shorts.Filters.ExcludeShorts)
+	assert.False(t, *shorts.Filters.ExcludeShorts)
+	assert.Equal(t, -1, shorts.Filters.MinDurationSeconds)
+	assert.Equal(t, -1, manifest.EffectiveMinDuration(shorts.Filters))
 }
 
 func TestPlaylistFilterHelpers(t *testing.T) {

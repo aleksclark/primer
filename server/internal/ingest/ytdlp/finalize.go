@@ -11,12 +11,13 @@ import (
 
 // FinalizeOpts configures FinalizeStaging.
 type FinalizeOpts struct {
-	OutputDir   string
-	Slug        string
-	ShowTitle   string
-	ChannelID   string
-	Now         time.Time
-	MinDuration int // seconds; 0 => DefaultMinDurationSeconds; negative disables
+	OutputDir     string
+	Slug          string
+	ShowTitle     string
+	ChannelID     string
+	Now           time.Time
+	MinDuration   int // seconds; 0 => DefaultMinDurationSeconds; negative disables
+	AllowPastLive bool
 }
 
 // FinalizedEpisode is one successfully renamed staging item.
@@ -98,7 +99,7 @@ func FinalizeStaging(opts FinalizeOpts) ([]FinalizedEpisode, error) {
 		if err := json.Unmarshal(raw, &info); err != nil {
 			continue
 		}
-		if rejectInfo(info, minDur) {
+		if rejectInfo(info, minDur, opts.AllowPastLive) {
 			continue
 		}
 		base := strings.TrimSuffix(infoPath, ".info.json")
@@ -181,19 +182,23 @@ func FinalizeStaging(opts FinalizeOpts) ([]FinalizedEpisode, error) {
 	return out, nil
 }
 
-func rejectInfo(info infoJSON, minDur int) bool {
+func rejectInfo(info infoJSON, minDur int, allowPastLive bool) bool {
 	if info.ID == "" || !youtubeIDRe.MatchString(info.ID) {
 		return true
 	}
-	if info.IsLive || info.WasLive {
+	if info.IsLive {
+		return true
+	}
+	if info.WasLive && !allowPastLive {
 		return true
 	}
 	switch info.LiveStatus {
-	case "is_live", "is_upcoming", "post_live":
+	case "is_live", "is_upcoming":
 		return true
-	}
-	if minDur >= 0 && info.Duration > 0 && info.Duration < float64(minDur) {
-		return true
+	case "post_live":
+		if !allowPastLive {
+			return true
+		}
 	}
 	// duration missing (0) with minDur set: still allow if yt-dlp wrote a file;
 	// match-filter usually prevents this. Reject only when duration known and short.

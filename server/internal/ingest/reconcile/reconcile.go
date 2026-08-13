@@ -572,6 +572,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				MinDurationSeconds: manifest.EffectiveMinDuration(it.Filters),
 				ExcludeShorts:      &excludeShorts,
 				ExcludeLive:        &excludeLive,
+				AllowPastLive:      !excludeLive,
 				ShowTitle:          it.Title,
 			}
 			if err := e.deps.YtDlp.Download(ctx, dlOpts); err != nil {

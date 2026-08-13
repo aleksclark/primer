@@ -228,6 +228,61 @@ func TestYouTubeAcquireWiresPerShowArchiveCookiesAndCleanup(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "CleanupShowDir must run before download")
 }
 
+func TestYouTubeAcquireWiresPastLiveAndDisabledDuration(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "media")
+	yt := &ytdlp.FakeRunner{}
+	eng := reconcile.New(reconcile.Deps{
+		YtDlp: yt, TV: tvclient.NewFake(),
+		YtDlpOutputDir: out,
+		ReportDir:      filepath.Join(dir, "reports"),
+	})
+	exOff := false
+	m := &manifest.Manifest{Items: []manifest.Item{
+		{
+			ID: "mark-rober-science-class", Title: "Mark Rober Science Class",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@MarkRober/streams",
+			Class:   manifest.ClassEducational,
+			Filters: manifest.Filters{ExcludeLive: &exOff},
+		},
+		{
+			ID: "mark-rober-shorts", Title: "Mark Rober Shorts",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@MarkRober/shorts",
+			Class: manifest.ClassMixed,
+			Filters: manifest.Filters{
+				ExcludeShorts:      &exOff,
+				MinDurationSeconds: -1,
+			},
+		},
+	}}
+	_, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipSync: true, SkipImport: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, yt.Calls, 2)
+
+	var streams, shorts ytdlp.DownloadOpts
+	for _, c := range yt.Calls {
+		switch c.Slug {
+		case "mark-rober-science-class":
+			streams = c
+		case "mark-rober-shorts":
+			shorts = c
+		}
+	}
+	require.Equal(t, "https://www.youtube.com/@MarkRober/streams", streams.URL)
+	require.NotNil(t, streams.ExcludeLive)
+	assert.False(t, *streams.ExcludeLive)
+	assert.True(t, streams.AllowPastLive)
+
+	require.Equal(t, "https://www.youtube.com/@MarkRober/shorts", shorts.URL)
+	require.NotNil(t, shorts.ExcludeShorts)
+	assert.False(t, *shorts.ExcludeShorts)
+	assert.Equal(t, -1, shorts.MinDurationSeconds)
+	assert.False(t, shorts.AllowPastLive)
+}
+
 func TestYouTubeUnresolvedPlaylistFailsClosed(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
