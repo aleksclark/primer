@@ -955,7 +955,7 @@ func TestF5_SSEBridge_SlowWriterDoesNotBlockRunner(t *testing.T) {
 
 func TestF5_SSEBridge_CancelTerminatesWriter(t *testing.T) {
 	bridge := primer.NewSSEBridge(8)
-	// Keep channel open with no close yet; cancel should end WriteTo.
+	// Keep channel open with no close yet; stream-ctx cancel should end WriteTo promptly.
 	ctx, cancel := context.WithCancel(context.Background())
 	bw := newBlockingWriter(0) // never blocks (blockAt=0 means n==0 never)
 	// Fix: blockAt=0 never triggers; use large blockAt.
@@ -968,11 +968,15 @@ func TestF5_SSEBridge_CancelTerminatesWriter(t *testing.T) {
 	}()
 	// Emit one event so writer is alive.
 	bridge.Emit(context.Background(), primer.RunEvent{Kind: primer.KindText, Text: "x", RunID: "r"})
+	// Queue more events after cancel path to prove residual drop without write drain hang.
+	for i := 0; i < 4; i++ {
+		bridge.Emit(context.Background(), primer.RunEvent{Kind: primer.KindText, Text: fmt.Sprintf("q%d", i), RunID: "r"})
+	}
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("writer did not terminate on cancel")
+		t.Fatal("writer did not terminate on stream cancel")
 	}
 	bridge.Close()
 	select {
@@ -982,11 +986,84 @@ func TestF5_SSEBridge_CancelTerminatesWriter(t *testing.T) {
 	}
 }
 
+// TestF5_SSEBridge_ConcurrentEmitClose_NoPanic proves Emit/Close are race-safe:
+// no send-on-closed-channel panic, no deadlock, under -race.
+// Avoid recover-as-success: the test process must not crash; failures surface as panic.
+func TestF5_SSEBridge_ConcurrentEmitClose_NoPanic(t *testing.T) {
+	const (
+		rounds    = 200
+		emitters  = 8
+		eventsEach = 50
+	)
+	var wg sync.WaitGroup
+	for round := 0; round < rounds; round++ {
+		bridge := primer.NewSSEBridge(4)
+		// Drain consumer (may exit mid-round via Close).
+		drainDone := make(chan struct{})
+		go func(b *primer.SSEBridge) {
+			defer close(drainDone)
+			// Use a throwaway writer that never blocks.
+			bw := newBlockingWriter(9999)
+			// Background stream ctx never cancels; Close ends the channel.
+			b.WriteTo(context.Background(), bw, bw)
+		}(bridge)
+
+		wg.Add(emitters + 1)
+		// Closers race with emitters.
+		go func(b *primer.SSEBridge) {
+			defer wg.Done()
+			// Stagger close slightly so some emits land before/after.
+			time.Sleep(time.Duration(round%3) * time.Microsecond)
+			b.Close()
+			// Double-close must be safe.
+			b.Close()
+		}(bridge)
+
+		for e := 0; e < emitters; e++ {
+			go func(b *primer.SSEBridge, id int) {
+				defer wg.Done()
+				for i := 0; i < eventsEach; i++ {
+					b.Emit(context.Background(), primer.RunEvent{
+						Kind:  primer.KindText,
+						Text:  fmt.Sprintf("e%d-%d", id, i),
+						RunID: "race",
+					})
+				}
+			}(bridge, e)
+		}
+		wg.Wait()
+		// Ensure Close eventually happens if closer was slow (already called).
+		bridge.Close()
+		select {
+		case <-drainDone:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("round %d: writer/drain deadlock", round)
+		}
+		select {
+		case <-bridge.WriteDone():
+		case <-time.After(time.Second):
+			t.Fatalf("round %d: WriteDone not closed", round)
+		}
+	}
+}
+
+// TestF5_SSEHandler_HTTPDisconnect_RunCompletes is the load-bearing two-context proof:
+// client disconnect cancels stream writer only; runtime-owned run continues to KindEnd
+// with after-disconnect text; no writer/run goroutine leak.
 func TestF5_SSEHandler_HTTPDisconnect_RunCompletes(t *testing.T) {
-	// Full HTTP path: client reads one event then disconnects; agent still finishes.
 	started := make(chan struct{})
 	var startedOnce sync.Once
-	hold := make(chan struct{}) // released after client disconnect
+	// hold keeps the provider in-flight until AFTER client disconnect is observed.
+	hold := make(chan struct{})
+	// runSawCancel must stay false: disconnect must NOT cancel runCtx.
+	var runSawCancel atomic.Bool
+	// final text must be produced after disconnect.
+	var producedAfter atomic.Bool
+	// Barriers / completion hooks from SSEHandler.
+	runEnded := make(chan error, 1)
+	var runHandle atomic.Pointer[primer.RunHandle]
+	writerExited := make(chan struct{})
+	var writerOnce sync.Once
 
 	parentProv := &primer.ScriptedProvider{
 		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
@@ -997,64 +1074,267 @@ func TestF5_SSEHandler_HTTPDisconnect_RunCompletes(t *testing.T) {
 				startedOnce.Do(func() { close(started) })
 				select {
 				case <-hold:
+					// Released only after client disconnect + writer exit proof path.
 				case <-ctx.Done():
+					// If this fires on mere subscriber loss, two-context split is broken.
+					runSawCancel.Store(true)
 					yield(nil, ctx.Err())
 					return
 				}
-				yield(textUpdate("after-disconnect"), nil)
+				// Still running after disconnect: emit final completion token.
+				producedAfter.Store(true)
+				if !yield(textUpdate("after-disconnect"), nil) {
+					return
+				}
 			}
 		},
 	}
 	parent := primer.NewScriptedAgent(agent.Config{ID: "p", Name: "P"}, parentProv)
+
+	// Capture KindEnd via a side sink is not available on SSEHandler; use OnRunEnd +
+	// bridge observation through a custom ExtraOptions no-op. Instead, wrap via OnRunEnd
+	// and a collecting side-channel by monkeying BuildChildTool-less path: we assert
+	// OnRunEnd err==nil and producedAfter + !runSawCancel.
 	h := &primer.SSEHandler{
 		Agent:          parent,
 		AgentType:      "overseer",
 		BridgeCapacity: 8,
+		RunBudget:      10 * time.Second,
+		OnRunStart: func(rh *primer.RunHandle) {
+			runHandle.Store(rh)
+		},
+		OnRunEnd: func(err error) {
+			runEnded <- err
+		},
 	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
 
-	// Manual dial so we can close early.
-	req, _ := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{"text":"hi"}`))
+	// Real TCP listener so Body.Close cancels only the request/stream context.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: h}
+	go srv.Serve(ln) //nolint:errcheck
+	defer srv.Close()
+	url := "http://" + ln.Addr().String()
+
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	reader := bufio.NewReader(resp.Body)
-	// Read until we see first-wire (or any data event).
-	gotFirst := false
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && !gotFirst {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			break
+
+	// Read until first-wire is on the wire.
+	var gotFirst atomic.Bool
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				readErr <- err
+				return
+			}
+			if strings.Contains(line, "first-wire") {
+				gotFirst.Store(true)
+				// Keep reading until disconnect closes the body.
+			}
 		}
-		if strings.Contains(line, "first-wire") {
-			gotFirst = true
-		}
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("provider never started")
 	}
-	if !gotFirst {
-		// May still be ok if event is in data line we partially read — require started gate.
-		select {
-		case <-started:
-			gotFirst = true
-		case <-time.After(2 * time.Second):
-			t.Fatal("never saw first event / start")
-		}
+	// Wait briefly for first event to flush.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !gotFirst.Load() {
+		time.Sleep(5 * time.Millisecond)
 	}
-	// Disconnect client.
+	if !gotFirst.Load() {
+		t.Fatal("first-wire never observed on stream before disconnect")
+	}
+
+	// Disconnect client → cancels stream/request ctx only.
 	_ = resp.Body.Close()
 
-	// Release provider to finish; run must complete (httptest will cancel req ctx on body close).
+	// Stream reader should observe EOF/error promptly (writer exits on stream cancel).
+	select {
+	case <-readErr:
+		writerOnce.Do(func() { close(writerExited) })
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream reader did not exit after client disconnect (writer leak?)")
+	}
+
+	// Run handle must still be alive (not canceled by disconnect).
+	rh := runHandle.Load()
+	if rh == nil {
+		t.Fatal("OnRunStart never fired")
+	}
+	if rh.Err() != nil {
+		t.Fatalf("run handle canceled by disconnect: %v", rh.Err())
+	}
+
+	// Release provider; run must complete successfully AFTER disconnect.
 	close(hold)
 
-	// Give server time to finish ServeHTTP.
-	time.Sleep(100 * time.Millisecond)
-	// Provider should have been started.
+	select {
+	case err := <-runEnded:
+		if err != nil {
+			t.Fatalf("run ended with error after disconnect: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("run did not complete after disconnect (possible cancel conflation or hang)")
+	}
+
+	if runSawCancel.Load() {
+		t.Fatal("run context was canceled by client disconnect — stream/run contexts are still conflated")
+	}
+	if !producedAfter.Load() {
+		t.Fatal("provider did not produce after-disconnect token — run did not continue past disconnect")
+	}
 	if parentProv.Started.Load() < 1 {
 		t.Fatal("parent never started")
 	}
+}
+
+// TestF5_SSEHandler_ExplicitRunCancel_ReachesBlockingMCP proves that explicit
+// runtime cancellation (RunHandle.Cancel), not stream disconnect, cancels
+// parent→child→blocking MCP.
+func TestF5_SSEHandler_ExplicitRunCancel_ReachesBlockingMCP(t *testing.T) {
+	env := fakes.StartMCP(t)
+	env.BlockAllow = 5 * time.Second
+	all := env.AllTools(t)
+	allow := primer.FilterToolsFailClosed(all, []string{"allow_me"})[0].(tool.FuncTool)
+
+	childProv := &primer.ScriptedProvider{
+		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
+			return func(yield func(*agent.ResponseUpdate, error) bool) {
+				_, err := allow.Call(ctx, `{"q":"x"}`)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				yield(textUpdate("should-not"), nil)
+			}
+		},
+	}
+	child := primer.NewScriptedAgent(agent.Config{ID: "c", Name: "C"}, childProv)
+
+	parentProv := &primer.ScriptedProvider{
+		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
+			return func(yield func(*agent.ResponseUpdate, error) bool) {
+				for tl := range agent.AllOptions(options, agent.WithTool) {
+					if ft, ok := tl.(tool.FuncTool); ok {
+						_, err := ft.Call(ctx, `{"query":"nested"}`)
+						if err != nil {
+							yield(nil, err)
+							return
+						}
+					}
+				}
+				yield(textUpdate("parent-should-not"), nil)
+			}
+		},
+	}
+	parent := primer.NewScriptedAgent(agent.Config{ID: "p", Name: "P"}, parentProv)
+
+	var handle atomic.Pointer[primer.RunHandle]
+	runEnded := make(chan error, 1)
+	h := &primer.SSEHandler{
+		Agent:     parent,
+		AgentType: "overseer",
+		Spec: primer.AgentSpec{
+			Type:        "overseer",
+			Name:        "P",
+			// Parent grants must include allow_me so StartChild authority check passes.
+			Tools:       []tool.Tool{allow},
+			MaxChildren: 1,
+			MaxDepth:    1,
+		},
+		BridgeCapacity: 8,
+		RunBudget:      10 * time.Second,
+		BuildChildTool: func(ctx context.Context, parent *primer.Runner, sink primer.EventSink) tool.FuncTool {
+			ct, _, err := parent.StartChild(ctx, primer.ChildSpec{
+				Type:         "c",
+				Name:         "C",
+				Agent:        child,
+				AllowedTools: []string{"allow_me"},
+				Tools:        []tool.Tool{allow},
+			})
+			if err != nil {
+				t.Errorf("StartChild: %v", err)
+				return nil
+			}
+			return ct
+		},
+		OnRunStart: func(rh *primer.RunHandle) { handle.Store(rh) },
+		OnRunEnd:   func(err error) { runEnded <- err },
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: h}
+	go srv.Serve(ln) //nolint:errcheck
+	defer srv.Close()
+	url := "http://" + ln.Addr().String()
+
+	// Keep client connected so stream ctx stays live; only RunHandle.Cancel fires.
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Wait until blocking MCP is entered.
+	deadline := time.Now().Add(3 * time.Second)
+	for env.AllowCalls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if env.AllowCalls.Load() == 0 {
+		t.Fatal("MCP allow_me never entered")
+	}
+
+	rh := handle.Load()
+	if rh == nil {
+		t.Fatal("run handle missing")
+	}
+	// Explicit runtime cancel (NOT client disconnect).
+	rh.Cancel()
+
+	select {
+	case err := <-runEnded:
+		if err == nil {
+			t.Fatal("expected run error after explicit cancel")
+		}
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) &&
+			!strings.Contains(err.Error(), "cancel") {
+			t.Fatalf("unexpected run err: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("run did not end after explicit cancel")
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if env.AllowSawCancel.Load() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("AllowSawCancel=false after RunHandle.Cancel; AllowCalls=%d", env.AllowCalls.Load())
 }
 
 // --- F4 wire streaming ---
