@@ -57,7 +57,7 @@ Establish Curriculum Studio as an independently migratable PostgreSQL schema own
 
 ## Implementation Instructions
 
-1. **Choose module layout (resolve B1):** prefer `curriculum-studio/go.mod` module (e.g. `github.com/aleksclark/primer/curriculum-studio`) so Studio does not import `server/internal`. Record choice in `curriculum-studio/db/SCHEMA.md` or README.
+1. **Module layout (B1 RESOLVED):** use `curriculum-studio/go.mod` module `github.com/aleksclark/primer/curriculum-studio` so Studio does not import `server/internal`. Record freeze in `curriculum-studio/db/SCHEMA.md` or README. Do **not** edit root `Makefile`/`go.work`/CI except via delivery wave **F0** request.
 2. **Port migrator pattern** from `server/internal/db/db.go`:
    - `//go:embed migrations/*.sql` pointing at `curriculum-studio/db/migrations` **or** embed from `internal/db/migrations` that are the same files (single source of truth—do not duplicate SQL).
    - `NewMigrator(fsys, "studio_goose_db_version")`
@@ -115,7 +115,7 @@ go run ./curriculum-studio/cmd/migrate -h
 - [ ] Makefile `studio-migrate` documented
 - [ ] Python schema suite still green
 - [ ] Anti-cheating audit clean
-- [ ] B1 module path decision recorded
+- [ ] B1 module path recorded as frozen `github.com/aleksclark/primer/curriculum-studio` (integration decision)
 
 ## Dependencies and rollback
 

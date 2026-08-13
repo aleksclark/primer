@@ -108,7 +108,7 @@ deterministic from a clean checkout.
 | D6 | **No tracked generated outputs:** `curriculum-studio/contracts/gen/**`, `.tmp/**`, client `generated/**`, emitted OpenAPI IR are gitignored; CI fails if tracked. | contracts `.gitignore` + skill I4 |
 | D7 | **Separate client packages:** at minimum (1) TS authoring REST client, (2) Go authoring REST client, (3) Go gRPC integration client; optional TS gRPC only if a TS machine caller appears. Façades may inject auth/tracing; may not redefine models. | skill I2 |
 | D8 | **Exclusive consumption:** Studio UI, LMS integration adapter, and tests call Studio only via generated clients; raw `fetch`/http/grpc to Studio paths banned except allowlisted harnesses. | skill I3 |
-| D9 | **Auth end-state:** `Authorization: Bearer <JWT>` with `aud=curriculum-studio`; gRPC metadata `authorization: Bearer …`; `X-Service-Token` migration-only alias. Scopes e.g. `materialize:write`, authoring role scopes as metadata — product authz still local to workspace memberships. | Identity design D4–D7; crosswalk auth table |
+| D9 | **Auth end-state:** `Authorization: Bearer <JWT>` with `aud=curriculum-studio`; gRPC metadata `authorization: Bearer <JWT>`; `X-Service-Token` migration-only alias. Scopes e.g. `materialize:write`, authoring role scopes as metadata — product authz still local to workspace memberships. | Identity design D4–D7; crosswalk auth table |
 | D10 | **Errors:** machine `ErrorCode` wire strings shared; HTTP `application/problem+json` + Huma status; gRPC `google.rpc.Status` + `ErrorDetail`. | common.proto + OpenAPI ErrorModel |
 | D11 | **Idempotency:** `Idempotency-Key` header (REST) / `idempotency_key` field (Materialize RPC) required for Materialize, PublishRevision, Export; conflict → `idempotency_key_conflict`. | OpenAPI + integration.proto |
 | D12 | **Pagination:** REST `limit`/`offset` + `PageMeta`; gRPC `PageRequest`/`PageResponse` tokens — transport-specific, not domain types. | common.proto comment |
@@ -117,7 +117,7 @@ deterministic from a clean checkout.
 | D15 | **Compatibility baselines:** immutable prior artifacts (buf image + normalized OpenAPI) from release/CI — not hand-edited live schemas. First bootstrap freezes current committed baseline. | skill breaking-change section |
 | D16 | **Qualification spikes gate hard types** before mass generation: nullable/optional, timestamp/duration, typed errors, pagination, long-running materialization, `Struct` tutor_context/events. | skill workflow §4 |
 | D17 | **Adapters/harnesses only:** this plan may implement contract-facing stubs that satisfy wire semantics (authn parse, enum encode, pagination, idempotency store, fake materialize status machine) without real agent workflows or DB redesign. | task scope |
-| D18 | **Module path:** Go packages under `github.com/aleksclark/primer/curriculum-studio/...` aligning with proto `go_package` `.../curriculum-studio/contracts/gen/go/...`. | crosswalk reconciliation |
+| D18 | **Module path (frozen):** Go packages under `github.com/aleksclark/primer/curriculum-studio/...` aligning with proto `go_package` `.../curriculum-studio/contracts/gen/go/...`. Root `go.work`/Makefile/CI owned by delivery **F0** only. | integration freeze |
 | D19 | **LMS OpenAPI files stay LMS-owned.** Studio never writes `web/openapi.yaml` / `tv-web/openapi.yaml`. | contracts README |
 | D20 | **Platform/DB/Identity/LMS interfaces are named contracts between plans**, not ownership transfers (see §7). | task requirement |
 
@@ -256,6 +256,12 @@ The plan is complete only when:
 8. Live Identity OP and full materialization agents remain explicitly **not claimed**.
 
 ---
+
+## 9b. Delivery orchestration
+
+Wave order and exclusive ownership of codegen vs handlers:
+[`../curriculum-studio-delivery/`](../curriculum-studio-delivery/).
+This plan owns enum parity, protobuf/OpenAPI lifecycle, and contract harnesses — not business repos or SPA.
 
 ## 10. Rollback posture
 

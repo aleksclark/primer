@@ -100,7 +100,7 @@ Backed by repository evidence at plan base:
 
 | ID | Decision | Rationale |
 | --- | --- | --- |
-| D1 | New tree `primer-identity/` Go module `github.com/aleksclark/primer/identity` with `cmd/identity-server`, `cmd/identity-migrate`, `cmd/openapi-gen`, `internal/{config,db,api,repo,domain,oauth,oidc,keys,session,clients,serviceauth,admin,audit,bffref,testutil,oauthtest}` | Parallel to LMS `server/` and planned Studio module; independent deployable |
+| D1 | New tree **frozen** `primer-identity/` Go module `github.com/aleksclark/primer/identity` with `cmd/identity-server`, `cmd/identity-migrate`, `cmd/openapi-gen`, `internal/{config,db,api,repo,domain,oauth,oidc,keys,session,clients,serviceauth,admin,audit,bffref,testutil,oauthtest}`. Shared root Makefile/go.work/CI edits only via delivery wave **F0** | Parallel to LMS `server/` and Studio `curriculum-studio/`; independent deployable + DB |
 | D2 | Env prefix `IDENTITY_`; DB name `primer_identity`; goose table `identity_goose_db_version` | Isolation from LMS/TV/Studio goose |
 | D3 | Stack: Go (align `server/go.mod` 1.25.x), Huma v2 + chi + pgx/v5 + goose/v3 + envconfig + testcontainers; OAuth libs `golang.org/x/oauth2`, `github.com/coreos/go-oidc/v3`, `golang.org/x/crypto` | Repo-proven + mathscan OIDC boundary patterns |
 | D4 | Issuer URL config `IDENTITY_ISSUER` (stable, trailing-slash normalized once); audiences enum: `curriculum-studio`, `primer-lms`, `primer-tv-admin` | Design §8; single-aud enforcement |
@@ -116,7 +116,7 @@ Backed by repository evidence at plan base:
 | D14 | Students not Identity users in v1 | Design D12 |
 | D15 | Loopback IdP package `internal/oauthtest` build-tagged / test-only; production binary must not import it | Packaging isolation |
 | D16 | Live Google credentials explicitly **BLOCKED** until Phase 14 gate + human approval; no secrets in repo | Credential-free completion rule |
-| D17 | Coverage gate Identity internal packages **80%** initially (raise later); adversarial OAuth suite mandatory regardless of % | Greenfield realism |
+| D17 | Coverage gate Identity internal packages **≥80%** initially with mandatory adversarial OAuth suite regardless of %; raise toward repo 85% before calling production-ready. **Studio** packages remain on the separate **≥85%** `studio-cover` gate and must never be lowered to match Identity greenfield | Do not lower existing Studio/repo gates |
 | D18 | Root Makefile targets: `identity-build`, `identity-test`, `identity-cover`, `identity-openapi`, `dev-db-identity`, `migrate-identity`, `identity-e2e` | Explicit commands |
 | D19 | Implementation waves = small reviewed PR sets (see orchestrator map); one phase coherence per wave preferred | Reviewability |
 | D20 | Design D1–D20 remain authoritative; this plan does not reopen them | Crosswalk + design freeze |
@@ -377,6 +377,12 @@ The plan is finished only when:
 | rollout rollback | P13-S12, P14-S9 |
 
 ---
+
+## Delivery orchestration
+
+Authoritative cross-plan waves: [`../curriculum-studio-delivery/`](../curriculum-studio-delivery/).
+Identity foundational waves may run parallel to Studio foundations; Studio production-auth and S2 traffic block on Identity JWKS/BFF/service-principal milestones (phases 3, 7, 8, 12).
+Live Google remains BLOCKED until Phase 14 credentials/approval. Loopback OIDC is credential-free evidence only.
 
 ## Open blockers
 

@@ -88,11 +88,10 @@ plans must not own.
        contract-gates/README.md        # parity, tracked-gen, raw-ban scripts
    ```
 
-3. **Go module decision**
-   Prefer `curriculum-studio/go.mod` module
+3. **Go module decision (FROZEN at integration)**
+   Use `curriculum-studio/go.mod` module
    `github.com/aleksclark/primer/curriculum-studio` matching proto `go_package`.
-   If monorepo constraints force reuse of `server` module, document the exception
-   and path mapping — default is **separate module** under `curriculum-studio/`.
+   Do not reuse the LMS `server` module. Root `go.work` inclusion is owned by delivery wave **F0**.
 
 4. **Build graph skeleton**
    Add `curriculum-studio/Makefile` or Task targets (names stable for later phases):

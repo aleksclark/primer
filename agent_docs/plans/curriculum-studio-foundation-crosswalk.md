@@ -238,6 +238,13 @@ git diff --check
 # markdown local-link check + clean generated artifacts
 ```
 
+## Delivery roadmap
+
+Authoritative implementation orchestration lives in
+[`curriculum-studio-delivery/`](./curriculum-studio-delivery/) (integration tip).
+Implementation agents follow that roadmap; detailed plans remain the phase
+BDD/E2E source of truth.
+
 ## Cite order for later plans
 
 1. Product plan (boundary and phases)
@@ -245,3 +252,4 @@ git diff --check
 3. Identity design (auth mechanics)
 4. LikeC4 (topology)
 5. `curriculum-studio/contracts` + `curriculum-studio/db` (wire + storage)
+6. Delivery roadmap (wave order / ownership / gates)

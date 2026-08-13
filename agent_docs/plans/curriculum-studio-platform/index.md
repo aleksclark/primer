@@ -58,7 +58,7 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 
 1. **One deployable Studio service + separate DB.** No split into a module fleet unless a later explicit decision. No shared Postgres with LMS/TV/Identity. No cross-DB FKs/views/FDW/dblink.
 2. **Contracts & schema are dependencies, not this plan's authorship.** Consume `curriculum-studio/contracts` and `curriculum-studio/db`. Additive contract/schema needs open sibling-track PRs; do not fork wire shapes here.
-3. **Identity authenticates; Studio authorizes.** No passwords/credential columns in Studio. Human `subject_ref = identity:<uuid>`; service `identity:svc:<id>`. End-state `Authorization: Bearer` JWT `aud=curriculum-studio`; `X-Service-Token` migration-only.
+3. **Identity authenticates; Studio authorizes.** No passwords/credential columns in Studio. Human `subject_ref = identity:<uuid>`; service `identity:svc:<id>`. End-state `Authorization: Bearer <JWT>` with `aud=curriculum-studio`; `X-Service-Token` migration-only. Studio never issues login sessions or access/refresh tokens.
 4. **Host-only BFF cookies.** Never `Domain=.example.com`. SPA uses generated clients only; no hand-rolled DTO transport.
 5. **Deterministic invariants in code + DB triggers.** Agents never bypass publish immutability, lock protection, acyclic prerequisites, assessment rubric/key rules, or snapshot completeness.
 6. **Real boundaries in E2E.** Postgres testcontainers (or equivalent real Postgres), real HTTP/gRPC process boundaries, real object-store backend (MinIO/S3-compatible or filesystem store behind the same interface). No in-memory stand-ins for claimed durability.
@@ -75,18 +75,18 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 
 | ID | Decision | Rationale |
 | --- | --- | --- |
-| D1 | Studio lives under `curriculum-studio/` as its own Go module (`github.com/aleksclark/primer/curriculum-studio`) with `cmd/studio-server`, optional `cmd/studio-migrate`/`cmd/openapi-gen`, and `internal/{config,db,api,repo,auth,plan,standards,resources,validation,materialization,workflow,export,integration,artifacts,outbox,bff,testutil}` | Matches service-tree ownership already used by `db/` + `contracts/`; keeps LMS `server/` untouched |
+| D1 | Studio lives under **frozen** root `curriculum-studio/` as its own Go module (`github.com/aleksclark/primer/curriculum-studio`) with `cmd/studio-server`, optional `cmd/studio-migrate`/`cmd/openapi-gen`, and `internal/{config,db,api,repo,auth,plan,standards,resources,validation,materialization,workflow,export,integration,artifacts,outbox,bff,testutil}`. Shared root `go.work`/`Makefile`/CI/dev-compose edits are owned exclusively by delivery wave **F0** (platform agent) — DB/contracts agents must not race root files | Matches service-tree ownership; single root owner prevents thrash |
 | D2 | Env prefix `STUDIO_` (parallel to `TV_`); DB name `curriculum_studio`; goose table `studio_goose_db_version` | Crosswalk + SCHEMA.md |
 | D3 | Authoring HTTP: Huma v2 + chi + pgx, mirror LMS patterns (`RegisterCRUD`, list `q/sort/dir/filter`, testcontainers) at `/studio/v1` | Repo-proven stack; OpenAPI path prefix already contracted |
 | D4 | Integration: gRPC from protobuf (`CurriculumIntegrationService`) as primary machine API; REST remains authoring/UI | Crosswalk flow matrix |
 | D5 | Artifact store interface with filesystem (dev/test) and S3-compatible (deploy) implementations; bytes never in Postgres | Product plan + infrastructure.c4 |
-| D6 | Credential-free bootstrap: loopback JWKS signer + `/bff/test/session` **only when `STUDIO_AUTH_MODE=test`**; production hard-fails if test mode enabled | Semantic seam for pre-Identity E2E; identity design BFF shape preserved |
+| D6 | Credential-free bootstrap: Studio is **never** an auth/session issuer. Prefer protocol-compatible **loopback/test Identity** (same principal/JWT middleware path). Narrow `STUDIO_AUTH_MODE=test` verifier may accept pre-minted JWTs from a test helper/JWKS **without** Studio minting sessions/tokens; `/bff/test/session` only as a thin BFF seam that attaches an already-issued test JWT shape. Production hard-fails if test mode or test Identity provider is enabled | Studio authorizes only; Identity (or test double of Identity) authenticates |
 | D7 | SPA at planned `curriculum-studio/web/` (Vite + React + Tailwind v4 + house tokens); generated TS client from Studio OpenAPI; Playwright browser E2E against real stack | House design system; avoids overloading LMS `web/` |
 | D8 | Model provider seam: `workflow.LanguageModel` interface; default test double is scripted; Bedrock/OpenRouter live wiring is phase-gated BLOCKED | Credential-free completion vs live proof |
 | D9 | Outbox in Studio Postgres; webhook worker in-process initially (same binary), poll/claim with `FOR UPDATE SKIP LOCKED` | One deployable; durability without new broker |
 | D10 | Accent `#3DE0F0`; surface classes: Explore (lists), Configure (editors), Operate (runs), Inspect (revision/item detail), Monitor (run/webhook status) | House system |
 | D11 | New Makefile targets under root or `curriculum-studio/Makefile` invoked from root: `studio-build`, `studio-test`, `studio-cover`, `studio-openapi`, `studio-client`, `studio-web`, `studio-e2e`, `dev-db-studio`, `migrate-studio` | Explicit path decision; parallel to `tv-*` |
-| D12 | Coverage gate for Studio Go internal packages starts at **80%** (raise toward LMS 85% after MVP); contracts/db tests remain sibling gates | Greenfield realism without blocking first slices |
+| D12 | Coverage gate for Studio Go internal packages is **≥85%** from the **first** `studio-cover` gate (matches repository `COVER_MIN := 85`). Never lower. Contracts/db tests remain sibling gates | Do not weaken existing repo coverage floor |
 | D13 | Sibling plans own schema detail, contract codegen evolution, Identity service; this plan **consumes** their outputs and files blockers rather than re-implementing | Task ownership split |
 | D14 | Studio→LMS curriculum import push remains deferred (`#uncertainty`); Primer pulls/materializes via Studio API/events | Crosswalk |
 | D15 | Implementation handoffs are one phase (or named work-item group) per reviewed PR wave; no multi-phase “big bang” commits | Orchestrator-sized boundaries |
@@ -99,7 +99,7 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 | --- | --- | --- |
 | Authoring detailed SQL schema & trigger design | Already frozen | `curriculum-studio/db/` + sibling **db plan track** |
 | OpenAPI/protobuf authorship & buf/Spectral gates as SoT | Already frozen | `curriculum-studio/contracts/` + sibling **contracts plan track** |
-| Primer Identity service implementation | Separate deployable | `primer-identity-service-design.md` + sibling **identity plan track** |
+| Primer Identity service implementation | Separate deployable | `primer-identity-service-design.md` + `agent_docs/plans/primer-identity-service/` |
 | LMS student tutoring / mastery SoT | Product boundary | `server/`, Primer runtime |
 | TV channel / content-ingest | Unrelated product | `server/cmd/tv-server`, content-ingest |
 | Cross-DB joins / shared Postgres | Forbidden | — (positive absence) |
@@ -192,7 +192,7 @@ The plan is complete only when:
 | --- | --- | --- |
 | Schema migrations + invariant tests | **curriculum-studio-plan-db** | Stable goose migrations; additive migrations via that track |
 | OpenAPI/proto parity + codegen validate | **curriculum-studio-plan-contracts** | Wire enums; buf generate path; breaking-change policy |
-| Identity OP, JWKS, Google login, service clients | **curriculum-studio-plan-identity** | Real JWKS URL + client registrations for non-test auth |
+| Identity OP, JWKS, Google login, service clients | **primer-identity-service** plan (`primer-identity/` module) | Real JWKS URL + client registrations for non-test auth; Studio production-auth blocks on Identity JWKS/BFF/service-principal milestones |
 | Foundation freeze | crosswalk (done) | L1–L6 vocabulary |
 
 Open blockers filed in phase gates when sibling outputs are absent.
@@ -298,6 +298,12 @@ Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 | OPS-5 | Production deploy smoke | 18 | P18-S5 | P18-E5 |
 
 ---
+
+## Delivery orchestration
+
+Authoritative wave order, ownership, and acceptance commands:
+[`../curriculum-studio-delivery/`](../curriculum-studio-delivery/).
+This plan remains the detailed BDD/E2E source for platform phases.
 
 ## References
 

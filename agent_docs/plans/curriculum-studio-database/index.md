@@ -107,7 +107,7 @@ audit/retention/backup/restore with observability and operational gates.
 
 | ID | Decision | Rationale |
 | --- | --- | --- |
-| D1 | Studio persistence is a **standalone Go module tree** under `curriculum-studio/` (not inside `server/internal`). | Service boundary L1; independent deployable |
+| D1 | Studio persistence is a **standalone Go module tree** under frozen `curriculum-studio/` module path `github.com/aleksclark/primer/curriculum-studio` (not inside `server/internal`). | Service boundary L1; integration freeze |
 | D2 | Use **goose SQL** embedded via `embed.FS`, version table **`studio_goose_db_version`**, Postgres schema **`curriculum_studio`**. | Already specified in `SCHEMA.md` / README; matches LMS `Migrator` pattern |
 | D3 | **Adopt current 00001–00004 as the initial immutable baseline** once Phase 01 freeze gate passes; optional one-time squash is allowed **only before** any environment is declared live and only with a recorded checksum inventory. After live: **no rewriting** applied migrations. | Task requirement; protects prod history |
 | D4 | Production migrate entrypoint: Studio-owned binary (e.g. `curriculum-studio/cmd/migrate` or `make studio-migrate`) — **not** extending LMS `server/cmd/migrate` as the long-term owner (a temporary dual registration is forbidden once Studio ships). | Avoid LMS binary owning Studio schema |
@@ -239,13 +239,18 @@ The database/persistence track is complete only when:
 
 | ID | Item | Impact |
 | --- | --- | --- |
-| B1 | Exact Go module path for Studio (`curriculum-studio/go.mod` vs monorepo `server` module extension) | Phase 01 must pick one and record it; prefer new module under `curriculum-studio/` |
+| B1 | Exact Go module path for Studio | **RESOLVED (integration):** `curriculum-studio/go.mod` module `github.com/aleksclark/primer/curriculum-studio`. Identity is separate `primer-identity/` / `github.com/aleksclark/primer/identity`. Root `go.work`/Makefile/CI owned by delivery wave **F0** only. |
 | B2 | Whether workflow lease columns need additive migration 00005 (current schema has stage status but no explicit `lease_owner`/`lease_expires_at`) | Phase 8 may add 00005; allowed under D13 |
 | B3 | Production backup tooling host (pgBackRest vs managed PITR) not chosen | Phase 12 defines interface + drill against disposable Postgres; prod binder later |
 | B4 | Object store vendor (S3/MinIO) | Phase 10 only requires ref string conventions + integrity fields |
 | B5 | Sibling API/identity implementation plans may land in parallel | Do not block DB track; keep interfaces stable |
 
 ---
+
+## Delivery orchestration
+
+Wave order and cross-plan ownership: [`../curriculum-studio-delivery/`](../curriculum-studio-delivery/).
+This plan owns repositories/migrations only — not Huma handlers, SPA, or Identity.
 
 ## Document map
 

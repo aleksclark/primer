@@ -8,6 +8,8 @@
 
 ## Goal
 
+> Integration freeze: Studio validates Identity JWTs only — Studio is **never** an auth/session issuer. Credential-free Studio E2E uses this service's loopback/test OP (or identical verifier path), not a Studio-local token mint.
+
 Wire Curriculum Studio (planned platform module) to consume Identity as JWKS issuer and OIDC OP for `studio-bff`: validate `aud=curriculum-studio`, map `sub` → `workspace_memberships.subject_ref` as `identity:<uuid>`, service callers as `identity:svc:<id>`. Prove cross-audience rejection and that Identity tokens never convey Studio roles. Do **not** duplicate Studio API schema.
 
 ## Scope

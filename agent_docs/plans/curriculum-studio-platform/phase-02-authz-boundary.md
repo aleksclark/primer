@@ -7,17 +7,18 @@
 
 ## Goal
 
-Establish authentication validation and workspace authorization at the HTTP edge: local JWKS JWT verification for `aud=curriculum-studio`, credential-free test auth mode that mints the **same** host-only session cookie and Bearer shape production will use, membership-based RBAC, CSRF on cookie mutations, and hard fail-closed production guards. This unblocks authenticated E2E for all later phases without implementing Primer Identity.
+Establish authentication **validation** and workspace authorization at the HTTP edge: local JWKS JWT verification for `aud=curriculum-studio`, credential-free auth that consumes a **protocol-compatible loopback/test Identity** (preferred) or a narrowly test-only verifier using the **same** principal/JWT middleware path production uses, membership-based RBAC, CSRF on cookie mutations, and hard fail-closed production guards. Studio **never** becomes an auth/session issuer (no password stores, no OP, no access/refresh token mint for clients). This unblocks authenticated E2E; production JWKS/BFF login still blocks on Identity milestones (see delivery roadmap).
 
 ## Scope
 
 ### In scope
 
 - `internal/auth` JWT validate (iss, aud, exp, nbf, kid via JWKS cache)
-- `STUDIO_AUTH_MODE=test|jwks` with production refuse of test mode when `STUDIO_ENV=production`
-- Loopback JWKS endpoint or static test JWKS for tests
-- BFF routes under `/studio/v1/bff/*` or `/bff/*` on same host: test session mint, logout, csrf token
-- Host-only session cookie (`Secure; HttpOnly; SameSite=Lax`; `__Host-studio-session` when HTTPS path allows)
+- `STUDIO_AUTH_MODE=jwks|test` with production refuse of `test` and of test/loopback Identity providers when `STUDIO_ENV=production`
+- Preferred credential-free path: real loopback/test Identity process (or in-harness OP) issuing single-aud JWTs; Studio validates via JWKS only
+- Narrow test-only verifier alternative: inject JWKS URL + pre-minted JWTs from test helper **outside** Studio process; Studio middleware identical to production
+- BFF routes under `/studio/v1/bff/*` or `/bff/*` on same host: session **attach**/logout/csrf for cookie bridge — may call test Identity token endpoint; must not mint raw access tokens inside Studio domain code
+- Host-only session cookie (`Secure; HttpOnly; SameSite=Lax`; `__Host-studio-session` when HTTPS path allows) holds BFF session only, never long-lived access/refresh for SPA
 - Middleware: resolve subject_ref (`identity:<uuid>` / `identity:svc:<id>`), load memberships, enforce roles
 - Deny cross-workspace access by default
 - Service scope checks placeholder map (e.g. `materialize:write`) for machine callers
@@ -45,13 +46,14 @@ Establish authentication validation and workspace authorization at the HTTP edge
 - **Then** 401 responses
 - **And** no workspace data leaked in body
 
-#### Scenario: P2-S3 — Test session mint
+#### Scenario: P2-S3 — Credential-free session via test Identity or narrow verifier
 
-- **Given** `STUDIO_AUTH_MODE=test` and non-production env
-- **When** test client POSTs `/bff/test/session` with subject and workspace seed hooks allowed in test
+- **Given** non-production env and either (a) loopback/test Identity issuing JWT `aud=curriculum-studio`, or (b) `STUDIO_AUTH_MODE=test` with external test JWKS + pre-minted JWT
+- **When** test client completes BFF session attach (`/bff/test/session` or OIDC test login against loopback Identity) with subject and workspace seed hooks
 - **Then** Set-Cookie host-only session is returned
-- **And** subsequent API calls with cookie succeed via BFF attach or cookie session bridge
+- **And** subsequent API calls succeed through the **same** JWT/principal middleware as production
 - **And** session subject matches requested identity UUID
+- **And** Studio process logs show validate/JWKS path — not a Studio-local token mint API for clients
 
 #### Scenario: P2-S4 — Production rejects test auth mode
 
@@ -97,15 +99,15 @@ Establish authentication validation and workspace authorization at the HTTP edge
 
 ## Implementation Instructions
 
-1. Implement JWKS cache with kid rotation window (dual-key accept).
+1. Implement JWKS cache with kid rotation window (dual-key accept). Studio is a **validator only**.
 2. Define `AuthContext` on request context: SubjectRef, Kind (human/service), Scopes, SessionID.
-3. Test mode: ed25519/RSA keypair generated in process; JWKS exposed at `/studio/v1/.well-known/jwks.json` only in test mode OR injected via `STUDIO_JWKS_URL` pointing at test server.
-4. Session store: server-side session table **or** encrypted cookie session binding subject; prefer server-side table `bff_sessions` only if additive migration filed through db track — otherwise signed cookie session v1 with short TTL documented as interim **with** same cookie name production will keep.
+3. Credential-free: prefer harness that starts loopback Identity (identity plan `internal/oauthtest` / test OP) and points `STUDIO_JWKS_URL` at it. Alternative narrow test mode: test helper mints JWT with external key material; Studio only loads JWKS — **do not** expose Studio as OP or `/oauth/token`.
+4. BFF session store: server-side session table **or** encrypted cookie binding subject; prefer server-side `bff_sessions` only if additive migration filed through db track — otherwise signed cookie session v1 with short TTL documented as interim **with** same cookie name production will keep. Cookie is not an access-token substitute for machine callers.
 5. If new tables needed, open blocker to db track; until then signed cookie is acceptable if documented in phase PR.
 6. Seed helper in testutil: `SeedMembership(workspace, subject, role)`.
 7. Probe routes: `GET /studio/v1/auth/me` returns subject + memberships (human-readable workspace names when joined).
 8. CSRF: double-submit cookie or header `X-CSRF-Token` matching session.
-9. Document replacement path: Phase 9/18 swaps test mint for Identity OAuth while keeping cookie name + middleware.
+9. Production-auth promotion: when Identity JWKS/BFF/service-principal milestones land (identity phases 3/7/8 + delivery waves I3/I7/I8), set `STUDIO_AUTH_MODE=jwks` against real Identity issuer; keep middleware identical. Live Google remains BLOCKED until identity Phase 14 approval.
 
 ## End-to-End Test Plan
 
