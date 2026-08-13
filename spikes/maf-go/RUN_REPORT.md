@@ -229,7 +229,8 @@ If the team prefers zero new preview framework surface and already invests in Fa
 
 - Branch: `spike/maf-go-feasibility`
 - Base: `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
-- **Reviewed code SHA:** `1d73c2d6935c24c39ba482ac6bd9995320e3f6e1`
-- **Final docs SHA:** (this commit; see `git rev-parse HEAD` after docs stamp)
+- **Reviewed code SHA:** `1d73c2d6935c24c39ba482ac6bd9995320e3f6e1` (APPROVED)
+- **Honest report content commit:** `20147d640a1e49e2d2b546b4a99f07af86457e82`
+- **Final HEAD:** tip of `spike/maf-go-feasibility` after docs-only stamps (descendant of reviewed code SHA; `git rev-parse HEAD`)
 - Push/PR: **none** (local only)
 - **CONDITIONAL GO still stands**
