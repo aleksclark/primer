@@ -221,6 +221,7 @@ Post-fix gates: **17 PASS**, race/vet/build clean → treated as **APPROVED**.
 
 - Branch: `spike/maf-go-feasibility`
 - Base: `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
-- Commits: plan → spike artifact → review fixes
-- HEAD: `91a9e60d2fe90344371db4590df3992b7a713f81`
+- Commits: plan → spike artifact → review fixes → doc stamp
+- Review-fix code tip: `b26a7354e8d488a567ecbecbb8eb694cc20af597`
+- Doc-stamp tip (this file): updated on commit; run `git rev-parse HEAD` in worktree for exact tip
 - Push/PR: **none** (local only)
