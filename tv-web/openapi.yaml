@@ -957,6 +957,8 @@ components:
             - entertainment
             - mixed
           type: string
+        classificationLocked:
+          type: boolean
         container:
           type: string
         createdAt:
@@ -964,6 +966,8 @@ components:
           type: string
         directPlayOk:
           type: boolean
+        episodeKey:
+          type: string
         id:
           format: uuid
           type: string
@@ -971,11 +975,15 @@ components:
           type: string
         jellyfinItemId:
           type: string
+        manifestSlug:
+          type: string
         orphanedAt:
           format: date-time
           type: string
         overview:
           type: string
+        overviewLocked:
+          type: boolean
         qualityNotes:
           type: string
         runtimeSeconds:
@@ -997,10 +1005,17 @@ components:
             - "null"
         title:
           type: string
+        titleLocked:
+          type: boolean
         updatedAt:
           format: date-time
           type: string
+        uploadDate:
+          format: date
+          type: string
         videoCodec:
+          type: string
+        youtubeVideoId:
           type: string
       required:
         - id
@@ -1018,6 +1033,11 @@ components:
         - audioCodec
         - directPlayOk
         - imageTag
+        - manifestSlug
+        - episodeKey
+        - titleLocked
+        - overviewLocked
+        - classificationLocked
         - createdAt
         - updatedAt
       type: object
@@ -1043,10 +1063,15 @@ components:
           type: string
         directPlayOk:
           type: boolean
+        episodeKey:
+          description: Ledger episode key, e.g. S01E007.
+          type: string
         imageTag:
           type: string
         jellyfinItemId:
           minLength: 1
+          type: string
+        manifestSlug:
           type: string
         overview:
           type: string
@@ -1069,7 +1094,13 @@ components:
         title:
           minLength: 1
           type: string
+        uploadDate:
+          description: Upload calendar day as YYYY-MM-DD.
+          type: string
         videoCodec:
+          type: string
+        youtubeVideoId:
+          description: 11-char YouTube video id when known.
           type: string
       required:
         - jellyfinItemId
@@ -1098,7 +1129,11 @@ components:
           type: string
         directPlayOk:
           type: boolean
+        episodeKey:
+          type: string
         imageTag:
+          type: string
+        manifestSlug:
           type: string
         orphanedAt:
           format: date-time
@@ -1123,7 +1158,12 @@ components:
           type: array
         title:
           type: string
+        uploadDate:
+          description: Upload calendar day as YYYY-MM-DD.
+          type: string
         videoCodec:
+          type: string
+        youtubeVideoId:
           type: string
       type: object
     MetricsResponse:
@@ -3452,7 +3492,7 @@ paths:
         - Jellyfin
   /media-items:
     get:
-      description: List media-items with pagination, search (title, sort_title, overview), sorting (id, title, sort_title, class, runtime_seconds, created_at, updated_at), and filters (class, direct_play_ok, jellyfin_item_id).
+      description: List media-items with pagination, search (title, sort_title, overview, youtube_video_id), sorting (id, title, sort_title, class, runtime_seconds, created_at, updated_at), and filters (class, direct_play_ok, jellyfin_item_id, youtube_video_id, manifest_slug).
       operationId: list-media-items
       parameters:
         - description: Page size.
@@ -3543,6 +3583,7 @@ paths:
       tags:
         - Media Items
     post:
+      description: Imports a Jellyfin item into the curated library. Optional YouTube provenance fields may be set; lock flags default to false and are not client-settable.
       operationId: create-media-item
       requestBody:
         content:
@@ -3563,6 +3604,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Unauthorized
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
         "422":
           content:
             application/problem+json:
@@ -3577,7 +3624,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
-      summary: Create a media-item
+      summary: Create a media item
       tags:
         - Media Items
   /media-items/{id}:
@@ -3660,15 +3707,15 @@ paths:
       tags:
         - Media Items
     patch:
-      description: "Partial update: only provided fields are changed."
+      description: "Partial update: only provided fields are changed. Patching title, overview, or classification fields sets the corresponding lock so Jellyfin sync will not clobber curator edits. jellyfinItemId is immutable."
       operationId: update-media-item
       parameters:
-        - description: Entity ID.
+        - description: Media item ID.
           in: path
           name: id
           required: true
           schema:
-            description: Entity ID.
+            description: Media item ID.
             format: uuid
             type: string
       requestBody:
@@ -3690,6 +3737,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "405":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Method Not Allowed
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
         "422":
           content:
             application/problem+json:
@@ -3704,7 +3769,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
-      summary: Update a media-item
+      summary: Update a media item
       tags:
         - Media Items
   /media/{id}/grant:

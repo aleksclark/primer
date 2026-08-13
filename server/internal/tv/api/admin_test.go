@@ -85,6 +85,23 @@ func TestMediaItemCRUD(t *testing.T) {
 	assert.Equal(t, []string{"science", "history"}, item.SubjectTags)
 	assert.Equal(t, []string{"TN.SCI.8.PS2.1"}, item.StandardCodes)
 	assert.True(t, item.DirectPlayOK, "items default to direct-play capable")
+	assert.False(t, item.TitleLocked)
+	assert.False(t, item.OverviewLocked)
+	assert.False(t, item.ClassificationLocked)
+
+	// Curator title patch locks the title so Jellyfin sync will not clobber it.
+	resp = h.Patch("/media-items/"+item.ID, objMap{"title": "Curated Apollo"})
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	locked := decode[domain.MediaItem](t, resp.Body.Bytes())
+	assert.Equal(t, "Curated Apollo", locked.Title)
+	assert.True(t, locked.TitleLocked)
+	assert.False(t, locked.OverviewLocked)
+	assert.False(t, locked.ClassificationLocked)
+
+	// Overview patch locks overview.
+	resp = h.Patch("/media-items/"+item.ID, objMap{"overview": "Hand-written blurb"})
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	assert.True(t, decode[domain.MediaItem](t, resp.Body.Bytes()).OverviewLocked)
 
 	// Reclassification.
 	resp = h.Patch("/media-items/"+item.ID, objMap{
@@ -95,7 +112,9 @@ func TestMediaItemCRUD(t *testing.T) {
 	updated := decode[domain.MediaItem](t, resp.Body.Bytes())
 	assert.Equal(t, domain.ClassEducational, updated.Class)
 	assert.False(t, updated.DirectPlayOK)
-	assert.Equal(t, "Apollo 13", updated.Title, "unspecified fields are unchanged")
+	assert.Equal(t, "Curated Apollo", updated.Title, "unspecified fields are unchanged")
+	assert.True(t, updated.ClassificationLocked)
+	assert.True(t, updated.TitleLocked, "prior title lock survives classification patch")
 
 	// The Jellyfin ID is unique.
 	dup := h.Post("/media-items", objMap{
@@ -106,6 +125,73 @@ func TestMediaItemCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, dup.Code, "one media item per Jellyfin item")
 
 	require.Equal(t, http.StatusNoContent, h.Delete("/media-items/"+item.ID).Code)
+}
+
+func TestMediaItemYouTubeIdentity(t *testing.T) {
+	t.Parallel()
+	h, _, _ := tvtestutil.API(t)
+
+	const ytID = "dQw4w9WgXcQ"
+	resp := h.Post("/media-items", objMap{
+		"jellyfinItemId": "jf-yt-1",
+		"title":          "Paul Sellers S01E001 — Dovetails",
+		"class":          domain.ClassEducational,
+		"youtubeVideoId": ytID,
+		"manifestSlug":   "paul-sellers",
+		"episodeKey":     "S01E001",
+		"uploadDate":     "2020-05-01",
+	})
+	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
+	item := decode[domain.MediaItem](t, resp.Body.Bytes())
+	assert.Equal(t, ytID, derefString(item.YouTubeVideoID))
+	assert.Equal(t, "paul-sellers", item.ManifestSlug)
+	assert.Equal(t, "S01E001", item.EpisodeKey)
+	require.NotNil(t, item.UploadDate)
+	assert.Equal(t, "2020-05-01", item.UploadDate.UTC().Format("2006-01-02"))
+	assert.False(t, item.TitleLocked, "locks default false on create")
+	assert.False(t, item.OverviewLocked)
+	assert.False(t, item.ClassificationLocked)
+
+	// Unique youtube id → 409 (same path as jellyfin unique).
+	dup := h.Post("/media-items", objMap{
+		"jellyfinItemId": "jf-yt-2",
+		"title":          "Other",
+		"class":          domain.ClassEducational,
+		"youtubeVideoId": ytID,
+	})
+	assert.Equal(t, http.StatusConflict, dup.Code, "youtube_video_id must be unique")
+
+	// Invalid youtube id format → 422.
+	bad := h.Post("/media-items", objMap{
+		"jellyfinItemId": "jf-yt-bad",
+		"title":          "Bad id",
+		"class":          domain.ClassEducational,
+		"youtubeVideoId": "tooshort",
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, bad.Code, "format check rejects non-11-char ids")
+
+	// Filter by youtube_video_id and manifest_slug.
+	listed := h.Get("/media-items?filter=youtube_video_id:" + ytID)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	page := decode[struct {
+		Items      []domain.MediaItem `json:"items"`
+		TotalCount int                `json:"totalCount"`
+	}](t, listed.Body.Bytes())
+	require.Equal(t, 1, page.TotalCount)
+	assert.Equal(t, item.ID, page.Items[0].ID)
+
+	bySlug := h.Get("/media-items?filter=manifest_slug:paul-sellers")
+	require.Equal(t, http.StatusOK, bySlug.Code, bySlug.Body.String())
+	assert.Equal(t, 1, decode[struct {
+		TotalCount int `json:"totalCount"`
+	}](t, bySlug.Body.Bytes()).TotalCount)
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func TestMediaItemValidation(t *testing.T) {

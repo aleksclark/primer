@@ -75,6 +75,10 @@ func (f *Fake) CreateMediaItem(_ context.Context, in MediaItemCreate) (*MediaIte
 		VideoCodec:     in.VideoCodec,
 		AudioCodec:     in.AudioCodec,
 		ImageTag:       in.ImageTag,
+		YouTubeVideoID: in.YouTubeVideoID,
+		ManifestSlug:   in.ManifestSlug,
+		EpisodeKey:     in.EpisodeKey,
+		UploadDate:     in.UploadDate,
 		DirectPlayOK:   true,
 	}
 	f.NextID++
@@ -96,18 +100,50 @@ func (f *Fake) UpdateMediaItem(_ context.Context, id string, in MediaItemUpdate)
 		}
 		if in.Title != nil {
 			f.Items[i].Title = *in.Title
+			f.Items[i].TitleLocked = true
 		}
 		if in.Class != nil {
 			f.Items[i].Class = *in.Class
+			f.Items[i].ClassificationLocked = true
 		}
 		if in.SubjectTags != nil {
 			f.Items[i].SubjectTags = *in.SubjectTags
+			f.Items[i].ClassificationLocked = true
 		}
 		if in.StandardCodes != nil {
 			f.Items[i].StandardCodes = *in.StandardCodes
+			f.Items[i].ClassificationLocked = true
 		}
 		if in.Overview != nil {
 			f.Items[i].Overview = *in.Overview
+			f.Items[i].OverviewLocked = true
+		}
+		if in.YouTubeVideoID != nil {
+			f.Items[i].YouTubeVideoID = *in.YouTubeVideoID
+		}
+		if in.ManifestSlug != nil {
+			f.Items[i].ManifestSlug = *in.ManifestSlug
+		}
+		if in.EpisodeKey != nil {
+			f.Items[i].EpisodeKey = *in.EpisodeKey
+		}
+		if in.UploadDate != nil {
+			f.Items[i].UploadDate = *in.UploadDate
+		}
+		if in.SortTitle != nil {
+			f.Items[i].SortTitle = *in.SortTitle
+		}
+		if in.Container != nil {
+			f.Items[i].Container = *in.Container
+		}
+		if in.VideoCodec != nil {
+			f.Items[i].VideoCodec = *in.VideoCodec
+		}
+		if in.AudioCodec != nil {
+			f.Items[i].AudioCodec = *in.AudioCodec
+		}
+		if in.ImageTag != nil {
+			f.Items[i].ImageTag = *in.ImageTag
 		}
 		f.UpdateCalls = append(f.UpdateCalls, struct {
 			ID string

@@ -25,9 +25,9 @@ var Devices = repo.NewResource[domain.Device](repo.ListConfig{
 // can page over the whole library on a key it does not itself rewrite.
 var MediaItems = repo.NewResource[domain.MediaItem](repo.ListConfig{
 	Table:             "media_items",
-	SearchColumns:     []string{"title", "sort_title", "overview"},
+	SearchColumns:     []string{"title", "sort_title", "overview", "youtube_video_id"},
 	SortableColumns:   []string{"id", "title", "sort_title", "class", "runtime_seconds", "created_at", "updated_at"},
-	FilterableColumns: []string{"class", "direct_play_ok", "jellyfin_item_id"},
+	FilterableColumns: []string{"class", "direct_play_ok", "jellyfin_item_id", "youtube_video_id", "manifest_slug"},
 })
 
 // AvailabilityWindows is the availability window repository.

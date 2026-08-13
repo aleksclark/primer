@@ -24,20 +24,27 @@ const AdminKeyHeader = "X-Admin-Key"
 
 // MediaItem is the subset of a TV media item the reconciler reads and writes.
 type MediaItem struct {
-	ID             string   `json:"id"`
-	JellyfinItemID string   `json:"jellyfinItemId"`
-	Title          string   `json:"title"`
-	SortTitle      string   `json:"sortTitle,omitempty"`
-	Overview       string   `json:"overview,omitempty"`
-	Class          string   `json:"class"`
-	RuntimeSeconds int      `json:"runtimeSeconds,omitempty"`
-	SubjectTags    []string `json:"subjectTags,omitempty"`
-	StandardCodes  []string `json:"standardCodes,omitempty"`
-	Container      string   `json:"container,omitempty"`
-	VideoCodec     string   `json:"videoCodec,omitempty"`
-	AudioCodec     string   `json:"audioCodec,omitempty"`
-	DirectPlayOK   bool     `json:"directPlayOk,omitempty"`
-	ImageTag       string   `json:"imageTag,omitempty"`
+	ID                   string   `json:"id"`
+	JellyfinItemID       string   `json:"jellyfinItemId"`
+	Title                string   `json:"title"`
+	SortTitle            string   `json:"sortTitle,omitempty"`
+	Overview             string   `json:"overview,omitempty"`
+	Class                string   `json:"class"`
+	RuntimeSeconds       int      `json:"runtimeSeconds,omitempty"`
+	SubjectTags          []string `json:"subjectTags,omitempty"`
+	StandardCodes        []string `json:"standardCodes,omitempty"`
+	Container            string   `json:"container,omitempty"`
+	VideoCodec           string   `json:"videoCodec,omitempty"`
+	AudioCodec           string   `json:"audioCodec,omitempty"`
+	DirectPlayOK         bool     `json:"directPlayOk,omitempty"`
+	ImageTag             string   `json:"imageTag,omitempty"`
+	YouTubeVideoID       string   `json:"youtubeVideoId,omitempty"`
+	ManifestSlug         string   `json:"manifestSlug,omitempty"`
+	EpisodeKey           string   `json:"episodeKey,omitempty"`
+	UploadDate           string   `json:"uploadDate,omitempty"` // YYYY-MM-DD when set
+	TitleLocked          bool     `json:"titleLocked,omitempty"`
+	OverviewLocked       bool     `json:"overviewLocked,omitempty"`
+	ClassificationLocked bool     `json:"classificationLocked,omitempty"`
 }
 
 // Manifest entry acquisition statuses (mirror TV domain).
@@ -109,20 +116,28 @@ type MediaItemCreate struct {
 	VideoCodec     string   `json:"videoCodec,omitempty"`
 	AudioCodec     string   `json:"audioCodec,omitempty"`
 	ImageTag       string   `json:"imageTag,omitempty"`
+	YouTubeVideoID string   `json:"youtubeVideoId,omitempty"`
+	ManifestSlug   string   `json:"manifestSlug,omitempty"`
+	EpisodeKey     string   `json:"episodeKey,omitempty"`
+	UploadDate     string   `json:"uploadDate,omitempty"` // YYYY-MM-DD
 }
 
 // MediaItemUpdate is the body for PATCH /media-items/{id}.
 type MediaItemUpdate struct {
-	Title         *string   `json:"title,omitempty"`
-	Class         *string   `json:"class,omitempty"`
-	SubjectTags   *[]string `json:"subjectTags,omitempty"`
-	StandardCodes *[]string `json:"standardCodes,omitempty"`
-	Overview      *string   `json:"overview,omitempty"`
-	SortTitle     *string   `json:"sortTitle,omitempty"`
-	Container     *string   `json:"container,omitempty"`
-	VideoCodec    *string   `json:"videoCodec,omitempty"`
-	AudioCodec    *string   `json:"audioCodec,omitempty"`
-	ImageTag      *string   `json:"imageTag,omitempty"`
+	Title          *string   `json:"title,omitempty"`
+	Class          *string   `json:"class,omitempty"`
+	SubjectTags    *[]string `json:"subjectTags,omitempty"`
+	StandardCodes  *[]string `json:"standardCodes,omitempty"`
+	Overview       *string   `json:"overview,omitempty"`
+	SortTitle      *string   `json:"sortTitle,omitempty"`
+	Container      *string   `json:"container,omitempty"`
+	VideoCodec     *string   `json:"videoCodec,omitempty"`
+	AudioCodec     *string   `json:"audioCodec,omitempty"`
+	ImageTag       *string   `json:"imageTag,omitempty"`
+	YouTubeVideoID *string   `json:"youtubeVideoId,omitempty"`
+	ManifestSlug   *string   `json:"manifestSlug,omitempty"`
+	EpisodeKey     *string   `json:"episodeKey,omitempty"`
+	UploadDate     *string   `json:"uploadDate,omitempty"` // YYYY-MM-DD
 }
 
 // SyncResult summarizes POST /jellyfin/sync.
