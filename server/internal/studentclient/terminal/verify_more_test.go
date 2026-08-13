@@ -65,12 +65,14 @@ func TestVerifyCheckFailureAndErrorPaths(t *testing.T) {
 
 	// Command + pipeline success and failure variants
 	shell := &terminal.ShellState{
-		Cwd:        filepath.Join(root, "home"),
-		Executable: "/bin/ls",
-		Args:       []string{"-la", "docs"},
-		ExitCode:   0,
-		Stdout:     "guide.txt\r\n",
-		Stderr:     "",
+		Cwd:                       filepath.Join(root, "home"),
+		Executable:                "/bin/ls",
+		Args:                      []string{"-la", "docs"},
+		ExitCode:                  0,
+		Stdout:                    "guide.txt\r\n",
+		Stderr:                    "",
+		StructuredCommandEvidence: true,
+		Source:                    "structured",
 	}
 	ok := terminal.VerifyAll(root, []contracts.Check{
 		{ID: "cwd-abs", Kind: contracts.CheckCwd, Params: map[string]any{"path": "home"}},
@@ -98,6 +100,8 @@ func TestVerifyCheckFailureAndErrorPaths(t *testing.T) {
 	badShell := &terminal.ShellState{
 		Cwd: filepath.Join(root, "home", "docs"), Executable: "cat", Args: []string{"x"}, ExitCode: 1,
 		Stdout: "nope\n",
+		StructuredCommandEvidence: true,
+		Source:                    "structured",
 	}
 	for _, check := range []contracts.Check{
 		{ID: "cwd-wrong", Kind: contracts.CheckCwd, Params: map[string]any{"path": "home"}},

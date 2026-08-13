@@ -154,13 +154,20 @@ func TestApplyCompletionRejectsFailedChecksAndCancelled(t *testing.T) {
 			SchemaVersion: "1", CheckID: c.ID, Kind: c.Kind, Passed: true, Optional: c.Optional, ObservedAt: now,
 		})
 	}
-	_, err = mastery.ApplyCompletion(ctx, q, device, sess.ID, contracts.CompletionRequest{
+	// Phase 5+: cancelled-after-work is an explicit rejected result (not ErrBadRequest)
+	// so offline clients can ack without losing local evidence.
+	result, err := mastery.ApplyCompletion(ctx, q, device, sess.ID, contracts.CompletionRequest{
 		SchemaVersion: "1", CompletionID: uuid.NewString(), RequestDigest: "d2",
 		Observations: obs, ClientTime: now,
 	}, now)
-	require.Error(t, err)
-	var br repo.ErrBadRequest
-	require.ErrorAs(t, err, &br)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Accepted)
+	assert.Contains(t, result.Message, "cancelled")
+	if assert.NotNil(t, result.AssignmentCompletion) {
+		assert.Equal(t, domain.AssignmentCancelled, result.AssignmentCompletion.State)
+		assert.Equal(t, "cancelled-after-work", result.AssignmentCompletion.Summary)
+	}
 }
 
 func TestApplyCompletionOnAbandonedSession(t *testing.T) {
