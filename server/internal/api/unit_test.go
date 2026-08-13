@@ -198,3 +198,29 @@ func TestCRUDConfigWithoutGuardIsUnchanged(t *testing.T) {
 	assert.Empty(t, op.Errors)
 	assert.True(t, cfg.skipCreate)
 }
+
+func TestDeviceCapsToMap(t *testing.T) {
+	t.Parallel()
+	empty := deviceCapsToMap(DeviceCapabilitiesBody{})
+	assert.Empty(t, empty)
+
+	m := deviceCapsToMap(DeviceCapabilitiesBody{
+		RuntimeProfiles: []string{"coreutils-basic"},
+		ProfileDigests:  map[string]string{"coreutils-basic": "abc"},
+		RunnerVersion:   "1.2.3",
+		Capabilities:    []string{"structured_command_evidence"},
+	})
+	assert.Equal(t, []string{"coreutils-basic"}, m["runtimeProfiles"])
+	assert.Equal(t, map[string]string{"coreutils-basic": "abc"}, m["profileDigests"])
+	assert.Equal(t, "1.2.3", m["runnerVersion"])
+	assert.Equal(t, []string{"structured_command_evidence"}, m["capabilities"])
+}
+
+func TestSkipUpdateAndDeleteOptions(t *testing.T) {
+	t.Parallel()
+	var cfg crudConfig
+	SkipUpdate()(&cfg)
+	SkipDelete()(&cfg)
+	assert.True(t, cfg.skipUpdate)
+	assert.True(t, cfg.skipDelete)
+}
