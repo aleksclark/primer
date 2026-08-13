@@ -242,13 +242,13 @@ func ApplyCompletion(ctx context.Context, q repo.Querier, device *domain.Student
 			summary = "completed"
 		}
 		result = contracts.CompletionResult{
-			SchemaVersion:  contracts.CompletionSchemaVersion,
-			CompletionID:   req.CompletionID,
-			Accepted:       true,
-			RequestDigest:  req.RequestDigest,
-			Observations:   req.Observations,
-			EvidenceIDs:    evidenceIDs,
-			MasterySnapshot: transitions,
+			SchemaVersion:      contracts.CompletionSchemaVersion,
+			CompletionID:       req.CompletionID,
+			Accepted:           true,
+			RequestDigest:      req.RequestDigest,
+			Observations:       req.Observations,
+			EvidenceIDs:        evidenceIDs,
+			MasterySnapshot:    transitions,
 			MasteryTransitions: transitions,
 			AssignmentCompletion: &contracts.AssignmentCompletion{
 				AssignmentID: session.AssignmentID,

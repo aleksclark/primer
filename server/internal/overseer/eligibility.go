@@ -12,28 +12,28 @@ import (
 
 // Blocking reason codes (stable for parents/tests).
 const (
-	BlockEnrollmentPaused     = "enrollment_paused"
-	BlockEnrollmentInactive   = "enrollment_inactive"
-	BlockNotInRevision        = "not_in_revision"
-	BlockAlreadyCompleted     = "already_completed"
-	BlockAlreadyOpen          = "already_open"
-	BlockPrerequisiteUnmet    = "prerequisite_unmet"
-	BlockParentReviewPending  = "parent_review_pending"
-	BlockEvidenceGateUnmet    = "evidence_gate_unmet"
-	BlockMissingActivityRev   = "missing_activity_revision"
-	BlockIncompatibleOpen     = "incompatible_open_assignment"
-	BlockNoActiveEnrollment   = "no_active_enrollment"
-	BlockNoEligibleActivity   = "no_eligible_activity"
+	BlockEnrollmentPaused    = "enrollment_paused"
+	BlockEnrollmentInactive  = "enrollment_inactive"
+	BlockNotInRevision       = "not_in_revision"
+	BlockAlreadyCompleted    = "already_completed"
+	BlockAlreadyOpen         = "already_open"
+	BlockPrerequisiteUnmet   = "prerequisite_unmet"
+	BlockParentReviewPending = "parent_review_pending"
+	BlockEvidenceGateUnmet   = "evidence_gate_unmet"
+	BlockMissingActivityRev  = "missing_activity_revision"
+	BlockIncompatibleOpen    = "incompatible_open_assignment"
+	BlockNoActiveEnrollment  = "no_active_enrollment"
+	BlockNoEligibleActivity  = "no_eligible_activity"
 	// BlockMissingRuntimeProfile: device capability report lacks the activity's runtime profile.
 	BlockMissingRuntimeProfile = "missing_runtime_profile"
 )
 
 // ActivityStatus is one membership row evaluated for a student.
 type ActivityStatus struct {
-	Membership     domain.CurriculumActivity `json:"membership"`
-	Eligible       bool                      `json:"eligible"`
-	Status         string                    `json:"status"` // eligible | blocked | assigned | completed | review_needed
-	BlockingReasons []BlockReason            `json:"blockingReasons,omitempty"`
+	Membership      domain.CurriculumActivity `json:"membership"`
+	Eligible        bool                      `json:"eligible"`
+	Status          string                    `json:"status"` // eligible | blocked | assigned | completed | review_needed
+	BlockingReasons []BlockReason             `json:"blockingReasons,omitempty"`
 }
 
 // BlockReason explains why an activity is not eligible.
@@ -47,11 +47,11 @@ type BlockReason struct {
 
 // EligibilityPreview is the parent-facing course map for one enrollment.
 type EligibilityPreview struct {
-	Enrollment domain.Enrollment `json:"enrollment"`
+	Enrollment domain.Enrollment         `json:"enrollment"`
 	Revision   domain.CurriculumRevision `json:"revision"`
-	Activities []ActivityStatus  `json:"activities"`
-	Eligible   []ActivityStatus  `json:"eligible"`
-	Blocking   []BlockReason     `json:"blockingSummary,omitempty"`
+	Activities []ActivityStatus          `json:"activities"`
+	Eligible   []ActivityStatus          `json:"eligible"`
+	Blocking   []BlockReason             `json:"blockingSummary,omitempty"`
 }
 
 // EvaluateEnrollmentEligibility computes eligibility for every membership entry.

@@ -280,12 +280,12 @@ func TestCompletionIdempotentAssignmentAndMasteryDiffer(t *testing.T) {
 	dev, sess := deviceAndSession(t, q, student.ID, rev.ID)
 
 	req := contracts.CompletionRequest{
-		SchemaVersion:  "1",
-		CompletionID:   uuid.NewString(),
-		RequestDigest:  "digest-1",
-		Observations:   passingObs(doc),
-		ClientTime:     time.Now().UTC(),
-		Summary:        "done",
+		SchemaVersion: "1",
+		CompletionID:  uuid.NewString(),
+		RequestDigest: "digest-1",
+		Observations:  passingObs(doc),
+		ClientTime:    time.Now().UTC(),
+		Summary:       "done",
 	}
 	r1, err := mastery.ApplyCompletion(ctx, q, dev, sess.ID, req, time.Now().UTC())
 	require.NoError(t, err)
