@@ -34,8 +34,13 @@ content_ingest_sonarr_root_folder         = "/media/tv"
 content_ingest_sonarr_quality_profile_id  = "4"
 content_ingest_jellyfin_base_url          = "https://jellyfin.fleet.clark.team"
 content_ingest_tv_base_url                = "https://tv.fleet.clark.team/api/v1"
-content_ingest_ytdlp_output_dir           = "/media"
-content_ingest_ytdlp_archive_path         = "/media/ytdlp-archive.txt"
+# Canonical YouTube root: host /mnt/moosefs/media/tv/Primer = container path below.
+content_ingest_ytdlp_output_dir           = "/media/tv/Primer"
+# Deprecated/unused — per-show archives at Shows/<slug>/.ytdlp-archive.txt.
+content_ingest_ytdlp_archive_path         = ""
 content_ingest_ytdlp_path                 = "yt-dlp"
+# Cookies path: content_ingest_ytdlp_cookies_path is declared only on the
+# content-ingest jobspec (default ""). Do not add it here until primer and
+# primer-tv jobspecs also declare the key (Nomad rejects undeclared -var-file keys).
 content_ingest_cron                       = "0 */6 * * *"
 content_ingest_timezone                   = "America/Chicago"

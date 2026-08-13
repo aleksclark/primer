@@ -22,6 +22,10 @@ job "content-ingest" {
     task "content-ingest" {
       driver = "docker"
 
+      # Longest allowed YouTube dump (hours). Keep ≥4h so channel bulk runs
+      # are not SIGKILLed mid-archive.
+      kill_timeout = "4h"
+
       config {
         image   = "ghcr.io/aleksclark/content-ingest:${IMAGE_TAG}"
         command = "apply"
@@ -51,8 +55,11 @@ job "content-ingest" {
         INGEST_TV_BASE_URL               = "${INGEST_TV_BASE_URL}"
         INGEST_TV_ADMIN_KEY              = "${INGEST_TV_ADMIN_KEY}"
         INGEST_YTDLP_OUTPUT_DIR          = "${INGEST_YTDLP_OUTPUT_DIR}"
+        # Global archive path is deprecated; per-show archives under Shows/<slug>/.
         INGEST_YTDLP_ARCHIVE_PATH        = "${INGEST_YTDLP_ARCHIVE_PATH}"
         INGEST_YTDLP_PATH                = "yt-dlp"
+        # Cookies jar PATH only (host file outside git, mode 0600). Never a cookie value.
+        INGEST_YTDLP_COOKIES_PATH        = "${INGEST_YTDLP_COOKIES_PATH}"
       }
 
       resources {

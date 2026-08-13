@@ -174,18 +174,30 @@ variable "content_ingest_tv_base_url" {
 }
 
 variable "content_ingest_ytdlp_output_dir" {
-  type    = string
-  default = "/media"
+  type        = string
+  description = "Canonical YouTube root inside the container (host: /mnt/moosefs/media/tv/Primer)"
+  default     = "/media/tv/Primer"
 }
 
+# Deprecated/unused global archive. Per-show archives live at
+# {OutputDir}/Shows/<slug>/.ytdlp-archive.txt. Kept so -var-file overlays that
+# still declare the key do not fail Nomad undeclared-variable checks.
 variable "content_ingest_ytdlp_archive_path" {
   type    = string
-  default = "/media/ytdlp-archive.txt"
+  default = ""
 }
 
 variable "content_ingest_ytdlp_path" {
   type    = string
   default = "yt-dlp"
+}
+
+# Cookies jar PATH only (never cookie contents). Empty default so missing
+# overlay/nomadVar does not fail-closed the jobspec parse.
+variable "content_ingest_ytdlp_cookies_path" {
+  type        = string
+  description = "Host/container path to yt-dlp cookies.txt (mode 0600, outside git)"
+  default     = ""
 }
 
 variable "content_ingest_cron" {
@@ -232,6 +244,10 @@ job "content-ingest" {
     task "content-ingest" {
       driver = "docker"
 
+      # Longest allowed YouTube dump (hours). Keep ≥4h so channel bulk runs
+      # are not SIGKILLed mid-archive.
+      kill_timeout = "4h"
+
       config {
         image   = var.image_content_ingest
         command = "apply"
@@ -256,11 +272,16 @@ job "content-ingest" {
         INGEST_JELLYFIN_BASE_URL         = var.content_ingest_jellyfin_base_url
         INGEST_TV_BASE_URL               = var.content_ingest_tv_base_url
         INGEST_YTDLP_OUTPUT_DIR          = var.content_ingest_ytdlp_output_dir
-        INGEST_YTDLP_ARCHIVE_PATH        = var.content_ingest_ytdlp_archive_path
-        INGEST_YTDLP_PATH                = var.content_ingest_ytdlp_path
+        # Deprecated/unused global archive; per-show archives under Shows/<slug>/.
+        INGEST_YTDLP_ARCHIVE_PATH = var.content_ingest_ytdlp_archive_path
+        INGEST_YTDLP_PATH         = var.content_ingest_ytdlp_path
+        # Cookies jar PATH only — never cookie contents. Empty default is safe.
+        INGEST_YTDLP_COOKIES_PATH = var.content_ingest_ytdlp_cookies_path
       }
 
       # Secret key names only — values from Nomad Variable nomad/jobs/content-ingest.
+      # Cookies path is non-secret (a filesystem path); may also be set via the
+      # content_ingest_ytdlp_cookies_path var. Do not put cookie jar contents here.
       template {
         destination = "secrets/content-ingest.env"
         env         = true
