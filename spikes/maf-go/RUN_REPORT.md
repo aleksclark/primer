@@ -248,14 +248,15 @@ If the team prefers zero new preview framework surface and already invests in Fa
 | `b26a735` | (no fresh post-fix review; previously overclaimed APPROVED) | allowlist + AG-UI hard asserts |
 | `c874670` | CHANGES_REQUIRED | 2 Important: StartChild-before-Run lineage drift; F5 MCP cancel soft assert |
 | `1d73c2d` | APPROVED | Fresh independent review; 0 Critical / 0 Important; suggestions only |
-| **`e562f54`** | **pending fresh review** | Two-context stream/run + Emit/Close race fix + stronger F5 proofs |
+| **`e562f54`** | **APPROVED** | Fresh independent review; 0 Critical / 0 Important; two-context stream/run + Emit/Close race fix + stronger F5 proofs; suggestions only (client-reader vs WriteDone naming; in-flight Write preemption) |
 
 ## Final git state
 
 - Branch: `spike/maf-go-feasibility`
 - Base: `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
-- **Reviewed code SHA:** pending (target `e562f54a33a29462547ef59741319d779562128f`)
-- **Final HEAD:** tip of `spike/maf-go-feasibility` after docs stamps (`git rev-parse HEAD`)
+- **Reviewed code SHA:** `e562f54a33a29462547ef59741319d779562128f` (APPROVED)
+- **Honest report content commit:** (docs tip; `git rev-parse HEAD` after stamp)
+- **Final HEAD:** tip of `spike/maf-go-feasibility` after docs-only stamps (descendant of reviewed code SHA; `git rev-parse HEAD`)
 - Push/PR: **none** (local only)
 - **CONDITIONAL GO still stands**
 - **F5 final verdict: VALIDATED** (two-context + concurrent bridge close proven)
