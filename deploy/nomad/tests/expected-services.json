@@ -1,0 +1,67 @@
+{
+  "release_set": "primer",
+  "jobs": [
+    {
+      "id": "primer",
+      "type": "service",
+      "services": [
+        {
+          "name": "primer",
+          "provider": "nomad",
+          "check_path": "/api/v1/health",
+          "hosts": [
+            "primer.fleet.clark.team",
+            "primer.clark.team"
+          ]
+        }
+      ],
+      "secret_variable_path": "nomad/jobs/primer",
+      "secret_keys": ["database_url", "service_token"],
+      "image_var": "image_primer"
+    },
+    {
+      "id": "primer-tv",
+      "type": "service",
+      "services": [
+        {
+          "name": "primer-tv",
+          "provider": "nomad",
+          "check_path": "/api/v1/health",
+          "hosts": [
+            "tv.fleet.clark.team",
+            "tv.clark.team"
+          ]
+        }
+      ],
+      "secret_variable_path": "nomad/jobs/primer-tv",
+      "secret_keys": [
+        "tv_database_url",
+        "tv_jellyfin_api_key",
+        "tv_jellyfin_user_id",
+        "tv_admin_api_key",
+        "tv_primer_service_token"
+      ],
+      "image_var": "image_primer_tv"
+    },
+    {
+      "id": "content-ingest",
+      "type": "batch",
+      "periodic": {
+        "prohibit_overlap": true,
+        "timezone": "America/Chicago"
+      },
+      "volume": "moosefs-media",
+      "dispatch": "never-from-reconciler-or-ci",
+      "secret_variable_path": "nomad/jobs/content-ingest",
+      "secret_keys": [
+        "ingest_radarr_api_key",
+        "ingest_sonarr_api_key",
+        "ingest_jellyfin_api_key",
+        "ingest_jellyfin_user_id",
+        "ingest_tv_admin_key"
+      ],
+      "image_var": "image_content_ingest",
+      "handoff_note": "pause-before-S2-writer-handoff"
+    }
+  ]
+}

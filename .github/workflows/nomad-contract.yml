@@ -1,0 +1,29 @@
+name: nomad-contract
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "deploy/nomad/**"
+      - "deploy/deploy.sh"
+      - ".github/CODEOWNERS"
+      - ".github/workflows/nomad-contract.yml"
+  pull_request:
+    paths:
+      - "deploy/nomad/**"
+      - "deploy/deploy.sh"
+      - ".github/CODEOWNERS"
+      - ".github/workflows/nomad-contract.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Plan-03 contract tests
+        run: bash ./deploy/nomad/tests/contract.sh

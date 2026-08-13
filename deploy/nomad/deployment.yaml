@@ -1,0 +1,26 @@
+# Plan-03 project deployment contract (schema v1).
+# Value-free. Secrets live only in Nomad Variables (key names documented in README).
+schema_version: 1
+project: primer
+owner: aleks-clark
+repository: https://github.com/aleksclark/primer
+ref_policy: signed-default-branch-commit
+namespace: default
+datacenters: [home]
+release_sets:
+  - name: primer
+    jobs:
+      - id: primer
+        spec: jobs/primer.nomad.hcl
+      - id: primer-tv
+        spec: jobs/primer-tv.nomad.hcl
+      - id: content-ingest
+        spec: jobs/content-ingest.nomad.hcl
+    env: env/home.nomadvars.hcl
+    images: images.lock.hcl
+    variable_paths:
+      - nomad/jobs/primer
+      - nomad/jobs/primer-tv
+      - nomad/jobs/content-ingest
+    rollout: serial
+    prune: explicit-only
