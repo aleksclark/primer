@@ -26,7 +26,7 @@ spikes/maf-go/**
 
 No production Primer packages modified. No `agent-framework-go/internal` imports.
 
-## Gate commands and real outputs (post-hardening tip)
+## Gate commands and real outputs (post two-context / bridge-close tip)
 
 ```
 === go version ===
@@ -35,10 +35,14 @@ go version go1.26.6 linux/amd64
 === go test ./... -count=1 ===
 ?   github.com/aleksclark/primer/spikes/maf-go/cmd/demo  [no test files]
 ?   github.com/aleksclark/primer/spikes/maf-go/fakes     [no test files]
-ok  github.com/aleksclark/primer/spikes/maf-go/primer   0.281s
+ok  github.com/aleksclark/primer/spikes/maf-go/primer   0.212s
 
 === go test -race ./... -count=1 ===
-ok  github.com/aleksclark/primer/spikes/maf-go/primer   1.300s
+ok  github.com/aleksclark/primer/spikes/maf-go/primer   1.330s
+
+=== go test -race ./primer -count=20 (focused F5 bridge/disconnect/cancel) ===
+ok  github.com/aleksclark/primer/spikes/maf-go/primer   3.219s
+(run: TestF5_SSEBridge_ConcurrentEmitClose|TestF5_SSEHandler_HTTPDisconnect|TestF5_SSEHandler_ExplicitRunCancel|TestF5_SSEBridge_Cancel|TestF5_SSEBridge_Slow)
 
 === go vet ./... ===
 (exit 0, clean)
@@ -56,7 +60,7 @@ events: start/text/end (parent) + child_start/text/child_end with parent=root=pa
 (exit 0, clean)
 ```
 
-### Test inventory (27 PASS)
+### Test inventory (29 PASS)
 
 | Test | Maps to |
 |------|---------|
@@ -78,8 +82,10 @@ events: start/text/end (parent) + child_start/text/child_end with parent=root=pa
 | `TestF5_SlowSinkDoesNotFailRun` | F5 BoundedSink |
 | `TestF5_DisconnectedConsumer_RunStillCompletes` | F5 drop ≠ fail run |
 | `TestF5_SSEBridge_SlowWriterDoesNotBlockRunner` | F5 async bridge vs blocking writer |
-| `TestF5_SSEBridge_CancelTerminatesWriter` | F5 writer shutdown |
-| `TestF5_SSEHandler_HTTPDisconnect_RunCompletes` | F5 HTTP disconnect (partial: start proven) |
+| `TestF5_SSEBridge_CancelTerminatesWriter` | F5 stream-ctx writer shutdown + residual drop |
+| `TestF5_SSEBridge_ConcurrentEmitClose_NoPanic` | F5 Emit/Close race-safe (200×8 emitters, -race) |
+| `TestF5_SSEHandler_HTTPDisconnect_RunCompletes` | F5 two-context: disconnect → writer exit; run continues to after-disconnect |
+| `TestF5_SSEHandler_ExplicitRunCancel_ReachesBlockingMCP` | F5 RunHandle.Cancel → child → MCP while client stays connected |
 | `TestF4_PrimerSSE_ParentAndChildAttributed` | F4 attribution + lineage parse |
 | `TestF4_PrimerSSE_IncrementalBeforeCompletion` | F4 barrier-driven incremental |
 | `TestF4_AGUI_ParentTextOnly_NoChildAttribution` | F4 AG-UI negative baseline |
@@ -93,8 +99,8 @@ events: start/text/end (parent) + child_start/text/child_end with parent=root=pa
 | Layer | What is proven |
 |-------|----------------|
 | **Stock MAF** | `agent.Agent` stream iter, optional Session JSON, OpenAI provider + custom base URL, MCP via `mcptool` + official SDK, AG-UI single-agent SSE, stock `agenttool` Collects child streams |
-| **Public-API Primer adapter (this spike)** | `Runner` budgets/depth/lineage, `StreamingChildTool`, fail-closed tool filter, `SSEBridge` + Primer SSE envelope with parent/child/root attribution |
-| **Production work remaining** | Wire into Primer server/workstation packages; multi-turn root_run sticky policy; durable CP (Ultracore); multi-turn tool-autocall matrix; concurrent PrepareRun safety; stronger HTTP-disconnect completion proof; production backpressure tuning |
+| **Public-API Primer adapter (this spike)** | `Runner` budgets/depth/lineage, `StreamingChildTool`, fail-closed tool filter, race-safe `SSEBridge`, two-context `SSEHandler` + `RunHandle` (stream vs runtime-owned run) with parent/child/root attribution |
+| **Production work remaining** | Wire into Primer server/workstation packages; multi-turn root_run sticky policy; durable CP (Ultracore); multi-turn tool-autocall matrix; production-grade run controller / cancel API surface beyond spike `RunHandle`; concurrent PrepareRun safety |
 
 ## Per-question verdicts
 
@@ -130,14 +136,28 @@ Fail-closed `FilterToolsFailClosed`: `allow_me` invokable; `deny_me` absent from
 | Primer `SSEHandler` + `SSEBridge` | **VALIDATED** for attribution + incremental arrival: barrier test proves `early-parent-delta` is on the wire **before** provider is released; F4 parse asserts `parent.run_id == parent.root_run_id == child.parent_run_id == child.root_run_id` |
 
 **MAF contributes:** `ResponseUpdate` iteration, optional AG-UI hosting for single-agent streams.
-**Primer still owns:** nested attribution envelope, child tool wiring, run/root/parent ids, async bridge.
+**Primer still owns:** nested attribution envelope, child tool wiring, run/root/parent ids, async bridge, stream vs run context split.
 
-### F5 Cancellation / backpressure — **VALIDATED** (with noted residual)
+### F5 Cancellation / backpressure — **VALIDATED**
 
-- Cancelled ctx propagates parent tool → child run → blocking MCP tool; **hard** `AllowSawCancel` assert.
+Two-context model (spike design):
+
+| Context | Owns | Canceled by |
+|---------|------|-------------|
+| **stream** (`r.Context()`) | SSE `WriteTo` / bridge drain only | client disconnect, request abort |
+| **run** (`RunHandle` / budget) | `Runner.Run`, child tools, MCP | `RunHandle.Cancel`, `RunBudget` timeout — **not** subscriber loss |
+
+Evidence:
+
+- **Concurrent Emit/Close:** `TestF5_SSEBridge_ConcurrentEmitClose_NoPanic` — 200 rounds × 8 emitters × 50 events with racing `Close` under `go test -race`; Emit holds `mu` across non-blocking send so send-on-closed-channel is impossible. No recover-as-success theater.
+- **Stream cancel exits promptly:** `TestF5_SSEBridge_CancelTerminatesWriter` — residual queued events dropped; no synchronous drain-write to broken writer after stream ctx cancel.
+- **Slow writer ≠ blocked runner:** `TestF5_SSEBridge_SlowWriterDoesNotBlockRunner`.
+- **HTTP disconnect ≠ run cancel:** `TestF5_SSEHandler_HTTPDisconnect_RunCompletes` — barrier proof: first-wire observed → client `Body.Close` → stream reader exits → `RunHandle.Err()==nil` while disconnected → hold released → provider emits `after-disconnect` → `OnRunEnd(nil)`; `runSawCancel` must stay false.
+- **Explicit runtime cancel still reaches MCP:** `TestF5_SSEHandler_ExplicitRunCancel_ReachesBlockingMCP` — client stays connected; `RunHandle.Cancel()` while child blocks in MCP `allow_me`; hard `AllowSawCancel` assert.
+- Direct unit path `TestF5_CancelPropagatesToChildAndMCP` still proves parent tool → child → MCP cancel propagation.
 - `BoundedSink` caps retention; drops do not fail run.
-- **`SSEBridge`:** async bounded queue; slow/blocking `ResponseWriter` does **not** block runner (`TestF5_SSEBridge_SlowWriterDoesNotBlockRunner`); cancel terminates writer goroutine; stream loss does not fail run.
-- Residual: `TestF5_SSEHandler_HTTPDisconnect_RunCompletes` proves provider start + disconnect path more weakly than the bridge unit tests (review suggestion; not a failing claim).
+
+Spike `RunHandle` is a minimal public throwaway control surface (not a production control plane).
 
 ### F6 Optional sessions — **VALIDATED**
 
@@ -172,9 +192,9 @@ Spike `go.mod` has no DBOS/NATS/Temporal/asynq. No durable worker implemented.
 | Risk | Preview API churn; nested stream not stock | Re-implement provider/MCP surface |
 
 **Does MAF replace Fantasy short-term?**
-**Not as a drop-in.** It can **replace/augment the agent runtime layer** for multi-provider + MCP if Primer accepts preview risk and owns nested streaming + budgets + SSE envelope. Fantasy remains attractive for TUI-centric Charm integration with less dependency surface.
+**Not as a drop-in.** It can **replace/augment the agent runtime layer** for multi-provider + MCP if Primer accepts preview risk and owns nested streaming + budgets + SSE envelope + stream/run context split. Fantasy remains attractive for TUI-centric Charm integration with less dependency surface.
 
-## Limitations (post-hardening)
+## Limitations (post two-context hardening)
 
 1. Stock `agenttool` cannot stream child updates — Primer must ship a streaming child tool.
 2. AG-UI does not give nested child attribution out of the box when children are tools.
@@ -184,6 +204,8 @@ Spike `go.mod` has no DBOS/NATS/Temporal/asynq. No durable worker implemented.
 6. `lineage.rootID` is sticky for a Runner lifetime (fine for per-request SSE `NewRunner`; multi-turn root reuse needs an explicit policy).
 7. `activeChildren` is reserved at `StartChild` and released from `StreamingChildTool.Call`; a pre-wired never-invoked child leaks the active slot until process end (spike-acceptable; production should release on drop).
 8. No production Primer package integration (intentional).
+9. `RunHandle` / `OnRunStart`/`OnRunEnd` are spike-minimal host hooks — production needs a real run controller, authz on cancel, and durable cancel delivery.
+10. `ServeHTTP` still blocks until the run finishes (or budget/cancel) even after the client disconnects; that is intentional for the two-context proof but is not a production request-lifecycle model (production would detach the run onto a worker/runtime).
 
 ## Key code paths
 
@@ -194,7 +216,7 @@ Spike `go.mod` has no DBOS/NATS/Temporal/asynq. No durable worker implemented.
 | Streaming child (F3) | `spikes/maf-go/primer/stream_child.go` |
 | Fail-closed MCP filter | `spikes/maf-go/primer/mcp_filter.go` |
 | Bounded sink | `spikes/maf-go/primer/sink.go` |
-| Primer SSE + async SSEBridge | `spikes/maf-go/primer/sse.go` |
+| Primer SSE + race-safe SSEBridge + RunHandle two-context | `spikes/maf-go/primer/sse.go` |
 | Fake OpenAI | `spikes/maf-go/fakes/openai_server.go` |
 | Fake MCP | `spikes/maf-go/fakes/mcp_server.go` |
 | Evidence tests | `spikes/maf-go/primer/feasibility_test.go` |
@@ -208,11 +230,13 @@ Adopt MAF Go as a **short-term in-process agent SDK** only if Primer:
 1. Ships a **public-API streaming child tool** (do not rely on stock `agenttool` for live nested UX).
 2. Owns **child authority intersection + depth/total budgets** (student `max_children=0`).
 3. Owns **wire event envelope** (Primer SSE or extended AG-UI mapping) with parent/child/root attribution and an **async bounded bridge**.
-4. Pins exact MAF commits and treats APIs as preview-unstable.
-5. Keeps Ultracore as the long-term distributed durable control plane — MAF workflows are not that.
+4. Owns **stream vs run context separation** (subscriber loss must not cancel the underlying agent/MCP run; explicit runtime cancel must still reach nested work).
+5. Pins exact MAF commits and treats APIs as preview-unstable.
+6. Keeps Ultracore as the long-term distributed durable control plane — MAF workflows are not that.
 
 **Child streaming without a fork:** **YES** (custom `FuncTool` + `child.Run` iteration).
 **Stock nested streaming without Primer code:** **NO**.
+**Disconnect-safe final result without host-owned run context:** **NO** (stock request-bound handlers cancel the run; spike proves a viable public-API two-context pattern).
 
 If the team prefers zero new preview framework surface and already invests in Fantasy/Charm TUI, a **thin Fantasy wrapper + own MCP** may be cheaper for TUI-only short-term — but MAF wins on provider breadth and MCP/AG-UI batteries for a multi-agent runner service.
 
@@ -223,14 +247,15 @@ If the team prefers zero new preview framework surface and already invests in Fa
 | `68f558c` | CHANGES_REQUIRED | 2 Important: empty allowlist skip; soft AG-UI asserts |
 | `b26a735` | (no fresh post-fix review; previously overclaimed APPROVED) | allowlist + AG-UI hard asserts |
 | `c874670` | CHANGES_REQUIRED | 2 Important: StartChild-before-Run lineage drift; F5 MCP cancel soft assert |
-| **`1d73c2d`** | **APPROVED** | Fresh independent review; 0 Critical / 0 Important; suggestions only (sticky rootID, unused-child active slot, HTTP-disconnect residual, PrepareRun concurrency) |
+| `1d73c2d` | APPROVED | Fresh independent review; 0 Critical / 0 Important; suggestions only |
+| **`e562f54`** | **pending fresh review** | Two-context stream/run + Emit/Close race fix + stronger F5 proofs |
 
 ## Final git state
 
 - Branch: `spike/maf-go-feasibility`
 - Base: `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
-- **Reviewed code SHA:** `1d73c2d6935c24c39ba482ac6bd9995320e3f6e1` (APPROVED)
-- **Honest report content commit:** `20147d640a1e49e2d2b546b4a99f07af86457e82`
-- **Final HEAD:** tip of `spike/maf-go-feasibility` after docs-only stamps (descendant of reviewed code SHA; `git rev-parse HEAD`)
+- **Reviewed code SHA:** pending (target `e562f54a33a29462547ef59741319d779562128f`)
+- **Final HEAD:** tip of `spike/maf-go-feasibility` after docs stamps (`git rev-parse HEAD`)
 - Push/PR: **none** (local only)
 - **CONDITIONAL GO still stands**
+- **F5 final verdict: VALIDATED** (two-context + concurrent bridge close proven)
