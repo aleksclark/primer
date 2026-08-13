@@ -19,10 +19,20 @@ type StreamingChildTool struct {
 	child       *agent.Agent
 	childType   string
 	parentRunID string
+	rootRunID   string
+	depth       int
 	sink        EventSink
 	runOpts     []agent.Option
 	// onChildRun is optional hook for tests (e.g. capture child ctx).
 	onChildRun func(ctx context.Context)
+	// onComplete is invoked once when Call returns (success, error, or cancel).
+	// Used by Runner to close activeChildren accounting.
+	onComplete func()
+	// childRunner is the orchestrator-controlled child Runner (depth parent+1).
+	// Exposed for nested StartChild proofs; nil when constructed outside Runner.
+	childRunner *Runner
+	// runIDGen optional override for child run ids (tests).
+	runIDGen func() string
 }
 
 // NewStreamingChildTool builds a streaming child tool adapter.
@@ -37,6 +47,14 @@ func NewStreamingChildTool(child *agent.Agent, childType, parentRunID string, si
 		sink:        sink,
 		runOpts:     runOpts,
 	}
+}
+
+// ChildRunner returns the orchestrator-controlled child runner, if any.
+func (t *StreamingChildTool) ChildRunner() *Runner {
+	if t == nil {
+		return nil
+	}
+	return t.childRunner
 }
 
 var invalidNameChars = regexp.MustCompile(`[^0-9A-Za-z]+`)
@@ -80,10 +98,17 @@ func (t *StreamingChildTool) ReturnSchema() any {
 }
 
 // Call runs the child with streaming and emits attributed events.
+// Always invokes onComplete on return (success, error, cancel).
 func (t *StreamingChildTool) Call(ctx context.Context, args string) (any, error) {
 	if t == nil || t.child == nil {
 		return "", fmt.Errorf("streaming child tool: nil child")
 	}
+	defer func() {
+		if t.onComplete != nil {
+			t.onComplete()
+		}
+	}()
+
 	var in struct {
 		Query string `json:"query"`
 	}
@@ -97,19 +122,42 @@ func (t *StreamingChildTool) Call(ctx context.Context, args string) (any, error)
 		t.onChildRun(ctx)
 	}
 
-	childRunID := t.child.ID()
-	if childRunID == "" {
-		childRunID = "child-run"
+	gen := t.runIDGen
+	if gen == nil {
+		gen = newRunID
 	}
-	t.sink.Emit(ctx, RunEvent{
+	childRunID := gen()
+	// If child runner exists, record this as its last run id for grandchild attribution.
+	if t.childRunner != nil {
+		t.childRunner.lastRunID.Store(childRunID)
+		// Ensure root id is established for the tree.
+		if t.childRunner.lineage != nil {
+			t.childRunner.lineage.mu.Lock()
+			if t.childRunner.lineage.rootID == "" && t.rootRunID != "" {
+				t.childRunner.lineage.rootID = t.rootRunID
+			}
+			if t.rootRunID == "" {
+				t.rootRunID = t.childRunner.lineage.rootID
+			}
+			t.childRunner.lineage.mu.Unlock()
+		}
+	}
+	rootID := t.rootRunID
+	if rootID == "" {
+		rootID = t.parentRunID
+	}
+
+	base := RunEvent{
 		RunID:       childRunID,
+		RootRunID:   rootID,
 		ParentRunID: t.parentRunID,
 		AgentType:   t.childType,
 		AgentName:   t.child.Name(),
 		AgentID:     t.child.ID(),
-		Kind:        KindChildStart,
-		Text:        in.Query,
-	})
+		Depth:       t.depth,
+	}
+
+	t.sink.Emit(ctx, withKind(base, KindChildStart, in.Query, ""))
 
 	var b strings.Builder
 	var runErr error
@@ -117,39 +165,19 @@ func (t *StreamingChildTool) Call(ctx context.Context, args string) (any, error)
 	for update, err := range stream {
 		if err != nil {
 			runErr = err
-			t.sink.Emit(ctx, RunEvent{
-				RunID:       childRunID,
-				ParentRunID: t.parentRunID,
-				AgentType:   t.childType,
-				AgentName:   t.child.Name(),
-				AgentID:     t.child.ID(),
-				Kind:        KindError,
-				Err:         err.Error(),
-			})
+			t.sink.Emit(ctx, withKind(base, KindError, "", err.Error()))
 			break
 		}
 		if update == nil {
 			continue
 		}
-		// Attribute tool call contents if present.
 		for _, c := range update.Contents {
 			switch cc := c.(type) {
 			case *message.FunctionCallContent:
-				t.sink.Emit(ctx, RunEvent{
-					RunID:       childRunID,
-					ParentRunID: t.parentRunID,
-					AgentType:   t.childType,
-					AgentName:   t.child.Name(),
-					AgentID:     t.child.ID(),
-					Kind:        KindToolStart,
-					ToolName:    cc.Name,
-					Text:        cc.Arguments,
-				})
+				ev := withKind(base, KindToolStart, cc.Arguments, "")
+				ev.ToolName = cc.Name
+				t.sink.Emit(ctx, ev)
 			case *message.FunctionResultContent:
-				name := ""
-				if cc.CallID != "" {
-					name = cc.CallID
-				}
 				text := ""
 				if cc.Result != nil {
 					text = fmt.Sprint(cc.Result)
@@ -158,69 +186,41 @@ func (t *StreamingChildTool) Call(ctx context.Context, args string) (any, error)
 				if cc.Error != nil {
 					errStr = cc.Error.Error()
 				}
-				t.sink.Emit(ctx, RunEvent{
-					RunID:       childRunID,
-					ParentRunID: t.parentRunID,
-					AgentType:   t.childType,
-					AgentName:   t.child.Name(),
-					AgentID:     t.child.ID(),
-					Kind:        KindToolEnd,
-					ToolName:    name,
-					Text:        text,
-					Err:         errStr,
-				})
+				ev := withKind(base, KindToolEnd, text, errStr)
+				ev.ToolName = cc.CallID
+				t.sink.Emit(ctx, ev)
 			case *message.TextContent:
 				if cc.Text != "" {
 					b.WriteString(cc.Text)
-					t.sink.Emit(ctx, RunEvent{
-						RunID:       childRunID,
-						ParentRunID: t.parentRunID,
-						AgentType:   t.childType,
-						AgentName:   t.child.Name(),
-						AgentID:     t.child.ID(),
-						Kind:        KindText,
-						Text:        cc.Text,
-					})
+					t.sink.Emit(ctx, withKind(base, KindText, cc.Text, ""))
 				}
 			}
 		}
-		// Also surface update.String() when contents empty but String non-empty.
 		if len(update.Contents) == 0 {
 			if s := update.String(); s != "" {
 				b.WriteString(s)
-				t.sink.Emit(ctx, RunEvent{
-					RunID:       childRunID,
-					ParentRunID: t.parentRunID,
-					AgentType:   t.childType,
-					AgentName:   t.child.Name(),
-					AgentID:     t.child.ID(),
-					Kind:        KindText,
-					Text:        s,
-				})
+				t.sink.Emit(ctx, withKind(base, KindText, s, ""))
 			}
 		}
 	}
 
 	final := b.String()
-	t.sink.Emit(ctx, RunEvent{
-		RunID:       childRunID,
-		ParentRunID: t.parentRunID,
-		AgentType:   t.childType,
-		AgentName:   t.child.Name(),
-		AgentID:     t.child.ID(),
-		Kind:        KindChildEnd,
-		Text:        final,
-		Err: func() string {
-			if runErr != nil {
-				return runErr.Error()
-			}
-			return ""
-		}(),
-	})
+	errStr := ""
+	if runErr != nil {
+		errStr = runErr.Error()
+	}
+	t.sink.Emit(ctx, withKind(base, KindChildEnd, final, errStr))
 	if runErr != nil {
 		return final, runErr
 	}
 	return final, nil
+}
+
+func withKind(base RunEvent, kind, text, errStr string) RunEvent {
+	base.Kind = kind
+	base.Text = text
+	base.Err = errStr
+	return base
 }
 
 // Ensure StreamingChildTool implements tool.FuncTool.

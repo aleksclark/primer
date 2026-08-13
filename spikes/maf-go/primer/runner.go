@@ -13,60 +13,135 @@ import (
 	"github.com/microsoft/agent-framework-go/tool"
 )
 
+// newRunID generates a fresh per-invocation run id.
+// Tests may override via SetRunIDGenerator.
+var newRunID = func() string { return uuid.NewString() }
+
+// SetRunIDGenerator installs a deterministic run-id factory for tests.
+// Pass nil to restore the default UUID generator. Not safe for concurrent use
+// outside tests.
+func SetRunIDGenerator(fn func() string) {
+	if fn == nil {
+		newRunID = func() string { return uuid.NewString() }
+		return
+	}
+	newRunID = fn
+}
+
 // Runner orchestrates parent runs and budgeted StartChild calls using public MAF APIs.
+// Depth and lineage are orchestrator-controlled: callers never supply Depth.
 type Runner struct {
 	spec   AgentSpec
 	agent  *agent.Agent
 	sink   EventSink
 	mu     sync.Mutex
-	depth  int
+	depth  int // current orchestration depth (0 = root)
+	// lineage shared across the tree for root/parent attribution + total budget.
+	lineage *runLineage
+	// direct counts StartChild attempts that passed budget checks on THIS runner.
 	direct int
-	total  int
-	// activeChildren tracks in-flight child starts for budget accounting.
+	// activeChildren counts in-flight child tool executions started from this runner.
 	activeChildren int
+	// parentRunID is set only on child runners (immediate parent run id).
+	parentRunID atomic.Value // string
+	// lastRunID is the most recent Run invocation id on this runner.
+	lastRunID atomic.Value // string
 }
 
-// NewRunner wraps a prebuilt MAF agent with Primer budgets and event fanout.
+// runLineage is shared root state for a delegation tree.
+type runLineage struct {
+	mu      sync.Mutex
+	rootID  string // set on first root Run; may be empty until then
+	total   int    // total children started under this root tree
+	agentID string // root agent id (stable)
+}
+
+// NewRunner wraps a prebuilt MAF agent as a root orchestrator (depth 0).
 func NewRunner(spec AgentSpec, a *agent.Agent, sink EventSink) *Runner {
 	if sink == nil {
 		sink = NoopSink{}
 	}
-	if spec.MaxDepth <= 0 {
-		// 0 means no nesting beyond parent unless MaxChildren also 0.
-		// Keep 0 as "no children depth budget" when MaxChildren==0.
+	agentID := ""
+	if a != nil {
+		agentID = a.ID()
 	}
-	return &Runner{spec: spec, agent: a, sink: sink}
+	return &Runner{
+		spec:  spec,
+		agent: a,
+		sink:  sink,
+		depth: 0,
+		lineage: &runLineage{
+			agentID: agentID,
+		},
+	}
 }
 
-// Run executes the parent agent once (session optional via opts) and emits events.
+// Orchestration returns a snapshot of orchestrator-controlled lineage fields.
+func (r *Runner) Orchestration() Orchestration {
+	runID := r.LastRunID()
+	return Orchestration{
+		RunID:       runID,
+		RootRunID:   r.rootRunIDOr(runID),
+		ParentRunID: r.parentRun(),
+		Depth:       r.Depth(),
+		AgentID:     r.agentID(),
+		AgentType:   r.spec.Type,
+		AgentName:   r.agentName(),
+	}
+}
+
+// LastRunID returns the most recent run id assigned by Run on this runner.
+func (r *Runner) LastRunID() string {
+	if v := r.lastRunID.Load(); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// Depth returns the orchestrator-controlled depth of this runner.
+func (r *Runner) Depth() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.depth
+}
+
+// Run executes the agent once and emits events with a fresh RunID.
 func (r *Runner) Run(ctx context.Context, userText string, opts ...agent.Option) error {
 	if r == nil || r.agent == nil {
 		return fmt.Errorf("runner: nil agent")
 	}
-	runID := r.agent.ID()
-	if runID == "" {
-		runID = uuid.NewString()
+	runID := newRunID()
+	r.lastRunID.Store(runID)
+
+	// Establish root run id once for the tree.
+	rootID := runID
+	if r.lineage != nil {
+		r.lineage.mu.Lock()
+		if r.lineage.rootID == "" {
+			r.lineage.rootID = runID
+		}
+		rootID = r.lineage.rootID
+		r.lineage.mu.Unlock()
 	}
-	r.sink.Emit(ctx, RunEvent{
-		RunID:     runID,
-		AgentType: r.spec.Type,
-		AgentName: r.agent.Name(),
-		AgentID:   r.agent.ID(),
-		Kind:      KindStart,
-		Text:      userText,
+	parentID := r.parentRun()
+	depth := r.Depth()
+
+	r.emit(ctx, RunEvent{
+		RunID: runID, RootRunID: rootID, ParentRunID: parentID,
+		AgentType: r.spec.Type, AgentName: r.agentName(), AgentID: r.agent.ID(),
+		Depth: depth, Kind: KindStart, Text: userText,
 	})
 
 	var runErr error
 	for update, err := range r.agent.RunText(ctx, userText, opts...) {
 		if err != nil {
 			runErr = err
-			r.sink.Emit(ctx, RunEvent{
-				RunID:     runID,
-				AgentType: r.spec.Type,
-				AgentName: r.agent.Name(),
-				AgentID:   r.agent.ID(),
-				Kind:      KindError,
-				Err:       err.Error(),
+			r.emit(ctx, RunEvent{
+				RunID: runID, RootRunID: rootID, ParentRunID: parentID,
+				AgentType: r.spec.Type, AgentName: r.agentName(), AgentID: r.agent.ID(),
+				Depth: depth, Kind: KindError, Err: err.Error(),
 			})
 			break
 		}
@@ -77,24 +152,17 @@ func (r *Runner) Run(ctx context.Context, userText string, opts ...agent.Option)
 			switch cc := c.(type) {
 			case *message.TextContent:
 				if cc.Text != "" {
-					r.sink.Emit(ctx, RunEvent{
-						RunID:     runID,
-						AgentType: r.spec.Type,
-						AgentName: r.agent.Name(),
-						AgentID:   r.agent.ID(),
-						Kind:      KindText,
-						Text:      cc.Text,
+					r.emit(ctx, RunEvent{
+						RunID: runID, RootRunID: rootID, ParentRunID: parentID,
+						AgentType: r.spec.Type, AgentName: r.agentName(), AgentID: r.agent.ID(),
+						Depth: depth, Kind: KindText, Text: cc.Text,
 					})
 				}
 			case *message.FunctionCallContent:
-				r.sink.Emit(ctx, RunEvent{
-					RunID:     runID,
-					AgentType: r.spec.Type,
-					AgentName: r.agent.Name(),
-					AgentID:   r.agent.ID(),
-					Kind:      KindToolStart,
-					ToolName:  cc.Name,
-					Text:      cc.Arguments,
+				r.emit(ctx, RunEvent{
+					RunID: runID, RootRunID: rootID, ParentRunID: parentID,
+					AgentType: r.spec.Type, AgentName: r.agentName(), AgentID: r.agent.ID(),
+					Depth: depth, Kind: KindToolStart, ToolName: cc.Name, Text: cc.Arguments,
 				})
 			case *message.FunctionResultContent:
 				text := ""
@@ -105,73 +173,104 @@ func (r *Runner) Run(ctx context.Context, userText string, opts ...agent.Option)
 				if cc.Error != nil {
 					errStr = cc.Error.Error()
 				}
-				r.sink.Emit(ctx, RunEvent{
-					RunID:     runID,
-					AgentType: r.spec.Type,
-					AgentName: r.agent.Name(),
-					AgentID:   r.agent.ID(),
-					Kind:      KindToolEnd,
-					ToolName:  cc.CallID,
-					Text:      text,
-					Err:       errStr,
+				r.emit(ctx, RunEvent{
+					RunID: runID, RootRunID: rootID, ParentRunID: parentID,
+					AgentType: r.spec.Type, AgentName: r.agentName(), AgentID: r.agent.ID(),
+					Depth: depth, Kind: KindToolEnd, ToolName: cc.CallID, Text: text, Err: errStr,
 				})
 			}
 		}
 	}
 
-	r.sink.Emit(ctx, RunEvent{
-		RunID:     runID,
-		AgentType: r.spec.Type,
-		AgentName: r.agent.Name(),
-		AgentID:   r.agent.ID(),
-		Kind:      KindEnd,
-		Err: func() string {
-			if runErr != nil {
-				return runErr.Error()
-			}
-			return ""
-		}(),
+	errStr := ""
+	if runErr != nil {
+		errStr = runErr.Error()
+	}
+	r.emit(ctx, RunEvent{
+		RunID: runID, RootRunID: rootID, ParentRunID: parentID,
+		AgentType: r.spec.Type, AgentName: r.agentName(), AgentID: r.agent.ID(),
+		Depth: depth, Kind: KindEnd, Err: errStr,
 	})
 	return runErr
 }
 
 // StartChild enforces budgets and authority intersection, then returns a
-// StreamingChildTool bound to the child. Does not broaden tools.
-func (r *Runner) StartChild(ctx context.Context, parentRunID string, child ChildSpec) (tool.FuncTool, error) {
+// StreamingChildTool bound to a child Runner at depth+1.
+// Depth is NEVER taken from the caller; it is parent.depth+1 only.
+//
+// parentRunID for attribution comes from the parent's LastRunID (or root id).
+// The returned *Runner is the child orchestrator (for nested StartChild proofs).
+func (r *Runner) StartChild(ctx context.Context, child ChildSpec) (tool.FuncTool, *Runner, error) {
 	if r == nil {
-		return nil, fmt.Errorf("runner: nil")
+		return nil, nil, fmt.Errorf("runner: nil")
 	}
 	if child.Agent == nil {
-		return nil, fmt.Errorf("start child: nil child agent")
+		return nil, nil, fmt.Errorf("start child: nil child agent")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	// Student/default-untrusted: MaxChildren=0 blocks all children.
 	if r.spec.MaxChildren <= 0 {
-		return nil, fmt.Errorf("start child: max_children=0 (untrusted policy)")
+		r.mu.Unlock()
+		return nil, nil, fmt.Errorf("start child: max_children=0 (untrusted policy)")
 	}
 	if r.direct >= r.spec.MaxChildren {
-		return nil, fmt.Errorf("start child: direct child budget exhausted (%d)", r.spec.MaxChildren)
+		r.mu.Unlock()
+		return nil, nil, fmt.Errorf("start child: direct child budget exhausted (%d)", r.spec.MaxChildren)
 	}
-	if r.spec.MaxDepth > 0 && r.depth >= r.spec.MaxDepth {
-		return nil, fmt.Errorf("start child: max depth %d exceeded", r.spec.MaxDepth)
+	// Child would run at depth r.depth+1. Deny when that exceeds MaxDepth.
+	// MaxDepth <= 0 denies all children (no nesting budget).
+	childDepth := r.depth + 1
+	if r.spec.MaxDepth <= 0 || childDepth > r.spec.MaxDepth {
+		maxD := r.spec.MaxDepth
+		r.mu.Unlock()
+		return nil, nil, fmt.Errorf("start child: max depth %d exceeded (child would be depth %d)", maxD, childDepth)
 	}
-	if r.spec.MaxTotalChildren > 0 && r.total >= r.spec.MaxTotalChildren {
-		return nil, fmt.Errorf("start child: total child budget exhausted (%d)", r.spec.MaxTotalChildren)
+	if r.lineage != nil {
+		r.lineage.mu.Lock()
+		if r.spec.MaxTotalChildren > 0 && r.lineage.total >= r.spec.MaxTotalChildren {
+			total := r.lineage.total
+			maxT := r.spec.MaxTotalChildren
+			r.lineage.mu.Unlock()
+			r.mu.Unlock()
+			return nil, nil, fmt.Errorf("start child: total child budget exhausted (%d, current=%d)", maxT, total)
+		}
+		r.lineage.total++
+		r.lineage.mu.Unlock()
+	}
+	r.direct++
+	r.activeChildren++
+	parentSpec := r.spec
+	lineage := r.lineage
+	sink := r.sink
+	parentRunID := r.LastRunID()
+	r.mu.Unlock()
+
+	if parentRunID == "" {
+		// Parent hasn't Run yet: establish a stable root/parent id for attribution.
+		parentRunID = r.rootRunID()
+		if parentRunID == "" {
+			parentRunID = newRunID()
+			if lineage != nil {
+				lineage.mu.Lock()
+				if lineage.rootID == "" {
+					lineage.rootID = parentRunID
+				}
+				parentRunID = lineage.rootID
+				lineage.mu.Unlock()
+			}
+		}
 	}
 
-	// Authority: child tools must be subset of parent grants.
-	if err := AssertNoAuthorityExpansion(r.spec.Tools, child.Tools); err != nil {
-		return nil, err
+	// Authority checks (may fail — roll back budget reservation).
+	if err := AssertNoAuthorityExpansion(parentSpec.Tools, child.Tools); err != nil {
+		r.rollbackChildBudget()
+		return nil, nil, err
 	}
-	// Fail-closed: empty AllowedTools means no tools (types.go contract).
-	// Child.Tools must be ⊆ FilterToolsFailClosed(parent, allowlist) always.
-	filtered := FilterToolsFailClosed(r.spec.Tools, child.AllowedTools)
+	filtered := FilterToolsFailClosed(parentSpec.Tools, child.AllowedTools)
 	allowedNames := make(map[string]struct{}, len(filtered))
 	for _, t := range filtered {
 		allowedNames[t.Name()] = struct{}{}
@@ -181,23 +280,150 @@ func (r *Runner) StartChild(ctx context.Context, parentRunID string, child Child
 			continue
 		}
 		if _, ok := allowedNames[t.Name()]; !ok {
-			return nil, fmt.Errorf("start child: tool %q not in allowlist intersection", t.Name())
+			r.rollbackChildBudget()
+			return nil, nil, fmt.Errorf("start child: tool %q not in allowlist intersection", t.Name())
 		}
 	}
 
-	r.direct++
-	r.total++
-	r.activeChildren++
+	// Child runner: orchestrator-controlled depth = parent+1.
+	childMaxChildren := child.MaxChildren
+	if childMaxChildren < 0 {
+		childMaxChildren = parentSpec.MaxChildren
+	}
+	childSpec := AgentSpec{
+		Type:             child.Type,
+		Name:             child.Name,
+		Instructions:     child.Instructions,
+		Tools:            child.Tools,
+		MaxChildren:      childMaxChildren,
+		MaxDepth:         parentSpec.MaxDepth,
+		MaxTotalChildren: parentSpec.MaxTotalChildren,
+	}
+	if childSpec.Name == "" && child.Agent != nil {
+		childSpec.Name = child.Agent.Name()
+	}
 
-	st := NewStreamingChildTool(child.Agent, child.Type, parentRunID, r.sink)
-	return st, nil
+	childRunner := &Runner{
+		spec:    childSpec,
+		agent:   child.Agent,
+		sink:    sink,
+		depth:   childDepth,
+		lineage: lineage,
+	}
+	childRunner.parentRunID.Store(parentRunID)
+
+	// Build child run options: instructions + tools from ChildSpec (not parent).
+	var runOpts []agent.Option
+	if child.Instructions != "" {
+		runOpts = append(runOpts, agent.WithInstructions(child.Instructions))
+	}
+	for _, tl := range child.Tools {
+		if tl != nil {
+			runOpts = append(runOpts, agent.WithTool(tl))
+		}
+	}
+
+	st := NewStreamingChildTool(child.Agent, child.Type, parentRunID, sink, runOpts...)
+	st.rootRunID = r.rootRunIDOr(parentRunID)
+	st.depth = childDepth
+	st.childRunner = childRunner
+	st.onComplete = func() {
+		r.releaseChildSlot()
+	}
+
+	return st, childRunner, nil
+}
+
+// rollbackChildBudget undoes direct/total/active increments after a failed StartChild
+// that had already reserved budget slots.
+func (r *Runner) rollbackChildBudget() {
+	r.mu.Lock()
+	if r.direct > 0 {
+		r.direct--
+	}
+	if r.activeChildren > 0 {
+		r.activeChildren--
+	}
+	r.mu.Unlock()
+	if r.lineage != nil {
+		r.lineage.mu.Lock()
+		if r.lineage.total > 0 {
+			r.lineage.total--
+		}
+		r.lineage.mu.Unlock()
+	}
+}
+
+// releaseChildSlot decrements activeChildren when a child tool finishes
+// (success, error, or cancel). Direct/total budgets count starts, not concurrency.
+func (r *Runner) releaseChildSlot() {
+	r.mu.Lock()
+	if r.activeChildren > 0 {
+		r.activeChildren--
+	}
+	r.mu.Unlock()
 }
 
 // ChildBudgetSnapshot exposes counters for tests.
 func (r *Runner) ChildBudgetSnapshot() (direct, total, active int) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.direct, r.total, r.activeChildren
+	direct = r.direct
+	active = r.activeChildren
+	r.mu.Unlock()
+	if r.lineage != nil {
+		r.lineage.mu.Lock()
+		total = r.lineage.total
+		r.lineage.mu.Unlock()
+	}
+	return direct, total, active
+}
+
+func (r *Runner) emit(ctx context.Context, e RunEvent) {
+	if r.sink != nil {
+		r.sink.Emit(ctx, e)
+	}
+}
+
+func (r *Runner) agentName() string {
+	if r.spec.Name != "" {
+		return r.spec.Name
+	}
+	if r.agent != nil {
+		return r.agent.Name()
+	}
+	return ""
+}
+
+func (r *Runner) agentID() string {
+	if r.agent != nil {
+		return r.agent.ID()
+	}
+	return ""
+}
+
+func (r *Runner) rootRunID() string {
+	if r.lineage == nil {
+		return ""
+	}
+	r.lineage.mu.Lock()
+	defer r.lineage.mu.Unlock()
+	return r.lineage.rootID
+}
+
+func (r *Runner) rootRunIDOr(fallback string) string {
+	if id := r.rootRunID(); id != "" {
+		return id
+	}
+	return fallback
+}
+
+func (r *Runner) parentRun() string {
+	if v := r.parentRunID.Load(); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 // ScriptedProvider builds a MAF agent.ProviderConfig from a deterministic update sequence.
@@ -211,6 +437,10 @@ type ScriptedProvider struct {
 	Started atomic.Int64
 	// LastCtx is the most recent run context (tests).
 	LastCtx atomic.Value // context.Context
+	// LastOptions captures the most recent options slice (tests).
+	LastOptions atomic.Value // []agent.Option
+	// LastMessages captures the most recent messages (tests).
+	LastMessages atomic.Value // []*message.Message
 }
 
 // ProviderConfig returns a MAF provider config.
@@ -224,6 +454,10 @@ func (s *ScriptedProvider) ProviderConfig() agent.ProviderConfig {
 		Run: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
 			s.Started.Add(1)
 			s.LastCtx.Store(ctx)
+			optsCopy := append([]agent.Option(nil), options...)
+			s.LastOptions.Store(optsCopy)
+			msgsCopy := append([]*message.Message(nil), messages...)
+			s.LastMessages.Store(msgsCopy)
 			if s.RunFn != nil {
 				return s.RunFn(ctx, messages, options...)
 			}

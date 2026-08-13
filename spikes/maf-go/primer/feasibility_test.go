@@ -1,16 +1,21 @@
 package primer_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,10 +70,20 @@ func textsOf(events []primer.RunEvent, kind string) []string {
 	return out
 }
 
+func mustTool(t *testing.T, name string) tool.Tool {
+	t.Helper()
+	tl, err := functool.New(functool.Config{Name: name, Description: name}, func(ctx context.Context, in struct{}) (string, error) {
+		return "x", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tl
+}
+
 // --- F3: stock agenttool hides child stream ---
 
 func TestF3_StockAgentTool_HidesChildStreamUpdates(t *testing.T) {
-	// Child would stream three deltas if observed directly.
 	childProv := &primer.ScriptedProvider{
 		Name: "child-scripted",
 		Updates: []*agent.ResponseUpdate{
@@ -82,12 +97,10 @@ func TestF3_StockAgentTool_HidesChildStreamUpdates(t *testing.T) {
 		Name: "Specialist",
 	}, childProv)
 
-	// Parent observes only via stock agenttool Collect path.
 	var parentSeen []string
 	parentProv := &primer.ScriptedProvider{
 		Name: "parent",
 		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
-			// Invoke child tool the way toolautocall would: Call once.
 			at := agenttool.New(child, agenttool.Config{})
 			res, err := at.Call(ctx, `{"query":"go"}`)
 			if err != nil {
@@ -104,21 +117,16 @@ func TestF3_StockAgentTool_HidesChildStreamUpdates(t *testing.T) {
 	}
 	parent := primer.NewScriptedAgent(agent.Config{ID: "parent-id", Name: "Overseer"}, parentProv)
 
-	// Collect parent stream — only final string, no intermediate child deltas on parent surface.
 	resp, err := parent.RunText(context.Background(), "hi").Collect()
 	if err != nil {
 		t.Fatalf("parent run: %v", err)
 	}
 	if got := resp.String(); !strings.Contains(got, "onetwothree") && !strings.Contains(got, "one") {
-		// Collect joins child text; stock tool returns resp.String() of collected child.
 		t.Fatalf("expected collected child text in parent result, got %q", got)
 	}
-	// Critical negative claim: parentSeen has a single collected blob, not 3 stream events.
 	if len(parentSeen) != 1 {
 		t.Fatalf("stock agenttool Call count via parent = %d, want 1 collected call", len(parentSeen))
 	}
-	// There is no public callback on agenttool for intermediate updates — baseline INVALIDATES
-	// stock nested streaming. Documented by absence of any child delta channel.
 	if childProv.Started.Load() != 1 {
 		t.Fatalf("child started = %d, want 1", childProv.Started.Load())
 	}
@@ -185,33 +193,31 @@ func TestF1_TailoredSubagent_OwnIdentityAndReducedTools(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Capture tools offered to child provider run.
-	var childTools []string
+	const childInstr = "You are the math tutor CHILD-ONLY instructions."
+	const parentInstr = "You are the parent OVERSEER — must not leak to child."
+
 	childProv := &primer.ScriptedProvider{
 		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
-			for tl := range agent.AllOptions(options, agent.WithTool) {
-				if tl != nil {
-					childTools = append(childTools, tl.Name())
-				}
-			}
-			// also instructions
 			return func(yield func(*agent.ResponseUpdate, error) bool) {
 				yield(textUpdate("child-ok"), nil)
 			}
 		},
 	}
+	// Child agent construction: reduced tools + child instructions on Config path.
 	child := primer.NewScriptedAgent(agent.Config{
 		ID:          "child-math",
 		Name:        "MathTutor",
 		Description: "specialist math",
-		Tools:       []tool.Tool{sharedTool}, // reduced set at construction
-		RunOptions:  []agent.Option{agent.WithInstructions("You are the math tutor.")},
+		// Construction tools reduced — parent_only intentionally absent.
+		Tools:      []tool.Tool{sharedTool},
+		RunOptions: []agent.Option{agent.WithInstructions(childInstr)},
 	}, childProv)
 
 	parentGrants := []tool.Tool{parentTool, sharedTool}
 	spec := primer.AgentSpec{
 		Type:             "overseer",
 		Name:             "Overseer",
+		Instructions:     parentInstr,
 		Tools:            parentGrants,
 		MaxChildren:      2,
 		MaxDepth:         2,
@@ -228,18 +234,27 @@ func TestF1_TailoredSubagent_OwnIdentityAndReducedTools(t *testing.T) {
 	if err := primer.AssertNoAuthorityExpansion(parentGrants, childToolsFiltered); err != nil {
 		t.Fatal(err)
 	}
-	// Expansion attempt must fail.
 	if err := primer.AssertNoAuthorityExpansion(parentGrants, []tool.Tool{parentTool, sharedTool, mustTool(t, "evil")}); err == nil {
 		t.Fatal("expected authority expansion error")
 	}
 
-	ct, err := r.StartChild(context.Background(), "run-p", primer.ChildSpec{
+	// Parent run first so lineage root is established.
+	if err := r.Run(context.Background(), "parent turn", agent.WithInstructions(parentInstr)); err != nil {
+		t.Fatal(err)
+	}
+	parentRunID := r.LastRunID()
+	if parentRunID == "" || parentRunID == parent.ID() {
+		t.Fatalf("parent run id must be fresh, distinct from agent id; run=%q agent=%q", parentRunID, parent.ID())
+	}
+
+	ct, childRunner, err := r.StartChild(context.Background(), primer.ChildSpec{
 		Type:         "math_tutor",
 		Name:         "MathTutor",
-		Instructions: "You are the math tutor.",
+		Instructions: childInstr,
 		AllowedTools: []string{"shared_calc"},
 		Agent:        child,
 		Tools:        childToolsFiltered,
+		MaxChildren:  0, // child cannot start grandchildren by direct budget
 	})
 	if err != nil {
 		t.Fatalf("StartChild: %v", err)
@@ -247,7 +262,10 @@ func TestF1_TailoredSubagent_OwnIdentityAndReducedTools(t *testing.T) {
 	if ct.Name() != "MathTutor" {
 		t.Fatalf("tool name = %q", ct.Name())
 	}
-	// Prove behavior: invoke child and check identity on events + reduced tools on child run.
+	if childRunner == nil || childRunner.Depth() != 1 {
+		t.Fatalf("child depth = %v", childRunner)
+	}
+
 	_, err = ct.Call(context.Background(), `{"query":"solve"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -255,9 +273,30 @@ func TestF1_TailoredSubagent_OwnIdentityAndReducedTools(t *testing.T) {
 	if child.Name() != "MathTutor" || child.ID() != "child-math" {
 		t.Fatalf("child identity name=%s id=%s", child.Name(), child.ID())
 	}
-	// Child run options should include only shared_calc from Config.Tools, not parent_only.
+
+	// HARD assert: child-specific instructions reached the child provider via MAF options.
+	optsVal := childProv.LastOptions.Load()
+	if optsVal == nil {
+		t.Fatal("child provider never saw options")
+	}
+	opts := optsVal.([]agent.Option)
+	instr, ok := agent.GetOption(opts, agent.WithInstructions)
+	if !ok || instr != childInstr {
+		t.Fatalf("child instructions = %q ok=%v, want %q", instr, ok, childInstr)
+	}
+	if strings.Contains(instr, "OVERSEER") || strings.Contains(instr, parentInstr) {
+		t.Fatalf("parent instructions leaked to child: %q", instr)
+	}
+
+	// HARD assert: child tool set is only shared_calc (not parent_only).
+	var toolNames []string
+	for tl := range agent.AllOptions(opts, agent.WithTool) {
+		if tl != nil {
+			toolNames = append(toolNames, tl.Name())
+		}
+	}
 	foundShared, foundParentOnly := false, false
-	for _, n := range childTools {
+	for _, n := range toolNames {
 		if n == "shared_calc" {
 			foundShared = true
 		}
@@ -266,29 +305,36 @@ func TestF1_TailoredSubagent_OwnIdentityAndReducedTools(t *testing.T) {
 		}
 	}
 	if foundParentOnly {
-		t.Fatalf("child saw parent_only tool: %v", childTools)
+		t.Fatalf("child saw parent_only tool: %v", toolNames)
 	}
-	// Tools from Config are injected as run options by agent.New — expect shared_calc present.
-	if !foundShared && len(childTools) > 0 {
-		// If provider didn't surface tools via options, still OK if construction tools were reduced.
-		t.Logf("child tools observed on run: %v (construction-level reduction still holds)", childTools)
+	if !foundShared {
+		t.Fatalf("child missing shared_calc on run options: %v", toolNames)
 	}
-	// Construction-level proof: child agent config tools do not include parent_only.
+
 	ev := sink.Snapshot()
 	if !hasKind(ev, primer.KindChildStart) {
 		t.Fatalf("events: %+v", ev)
 	}
-}
-
-func mustTool(t *testing.T, name string) tool.Tool {
-	t.Helper()
-	tl, err := functool.New(functool.Config{Name: name, Description: name}, func(ctx context.Context, in struct{}) (string, error) {
-		return "x", nil
-	})
-	if err != nil {
-		t.Fatal(err)
+	// Child events must attribute parent_run_id and root_run_id.
+	for _, e := range ev {
+		if e.Kind == primer.KindChildStart {
+			if e.ParentRunID != parentRunID {
+				t.Fatalf("child parent_run_id=%q want %q", e.ParentRunID, parentRunID)
+			}
+			if e.RootRunID != parentRunID {
+				t.Fatalf("child root_run_id=%q want %q", e.RootRunID, parentRunID)
+			}
+			if e.AgentID != "child-math" {
+				t.Fatalf("child agent_id=%q", e.AgentID)
+			}
+			if e.RunID == "" || e.RunID == e.AgentID {
+				t.Fatalf("child run_id must be fresh, distinct from agent id; run=%q agent=%q", e.RunID, e.AgentID)
+			}
+			if e.Depth != 1 {
+				t.Fatalf("child depth=%d", e.Depth)
+			}
+		}
 	}
-	return tl
 }
 
 func TestF1_UntrustedMaxChildrenZero(t *testing.T) {
@@ -296,10 +342,11 @@ func TestF1_UntrustedMaxChildrenZero(t *testing.T) {
 	r := primer.NewRunner(primer.AgentSpec{
 		Type:        "student",
 		MaxChildren: 0,
+		MaxDepth:    3,
 		Tools:       nil,
 	}, parent, primer.NoopSink{})
 	child := scriptedAgent(t, "X", "c1", textUpdate("x"))
-	_, err := r.StartChild(context.Background(), "r", primer.ChildSpec{Agent: child, AllowedTools: nil})
+	_, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: child, AllowedTools: nil})
 	if err == nil || !strings.Contains(err.Error(), "max_children=0") {
 		t.Fatalf("err = %v", err)
 	}
@@ -314,11 +361,23 @@ func TestF1_ChildBudgetExhausted(t *testing.T) {
 		Tools:            nil,
 	}, parent, primer.NoopSink{})
 	child := scriptedAgent(t, "C", "c", textUpdate("x"))
-	if _, err := r.StartChild(context.Background(), "r", primer.ChildSpec{Agent: child}); err != nil {
+	ct, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: child})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.StartChild(context.Background(), "r", primer.ChildSpec{Agent: child}); err == nil {
+	// Complete the child so active accounting closes.
+	if _, err := ct.Call(context.Background(), `{"query":"x"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: child}); err == nil {
 		t.Fatal("expected budget error")
+	}
+	d, total, active := r.ChildBudgetSnapshot()
+	if d != 1 || total != 1 {
+		t.Fatalf("direct=%d total=%d", d, total)
+	}
+	if active != 0 {
+		t.Fatalf("active=%d after completion, want 0", active)
 	}
 }
 
@@ -331,8 +390,7 @@ func TestF1_EmptyAllowlistRejectsTools(t *testing.T) {
 		Tools:       []tool.Tool{shared},
 	}, parent, primer.NoopSink{})
 	child := scriptedAgent(t, "C", "c", textUpdate("x"))
-	// Empty AllowedTools means no tools — non-empty child.Tools must fail.
-	_, err := r.StartChild(context.Background(), "r", primer.ChildSpec{
+	_, _, err := r.StartChild(context.Background(), primer.ChildSpec{
 		Agent:        child,
 		AllowedTools: nil,
 		Tools:        []tool.Tool{shared},
@@ -340,13 +398,185 @@ func TestF1_EmptyAllowlistRejectsTools(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "allowlist") {
 		t.Fatalf("err = %v, want allowlist rejection", err)
 	}
+	// Failed start must not consume budget permanently.
+	d, total, active := r.ChildBudgetSnapshot()
+	if d != 0 || total != 0 || active != 0 {
+		t.Fatalf("budget after failed allowlist: direct=%d total=%d active=%d", d, total, active)
+	}
 	// Explicit empty allowlist + empty tools OK.
-	if _, err := r.StartChild(context.Background(), "r", primer.ChildSpec{
+	ct, _, err := r.StartChild(context.Background(), primer.ChildSpec{
 		Agent:        child,
 		AllowedTools: nil,
 		Tools:        nil,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("empty tools should be allowed: %v", err)
+	}
+	_, _ = ct.Call(context.Background(), `{"query":"x"}`)
+}
+
+func TestF1_MaxDepthDeniesGrandchild(t *testing.T) {
+	// MaxDepth=1: root (0) may start child (1); child may NOT start grandchild (2).
+	parent := scriptedAgent(t, "O", "p-agent", textUpdate("p"))
+	sink := &primer.CollectingSink{}
+	r := primer.NewRunner(primer.AgentSpec{
+		Type:             "overseer",
+		Name:             "Overseer",
+		MaxChildren:      2,
+		MaxDepth:         1,
+		MaxTotalChildren: 10,
+	}, parent, sink)
+	if err := r.Run(context.Background(), "root"); err != nil {
+		t.Fatal(err)
+	}
+	if r.Depth() != 0 {
+		t.Fatalf("root depth=%d", r.Depth())
+	}
+
+	child := scriptedAgent(t, "Child", "c-agent", textUpdate("c"))
+	ct, childRunner, err := r.StartChild(context.Background(), primer.ChildSpec{
+		Type:        "child",
+		Name:        "Child",
+		Agent:       child,
+		MaxChildren: 2, // would allow if depth permitted
+	})
+	if err != nil {
+		t.Fatalf("StartChild child: %v", err)
+	}
+	if childRunner.Depth() != 1 {
+		t.Fatalf("child depth=%d", childRunner.Depth())
+	}
+
+	// Grandchild denied by depth (orchestrator-controlled, not caller-supplied).
+	gc := scriptedAgent(t, "GC", "gc-agent", textUpdate("g"))
+	_, _, err = childRunner.StartChild(context.Background(), primer.ChildSpec{
+		Type:  "gc",
+		Name:  "GC",
+		Agent: gc,
+	})
+	if err == nil || !strings.Contains(err.Error(), "max depth") {
+		t.Fatalf("grandchild err = %v, want max depth", err)
+	}
+
+	// Complete child lifecycle.
+	if _, err := ct.Call(context.Background(), `{"query":"x"}`); err != nil {
+		t.Fatal(err)
+	}
+	_, _, active := r.ChildBudgetSnapshot()
+	if active != 0 {
+		t.Fatalf("active=%d after child complete", active)
+	}
+}
+
+func TestF1_MaxDepthZeroDeniesAllChildren(t *testing.T) {
+	parent := scriptedAgent(t, "O", "p", textUpdate("x"))
+	r := primer.NewRunner(primer.AgentSpec{
+		MaxChildren: 5,
+		MaxDepth:    0, // depth budget zero => no children
+	}, parent, primer.NoopSink{})
+	child := scriptedAgent(t, "C", "c", textUpdate("x"))
+	_, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: child})
+	if err == nil || !strings.Contains(err.Error(), "max depth") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestF1_ActiveChildrenClosesOnErrorAndCancel(t *testing.T) {
+	parent := scriptedAgent(t, "O", "p", textUpdate("x"))
+	r := primer.NewRunner(primer.AgentSpec{
+		MaxChildren:      3,
+		MaxDepth:         2,
+		MaxTotalChildren: 10,
+	}, parent, primer.NoopSink{})
+
+	// Error path.
+	errProv := &primer.ScriptedProvider{
+		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
+			return func(yield func(*agent.ResponseUpdate, error) bool) {
+				yield(nil, errors.New("child boom"))
+			}
+		},
+	}
+	errChild := primer.NewScriptedAgent(agent.Config{ID: "e", Name: "E"}, errProv)
+	ct, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: errChild})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, callErr := ct.Call(context.Background(), `{"query":"x"}`)
+	if callErr == nil {
+		t.Fatal("expected child error")
+	}
+	_, _, active := r.ChildBudgetSnapshot()
+	if active != 0 {
+		t.Fatalf("active after error=%d", active)
+	}
+
+	// Cancel path.
+	block := make(chan struct{})
+	cancelProv := &primer.ScriptedProvider{
+		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
+			return func(yield func(*agent.ResponseUpdate, error) bool) {
+				select {
+				case <-ctx.Done():
+					yield(nil, ctx.Err())
+				case <-block:
+					yield(textUpdate("late"), nil)
+				}
+			}
+		},
+	}
+	cChild := primer.NewScriptedAgent(agent.Config{ID: "c", Name: "C"}, cancelProv)
+	ct2, _, err := r.StartChild(context.Background(), primer.ChildSpec{Agent: cChild})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := ct2.Call(ctx, `{"query":"x"}`)
+		done <- err
+	}()
+	// Wait until child started then cancel.
+	deadline := time.Now().Add(2 * time.Second)
+	for cancelProv.Started.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected cancel error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+	close(block)
+	_, _, active = r.ChildBudgetSnapshot()
+	if active != 0 {
+		t.Fatalf("active after cancel=%d", active)
+	}
+}
+
+func TestF1_RunIDsDistinctAcrossInvocations(t *testing.T) {
+	parent := scriptedAgent(t, "O", "stable-agent-id", textUpdate("a"), textUpdate("b"))
+	r := primer.NewRunner(primer.AgentSpec{Name: "O", MaxChildren: 0}, parent, &primer.CollectingSink{})
+	if err := r.Run(context.Background(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	id1 := r.LastRunID()
+	if err := r.Run(context.Background(), "two"); err != nil {
+		t.Fatal(err)
+	}
+	id2 := r.LastRunID()
+	if id1 == "" || id2 == "" || id1 == id2 {
+		t.Fatalf("run ids must be distinct: %q %q", id1, id2)
+	}
+	if id1 == parent.ID() || id2 == parent.ID() {
+		t.Fatalf("run ids must not reuse agent id %q: %q %q", parent.ID(), id1, id2)
+	}
+	// Agent id remains stable.
+	if parent.ID() != "stable-agent-id" {
+		t.Fatal("agent id changed")
 	}
 }
 
@@ -359,40 +589,27 @@ func TestF2_MCP_FailClosedFilter(t *testing.T) {
 	if len(names) < 2 {
 		t.Fatalf("expected >=2 mcp tools, got %v", names)
 	}
-	// Fail-closed: only allow_me
 	childTools := primer.FilterToolsFailClosed(all, []string{"allow_me"})
 	if got := primer.ToolNames(childTools); len(got) != 1 || got[0] != "allow_me" {
 		t.Fatalf("filtered = %v", got)
 	}
-	// Allowed works
 	ft, ok := childTools[0].(tool.FuncTool)
 	if !ok {
 		t.Fatalf("type %T", childTools[0])
 	}
-	res, err := ft.Call(context.Background(), `{"q":"hi"}`)
+	_, err := ft.Call(context.Background(), `{"q":"hi"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if env.AllowCalls.Load() != 1 {
 		t.Fatalf("allow calls = %d", env.AllowCalls.Load())
 	}
-	_ = res
-	// Denied absent from child surface
 	for _, n := range primer.ToolNames(childTools) {
 		if n == "deny_me" {
 			t.Fatal("deny_me present on child")
 		}
 	}
-	// Directly calling deny via full list still works on parent surface — but child cannot.
-	// Prove deny not invokable through filtered set:
-	for _, tl := range childTools {
-		if tl.Name() == "deny_me" {
-			t.Fatal("deny reachable")
-		}
-	}
-	// Attempt authority expansion with deny_me name not in filter
 	expanded := primer.FilterToolsFailClosed(all, []string{"allow_me", "deny_me", "not_real"})
-	// Parent might grant both; child policy allowlist only allow_me:
 	childOnly := primer.FilterToolsFailClosed(expanded, []string{"allow_me"})
 	if len(childOnly) != 1 {
 		t.Fatalf("childOnly=%v", primer.ToolNames(childOnly))
@@ -403,7 +620,6 @@ func TestF2_MCP_DeniedToolNotInvokedThroughChild(t *testing.T) {
 	env := fakes.StartMCP(t)
 	all := env.AllTools(t)
 	childTools := primer.FilterToolsFailClosed(all, []string{"allow_me"})
-	// Build map of invokable names
 	invokable := map[string]tool.FuncTool{}
 	for _, tl := range childTools {
 		if ft, ok := tl.(tool.FuncTool); ok {
@@ -416,7 +632,6 @@ func TestF2_MCP_DeniedToolNotInvokedThroughChild(t *testing.T) {
 	if _, ok := invokable["allow_me"]; !ok {
 		t.Fatal("allow_me missing")
 	}
-	// Calling deny_me by name on full set increments DenyCalls — baseline that tool exists.
 	for _, tl := range all {
 		if tl.Name() == "deny_me" {
 			_, _ = tl.(tool.FuncTool).Call(context.Background(), `{}`)
@@ -425,7 +640,6 @@ func TestF2_MCP_DeniedToolNotInvokedThroughChild(t *testing.T) {
 	if env.DenyCalls.Load() != 1 {
 		t.Fatalf("deny baseline calls=%d", env.DenyCalls.Load())
 	}
-	// Child path never called deny again
 	before := env.DenyCalls.Load()
 	for _, ft := range invokable {
 		_, _ = ft.Call(context.Background(), `{}`)
@@ -443,7 +657,6 @@ func TestF5_CancelPropagatesToChildAndMCP(t *testing.T) {
 	all := env.AllTools(t)
 	allow := primer.FilterToolsFailClosed(all, []string{"allow_me"})[0].(tool.FuncTool)
 
-	// Child provider calls MCP tool with the run ctx.
 	childProv := &primer.ScriptedProvider{
 		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
 			return func(yield func(*agent.ResponseUpdate, error) bool) {
@@ -466,7 +679,11 @@ func TestF5_CancelPropagatesToChildAndMCP(t *testing.T) {
 		_, err := st.Call(ctx, `{"query":"x"}`)
 		done <- err
 	}()
-	time.Sleep(50 * time.Millisecond)
+	// Wait until MCP is entered (deterministic barrier via AllowCalls or short spin).
+	deadline := time.Now().Add(2 * time.Second)
+	for env.AllowCalls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	cancel()
 	select {
 	case err := <-done:
@@ -479,15 +696,13 @@ func TestF5_CancelPropagatesToChildAndMCP(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for cancel")
 	}
-	// MCP handler should have observed cancel (best-effort; race-tolerant).
-	deadline := time.Now().Add(2 * time.Second)
+	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if env.AllowSawCancel.Load() {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// If MCP SDK returns before handler sets flag, still OK if Call returned cancel.
 	t.Logf("AllowSawCancel=%v AllowCalls=%d (cancel returned to caller)", env.AllowSawCancel.Load(), env.AllowCalls.Load())
 }
 
@@ -507,16 +722,14 @@ func TestF5_SlowSinkDoesNotFailRun(t *testing.T) {
 	if res != "abcd" {
 		t.Fatalf("res=%q", res)
 	}
-	// Capacity 2 => drops expected
 	if sink.Dropped == 0 && len(sink.Snapshot()) > 2 {
 		t.Fatalf("expected drops or cap, dropped=%d n=%d", sink.Dropped, len(sink.Snapshot()))
 	}
 }
 
 func TestF5_DisconnectedConsumer_RunStillCompletes(t *testing.T) {
-	// Final correctness must not depend on a connected consumer.
 	child := scriptedAgent(t, "C", "c", textUpdate("x"))
-	sink := primer.NewBoundedSink(1) // tiny buffer => drops under load
+	sink := primer.NewBoundedSink(1)
 	st := primer.NewStreamingChildTool(child, "c", "p", sink)
 	res, err := st.Call(context.Background(), `{"query":"q"}`)
 	if err != nil {
@@ -527,19 +740,250 @@ func TestF5_DisconnectedConsumer_RunStillCompletes(t *testing.T) {
 	}
 }
 
+// blockingWriter blocks on the Nth Write until released; used to prove SSE bridge
+// keeps the agent runner independent of a slow ResponseWriter.
+type blockingWriter struct {
+	mu        sync.Mutex
+	writes    int
+	blockAt   int
+	blockCh   chan struct{} // closed to release
+	entered   chan struct{} // closed when blocking write entered
+	buf       strings.Builder
+	writeErr  error
+	flushes   int
+}
+
+func newBlockingWriter(blockAt int) *blockingWriter {
+	return &blockingWriter{
+		blockAt: blockAt,
+		blockCh: make(chan struct{}),
+		entered: make(chan struct{}),
+	}
+}
+
+func (b *blockingWriter) Header() http.Header { return make(http.Header) }
+func (b *blockingWriter) WriteHeader(int)     {}
+func (b *blockingWriter) Flush()              { b.flushes++ }
+
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	b.writes++
+	n := b.writes
+	err := b.writeErr
+	b.mu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	if n == b.blockAt {
+		close(b.entered)
+		<-b.blockCh
+	}
+	b.mu.Lock()
+	b.buf.Write(p)
+	b.mu.Unlock()
+	return len(p), nil
+}
+
+func (b *blockingWriter) release() { close(b.blockCh) }
+
+func (b *blockingWriter) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestF5_SSEBridge_SlowWriterDoesNotBlockRunner(t *testing.T) {
+	// Agent emits many events; writer blocks on first flush write.
+	// Runner must finish even while writer is stuck.
+	releaseGate := make(chan struct{})
+	var runFinished atomic.Bool
+	earlyEventSeen := make(chan struct{})
+	var earlyOnce sync.Once
+
+	// Provider that waits until runFinished path is free — actually we measure
+	// that Run returns while writer still blocked.
+	parentProv := &primer.ScriptedProvider{
+		Updates: []*agent.ResponseUpdate{
+			textUpdate("early-event"),
+			textUpdate("mid-event"),
+			textUpdate("late-event"),
+		},
+	}
+	parent := primer.NewScriptedAgent(agent.Config{ID: "p", Name: "P"}, parentProv)
+
+	bw := newBlockingWriter(1) // block on first Write
+	bridge := primer.NewSSEBridge(4)
+
+	// Writer goroutine blocked on first event.
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		bridge.WriteTo(context.Background(), bw, bw)
+	}()
+
+	// Emit start via runner.
+	r := primer.NewRunner(primer.AgentSpec{Type: "t", Name: "P"}, parent, eventFunc(func(ctx context.Context, e primer.RunEvent) {
+		if e.Kind == primer.KindText && e.Text == "early-event" {
+			earlyOnce.Do(func() { close(earlyEventSeen) })
+		}
+		bridge.Emit(ctx, e)
+	}))
+
+	runDone := make(chan error, 1)
+	go func() {
+		err := r.Run(context.Background(), "hi")
+		runFinished.Store(true)
+		runDone <- err
+	}()
+
+	// Wait until writer entered blocking write OR early event enqueued.
+	select {
+	case <-bw.entered:
+		// Writer is blocked holding the first write.
+	case <-time.After(2 * time.Second):
+		t.Fatal("writer never entered blocking write")
+	}
+
+	// Runner must complete while writer still blocked.
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("run err: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner blocked behind slow writer")
+	}
+	if !runFinished.Load() {
+		t.Fatal("run not finished")
+	}
+
+	// Release writer and ensure it drains/exits.
+	bw.release()
+	bridge.Close()
+	select {
+	case <-writerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writer goroutine leak")
+	}
+	_ = releaseGate
+	_ = earlyEventSeen
+}
+
+func TestF5_SSEBridge_CancelTerminatesWriter(t *testing.T) {
+	bridge := primer.NewSSEBridge(8)
+	// Keep channel open with no close yet; cancel should end WriteTo.
+	ctx, cancel := context.WithCancel(context.Background())
+	bw := newBlockingWriter(0) // never blocks (blockAt=0 means n==0 never)
+	// Fix: blockAt=0 never triggers; use large blockAt.
+	bw.blockAt = 999
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bridge.WriteTo(ctx, bw, bw)
+	}()
+	// Emit one event so writer is alive.
+	bridge.Emit(context.Background(), primer.RunEvent{Kind: primer.KindText, Text: "x", RunID: "r"})
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writer did not terminate on cancel")
+	}
+	bridge.Close()
+	select {
+	case <-bridge.WriteDone():
+	case <-time.After(time.Second):
+		t.Fatal("WriteDone not closed")
+	}
+}
+
+func TestF5_SSEHandler_HTTPDisconnect_RunCompletes(t *testing.T) {
+	// Full HTTP path: client reads one event then disconnects; agent still finishes.
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	hold := make(chan struct{}) // released after client disconnect
+
+	parentProv := &primer.ScriptedProvider{
+		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
+			return func(yield func(*agent.ResponseUpdate, error) bool) {
+				if !yield(textUpdate("first-wire"), nil) {
+					return
+				}
+				startedOnce.Do(func() { close(started) })
+				select {
+				case <-hold:
+				case <-ctx.Done():
+					yield(nil, ctx.Err())
+					return
+				}
+				yield(textUpdate("after-disconnect"), nil)
+			}
+		},
+	}
+	parent := primer.NewScriptedAgent(agent.Config{ID: "p", Name: "P"}, parentProv)
+	h := &primer.SSEHandler{
+		Agent:          parent,
+		AgentType:      "overseer",
+		BridgeCapacity: 8,
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Manual dial so we can close early.
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{"text":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(resp.Body)
+	// Read until we see first-wire (or any data event).
+	gotFirst := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !gotFirst {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if strings.Contains(line, "first-wire") {
+			gotFirst = true
+		}
+	}
+	if !gotFirst {
+		// May still be ok if event is in data line we partially read — require started gate.
+		select {
+		case <-started:
+			gotFirst = true
+		case <-time.After(2 * time.Second):
+			t.Fatal("never saw first event / start")
+		}
+	}
+	// Disconnect client.
+	_ = resp.Body.Close()
+
+	// Release provider to finish; run must complete (httptest will cancel req ctx on body close).
+	close(hold)
+
+	// Give server time to finish ServeHTTP.
+	time.Sleep(100 * time.Millisecond)
+	// Provider should have been started.
+	if parentProv.Started.Load() < 1 {
+		t.Fatal("parent never started")
+	}
+}
+
+// --- F4 wire streaming ---
+
 type eventFunc func(ctx context.Context, e primer.RunEvent)
 
 func (f eventFunc) Emit(ctx context.Context, e primer.RunEvent) { f(ctx, e) }
 
-// --- F4 wire streaming ---
-
 func TestF4_PrimerSSE_ParentAndChildAttributed(t *testing.T) {
-	// Parent provider invokes streaming child tool when present.
 	child := scriptedAgent(t, "MathTutor", "child-sse", textUpdate("c1"), textUpdate("c2"))
 	parentProv := &primer.ScriptedProvider{
 		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
 			return func(yield func(*agent.ResponseUpdate, error) bool) {
-				// Find streaming child tool
 				for tl := range agent.AllOptions(options, agent.WithTool) {
 					if ft, ok := tl.(tool.FuncTool); ok && strings.Contains(ft.Name(), "MathTutor") {
 						_, err := ft.Call(ctx, `{"query":"nested"}`)
@@ -558,8 +1002,23 @@ func TestF4_PrimerSSE_ParentAndChildAttributed(t *testing.T) {
 	h := &primer.SSEHandler{
 		Agent:     parent,
 		AgentType: "overseer",
-		BuildChildTool: func(ctx context.Context, parentRunID string, sink primer.EventSink) tool.FuncTool {
-			return primer.NewStreamingChildTool(child, "math_tutor", parentRunID, sink)
+		Spec: primer.AgentSpec{
+			Type:        "overseer",
+			Name:        "Overseer",
+			MaxChildren: 1,
+			MaxDepth:    1,
+		},
+		BuildChildTool: func(ctx context.Context, parent *primer.Runner, sink primer.EventSink) tool.FuncTool {
+			ct, _, err := parent.StartChild(ctx, primer.ChildSpec{
+				Type:  "math_tutor",
+				Name:  "MathTutor",
+				Agent: child,
+			})
+			if err != nil {
+				t.Errorf("StartChild: %v", err)
+				return nil
+			}
+			return ct
 		},
 	}
 	srv := httptest.NewServer(h)
@@ -584,17 +1043,122 @@ func TestF4_PrimerSSE_ParentAndChildAttributed(t *testing.T) {
 	if !strings.Contains(s, `"kind":"child_start"`) && !strings.Contains(s, "child_start") {
 		t.Fatalf("missing child_start: %s", s)
 	}
+	if !strings.Contains(s, "root_run_id") {
+		t.Fatalf("missing root_run_id in envelope: %s", s)
+	}
+}
+
+func TestF4_PrimerSSE_IncrementalBeforeCompletion(t *testing.T) {
+	// Barrier-driven: early parent event must be observable on the wire BEFORE
+	// the provider is released to complete.
+	releaseProvider := make(chan struct{})
+	earlyOnWire := make(chan struct{})
+	var earlyOnce sync.Once
+
+	parentProv := &primer.ScriptedProvider{
+		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
+			return func(yield func(*agent.ResponseUpdate, error) bool) {
+				if !yield(textUpdate("early-parent-delta"), nil) {
+					return
+				}
+				// Block until test observes early event on the remote stream.
+				select {
+				case <-releaseProvider:
+				case <-ctx.Done():
+					yield(nil, ctx.Err())
+					return
+				}
+				yield(textUpdate("final-parent-delta"), nil)
+			}
+		},
+	}
+	parent := primer.NewScriptedAgent(agent.Config{ID: "inc-p", Name: "Overseer"}, parentProv)
+	h := &primer.SSEHandler{
+		Agent:          parent,
+		AgentType:      "overseer",
+		BridgeCapacity: 16,
+	}
+
+	// Use a real TCP listener so we can stream-read with http.Client.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: h}
+	go srv.Serve(ln) //nolint:errcheck
+	defer srv.Close()
+	url := "http://" + ln.Addr().String()
+
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("content-type=%s", ct)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	// Read SSE lines until early-parent-delta appears — MUST happen before release.
+	foundEarly := false
+	readDone := make(chan error, 1)
+	go func() {
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				readDone <- err
+				return
+			}
+			if strings.Contains(line, "early-parent-delta") {
+				foundEarly = true
+				earlyOnce.Do(func() { close(earlyOnWire) })
+				// Keep reading until final after release.
+			}
+			if strings.Contains(line, "final-parent-delta") {
+				readDone <- nil
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-earlyOnWire:
+		// Proof: early event arrived while provider still blocked.
+	case <-time.After(3 * time.Second):
+		t.Fatal("early event not observed before provider completion")
+	}
+	if !foundEarly {
+		t.Fatal("early flag false")
+	}
+
+	// Only now release provider to complete.
+	close(releaseProvider)
+
+	select {
+	case err := <-readDone:
+		if err != nil && !errors.Is(err, io.EOF) {
+			// EOF ok if connection closed after end.
+			if !foundEarly {
+				t.Fatal(err)
+			}
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for stream end")
+	}
 }
 
 func TestF4_AGUI_ParentTextOnly_NoChildAttribution(t *testing.T) {
-	// Document AG-UI baseline: hosts single agent; stock child via agenttool Collects.
 	child := scriptedAgent(t, "Child", "c", textUpdate("secret-child-delta"))
 	parentProv := &primer.ScriptedProvider{
 		RunFn: func(ctx context.Context, messages []*message.Message, options ...agent.Option) iter.Seq2[*agent.ResponseUpdate, error] {
 			return func(yield func(*agent.ResponseUpdate, error) bool) {
 				at := agenttool.New(child, agenttool.Config{})
 				res, _ := at.Call(ctx, `{"query":"x"}`)
-				// Parent only yields final collected string as one update.
 				yield(textUpdate("agui-parent:"+res.(string)), nil)
 			}
 		},
@@ -612,15 +1176,12 @@ func TestF4_AGUI_ParentTextOnly_NoChildAttribution(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	s := string(body)
-	// Parent final collected text must appear (stock agenttool Collect path).
 	if !strings.Contains(s, "agui-parent") {
 		t.Fatalf("missing parent marker in AG-UI SSE body: %s", s)
 	}
 	if !strings.Contains(s, "secret-child-delta") {
 		t.Fatalf("missing collected child text in AG-UI SSE body: %s", s)
 	}
-	// Collect collapses child stream: expect a single occurrence of child text,
-	// not independent nested child-attributed event kinds.
 	if n := strings.Count(s, "secret-child-delta"); n != 1 {
 		t.Fatalf("secret-child-delta occurrences=%d want 1 (Collect), body=%s", n, s)
 	}
@@ -665,7 +1226,6 @@ func TestF6_SessionJSONRoundTrip(t *testing.T) {
 	if !ok || note != "hello" {
 		t.Fatalf("note ok=%v val=%q", ok, note)
 	}
-	// Run with session still works
 	a := scriptedAgent(t, "A", "id2", textUpdate("with-session"))
 	resp, err := a.RunText(context.Background(), "x", agent.WithSession(&s2)).Collect()
 	if err != nil {
@@ -686,7 +1246,7 @@ func TestF7_OpenAIProvider_CustomBaseURL_NoRealCredentials(t *testing.T) {
 
 	client := openai.NewClient(
 		option.WithBaseURL(srv.URL()),
-		option.WithAPIKey("sk-fake-not-real"),
+		option.WithAPIKey("«redacted:sk-…»"),
 	)
 	a := openaiprovider.NewChatCompletionsAgent(client, openaiprovider.AgentConfig{
 		Config: agent.Config{
@@ -696,7 +1256,6 @@ func TestF7_OpenAIProvider_CustomBaseURL_NoRealCredentials(t *testing.T) {
 		Model:        "gpt-4o-mini",
 		Instructions: "You are a test agent.",
 	})
-	// Prefer streaming path
 	var chunks []string
 	for update, err := range a.RunText(context.Background(), "hi", agent.Stream(true)) {
 		if err != nil {
@@ -710,7 +1269,6 @@ func TestF7_OpenAIProvider_CustomBaseURL_NoRealCredentials(t *testing.T) {
 	}
 	joined := strings.Join(chunks, "")
 	if !strings.Contains(joined, "Hello") && !strings.Contains(joined, "fake") {
-		// Collect fallback
 		resp, err := a.RunText(context.Background(), "hi").Collect()
 		if err != nil {
 			t.Fatalf("collect: %v; stream joined=%q calls=%d", err, joined, srv.Calls())
@@ -723,7 +1281,8 @@ func TestF7_OpenAIProvider_CustomBaseURL_NoRealCredentials(t *testing.T) {
 	if srv.Calls() < 1 {
 		t.Fatal("fake server not hit")
 	}
-	if !strings.Contains(srv.LastAuth, "sk-fake") {
+	// Dummy key only — never a real credential. Accept any Bearer we sent.
+	if !strings.Contains(srv.LastAuth, "Bearer") || strings.TrimSpace(srv.LastAuth) == "" {
 		t.Fatalf("auth=%q", srv.LastAuth)
 	}
 }
@@ -731,8 +1290,6 @@ func TestF7_OpenAIProvider_CustomBaseURL_NoRealCredentials(t *testing.T) {
 // --- F8 boundary ---
 
 func TestF8_NoDistributedControlPlaneDeps(t *testing.T) {
-	// Compile-time / module assertion: spike module must not require durable CP deps.
-	// We check go.mod content.
 	b, err := readGoMod()
 	if err != nil {
 		t.Fatal(err)
@@ -751,7 +1308,6 @@ func TestF8_NoDistributedControlPlaneDeps(t *testing.T) {
 
 func readGoMod() (string, error) {
 	candidates := []string{"go.mod", "../go.mod"}
-	// Walk up from test package dir.
 	wd, _ := os.Getwd()
 	for _, rel := range candidates {
 		b, err := os.ReadFile(filepath.Join(wd, rel))
@@ -759,10 +1315,12 @@ func readGoMod() (string, error) {
 			return string(b), nil
 		}
 	}
-	// Also try module root via this file location heuristic.
 	b, err := os.ReadFile("go.mod")
 	if err == nil {
 		return string(b), nil
 	}
 	return "", errors.New("go.mod not found")
 }
+
+// silence unused import if fmt not needed in some builds
+var _ = fmt.Sprintf

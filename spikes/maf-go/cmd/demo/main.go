@@ -43,10 +43,17 @@ func main() {
 		MaxTotalChildren: 1,
 	}, parent, sink)
 
-	ct, err := r.StartChild(ctx, "run-demo", primer.ChildSpec{
-		Type:  "math_tutor",
-		Name:  "MathTutor",
-		Agent: child,
+	// Root run establishes fresh run_id + root_run_id (distinct from agent id).
+	if err := r.Run(ctx, "session start"); err != nil {
+		fmt.Fprintf(os.Stderr, "parent run: %v\n", err)
+		os.Exit(1)
+	}
+
+	ct, childRunner, err := r.StartChild(ctx, primer.ChildSpec{
+		Type:         "math_tutor",
+		Name:         "MathTutor",
+		Instructions: "You are MathTutor.",
+		Agent:        child,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "StartChild: %v\n", err)
@@ -57,13 +64,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "child: %v\n", err)
 		os.Exit(1)
 	}
-	if err := r.Run(ctx, "session complete"); err != nil {
-		fmt.Fprintf(os.Stderr, "parent run: %v\n", err)
-		os.Exit(1)
-	}
+
 	fmt.Printf("child_result=%q\n", res)
+	fmt.Printf("parent_run_id=%q agent_id=%q depth=%d\n", r.LastRunID(), parent.ID(), r.Depth())
+	fmt.Printf("child_depth=%d\n", childRunner.Depth())
 	fmt.Println("events:")
 	for _, e := range sink.Snapshot() {
-		fmt.Printf("  kind=%s agent=%s parent=%s text=%q\n", e.Kind, e.AgentName, e.ParentRunID, e.Text)
+		fmt.Printf("  kind=%s agent=%s run=%s parent=%s root=%s depth=%d text=%q\n",
+			e.Kind, e.AgentName, e.RunID, e.ParentRunID, e.RootRunID, e.Depth, e.Text)
 	}
 }

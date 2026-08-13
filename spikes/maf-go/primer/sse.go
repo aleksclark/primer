@@ -9,22 +9,32 @@ import (
 	"time"
 
 	"github.com/microsoft/agent-framework-go/agent"
-	"github.com/microsoft/agent-framework-go/message"
 	"github.com/microsoft/agent-framework-go/tool"
 )
+
+// DefaultSSEBridgeCapacity is the default event buffer for the async SSE bridge.
+const DefaultSSEBridgeCapacity = 64
 
 // SSEHandler is a minimal Primer-shaped SSE adapter over public MAF streams.
 // It exists because AG-UI hosts a single agent stream and does not natively
 // attribute nested child agent deltas when children are invoked as tools.
 // MAF contributes ResponseUpdate iteration; Primer owns the envelope + attribution.
+//
+// Wire path uses an asynchronous bounded bridge so a slow ResponseWriter cannot
+// block the agent/child runner. Stream loss never fails the underlying run.
 type SSEHandler struct {
 	Agent     *agent.Agent
 	AgentType string
+	// Spec optional budgets for Runner-backed child starts.
+	Spec AgentSpec
 	// BuildChildTool optionally injects a streaming child tool into the run.
-	// Called once per request with the request context and parent run id.
-	BuildChildTool func(ctx context.Context, parentRunID string, sink EventSink) tool.FuncTool
-	// After building tools, optional extra agent options.
+	// Called once per request with the request context, parent runner, and bridge sink.
+	// Prefer returning a tool from parent.StartChild so depth/lineage stay orchestrator-controlled.
+	BuildChildTool func(ctx context.Context, parent *Runner, sink EventSink) tool.FuncTool
+	// ExtraOptions optional extra agent options per request.
 	ExtraOptions func(r *http.Request) []agent.Option
+	// BridgeCapacity bounds the async SSE queue (default DefaultSSEBridgeCapacity).
+	BridgeCapacity int
 }
 
 // ServeHTTP handles POST {"text":"..."} and streams text/event-stream RunEvent JSON lines.
@@ -56,24 +66,37 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
 
 	ctx := r.Context()
-	runID := h.Agent.ID()
-	sink := &sseWriterSink{w: w, f: flusher}
+	capN := h.BridgeCapacity
+	if capN < 1 {
+		capN = DefaultSSEBridgeCapacity
+	}
 
-	_ = writeSSE(w, flusher, RunEvent{
-		RunID:     runID,
-		AgentType: h.AgentType,
-		AgentName: h.Agent.Name(),
-		AgentID:   h.Agent.ID(),
-		Kind:      KindStart,
-		Text:      body.Text,
-		At:        time.Now().UTC(),
-	})
+	// Async bridge: runner emits into BoundedAsyncSink; writer drains to ResponseWriter.
+	bridge := NewSSEBridge(capN)
+	defer bridge.Close()
+
+	// Writer goroutine: drain bridge → wire. Slow/disconnected writer does not block runner.
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		bridge.WriteTo(ctx, w, flusher)
+	}()
+
+	spec := h.Spec
+	if spec.Type == "" {
+		spec.Type = h.AgentType
+	}
+	if spec.Name == "" && h.Agent != nil {
+		spec.Name = h.Agent.Name()
+	}
+	runner := NewRunner(spec, h.Agent, bridge)
 
 	var opts []agent.Option
 	if h.BuildChildTool != nil {
-		if ct := h.BuildChildTool(ctx, runID, sink); ct != nil {
+		if ct := h.BuildChildTool(ctx, runner, bridge); ct != nil {
 			opts = append(opts, agent.WithTool(ct))
 		}
 	}
@@ -81,71 +104,136 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, h.ExtraOptions(r)...)
 	}
 
-	var runErr error
-	for update, err := range h.Agent.RunText(ctx, body.Text, opts...) {
-		if err != nil {
-			runErr = err
-			_ = writeSSE(w, flusher, RunEvent{
-				RunID:     runID,
-				AgentType: h.AgentType,
-				AgentName: h.Agent.Name(),
-				AgentID:   h.Agent.ID(),
-				Kind:      KindError,
-				Err:       err.Error(),
-				At:        time.Now().UTC(),
-			})
-			break
-		}
-		if update == nil {
-			continue
-		}
-		for _, c := range update.Contents {
-			if tc, ok := c.(*message.TextContent); ok && tc.Text != "" {
-				_ = writeSSE(w, flusher, RunEvent{
-					RunID:     runID,
-					AgentType: h.AgentType,
-					AgentName: h.Agent.Name(),
-					AgentID:   h.Agent.ID(),
-					Kind:      KindText,
-					Text:      tc.Text,
-					At:        time.Now().UTC(),
-				})
-			}
-		}
+	// Run agent to completion regardless of bridge/writer health.
+	_ = runner.Run(ctx, body.Text, opts...)
+
+	// Signal end-of-events and wait for writer drain (bounded by request ctx + grace).
+	bridge.Close()
+	select {
+	case <-writerDone:
+	case <-time.After(2 * time.Second):
+		// Bound shutdown; do not hang ServeHTTP forever.
 	}
-
-	_ = writeSSE(w, flusher, RunEvent{
-		RunID:     runID,
-		AgentType: h.AgentType,
-		AgentName: h.Agent.Name(),
-		AgentID:   h.Agent.ID(),
-		Kind:      KindEnd,
-		Err: func() string {
-			if runErr != nil {
-				return runErr.Error()
-			}
-			return ""
-		}(),
-		At: time.Now().UTC(),
-	})
 }
 
-type sseWriterSink struct {
-	w http.ResponseWriter
-	f http.Flusher
-	mu sync.Mutex
+// SSEBridge is a bounded asynchronous event bridge from runner → HTTP writer.
+// Emit never blocks on the ResponseWriter. Dropped events increment Dropped.
+// Close ends the queue; WriteTo returns after drain or ctx cancel.
+type SSEBridge struct {
+	ch      chan RunEvent
+	mu      sync.Mutex
+	closed  bool
+	Dropped int
+	// done is closed when WriteTo exits (for tests / leak checks).
+	writeDone chan struct{}
+	onceDone  sync.Once
 }
 
-func (s *sseWriterSink) Emit(ctx context.Context, e RunEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// NewSSEBridge creates a bridge with the given capacity (>=1).
+func NewSSEBridge(capacity int) *SSEBridge {
+	if capacity < 1 {
+		capacity = 1
+	}
+	return &SSEBridge{
+		ch:        make(chan RunEvent, capacity),
+		writeDone: make(chan struct{}),
+	}
+}
+
+// Emit enqueues e without blocking on the consumer. Drops when full or closed.
+func (b *SSEBridge) Emit(ctx context.Context, e RunEvent) {
+	if b == nil {
+		return
+	}
+	if e.At.IsZero() {
+		e.At = time.Now().UTC()
+	}
 	select {
 	case <-ctx.Done():
 		// Best-effort: drop on cancel; do not fail run.
+		b.mu.Lock()
+		b.Dropped++
+		b.mu.Unlock()
 		return
 	default:
 	}
-	_ = writeSSE(s.w, s.f, e)
+	b.mu.Lock()
+	if b.closed {
+		b.Dropped++
+		b.mu.Unlock()
+		return
+	}
+	ch := b.ch
+	b.mu.Unlock()
+
+	select {
+	case ch <- e:
+	default:
+		b.mu.Lock()
+		b.Dropped++
+		b.mu.Unlock()
+	}
+}
+
+// Close stops accepting events and closes the channel once.
+func (b *SSEBridge) Close() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	b.closed = true
+	close(b.ch)
+}
+
+// DroppedCount returns dropped event count.
+func (b *SSEBridge) DroppedCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Dropped
+}
+
+// WriteDone returns a channel closed when WriteTo exits.
+func (b *SSEBridge) WriteDone() <-chan struct{} {
+	return b.writeDone
+}
+
+// WriteTo drains events to w until the channel is closed or ctx is done.
+func (b *SSEBridge) WriteTo(ctx context.Context, w http.ResponseWriter, f http.Flusher) {
+	defer b.onceDone.Do(func() { close(b.writeDone) })
+	for {
+		select {
+		case <-ctx.Done():
+			// Drain remaining without blocking forever on slow write.
+			for {
+				select {
+				case e, ok := <-b.ch:
+					if !ok {
+						return
+					}
+					_ = writeSSE(w, f, e) // best-effort; ignore write errors
+				default:
+					return
+				}
+			}
+		case e, ok := <-b.ch:
+			if !ok {
+				return
+			}
+			if err := writeSSE(w, f, e); err != nil {
+				// Writer broken: drain+drop rest, do not fail runner (already independent).
+				for range b.ch {
+					b.mu.Lock()
+					b.Dropped++
+					b.mu.Unlock()
+				}
+				return
+			}
+		}
+	}
 }
 
 func writeSSE(w http.ResponseWriter, f http.Flusher, e RunEvent) error {
@@ -159,6 +247,8 @@ func writeSSE(w http.ResponseWriter, f http.Flusher, e RunEvent) error {
 	if _, err := fmt.Fprintf(w, "event: run\ndata: %s\n\n", b); err != nil {
 		return err
 	}
-	f.Flush()
+	if f != nil {
+		f.Flush()
+	}
 	return nil
 }

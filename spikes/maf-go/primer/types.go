@@ -32,9 +32,15 @@ type AgentSpec struct {
 	Tools []tool.Tool
 	// MaxChildren limits direct StartChild calls from this agent (0 = none).
 	MaxChildren int
-	// MaxDepth limits nested child depth (parent depth=0).
+	// MaxDepth limits nested child depth. Root orchestration is depth 0;
+	// a direct child runs at depth 1. StartChild is denied when the child
+	// would exceed MaxDepth (i.e. when current depth >= MaxDepth).
+	// MaxDepth <= 0 means no nested children beyond the root's own policy
+	// combined with MaxChildren (depth-0 StartChild still allowed when MaxChildren > 0
+	// only if MaxDepth > 0; MaxDepth == 0 denies all children by depth).
 	MaxDepth int
-	// MaxTotalChildren limits total children started under a root run.
+	// MaxTotalChildren limits total children started under a root run tree.
+	// 0 means unlimited total (direct MaxChildren still applies).
 	MaxTotalChildren int
 }
 
@@ -52,15 +58,39 @@ type ChildSpec struct {
 	// Tools is the child's concrete tool set after factory filtering.
 	// Must be a subset of parent grants by name.
 	Tools []tool.Tool
+	// MaxChildren limits further StartChild calls from the child runner.
+	// If 0, the child cannot start grandchildren (in addition to depth limits).
+	// Negative means inherit parent MaxChildren.
+	MaxChildren int
+}
+
+// Orchestration is the orchestrator-controlled lineage for one runner node.
+// Callers never supply Depth; it is derived only by Runner.New / StartChild.
+type Orchestration struct {
+	// RunID is fresh per Run invocation (not the agent ID).
+	RunID string
+	// RootRunID is the root invocation id for the tree (equals RunID at root).
+	RootRunID string
+	// ParentRunID is the immediate parent run (empty at root).
+	ParentRunID string
+	// Depth is 0 at root; each StartChild child-runner is parent.Depth+1.
+	Depth int
+	// AgentID is the stable agent identity (distinct from RunID).
+	AgentID string
+	// AgentType / AgentName are attribution labels.
+	AgentType string
+	AgentName string
 }
 
 // RunEvent is a Primer-shaped streaming event with parent/child attribution.
 type RunEvent struct {
 	RunID       string    `json:"run_id"`
+	RootRunID   string    `json:"root_run_id,omitempty"`
 	ParentRunID string    `json:"parent_run_id,omitempty"`
 	AgentType   string    `json:"agent_type,omitempty"`
 	AgentName   string    `json:"agent_name,omitempty"`
 	AgentID     string    `json:"agent_id,omitempty"`
+	Depth       int       `json:"depth,omitempty"`
 	Kind        string    `json:"kind"`
 	Text        string    `json:"text,omitempty"`
 	ToolName    string    `json:"tool_name,omitempty"`

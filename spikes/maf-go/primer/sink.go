@@ -74,6 +74,8 @@ func (s *BoundedSink) Snapshot() []RunEvent {
 type CollectingSink struct {
 	mu     sync.Mutex
 	events []RunEvent
+	// OnEmit optional hook after each event (tests: barriers).
+	OnEmit func(RunEvent)
 }
 
 func (s *CollectingSink) Emit(_ context.Context, e RunEvent) {
@@ -82,7 +84,11 @@ func (s *CollectingSink) Emit(_ context.Context, e RunEvent) {
 	}
 	s.mu.Lock()
 	s.events = append(s.events, e)
+	hook := s.OnEmit
 	s.mu.Unlock()
+	if hook != nil {
+		hook(e)
+	}
 }
 
 func (s *CollectingSink) Snapshot() []RunEvent {
