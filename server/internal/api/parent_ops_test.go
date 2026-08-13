@@ -121,20 +121,20 @@ func TestLearningOverviewAndMetrics(t *testing.T) {
 	resp = h.Get("/students/"+student.ID+"/learning-overview", parentAuth)
 	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
 	ov := decode[struct {
-		Student         domain.Student             `json:"student"`
-		Devices         []domain.StudentDevice     `json:"devices"`
-		OpenAssignments []domain.StudentAssignment `json:"openAssignments"`
+		Student          domain.Student             `json:"student"`
+		Devices          []domain.StudentDevice     `json:"devices"`
+		OpenAssignments  []domain.StudentAssignment `json:"openAssignments"`
 		EvidenceStatuses []struct {
-			StandardCode            string   `json:"standardCode"`
-			MasteryStatus           string   `json:"masteryStatus"`
-			AcceptedEvidenceClasses []string `json:"acceptedEvidenceClasses"`
-			MissingEvidenceClasses  []string `json:"missingEvidenceClasses"`
-			EvidenceStatus          string   `json:"evidenceStatus"`
-			ProceduralAccepted      bool     `json:"proceduralAccepted"`
-			AdditionalEvidenceRequired bool  `json:"additionalEvidenceRequired"`
-			FormalMastery           bool     `json:"formalMastery"`
+			StandardCode               string   `json:"standardCode"`
+			MasteryStatus              string   `json:"masteryStatus"`
+			AcceptedEvidenceClasses    []string `json:"acceptedEvidenceClasses"`
+			MissingEvidenceClasses     []string `json:"missingEvidenceClasses"`
+			EvidenceStatus             string   `json:"evidenceStatus"`
+			ProceduralAccepted         bool     `json:"proceduralAccepted"`
+			AdditionalEvidenceRequired bool     `json:"additionalEvidenceRequired"`
+			FormalMastery              bool     `json:"formalMastery"`
 		} `json:"evidenceStatuses"`
-		Tutor           struct {
+		Tutor struct {
 			Enabled             bool   `json:"enabled"`
 			Provider            string `json:"provider"`
 			StudentNotesDisable bool   `json:"studentNotesDisable"`

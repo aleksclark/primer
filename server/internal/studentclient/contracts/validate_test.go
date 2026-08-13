@@ -246,12 +246,12 @@ func TestValidateInstructionBlocksAndResponseTask(t *testing.T) {
 		Params: map[string]any{"taskId": "explain-concepts"},
 	})
 	doc.Content.Tasks = append(doc.Content.Tasks, contracts.Task{
-		ID:           "explain-concepts",
-		Title:        "Explain concepts",
-		Instructions: "Write a short explanation.",
-		Kind:         contracts.TaskKindShortResponse,
+		ID:            "explain-concepts",
+		Title:         "Explain concepts",
+		Instructions:  "Write a short explanation.",
+		Kind:          contracts.TaskKindShortResponse,
 		Prerequisites: []string{"enter-docs"},
-		Completion:   contracts.CheckTree{CheckID: "response-done"},
+		Completion:    contracts.CheckTree{CheckID: "response-done"},
 		Response: &contracts.ResponseTaskSpec{
 			Prompt:               "How do terminal and shell differ?",
 			MaxChars:             500,

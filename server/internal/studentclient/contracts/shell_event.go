@@ -4,18 +4,18 @@ import "time"
 
 // Shell event / observation schema versions (Phase 2).
 const (
-	ShellEventSchemaVersion        = "1"
+	ShellEventSchemaVersion         = "1"
 	CommandObservationSchemaVersion = "1"
-	WorkspaceManifestSchemaVersion = "1"
+	WorkspaceManifestSchemaVersion  = "1"
 )
 
 // Observation quality / provenance sources.
 const (
-	SourceStructured      = "structured"       // process-wait scripted exec
-	SourceObserveBash     = "observe-bash"     // bash DEBUG/PROMPT instrumentation
-	SourcePTYShell        = "pty-shell"        // untrusted screen scrape (never evidence)
-	SourceSyntheticPTY    = "synthetic-pty"
-	SourceScreen          = "screen"
+	SourceStructured   = "structured"   // process-wait scripted exec
+	SourceObserveBash  = "observe-bash" // bash DEBUG/PROMPT instrumentation
+	SourcePTYShell     = "pty-shell"    // untrusted screen scrape (never evidence)
+	SourceSyntheticPTY = "synthetic-pty"
+	SourceScreen       = "screen"
 )
 
 // ShellEvent is a versioned, sequenced command boundary observation.
@@ -65,10 +65,10 @@ type ShellEvent struct {
 	WriteSet []string `json:"writeSet,omitempty"`
 
 	// Runner / instrumentation / verifier identity.
-	RunnerVersion           string `json:"runnerVersion,omitempty"`
-	ShellInstrumentation    string `json:"shellInstrumentation,omitempty"`
-	VerifierVersion         string `json:"verifierVersion,omitempty"`
-	Source                  string `json:"source"`
+	RunnerVersion        string `json:"runnerVersion,omitempty"`
+	ShellInstrumentation string `json:"shellInstrumentation,omitempty"`
+	VerifierVersion      string `json:"verifierVersion,omitempty"`
+	Source               string `json:"source"`
 	// Structured is true only when quality meets the structured-evidence bar.
 	Structured bool `json:"structured"`
 	// Quality records which fields are trusted.
@@ -94,7 +94,7 @@ type PipelineInfo struct {
 	// Stages are executable names left-to-right when parseable.
 	Stages []string `json:"stages,omitempty"`
 	// HasPipe / HasRedirectOut are structural flags.
-	HasPipe       bool `json:"hasPipe,omitempty"`
+	HasPipe        bool `json:"hasPipe,omitempty"`
 	HasRedirectOut bool `json:"hasRedirectOut,omitempty"`
 	HasRedirectIn  bool `json:"hasRedirectIn,omitempty"`
 }
@@ -152,11 +152,11 @@ type CommandObservation struct {
 
 // WorkspaceManifestEntry is one path in a workspace snapshot.
 type WorkspaceManifestEntry struct {
-	Path    string `json:"path"`
-	Type    string `json:"type"` // file|directory|symlink
-	Mode    string `json:"mode,omitempty"`
-	SHA256  string `json:"sha256,omitempty"`
-	Size    int64  `json:"size,omitempty"`
+	Path   string `json:"path"`
+	Type   string `json:"type"` // file|directory|symlink
+	Mode   string `json:"mode,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
+	Size   int64  `json:"size,omitempty"`
 }
 
 // WorkspaceManifest is a bounded relative-path digest of a workspace tree.

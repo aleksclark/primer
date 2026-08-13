@@ -335,23 +335,23 @@ func (r *TerminalRunner) applyShellLocked(sr *ShellResult) error {
 	}
 	man, _ := terminal.CaptureManifest(r.ws)
 	ev := contracts.ShellEvent{
-		SchemaVersion: contracts.ShellEventSchemaVersion,
-		Sequence:      r.nextSeq,
-		FinishedAt:    time.Now().UTC(),
-		Executable:    sr.Executable,
-		Argv:          append([]string(nil), sr.Args...),
-		ArgvAvailable: q.Argv,
-		CwdAfter:      rel,
-		CwdAvailable:  q.Cwd,
-		ExitCode:      sr.ExitCode,
-		ExitAvailable: q.Exit,
-		Stdout:        contracts.Excerpt{Text: truncate(sr.Stdout, 2048), Trusted: q.Stdout},
-		Stderr:        contracts.Excerpt{Text: truncate(sr.Stderr, 1024), Trusted: q.Stderr},
-		ManifestAfter: man.Digest,
-		Source:        source,
-		Structured:    structured,
-		Quality:       q,
-		RunnerVersion: RunnerVersion,
+		SchemaVersion:   contracts.ShellEventSchemaVersion,
+		Sequence:        r.nextSeq,
+		FinishedAt:      time.Now().UTC(),
+		Executable:      sr.Executable,
+		Argv:            append([]string(nil), sr.Args...),
+		ArgvAvailable:   q.Argv,
+		CwdAfter:        rel,
+		CwdAvailable:    q.Cwd,
+		ExitCode:        sr.ExitCode,
+		ExitAvailable:   q.Exit,
+		Stdout:          contracts.Excerpt{Text: truncate(sr.Stdout, 2048), Trusted: q.Stdout},
+		Stderr:          contracts.Excerpt{Text: truncate(sr.Stderr, 1024), Trusted: q.Stderr},
+		ManifestAfter:   man.Digest,
+		Source:          source,
+		Structured:      structured,
+		Quality:         q,
+		RunnerVersion:   RunnerVersion,
 		VerifierVersion: terminal.VerifierVersion,
 	}
 	if !sr.CountCommand && !structured {
@@ -433,29 +433,29 @@ func (r *TerminalRunner) Observations() []contracts.Observation {
 
 // terminalDurable is the JSON shape for EncodeState (no live PTY).
 type terminalDurable struct {
-	V              int                         `json:"v"`
-	Kind           string                      `json:"kind"`
-	RelCwd         string                      `json:"relCwd"`
-	CommandsRun    int                         `json:"commandsRun"`
-	CurrentTaskIdx int                         `json:"currentTaskIdx"`
-	RequiredPassed bool                        `json:"requiredPassed"`
-	ChecksPassed   int                         `json:"checksPassed"`
-	Checks         []CheckStatus               `json:"checks,omitempty"`
-	Observations   []contracts.Observation     `json:"observations,omitempty"`
-	LastOutput     string                      `json:"lastOutput,omitempty"`
-	LastError      string                      `json:"lastError,omitempty"`
-	LastShellCwd   string                      `json:"lastShellCwd,omitempty"`
-	LastShellExe   string                      `json:"lastShellExe,omitempty"`
-	LastExitCode   int                         `json:"lastExitCode,omitempty"`
-	LastStdout     string                      `json:"lastStdout,omitempty"`
-	LastStderr     string                      `json:"lastStderr,omitempty"`
-	LastSource     string                      `json:"lastSource,omitempty"`
-	LastStructured bool                        `json:"lastStructured,omitempty"`
-	History        *terminal.History           `json:"history,omitempty"`
-	NextSeq        int64                       `json:"nextSeq,omitempty"`
-	LastManifest   string                      `json:"lastManifest,omitempty"`
-	SubmittedTasks []string                    `json:"submittedTasks,omitempty"`
-	SavedAt        string                      `json:"savedAt,omitempty"`
+	V              int                     `json:"v"`
+	Kind           string                  `json:"kind"`
+	RelCwd         string                  `json:"relCwd"`
+	CommandsRun    int                     `json:"commandsRun"`
+	CurrentTaskIdx int                     `json:"currentTaskIdx"`
+	RequiredPassed bool                    `json:"requiredPassed"`
+	ChecksPassed   int                     `json:"checksPassed"`
+	Checks         []CheckStatus           `json:"checks,omitempty"`
+	Observations   []contracts.Observation `json:"observations,omitempty"`
+	LastOutput     string                  `json:"lastOutput,omitempty"`
+	LastError      string                  `json:"lastError,omitempty"`
+	LastShellCwd   string                  `json:"lastShellCwd,omitempty"`
+	LastShellExe   string                  `json:"lastShellExe,omitempty"`
+	LastExitCode   int                     `json:"lastExitCode,omitempty"`
+	LastStdout     string                  `json:"lastStdout,omitempty"`
+	LastStderr     string                  `json:"lastStderr,omitempty"`
+	LastSource     string                  `json:"lastSource,omitempty"`
+	LastStructured bool                    `json:"lastStructured,omitempty"`
+	History        *terminal.History       `json:"history,omitempty"`
+	NextSeq        int64                   `json:"nextSeq,omitempty"`
+	LastManifest   string                  `json:"lastManifest,omitempty"`
+	SubmittedTasks []string                `json:"submittedTasks,omitempty"`
+	SavedAt        string                  `json:"savedAt,omitempty"`
 }
 
 // EncodeState implements Runner.

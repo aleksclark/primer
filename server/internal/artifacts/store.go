@@ -18,9 +18,9 @@ import (
 
 // Default quotas applied when activity policy omits bounds.
 const (
-	DefaultMaxBytesEach  int64 = 1 << 20 // 1 MiB
-	DefaultMaxBytesTotal int64 = 5 << 20 // 5 MiB
-	DefaultMaxFiles            = 20
+	DefaultMaxBytesEach    int64 = 1 << 20 // 1 MiB
+	DefaultMaxBytesTotal   int64 = 5 << 20 // 5 MiB
+	DefaultMaxFiles              = 20
 	DefaultMaxStudentBytes int64 = 50 << 20 // 50 MiB soft global cap
 )
 

@@ -25,20 +25,20 @@ var DefaultAuthorizedStandardNamespaces = []string{
 
 // OfficialStandardSources cannot be mutated through the guarded import path.
 var OfficialStandardSources = map[string]bool{
-	"ccss": true,
-	"ngss": true,
-	"csta": true,
+	"ccss":  true,
+	"ngss":  true,
+	"csta":  true,
 	"state": true,
 }
 
 // ImportBundle is the strict document-level curriculum import contract.
 type ImportBundle struct {
-	SchemaVersion string                     `json:"schemaVersion"`
-	Version       string                     `json:"version,omitempty"`
-	SourceLabel   string                     `json:"sourceLabel,omitempty"`
-	Standards     []StandardSeed             `json:"standards,omitempty"`
+	SchemaVersion string                       `json:"schemaVersion"`
+	Version       string                       `json:"version,omitempty"`
+	SourceLabel   string                       `json:"sourceLabel,omitempty"`
+	Standards     []StandardSeed               `json:"standards,omitempty"`
 	Activities    []contracts.ActivityDocument `json:"activities,omitempty"`
-	Course        *contracts.CourseDocument  `json:"course,omitempty"`
+	Course        *contracts.CourseDocument    `json:"course,omitempty"`
 }
 
 // ImportOptions configures plan/apply.
@@ -80,14 +80,14 @@ type ImportPlan struct {
 
 // DocumentResult is one per-document apply outcome.
 type DocumentResult struct {
-	Kind       string `json:"kind"`
-	Slug       string `json:"slug,omitempty"`
-	Code       string `json:"code,omitempty"`
-	Status     string `json:"status"` // created | reused | updated | failed | skipped
-	ID         string `json:"id,omitempty"`
-	Digest     string `json:"digest,omitempty"`
-	Retryable  bool   `json:"retryable,omitempty"`
-	Message    string `json:"message,omitempty"`
+	Kind      string `json:"kind"`
+	Slug      string `json:"slug,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Status    string `json:"status"` // created | reused | updated | failed | skipped
+	ID        string `json:"id,omitempty"`
+	Digest    string `json:"digest,omitempty"`
+	Retryable bool   `json:"retryable,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 // ImportResultManifest is the durable apply result.

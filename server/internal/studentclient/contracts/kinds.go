@@ -75,17 +75,17 @@ const (
 
 // Event types for the session audit stream.
 const (
-	EventSessionStarted     = "session_started"
-	EventTaskViewed         = "task_viewed"
-	EventCommandFinished    = "command_finished"
-	EventCheckEvaluated     = "check_evaluated"
-	EventHintRequested      = "hint_requested"
-	EventTutorMessage       = "tutor_message"
-	EventTypingSample       = "typing_sample"
-	EventSessionPaused      = "session_paused"
-	EventSessionCompleted   = "session_completed"
-	EventResponseSubmitted  = "response_submitted"
-	EventResponseReturned   = "response_returned"
+	EventSessionStarted    = "session_started"
+	EventTaskViewed        = "task_viewed"
+	EventCommandFinished   = "command_finished"
+	EventCheckEvaluated    = "check_evaluated"
+	EventHintRequested     = "hint_requested"
+	EventTutorMessage      = "tutor_message"
+	EventTypingSample      = "typing_sample"
+	EventSessionPaused     = "session_paused"
+	EventSessionCompleted  = "session_completed"
+	EventResponseSubmitted = "response_submitted"
+	EventResponseReturned  = "response_returned"
 )
 
 // Response submission / review status values.

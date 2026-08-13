@@ -595,9 +595,9 @@ func validateResponseSpec(path string, spec *ResponseTaskSpec) error {
 }
 
 var (
-	sha256HexRE   = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
-	unsafeLinkRE  = regexp.MustCompile(`(?i)(https?://|javascript:|data:)`)
-	unsafeTagRE   = regexp.MustCompile(`(?i)<\s*(script|iframe|object|embed|link|meta|style)\b`)
+	sha256HexRE  = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+	unsafeLinkRE = regexp.MustCompile(`(?i)(https?://|javascript:|data:)`)
+	unsafeTagRE  = regexp.MustCompile(`(?i)<\s*(script|iframe|object|embed|link|meta|style)\b`)
 )
 
 func looksLikeUnsafeMarkup(s string) bool {

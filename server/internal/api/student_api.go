@@ -492,7 +492,7 @@ type tutorMessageInput struct {
 }
 
 type submitResponseInput struct {
-	ID   string                       `path:"id" format:"uuid"`
+	ID   string `path:"id" format:"uuid"`
 	Body contracts.ResponseSubmission
 }
 

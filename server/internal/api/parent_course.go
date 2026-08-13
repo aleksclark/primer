@@ -328,10 +328,10 @@ type publishCourseOutput struct {
 type enrollStudentInput struct {
 	ID   string `path:"id" format:"uuid"`
 	Body struct {
-		CurriculumID         string  `json:"curriculumId,omitempty" format:"uuid"`
-		CurriculumRevisionID string  `json:"curriculumRevisionId,omitempty" format:"uuid"`
-		CurriculumSlug       string  `json:"curriculumSlug,omitempty"`
-		Priority             *int    `json:"priority,omitempty"`
+		CurriculumID         string `json:"curriculumId,omitempty" format:"uuid"`
+		CurriculumRevisionID string `json:"curriculumRevisionId,omitempty" format:"uuid"`
+		CurriculumSlug       string `json:"curriculumSlug,omitempty"`
+		Priority             *int   `json:"priority,omitempty"`
 	}
 }
 

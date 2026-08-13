@@ -29,12 +29,12 @@ type ResponseListItem struct {
 
 // ResponseDetail is the parent review surface for one submission.
 type ResponseDetail struct {
-	Response      domain.StudentResponse        `json:"response"`
+	Response      domain.StudentResponse         `json:"response"`
 	Reviews       []domain.StudentResponseReview `json:"reviews"`
-	Student       domain.Student                `json:"student"`
-	ActivitySlug  string                        `json:"activitySlug"`
-	ActivityTitle string                        `json:"activityTitle"`
-	Task          *contracts.Task               `json:"task,omitempty"`
+	Student       domain.Student                 `json:"student"`
+	ActivitySlug  string                         `json:"activitySlug"`
+	ActivityTitle string                         `json:"activityTitle"`
+	Task          *contracts.Task                `json:"task,omitempty"`
 	// Blocks excludes parent_note (parents still get the prompt/rubric/student body).
 	StudentBlocks []contracts.InstructionBlock `json:"studentBlocks,omitempty"`
 	// ParentNotes are authoring parent_note blocks for the reviewer only.
