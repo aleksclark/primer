@@ -1,0 +1,129 @@
+// Curriculum Studio deployable and internal modules.
+
+model {
+  extend curriculum_studio {
+    studio_ui = component 'Curriculum Studio UI (browser)' {
+      #public
+      description '
+        Browser-executed authoring UI owned by Curriculum Studio.
+        Runs in the teacher/parent browser, not inside the Studio
+        service process. Talks only to the Curriculum API. Not a
+        second deployable backend and not a peer product.
+        Source: primer-curriculum-studio-product-plan.md Service
+        architecture (UI → Curriculum API) and Standalone product
+        workflow (review, approve, lock, rematerialize).
+      '
+    }
+
+    studio = service 'Curriculum Studio service' {
+      #public
+      description '
+        Single independently deployable modular service. Strong internal
+        modules; split into a fleet only when scaling or ownership
+        pressure justifies it.
+        Source: primer-curriculum-studio-product-plan.md Service
+        architecture.
+      '
+
+      curriculum_api = component 'Curriculum API' {
+        #public
+        description '
+          HTTPS API for briefs, plans, revisions, materializations,
+          exports, and the Primer materialization contract.
+          Source: primer-curriculum-studio-product-plan.md Service
+          architecture and Primer integration contract.
+        '
+      }
+
+      plan_domain = component 'Plan domain' {
+        #private
+        #durable
+        description '
+          Curriculum identity, draft and immutable published revisions,
+          graph editing, objectives, outcomes, arcs, units, constraints.
+          Source: primer-curriculum-studio-product-plan.md Core product
+          concepts (Curriculum, Plan revision) and Internal modules.
+        '
+      }
+
+      standards_catalog = component 'Standards catalog' {
+        #private
+        #durable
+        description '
+          Standards, crosswalks, prerequisites, mastery criteria.
+          Source: primer-curriculum-studio-product-plan.md Internal
+          modules; Core product concepts.
+        '
+      }
+
+      resource_catalog = component 'Resource catalog' {
+        #private
+        #durable
+        description '
+          Metadata and references for books, media, projects, tools,
+          and URLs. Does not own file bytes.
+          Source: primer-curriculum-studio-product-plan.md Resource
+          and Internal modules.
+        '
+      }
+
+      validation_engine = component 'Validation engine' {
+        #private
+        description '
+          Deterministic coverage, prerequisite acyclicity, evidence,
+          workload, immutability, and lock checks. Not an agent.
+          Source: primer-curriculum-studio-product-plan.md Deterministic
+          validation and Internal modules.
+        '
+      }
+
+      materialization_domain = component 'Materialization domain' {
+        #private
+        #durable
+        description '
+          Production runs against a plan revision plus learner/class
+          profile, calendar window, resources, and generation policy.
+          Persists runs, input snapshots, generated items, locks, and
+          provenance.
+          Source: primer-curriculum-studio-product-plan.md
+          Materialization, Materialized item, Internal modules.
+        '
+      }
+
+      agent_workflow_runner = component 'Agent workflow runner' {
+        #private
+        description '
+          Orchestrates Objectives Analyst, Standards Mapper, Sequence
+          Architect, Unit/Project Designer, Assessment Designer,
+          Materializer, and Curriculum Critic. Persists every stage so
+          failed steps resume.
+          Source: primer-curriculum-studio-product-plan.md Agent
+          workflow design.
+        '
+      }
+
+      export_service = component 'Export service' {
+        #private
+        description '
+          PDF/print, Markdown, later DOCX, CSV coverage, calendar, and
+          JSON bundle for Primer. LMS-specific concepts stay out of the
+          curriculum domain; adapters live here / in the gateway.
+          Source: primer-curriculum-studio-product-plan.md Publish or
+          export; Internal modules.
+        '
+      }
+
+      integration_gateway = component 'Integration gateway' {
+        #public
+        description '
+          API keys, directional service credentials, webhooks, domain
+          events, and the Primer adapter. Synchronous materialization
+          API and asynchronous events both terminate here.
+          Source: primer-curriculum-studio-product-plan.md Primer
+          integration contract (sync API + domain events) and Internal
+          modules (Integration gateway).
+        '
+      }
+    }
+  }
+}

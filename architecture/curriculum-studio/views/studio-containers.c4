@@ -1,0 +1,47 @@
+views {
+  view studio_containers {
+    title 'Curriculum Studio containers and modules'
+    description '
+      One independently deployable Studio service, product-owned
+      browser UI, internal modules, separate PostgreSQL, artifact
+      store, and model providers. Source:
+      primer-curriculum-studio-product-plan.md Service architecture
+      and Internal modules.
+    '
+    include curriculum_studio.studio_ui
+    include curriculum_studio.studio
+    include curriculum_studio.studio.curriculum_api
+    include curriculum_studio.studio.plan_domain
+    include curriculum_studio.studio.standards_catalog
+    include curriculum_studio.studio.resource_catalog
+    include curriculum_studio.studio.validation_engine
+    include curriculum_studio.studio.materialization_domain
+    include curriculum_studio.studio.agent_workflow_runner
+    include curriculum_studio.studio.export_service
+    include curriculum_studio.studio.integration_gateway
+    include curriculum_studio.postgres
+    include curriculum_studio.artifact_store
+    include model_providers
+    include curriculum_studio.studio_ui -> curriculum_studio.studio.curriculum_api
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.plan_domain
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.standards_catalog
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.resource_catalog
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.validation_engine
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.materialization_domain
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.export_service
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.integration_gateway
+    include curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.agent_workflow_runner
+    include curriculum_studio.studio.plan_domain -> curriculum_studio.studio.validation_engine
+    include curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.validation_engine
+    include curriculum_studio.studio.plan_domain -> curriculum_studio.postgres
+    include curriculum_studio.studio.standards_catalog -> curriculum_studio.postgres
+    include curriculum_studio.studio.resource_catalog -> curriculum_studio.postgres
+    include curriculum_studio.studio.materialization_domain -> curriculum_studio.postgres
+    include curriculum_studio.studio.agent_workflow_runner -> curriculum_studio.postgres
+    include curriculum_studio.studio.agent_workflow_runner -> curriculum_studio.artifact_store
+    include curriculum_studio.studio.export_service -> curriculum_studio.artifact_store
+    include curriculum_studio.studio.export_service -> curriculum_studio.postgres
+    include curriculum_studio.studio.agent_workflow_runner -> model_providers
+    autoLayout TopBottom
+  }
+}

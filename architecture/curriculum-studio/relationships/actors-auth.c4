@@ -1,0 +1,86 @@
+// Actor and identity-trust relationships.
+
+model {
+  teacher -> curriculum_studio.studio_ui 'Authors plans, reviews generated work, materializes windows, exports packets' {
+    description '
+      Source: primer-curriculum-studio-product-plan.md Product value
+      proposition and Standalone product workflow.
+    '
+  }
+
+  homeschool_parent -> curriculum_studio.studio_ui 'Plans a homeschool year or unit without running Primer' {
+    description '
+      Source: primer-curriculum-studio-product-plan.md Product concept
+      (standalone use) and Phase 1 (avoid student accounts and live teaching).
+    '
+  }
+
+  curriculum_author -> curriculum_studio.studio_ui 'Builds reusable curricula and templates' {
+    description '
+      Source: primer-curriculum-studio-product-plan.md Workspace and
+      Phase 5 Collaborative authoring.
+    '
+  }
+
+  teacher -> identity_service 'Authenticates as a Studio author when the proposed IdP is adopted' {
+    #uncertainty
+    description '
+      Auth design is not settled. Current Primer parents authenticate
+      in-process on LMS POST /auth/login. Studio standalone use cannot
+      depend on live LMS sessions. Whether teachers use the proposed
+      identity service, Studio-local accounts, or a later shared IdP
+      is open.
+      Sources: primer-curriculum-studio-product-plan.md standalone
+      product; AGENTS.md LMS auth.
+    '
+  }
+
+  homeschool_parent -> identity_service 'Authenticates as a Studio author when the proposed IdP is adopted' {
+    #uncertainty
+    description '
+      Same unsettled auth path as teacher. Distinct from this actor\'s
+      possible later Primer parent session.
+    '
+  }
+
+  curriculum_author -> identity_service 'Authenticates as a Studio author when the proposed IdP is adopted' {
+    #uncertainty
+    description 'Same unsettled auth path. Collaborative IdP tenancy is Phase 5.'
+  }
+
+  curriculum_studio.studio_ui -> identity_service 'Delegates interactive login / token acquisition (proposed)' {
+    #uncertainty
+    description '
+      Browser UI would redirect or exchange tokens with the proposed
+      identity service. Protocol (OIDC vs opaque session) is unset.
+    '
+  }
+
+  curriculum_studio.studio.curriculum_api -> identity_service 'Validates author sessions or JWT/introspection (proposed)' {
+    #uncertainty
+    description '
+      Studio API must authorize authors without reading Primer LMS
+      educator tables. Exact verification (local JWKS, introspection,
+      or Studio-issued sessions) is not decided.
+    '
+  }
+
+  primer_lms.lms_api -> identity_service 'May later validate shared human or machine identity (proposed)' {
+    #uncertainty
+    description '
+      Today LMS owns parent sessions and educators in its own database.
+      Migration of LMS auth onto this adjacent service is not decided
+      and must not be assumed.
+      Source: AGENTS.md LMS Server auth; Product plan does not specify
+      LMS identity extraction.
+    '
+  }
+
+  primer_lms.lms_web -> identity_service 'May later authenticate parents/admins via the proposed IdP' {
+    #uncertainty
+    description '
+      Current LMS SPA uses POST /auth/login bearer tokens stored in
+      the browser. A shared IdP is a proposal, not current topology.
+    '
+  }
+}

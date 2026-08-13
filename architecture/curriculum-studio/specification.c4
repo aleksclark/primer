@@ -1,0 +1,45 @@
+// Curriculum Studio architecture — specification
+// Authoritative sources:
+//   agent_docs/plans/primer-curriculum-studio-product-plan.md
+//   AGENTS.md (LMS/TV service-boundary pattern)
+// Inspected only as needed for real Primer interfaces:
+//   LMS HTTP API + own PostgreSQL; TV/LMS never share a database.
+
+specification {
+  element actor {
+    style {
+      shape person
+    }
+  }
+  element softwareSystem
+  element service
+  element component
+  element datastore {
+    style {
+      shape storage
+    }
+  }
+  element infrastructure
+
+  tag public {
+    color #3b82f6
+  }
+  tag private {
+    color #64748b
+  }
+  tag durable {
+    color #16a34a
+  }
+  tag external {
+    color #0f766e
+  }
+  tag trustBoundary {
+    color #9333ea
+  }
+  tag uncertainty {
+    color #dc2626
+  }
+  tag deferred {
+    color #a855f7
+  }
+}

@@ -1,0 +1,30 @@
+views {
+  view primer_integration {
+    title 'Primer LMS ↔ Curriculum Studio integration'
+    description '
+      Explicit HTTP materialization contract (Primer → Studio) and
+      asynchronous events/webhooks (Studio → Primer). No database
+      sharing. Uncertain later bundle-push adapter is tagged, not
+      promoted to the primary path.
+      Source: primer-curriculum-studio-product-plan.md Primer
+      integration contract and Domain events; AGENTS.md Service
+      boundary (HTTP + directional secrets, never shared DB).
+    '
+    include primer_lms.lms_api
+    include primer_lms.lms_api.learner_state
+    include primer_lms.lms_api.curriculum_consumer
+    include primer_lms.lms_api.event_subscriber
+    include curriculum_studio.studio
+    include curriculum_studio.studio.integration_gateway
+    include curriculum_studio.studio.curriculum_api
+    include curriculum_studio.studio.materialization_domain
+    include primer_lms.lms_api -> curriculum_studio.studio
+    include primer_lms.lms_api.learner_state -> curriculum_studio.studio.integration_gateway
+    include primer_lms.lms_api.curriculum_consumer -> curriculum_studio.studio.integration_gateway
+    include curriculum_studio.studio -> primer_lms.lms_api
+    include curriculum_studio.studio.integration_gateway -> primer_lms.lms_api.event_subscriber
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.integration_gateway
+    include curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.materialization_domain
+    autoLayout LeftRight
+  }
+}

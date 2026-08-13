@@ -1,0 +1,50 @@
+// Datastores and deployment-owned infrastructure. No shared databases.
+
+model {
+  extend curriculum_studio {
+    postgres = datastore 'Curriculum Studio PostgreSQL' {
+      #durable
+      #private
+      description '
+        Separate PostgreSQL database owned exclusively by Curriculum
+        Studio. Plans, revisions, catalogs, materialization snapshots,
+        generated-item metadata, locks, and workflow stage state.
+        Primer LMS and TV must not connect here.
+        Sources: primer-curriculum-studio-product-plan.md Service
+        architecture (Curriculum database); AGENTS.md Service boundary
+        (LMS and TV never share a database — same rule for Studio).
+      '
+    }
+
+    artifact_store = datastore 'Generated artifact / object store' {
+      #durable
+      #private
+      description '
+        Object store for generated lesson bytes, packets, and export
+        artifacts. Studio stores metadata and references in PostgreSQL;
+        bytes live here. A future separate content service may own
+        uploaded source files; that split is deferred.
+        Sources: primer-curriculum-studio-product-plan.md Resource
+        ("separate content or artifact service may eventually own the
+        actual files"); Service architecture (Generated artifact store).
+      '
+    }
+  }
+
+  extend primer_lms {
+    lms_postgres = datastore 'Primer LMS PostgreSQL' {
+      #durable
+      #private
+      description '
+        Existing LMS database: educators, students, standards copies,
+        curricula enrollments, mastery_records, assessments, instruction
+        logs. Studio has no connection string and no queries against it.
+        Mastery crosses the boundary only as an explicit
+        materialization_context snapshot over HTTP.
+        Sources: AGENTS.md LMS Server schema and Service boundary;
+        primer-curriculum-studio-product-plan.md Primer integration
+        contract (explicit service contracts rather than database access).
+      '
+    }
+  }
+}
