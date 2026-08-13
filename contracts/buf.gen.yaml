@@ -1,0 +1,17 @@
+# Code generation is a local/CI build step. Generated sources are not committed.
+# Pin: Buf CLI 1.72.0 (verified 2026-08-13).
+# Local offline stubs were proven with protoc-gen-go v1.36.11 and
+# protoc-gen-go-grpc 1.5.1. Remote plugin tags below match those versions.
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: gen/go
+    opt:
+      - paths=source_relative
+  - remote: buf.build/grpc/go:v1.5.1
+    out: gen/go
+    opt:
+      - paths=source_relative
+inputs:
+  - directory: proto

@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package curriculumstudio.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+
+// Resource identifiers are opaque, prefixed strings (for example ws_, cur_, prev_).
+// They are not LMS database UUIDs.
+message ResourceId {
+  // Opaque prefixed identifier.
+  string value = 1;
+}
+
+// PageRequest is the gRPC list envelope. REST uses limit/offset instead;
+// the two envelopes are transport-specific and are not domain types.
+message PageRequest {
+  // Maximum items to return. Servers default to 25 and cap at 200.
+  int32 page_size = 1;
+  // Opaque continuation token from a previous response.
+  string page_token = 2;
+}
+
+// PageResponse accompanies a repeated field of items.
+message PageResponse {
+  // Token for the next page. Empty when there is no further page.
+  string next_page_token = 1;
+  // Total matching rows, ignoring pagination. Zero when the server omitted the count.
+  int64 total_count = 2;
+}
+
+// ErrorCode is the machine-readable application error, independent of HTTP or gRPC status.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNAUTHENTICATED = 1;
+  ERROR_CODE_PERMISSION_DENIED = 2;
+  ERROR_CODE_NOT_FOUND = 3;
+  ERROR_CODE_ALREADY_EXISTS = 4;
+  ERROR_CODE_FAILED_PRECONDITION = 5;
+  ERROR_CODE_ABORTED = 6;
+  ERROR_CODE_INVALID_ARGUMENT = 7;
+  ERROR_CODE_RESOURCE_LOCKED = 8;
+  ERROR_CODE_REVISION_IMMUTABLE = 9;
+  ERROR_CODE_VALIDATION_FAILED = 10;
+  ERROR_CODE_MATERIALIZATION_FAILED = 11;
+  ERROR_CODE_IDEMPOTENCY_KEY_CONFLICT = 12;
+  ERROR_CODE_QUOTA_EXCEEDED = 13;
+  ERROR_CODE_INTERNAL = 14;
+}
+
+// ErrorDetail is attached to google.rpc.Status.details or an HTTP problem+json `errors` entry.
+message ErrorDetail {
+  // Application error code.
+  ErrorCode code = 1;
+  // Stable field path such as `learner.grade` or `path.revisionId`.
+  string location = 2;
+  // Human-readable explanation for this location.
+  string message = 3;
+}
+
+// Actor identifies the principal that issued a mutation. Studio never stores passwords.
+message Actor {
+  // Subject from the identity service token (`sub` claim) or service credential id.
+  string subject = 1;
+  // Actor kind.
+  ActorKind kind = 2;
+}
+
+// ActorKind distinguishes human tokens from scoped service credentials.
+enum ActorKind {
+  ACTOR_KIND_UNSPECIFIED = 0;
+  ACTOR_KIND_HUMAN = 1;
+  ACTOR_KIND_SERVICE = 2;
+}
+
+// Idempotency records how a mutating RPC should be retried.
+message Idempotency {
+  // Client-supplied key. Required for Materialize, PublishRevision, and Export.
+  string key = 1;
+}
+
+// TimeRange is an inclusive start / exclusive end window.
+message TimeRange {
+  // Inclusive start.
+  google.protobuf.Timestamp start = 1;
+  // Exclusive end. Unset means open-ended.
+  google.protobuf.Timestamp end = 2;
+}
+
+// Etag is an optimistic-concurrency token for draft mutations.
+message Etag {
+  // Opaque validator. Clients send If-Match / etag on updates.
+  string value = 1;
+}

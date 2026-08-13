@@ -1,0 +1,7 @@
+# Generated protobuf and OpenAPI client outputs. Never commit these.
+gen/
+.tmp/
+*.pb.go
+*_grpc.pb.go
+*.desc.binpb
+*.pb.bin

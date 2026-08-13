@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package curriculumstudio.v1;
+
+import "curriculumstudio/v1/catalog.proto";
+import "curriculumstudio/v1/common.proto";
+import "curriculumstudio/v1/events.proto";
+import "curriculumstudio/v1/materialization.proto";
+import "curriculumstudio/v1/plan.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+
+// CurriculumIntegration is the Primer / service-facing gRPC API.
+//
+// Browser authoring uses the OpenAPI surface in contracts/openapi/v1/.
+// This service is the source of truth for integration types
+// (MaterializationContext, MaterializationBundle, DomainEvent) and for
+// published-revision reads. It does not expose draft graph editing.
+service CurriculumIntegrationService {
+  // GetPublishedRevision returns an immutable published plan revision.
+  rpc GetPublishedRevision(GetPublishedRevisionRequest) returns (PlanRevision);
+
+  // GetPlanGraph returns the published revision graph.
+  rpc GetPlanGraph(GetPlanGraphRequest) returns (PlanGraph);
+
+  // ValidateRevision runs deterministic invariants against a published revision.
+  rpc ValidateRevision(ValidateRevisionRequest) returns (ValidationReport);
+
+  // GetStandard resolves a standard by public code.
+  rpc GetStandard(GetStandardRequest) returns (Standard);
+
+  // ListStandards pages a catalog.
+  rpc ListStandards(ListStandardsRequest) returns (ListStandardsResponse);
+
+  // GetResource returns a curated resource reference.
+  rpc GetResource(GetResourceRequest) returns (Resource);
+
+  // Materialize starts or resumes a production run from a MaterializationContext.
+  // Idempotent on idempotency_key. Primer is the primary caller.
+  rpc Materialize(MaterializeRequest) returns (Materialization);
+
+  // GetMaterialization returns run status.
+  rpc GetMaterialization(GetMaterializationRequest) returns (Materialization);
+
+  // GetMaterializationBundle returns the ready bundle. Fails with
+  // FAILED_PRECONDITION until status is READY.
+  rpc GetMaterializationBundle(GetMaterializationBundleRequest) returns (MaterializationBundle);
+
+  // ListMaterializedItems pages generated items for a run.
+  rpc ListMaterializedItems(ListMaterializedItemsRequest) returns (ListMaterializedItemsResponse);
+
+  // AcknowledgeEvent confirms Primer processed a domain event (optional pull ack).
+  rpc AcknowledgeEvent(AcknowledgeEventRequest) returns (google.protobuf.Empty);
+
+  // PullEvents pages unpublished-to-this-consumer domain events.
+  rpc PullEvents(PullEventsRequest) returns (PullEventsResponse);
+}
+
+message GetPublishedRevisionRequest {
+  // Revision id.
+  string revision_id = 1;
+}
+
+message GetPlanGraphRequest {
+  // Revision id.
+  string revision_id = 1;
+}
+
+message ValidateRevisionRequest {
+  // Revision id.
+  string revision_id = 1;
+}
+
+message GetStandardRequest {
+  // Public standard code.
+  string code = 1;
+  // Optional catalog to disambiguate custom codes.
+  string catalog_id = 2;
+}
+
+message ListStandardsRequest {
+  // Catalog to list.
+  string catalog_id = 1;
+  // Optional subject filter.
+  string subject = 2;
+  // Optional grade filter.
+  string grade = 3;
+  // Pagination.
+  PageRequest page = 4;
+}
+
+message ListStandardsResponse {
+  // Standards.
+  repeated Standard standards = 1;
+  // Pagination.
+  PageResponse page = 2;
+}
+
+message GetResourceRequest {
+  // Resource id.
+  string resource_id = 1;
+}
+
+message MaterializeRequest {
+  // Idempotency key. Required.
+  string idempotency_key = 1;
+  // Materialization input.
+  MaterializationContext context = 2;
+}
+
+message GetMaterializationRequest {
+  // Materialization id.
+  string materialization_id = 1;
+}
+
+message GetMaterializationBundleRequest {
+  // Materialization id.
+  string materialization_id = 1;
+}
+
+message ListMaterializedItemsRequest {
+  // Materialization id.
+  string materialization_id = 1;
+  // Optional kind filter.
+  MaterializedItemKind kind = 2;
+  // Pagination.
+  PageRequest page = 3;
+}
+
+message ListMaterializedItemsResponse {
+  // Items.
+  repeated MaterializedItem items = 1;
+  // Pagination.
+  PageResponse page = 2;
+}
+
+message AcknowledgeEventRequest {
+  // Event id.
+  string event_id = 1;
+  // Consumer id (service credential subject).
+  string consumer_id = 2;
+}
+
+message PullEventsRequest {
+  // Consumer id.
+  string consumer_id = 1;
+  // Optional type filter.
+  repeated EventType types = 2;
+  // Pagination.
+  PageRequest page = 3;
+}
+
+message PullEventsResponse {
+  // Events.
+  repeated DomainEvent events = 1;
+  // Pagination.
+  PageResponse page = 2;
+}

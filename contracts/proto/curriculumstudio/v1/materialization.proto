@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package curriculumstudio.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+
+// MaterializationStatus is the production-run lifecycle.
+enum MaterializationStatus {
+  MATERIALIZATION_STATUS_UNSPECIFIED = 0;
+  MATERIALIZATION_STATUS_REQUESTED = 1;
+  MATERIALIZATION_STATUS_RUNNING = 2;
+  MATERIALIZATION_STATUS_READY = 3;
+  MATERIALIZATION_STATUS_FAILED = 4;
+  MATERIALIZATION_STATUS_CANCELLED = 5;
+}
+
+// MaterializedItemKind classifies a generated artifact.
+enum MaterializedItemKind {
+  MATERIALIZED_ITEM_KIND_UNSPECIFIED = 0;
+  MATERIALIZED_ITEM_KIND_LESSON = 1;
+  MATERIALIZED_ITEM_KIND_TEACHER_GUIDE = 2;
+  MATERIALIZED_ITEM_KIND_STUDENT_INSTRUCTIONS = 3;
+  MATERIALIZED_ITEM_KIND_PRACTICE = 4;
+  MATERIALIZED_ITEM_KIND_DISCUSSION_GUIDE = 5;
+  MATERIALIZED_ITEM_KIND_WORKSHEET = 6;
+  MATERIALIZED_ITEM_KIND_ASSESSMENT = 7;
+  MATERIALIZED_ITEM_KIND_RUBRIC = 8;
+  MATERIALIZED_ITEM_KIND_PROJECT_TASK = 9;
+  MATERIALIZED_ITEM_KIND_ANSWER_KEY = 10;
+  MATERIALIZED_ITEM_KIND_MEDIA_PROMPT = 11;
+  MATERIALIZED_ITEM_KIND_PRINTABLE_PACKET = 12;
+}
+
+// ItemLockState records whether a generated item may be overwritten.
+enum ItemLockState {
+  ITEM_LOCK_STATE_UNSPECIFIED = 0;
+  ITEM_LOCK_STATE_EDITABLE = 1;
+  ITEM_LOCK_STATE_LOCKED = 2;
+}
+
+// MasteryStatus is a snapshot of learner mastery supplied by Primer. Studio
+// does not own authoritative mastery records.
+enum MasteryStatus {
+  MASTERY_STATUS_UNSPECIFIED = 0;
+  MASTERY_STATUS_BELOW = 1;
+  MASTERY_STATUS_APPROACHING = 2;
+  MASTERY_STATUS_ON_TRACK = 3;
+  MASTERY_STATUS_MASTERED = 4;
+}
+
+// MasterySnapshot is one standard's current state as reported by Primer.
+message MasterySnapshot {
+  // Standard code.
+  string standard_code = 1;
+  // Status.
+  MasteryStatus status = 2;
+  // Confidence in [0, 1].
+  double confidence = 3;
+}
+
+// LearnerProfile is a generic standalone profile or a Primer-supplied snapshot.
+message LearnerProfile {
+  // Learner or class id from the caller. Not a Studio student account.
+  string id = 1;
+  // Grade label.
+  string grade = 2;
+  // Mastery summaries keyed by standard in the repeated field.
+  repeated MasterySnapshot mastery_summary = 3;
+  // Standards due for reinforcement.
+  repeated string reinforcement_due = 4;
+  // Accommodation codes.
+  repeated string accommodations = 5;
+}
+
+// ActiveProject is a live project phase Primer wants honored during materialization.
+message ActiveProject {
+  // External or Studio project id.
+  string project_id = 1;
+  // Current phase label, for example `design`.
+  string phase = 2;
+}
+
+// MaterializationWindow is the calendar or effort window to produce.
+message MaterializationWindow {
+  // Inclusive start date as RFC 3339 date or timestamp.
+  google.protobuf.Timestamp start = 1;
+  // Exclusive end. Unset means "as much as available_minutes allows".
+  google.protobuf.Timestamp end = 2;
+  // Available instructional minutes in the window.
+  int32 available_minutes = 3;
+}
+
+// MaterializationOverrides lets Primer pin outcomes or skip nodes.
+message MaterializationOverrides {
+  // Outcome or standard codes that must appear.
+  repeated string pinned_outcomes = 1;
+  // Plan node ids the caller asks to skip.
+  repeated string skipped_node_ids = 2;
+}
+
+// GenerationPolicy controls how agents produce items.
+message GenerationPolicy {
+  // Preferred reading level or voice.
+  string voice = 1;
+  // Whether to include answer keys with assessments.
+  bool include_answer_keys = 2;
+  // Whether to include printable packets.
+  bool include_printables = 3;
+  // Maximum items of each kind; 0 means server default.
+  int32 max_items = 4;
+}
+
+// MaterializationContext is the Primer → Studio input. This is the integration
+// payload from the product plan. REST authoring uses a subset via OpenAPI.
+message MaterializationContext {
+  // Plan revision to materialize. Must be published for Primer calls.
+  string plan_revision_id = 1;
+  // Learner or class snapshot. Standalone Studio may send a generic profile.
+  LearnerProfile learner = 2;
+  // Active projects to honor.
+  repeated ActiveProject active_projects = 3;
+  // Window.
+  MaterializationWindow window = 4;
+  // Overrides.
+  MaterializationOverrides overrides = 5;
+  // Generation policy.
+  GenerationPolicy policy = 6;
+}
+
+// Materialization is one production run.
+message Materialization {
+  // Materialization id (`mat_…`).
+  string id = 1;
+  // Source revision.
+  string plan_revision_id = 2;
+  // SHA-256 hex of the canonical context snapshot (`sha256:…`).
+  string context_fingerprint = 3;
+  // Lifecycle.
+  MaterializationStatus status = 4;
+  // Input snapshot persisted for replay. Never mutated after REQUESTED.
+  MaterializationContext context = 5;
+  // Failure message when status is FAILED.
+  string error_message = 6;
+  // When requested.
+  google.protobuf.Timestamp created_at = 7;
+  // When the run reached a terminal status.
+  google.protobuf.Timestamp completed_at = 8;
+}
+
+// SessionSpec is one planned instructional session inside a bundle.
+message SessionSpec {
+  // Session spec id.
+  string id = 1;
+  // Target outcome or standard codes.
+  repeated string target_outcomes = 2;
+  // Activity descriptions or item ids.
+  repeated string activities = 3;
+  // Assessment specs (item ids or inline descriptors).
+  repeated string assessment_specs = 4;
+  // Resource ids.
+  repeated string resource_refs = 5;
+  // Tutor context pack consumed by Primer; schema is versioned JSON.
+  google.protobuf.Struct tutor_context = 6;
+  // Completion criteria statements.
+  repeated string completion_criteria = 7;
+  // Remediation branch descriptors.
+  repeated string remediation_branches = 8;
+}
+
+// MaterializationBundle is the Studio → Primer output.
+message MaterializationBundle {
+  // Same id as the materialization.
+  string id = 1;
+  // Source revision.
+  string plan_revision_id = 2;
+  // Context fingerprint echoed from the run.
+  string context_fingerprint = 3;
+  // Session specifications Primer turns into live tutor interactions.
+  repeated SessionSpec sessions = 4;
+}
+
+// MaterializedItem is one generated artifact belonging to a run.
+message MaterializedItem {
+  // Item id.
+  string id = 1;
+  // Parent materialization.
+  string materialization_id = 2;
+  // Plan node this item traces to.
+  string plan_node_id = 3;
+  // Kind.
+  MaterializedItemKind kind = 4;
+  // Title.
+  string title = 5;
+  // Body (markdown). Locked items keep this across rematerialize.
+  string body = 6;
+  // Lock state.
+  ItemLockState lock_state = 7;
+  // Actor that last edited the item, if any.
+  string edited_by = 8;
+  // When last edited.
+  google.protobuf.Timestamp edited_at = 9;
+  // True when this item superseded a previous item id.
+  string supersedes_item_id = 10;
+}
+
+// ExportFormat names a downloadable artifact.
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_MARKDOWN = 1;
+  EXPORT_FORMAT_PDF = 2;
+  EXPORT_FORMAT_DOCX = 3;
+  EXPORT_FORMAT_CSV_COVERAGE = 4;
+  EXPORT_FORMAT_JSON_BUNDLE = 5;
+  EXPORT_FORMAT_ICAL = 6;
+}
+
+// ExportJob is an asynchronous export of a revision or materialization.
+message ExportJob {
+  // Export id.
+  string id = 1;
+  // Source revision.
+  string revision_id = 2;
+  // Optional materialization.
+  string materialization_id = 3;
+  // Format.
+  ExportFormat format = 4;
+  // Lifecycle reused from materialization (requested/running/ready/failed).
+  MaterializationStatus status = 5;
+  // URI of the produced artifact. Empty until READY.
+  string artifact_uri = 6;
+  // When created.
+  google.protobuf.Timestamp created_at = 7;
+  // When completed.
+  google.protobuf.Timestamp completed_at = 8;
+}

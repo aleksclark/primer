@@ -1,0 +1,244 @@
+syntax = "proto3";
+
+package curriculumstudio.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aleksclark/primer/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+
+// Workspace is a school, family, co-op, teacher, or authoring organization.
+message Workspace {
+  // Workspace id.
+  string id = 1;
+  // Display name.
+  string name = 2;
+  // Optional slug unique within the deployment.
+  string slug = 3;
+  // When the workspace was created.
+  google.protobuf.Timestamp created_at = 4;
+  // When the workspace was last updated.
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// Curriculum is a durable identity such as “Grade 6 Integrated Curriculum”.
+message Curriculum {
+  // Curriculum id.
+  string id = 1;
+  // Owning workspace.
+  string workspace_id = 2;
+  // Display name.
+  string name = 3;
+  // Human description.
+  string description = 4;
+  // Template used to start the brief, if any.
+  CurriculumTemplate template = 5;
+  // Lifecycle of the durable identity (not of a single revision).
+  CurriculumStatus status = 6;
+  // When created.
+  google.protobuf.Timestamp created_at = 7;
+  // When last updated.
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// CurriculumTemplate names a brief starter.
+enum CurriculumTemplate {
+  CURRICULUM_TEMPLATE_UNSPECIFIED = 0;
+  CURRICULUM_TEMPLATE_HOMESCHOOL_YEAR = 1;
+  CURRICULUM_TEMPLATE_SINGLE_SUBJECT = 2;
+  CURRICULUM_TEMPLATE_CLASSROOM_SEMESTER = 3;
+  CURRICULUM_TEMPLATE_PROJECT_BASED_UNIT = 4;
+  CURRICULUM_TEMPLATE_STANDARDS_REMEDIATION = 5;
+  CURRICULUM_TEMPLATE_CUSTOM = 6;
+}
+
+// CurriculumStatus is the durable-identity lifecycle.
+enum CurriculumStatus {
+  CURRICULUM_STATUS_UNSPECIFIED = 0;
+  CURRICULUM_STATUS_ACTIVE = 1;
+  CURRICULUM_STATUS_ARCHIVED = 2;
+}
+
+// RevisionState distinguishes editable drafts from immutable publications.
+enum RevisionState {
+  REVISION_STATE_UNSPECIFIED = 0;
+  REVISION_STATE_DRAFT = 1;
+  REVISION_STATE_PUBLISHED = 2;
+  REVISION_STATE_SUPERSEDED = 3;
+}
+
+// PlanRevision is one version of the educational plan. Published revisions are immutable.
+message PlanRevision {
+  // Revision id (`prev_…`).
+  string id = 1;
+  // Parent curriculum.
+  string curriculum_id = 2;
+  // Monotonic revision number within the curriculum, assigned on publish.
+  int32 revision_number = 3;
+  // Draft or published.
+  RevisionState state = 4;
+  // Course brief captured at this revision.
+  CurriculumBrief brief = 5;
+  // Optimistic concurrency token. Required to mutate a draft.
+  string etag = 6;
+  // Principal that published this revision. Empty on drafts.
+  string published_by = 7;
+  // Publish time. Unset on drafts.
+  google.protobuf.Timestamp published_at = 8;
+  // When created.
+  google.protobuf.Timestamp created_at = 9;
+  // When the draft was last edited.
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// CurriculumBrief is the user-supplied planning intake.
+message CurriculumBrief {
+  // Grade or learner level label, for example `6` or `mixed-6-8`.
+  string learner_level = 1;
+  // Subject codes such as `math`, `ela`.
+  repeated string subjects = 2;
+  // Planning horizon.
+  string time_horizon = 3;
+  // Academic goals in prose.
+  repeated string academic_goals = 4;
+  // Standards jurisdiction, for example `tennessee`.
+  string standards_jurisdiction = 5;
+  // Available instructional minutes per week.
+  int32 available_minutes_per_week = 6;
+  // Resource ids the author already intends to use.
+  repeated string resource_ids = 7;
+  // Desired project names or ids.
+  repeated string desired_projects = 8;
+  // Testing requirements such as TCAP.
+  repeated string testing_requirements = 9;
+  // Educational philosophy and non-negotiables.
+  string philosophy = 10;
+}
+
+// NodeKind classifies a plan-graph node.
+enum NodeKind {
+  NODE_KIND_UNSPECIFIED = 0;
+  NODE_KIND_OBJECTIVE = 1;
+  NODE_KIND_OUTCOME = 2;
+  NODE_KIND_LEARNING_ARC = 3;
+  NODE_KIND_UNIT = 4;
+  NODE_KIND_PROJECT = 5;
+  NODE_KIND_LESSON_SLOT = 6;
+  NODE_KIND_EVIDENCE_REQUIREMENT = 7;
+  NODE_KIND_ASSESSMENT_PLAN = 8;
+  NODE_KIND_SCHEDULING_POLICY = 9;
+}
+
+// EdgeKind classifies a directed plan-graph edge.
+enum EdgeKind {
+  EDGE_KIND_UNSPECIFIED = 0;
+  EDGE_KIND_PARENT_CHILD = 1;
+  EDGE_KIND_PREREQUISITE = 2;
+  EDGE_KIND_ADDRESSES_STANDARD = 3;
+  EDGE_KIND_USES_RESOURCE = 4;
+  EDGE_KIND_PRODUCES_EVIDENCE = 5;
+  EDGE_KIND_SEQUENCE = 6;
+}
+
+// PlanNode is one vertex in a revision's graph.
+message PlanNode {
+  // Node id.
+  string id = 1;
+  // Owning revision.
+  string revision_id = 2;
+  // Node kind.
+  NodeKind kind = 3;
+  // Display title.
+  string title = 4;
+  // Body or description.
+  string body = 5;
+  // Referenced standard codes when kind is outcome or mapping-bearing.
+  repeated string standard_codes = 6;
+  // Estimated effort in minutes, when applicable.
+  int32 estimated_minutes = 7;
+  // Stable sort key among siblings.
+  int32 position = 8;
+  // Kind-specific attributes (essential questions, accommodations, mastery criteria).
+  map<string, string> attributes = 9;
+}
+
+// PlanEdge is one directed edge in a revision's graph.
+message PlanEdge {
+  // Edge id.
+  string id = 1;
+  // Owning revision.
+  string revision_id = 2;
+  // Edge kind.
+  EdgeKind kind = 3;
+  // Source node.
+  string from_node_id = 4;
+  // Target node.
+  string to_node_id = 5;
+  // Optional human note.
+  string note = 6;
+}
+
+// PlanGraph is the full revision graph snapshot used by Primer and validation.
+message PlanGraph {
+  // Owning revision.
+  string revision_id = 1;
+  // Nodes.
+  repeated PlanNode nodes = 2;
+  // Edges.
+  repeated PlanEdge edges = 3;
+  // Graph etag; must match the revision etag for draft writes.
+  string etag = 4;
+}
+
+// ValidationSeverity ranks a finding.
+enum ValidationSeverity {
+  VALIDATION_SEVERITY_UNSPECIFIED = 0;
+  VALIDATION_SEVERITY_INFO = 1;
+  VALIDATION_SEVERITY_WARNING = 2;
+  VALIDATION_SEVERITY_ERROR = 3;
+}
+
+// ValidationRule identifies a deterministic invariant.
+enum ValidationRule {
+  VALIDATION_RULE_UNSPECIFIED = 0;
+  VALIDATION_RULE_STANDARD_EXISTS = 1;
+  VALIDATION_RULE_PREREQUISITE_ACYCLIC = 2;
+  VALIDATION_RULE_OUTCOME_HAS_EVIDENCE = 3;
+  VALIDATION_RULE_ITEM_TRACES_TO_NODE = 4;
+  VALIDATION_RULE_REVISION_IMMUTABLE = 5;
+  VALIDATION_RULE_LOCKED_CONTENT_PRESERVED = 6;
+  VALIDATION_RULE_MATERIALIZATION_SNAPSHOT_COMPLETE = 7;
+  VALIDATION_RULE_ASSESSMENT_HAS_KEY_OR_RUBRIC = 8;
+  VALIDATION_RULE_COVERAGE_GAP = 9;
+  VALIDATION_RULE_WORKLOAD_OVERLOAD = 10;
+  VALIDATION_RULE_UNASSESSED_OUTCOME = 11;
+}
+
+// ValidationFinding is one deterministic check result.
+message ValidationFinding {
+  // Rule that fired.
+  ValidationRule rule = 1;
+  // Severity.
+  ValidationSeverity severity = 2;
+  // Human explanation.
+  string message = 3;
+  // Related node ids.
+  repeated string node_ids = 4;
+  // Related standard codes.
+  repeated string standard_codes = 5;
+}
+
+// ValidationReport is produced by the validation engine against a revision or materialization.
+message ValidationReport {
+  // Report id.
+  string id = 1;
+  // Subject revision.
+  string revision_id = 2;
+  // Optional materialization this report evaluated.
+  string materialization_id = 3;
+  // Findings.
+  repeated ValidationFinding findings = 4;
+  // True when no ERROR findings are present.
+  bool passed = 5;
+  // When the report was produced.
+  google.protobuf.Timestamp created_at = 6;
+}
