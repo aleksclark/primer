@@ -145,7 +145,7 @@ export const sections: SectionManifestEntry[] = [
     navLabel: "Contact",
     headline: "Every learner deserves instruction that notices the mistake, waits for the correction, and remembers what comes next.",
     body: "Primer makes that standard operational. Discuss the seed round.",
-    cta: { label: "Discuss the seed round", href: "mailto:aleks@primer.local" },
+    cta: { label: "Discuss the seed round", href: "mailto:aleks@primerlms.com" },
     status: "LIVE",
     artifactRequirement: "Contact path only",
     citationIds: [],
