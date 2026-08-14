@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Deterministic double-generate for C3 qualification (E3-07).
+# Production-intended path: `buf generate` using the committed contracts/buf.gen.yaml
+# remote plugin pins (protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.5.1).
 # Outputs only under build-only / gitignored paths.
 set -euo pipefail
 
@@ -11,18 +13,26 @@ EVIDENCE="$SPIKES_ROOT/evidence"
 PROTO_OUT="$OUT_ROOT/proto-gen"
 TS_OUT="$OUT_ROOT/ts-gen"
 OPENAPI="$CONTRACTS/openapi/v1/curriculum-studio.yaml"
+BUF_GEN_YAML="$CONTRACTS/buf.gen.yaml"
+
+# Exact pins from committed buf.gen.yaml (must match generated headers).
+EXPECTED_PGO_VER="v1.36.11"
+EXPECTED_PGGRPC_VER="v1.5.1"
+EXPECTED_BUF_MAJOR_MINOR="1.72"
+EXPECTED_OPENAPI_TS="7.13.0"
+EXPECTED_TSC="5.9.2"
 
 rm -rf "$OUT_ROOT"
 mkdir -p "$PROTO_OUT" "$TS_OUT" "$EVIDENCE"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-command -v protoc >/dev/null || fail "protoc required"
-command -v protoc-gen-go >/dev/null || fail "protoc-gen-go required"
-command -v protoc-gen-go-grpc >/dev/null || fail "protoc-gen-go-grpc required"
+command -v buf >/dev/null || fail "buf required (pinned path uses buf generate)"
 command -v python3 >/dev/null || fail "python3 required"
 command -v npx >/dev/null || fail "npx required"
 command -v go >/dev/null || fail "go required"
+[[ -f "$BUF_GEN_YAML" ]] || fail "missing committed buf.gen.yaml: $BUF_GEN_YAML"
+[[ -f "$CONTRACTS/buf.yaml" ]] || fail "missing committed buf.yaml"
 
 digest_tree() {
   local dir="$1"
@@ -50,29 +60,104 @@ normalize_gen_go() {
   rm -f "$dest/go.mod" "$dest/go.sum"
 }
 
+# Read remote plugin tags from committed buf.gen.yaml and require exact pins.
+assert_buf_gen_pins() {
+  local pgo pggrpc
+  pgo="$(awk -F: '/protocolbuffers\/go:/{print $NF; exit}' "$BUF_GEN_YAML" | tr -d '[:space:]')"
+  pggrpc="$(awk -F: '/grpc\/go:/{print $NF; exit}' "$BUF_GEN_YAML" | tr -d '[:space:]')"
+  [[ "$pgo" == "$EXPECTED_PGO_VER" ]] || \
+    fail "buf.gen.yaml protoc-gen-go pin mismatch: got '$pgo' want $EXPECTED_PGO_VER"
+  [[ "$pggrpc" == "$EXPECTED_PGGRPC_VER" ]] || \
+    fail "buf.gen.yaml protoc-gen-go-grpc pin mismatch: got '$pggrpc' want $EXPECTED_PGGRPC_VER"
+  if ! grep -Eq 'remote:[[:space:]]*buf\.build/protocolbuffers/go:'"$EXPECTED_PGO_VER" "$BUF_GEN_YAML"; then
+    fail "buf.gen.yaml missing remote protocolbuffers/go:$EXPECTED_PGO_VER"
+  fi
+  if ! grep -Eq 'remote:[[:space:]]*buf\.build/grpc/go:'"$EXPECTED_PGGRPC_VER" "$BUF_GEN_YAML"; then
+    fail "buf.gen.yaml missing remote grpc/go:$EXPECTED_PGGRPC_VER"
+  fi
+}
+
+assert_buf_cli_pin() {
+  local ver
+  ver="$(buf --version 2>&1 | tr -s '[:space:]' ' ' | sed 's/[[:space:]]*$//')"
+  # Accept 1.72.x only (workspace pin documented in buf.gen.yaml).
+  if [[ ! "$ver" =~ ^${EXPECTED_BUF_MAJOR_MINOR}\.[0-9]+$ ]]; then
+    fail "buf CLI version '$ver' not in ${EXPECTED_BUF_MAJOR_MINOR}.x (required for qualified path)"
+  fi
+  printf '%s' "$ver"
+}
+
+# Assert generated headers match exact plugin pins (fail closed on drift).
+assert_generated_plugin_headers() {
+  local dest="$1"
+  local f pgo_hdr grpc_hdr
+  local count_go=0 count_grpc=0
+
+  shopt -s nullglob
+  for f in "$dest"/*.pb.go; do
+    [[ "$f" == *_grpc.pb.go ]] && continue
+    count_go=$((count_go + 1))
+    pgo_hdr="$(awk '/protoc-gen-go v/{print; exit}' "$f" | sed -E 's/.*protoc-gen-go[[:space:]]+//')"
+    pgo_hdr="$(printf '%s' "$pgo_hdr" | tr -d '[:space:]')"
+    [[ "$pgo_hdr" == "$EXPECTED_PGO_VER" ]] || \
+      fail "generated header pin mismatch in $(basename "$f"): protoc-gen-go '$pgo_hdr' want $EXPECTED_PGO_VER"
+  done
+  for f in "$dest"/*_grpc.pb.go; do
+    count_grpc=$((count_grpc + 1))
+    grpc_hdr="$(awk '/protoc-gen-go-grpc v/{print; exit}' "$f" | sed -E 's/.*protoc-gen-go-grpc[[:space:]]+//')"
+    grpc_hdr="$(printf '%s' "$grpc_hdr" | tr -d '[:space:]')"
+    [[ "$grpc_hdr" == "$EXPECTED_PGGRPC_VER" ]] || \
+      fail "generated header pin mismatch in $(basename "$f"): protoc-gen-go-grpc '$grpc_hdr' want $EXPECTED_PGGRPC_VER"
+  done
+  shopt -u nullglob
+
+  ((count_go > 0)) || fail "no *.pb.go produced by buf generate"
+  ((count_grpc > 0)) || fail "no *_grpc.pb.go produced by buf generate"
+}
+
+# Production-intended path: isolated temp copy + `buf generate` with committed
+# buf.gen.yaml remote pins. Never call host protoc/protoc-gen-go directly.
 generate_proto_once() {
   local dest="$1"
   rm -rf "$dest"
   mkdir -p "$dest"
-  protoc \
-    -I "$CONTRACTS/proto" \
-    -I /usr/include \
-    --go_out="$dest" --go_opt=paths=source_relative \
-    --go-grpc_out="$dest" --go-grpc_opt=paths=source_relative \
-    "$CONTRACTS/proto/curriculumstudio/v1/common.proto" \
-    "$CONTRACTS/proto/curriculumstudio/v1/plan.proto" \
-    "$CONTRACTS/proto/curriculumstudio/v1/catalog.proto" \
-    "$CONTRACTS/proto/curriculumstudio/v1/materialization.proto" \
-    "$CONTRACTS/proto/curriculumstudio/v1/events.proto" \
-    "$CONTRACTS/proto/curriculumstudio/v1/integration.proto"
+
+  local work
+  work="$(mktemp -d "${TMPDIR:-/tmp}/c3-buf-gen.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf -- '$work'" RETURN
+
+  mkdir -p "$work"
+  cp "$CONTRACTS/buf.yaml" "$work/buf.yaml"
+  cp "$CONTRACTS/buf.gen.yaml" "$work/buf.gen.yaml"
+  cp -a "$CONTRACTS/proto" "$work/proto"
+
+  # Refuse accidental host-plugin local override in the temp copy.
+  if grep -Eq '^[[:space:]]*-[[:space:]]*local:' "$work/buf.gen.yaml"; then
+    fail "buf.gen.yaml must use remote pins for C3 qualification (found local: plugin)"
+  fi
+
+  (
+    cd "$work"
+    # Network/plugin failure must be STOP — do not fall back to host protoc.
+    if ! buf generate; then
+      fail "buf generate failed (remote plugin/network/config). C3 cannot PROCEED."
+    fi
+  )
+
+  [[ -d "$work/gen/go" ]] || fail "buf generate produced no gen/go output"
+  cp -a "$work/gen/go/." "$dest/"
   normalize_gen_go "$dest"
+  assert_generated_plugin_headers "$dest"
+  rm -rf -- "$work"
+  trap - RETURN
 }
 
 generate_ts_once() {
   local dest="$1"
   rm -rf "$dest"
   mkdir -p "$dest"
-  npx --yes openapi-typescript@7.13.0 "$OPENAPI" -o "$dest/schema.d.ts"
+  npx --yes "openapi-typescript@${EXPECTED_OPENAPI_TS}" "$OPENAPI" -o "$dest/schema.d.ts"
   cat >"$dest/package.json" <<'JSON'
 {
   "name": "curriculum-studio-spike-ts",
@@ -119,7 +204,13 @@ TS
 JSON
 }
 
-echo "== C3 generate pass 1 =="
+assert_buf_gen_pins
+BUF_VER="$(assert_buf_cli_pin)"
+GENERATION_PATH="buf generate (isolated temp copy of contracts/; remote plugins from committed buf.gen.yaml: protocolbuffers/go:${EXPECTED_PGO_VER}, grpc/go:${EXPECTED_PGGRPC_VER})"
+
+echo "== C3 generate pass 1 (pinned buf path) =="
+echo "generation_path=$GENERATION_PATH"
+echo "buf_cli=$BUF_VER"
 generate_proto_once "$PROTO_OUT/run1"
 generate_ts_once "$TS_OUT/run1"
 D1_PROTO="$(digest_tree "$PROTO_OUT/run1")"
@@ -127,7 +218,7 @@ D1_TS="$(digest_tree "$TS_OUT/run1")"
 echo "proto_digest_1=$D1_PROTO"
 echo "ts_digest_1=$D1_TS"
 
-echo "== C3 generate pass 2 =="
+echo "== C3 generate pass 2 (pinned buf path) =="
 generate_proto_once "$PROTO_OUT/run2"
 generate_ts_once "$TS_OUT/run2"
 D2_PROTO="$(digest_tree "$PROTO_OUT/run2")"
@@ -147,20 +238,20 @@ cp -a "$PROTO_OUT/run2" "$PROTO_OUT/current"
 rm -rf "$TS_OUT/current"
 cp -a "$TS_OUT/run2" "$TS_OUT/current"
 
-# Collapse internal whitespace and strip trailing spaces so evidence never
-# fails `git diff --check` when tool --version prints a trailing newline.
-tool_version() {
-  "$@" 2>&1 | tr -s '[:space:]' ' ' | sed 's/[[:space:]]*$//'
-}
-
 # No wall-clock fields: ordinary contracts-spikes must leave tracked evidence
 # byte-stable across repeated runs (CI verifies twice with zero git diff).
 {
+  echo "generation_path=buf generate"
+  echo "generation_path_detail=${GENERATION_PATH}"
+  echo "buf_cli=${BUF_VER}"
+  echo "buf_gen_yaml=curriculum-studio/contracts/buf.gen.yaml"
+  echo "plugin_protoc_gen_go=buf.build/protocolbuffers/go:${EXPECTED_PGO_VER}"
+  echo "plugin_protoc_gen_go_grpc=buf.build/grpc/go:${EXPECTED_PGGRPC_VER}"
+  echo "protoc_gen_go=protoc-gen-go ${EXPECTED_PGO_VER}"
+  echo "protoc_gen_go_grpc=protoc-gen-go-grpc ${EXPECTED_PGGRPC_VER}"
   echo "proto_digest=$D1_PROTO"
   echo "ts_digest=$D1_TS"
-  echo "protoc_gen_go=$(tool_version protoc-gen-go --version)"
-  echo "protoc_gen_go_grpc=$(tool_version protoc-gen-go-grpc --version)"
-  echo "openapi_typescript=7.13.0"
+  echo "openapi_typescript=${EXPECTED_OPENAPI_TS}"
 } | tee "$EVIDENCE/generate_digests.txt"
 
 echo "== compile generated Go (temp module spike.local/gen) =="
@@ -192,7 +283,7 @@ echo "== strict TS check =="
 set +e
 (
   cd "$TS_OUT/current"
-  npx --yes -p typescript@5.9.2 tsc -p tsconfig.json
+  npx --yes -p "typescript@${EXPECTED_TSC}" tsc -p tsconfig.json
 )
 tsc_ec=$?
 set -e
@@ -205,4 +296,4 @@ else
   exit 1
 fi
 
-echo "OK: double-generate deterministic"
+echo "OK: double-generate deterministic via pinned buf generate"

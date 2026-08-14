@@ -28,3 +28,4 @@ spikes/
 - Generated stubs only under `.tmp/` (gitignored)
 - STOP if a required generator cannot represent a shape without hand DTOs
 - Ordinary `make contracts-spikes` regenerates committed `evidence/` + `REPORT.md` **byte-stably** (no wall-clock stamps; fixed semantic fixture timestamps). CI must be able to run the target twice with zero tracked diff.
+- **Qualified generation path:** `buf generate` in an isolated temp copy of `contracts/{buf.yaml,buf.gen.yaml,proto}` using committed remote pins (`buf.build/protocolbuffers/go:v1.36.11`, `buf.build/grpc/go:v1.5.1`). Host `protoc` / host `protoc-gen-go` are **not** used. Digests and PROCEED are invalid if the path or pins differ or remote plugins fail.

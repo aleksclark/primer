@@ -95,6 +95,7 @@ contracts-parity:
 
 contracts-gates: contracts-ownership
 	bash "$(GATES)/check_no_tracked_generated.sh"
+	bash "$(GATES)/check_no_tracked_generated.sh" --self-test
 
 # C3 qualification spikes
 contracts-spikes:

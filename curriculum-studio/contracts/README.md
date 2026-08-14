@@ -146,11 +146,18 @@ npx --yes @stoplight/spectral-cli@6.15.0 lint \
   --ruleset lint/.spectral.yaml
 ```
 
-Generate language stubs locally (requires network for remote plugins):
+Generate language stubs locally via the **production-intended** path (requires
+network for remote plugins pinned in `buf.gen.yaml`):
 
 ```bash
+# from curriculum-studio/contracts/
 buf generate
 ```
+
+C3 qualification (`make contracts-spikes`) runs the same `buf generate` config
+in an isolated temp copy and records digests only from that path. It does **not**
+invoke host `protoc` / host `protoc-gen-go`. Pin drift or remote-plugin failure
+is STOP.
 
 ## Primer integration
 

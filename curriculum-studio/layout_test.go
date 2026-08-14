@@ -111,6 +111,8 @@ func TestGeneratedPathsGitignored(t *testing.T) {
 		"curriculum-studio/contracts/.tmp/x.binpb",
 		"curriculum-studio/clients/ts-rest/generated/x.ts",
 		"curriculum-studio/openapi.emitted.yaml",
+		"curriculum-studio/contracts/openapi/v1/openapi.emitted.yaml",
+		"curriculum-studio/internal/api/openapi.emitted.yaml",
 	}
 	for _, s := range samples {
 		cmd := exec.Command("git", "check-ignore", "-q", s)
@@ -118,5 +120,20 @@ func TestGeneratedPathsGitignored(t *testing.T) {
 		if err := cmd.Run(); err != nil {
 			t.Errorf("expected gitignore for %s (exit=%v)", s, err)
 		}
+	}
+}
+
+func TestNoTrackedGeneratedSelfTest(t *testing.T) {
+	root := studioRoot(t)
+	repoRoot := filepath.Dir(root)
+	script := filepath.Join(root, "tools/contract-gates/check_no_tracked_generated.sh")
+	cmd := exec.Command("bash", script, "--self-test")
+	cmd.Dir = repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("check_no_tracked_generated --self-test failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "OK: planted generated-path self-test") {
+		t.Fatalf("unexpected self-test output:\n%s", out)
 	}
 }
