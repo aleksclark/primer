@@ -13,7 +13,7 @@ CONTRACTS := $(STUDIO_ROOT)/contracts
 GATES := $(STUDIO_ROOT)/tools/contract-gates
 
 .PHONY: help \
-	test cover \
+	build test cover test-race e2e \
 	migrate migrate-up migrate-down migrate-status freeze-check freeze-write db-test \
 	contracts-validate \
 	contracts-ownership \
@@ -26,7 +26,10 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 
 help:
 	@echo "Curriculum Studio module targets:"
+	@echo "  build                   go build cmd/studio-server -> ../bin/studio-server"
 	@echo "  test / cover            Go unit tests and internal coverage"
+	@echo "  test-race               go test -race ./..."
+	@echo "  e2e                     process E2E (health/ready/SIGTERM/config)"
 	@echo "  migrate / migrate-*     Studio goose CLI (D1)"
 	@echo "  freeze-check/write      migration freeze inventory"
 	@echo "  db-test                 Python schema/freeze suite"
@@ -39,10 +42,22 @@ help:
 	@echo "  contracts-gates         policy gates incl. no-tracked-gen (C1/C10)"
 	@echo "  contracts-spikes        hard-type qualification spikes (C3)"
 
+# --- Service shell (S1) ---
+
+build:
+	mkdir -p "$(STUDIO_ROOT)/../bin"
+	go build -o "$(STUDIO_ROOT)/../bin/studio-server" ./cmd/studio-server
+
 # --- DB / persistence (D1/D2) ---
 
 test:
 	go test ./... -count=1
+
+test-race:
+	go test ./... -race -count=1
+
+e2e:
+	go test ./internal/testutil/e2e/... -count=1 -timeout 10m
 
 cover:
 	go test ./internal/... -count=1 -coverprofile=/tmp/studio-cover.out -coverpkg=./internal/...
