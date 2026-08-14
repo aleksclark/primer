@@ -89,18 +89,22 @@ same way env-live does. There is no package-level `MigrateDown` bypass.
 | Variable | Purpose |
 | --- | --- |
 | `STUDIO_DATABASE_URL` | **Only** DSN Studio migrate/config reads |
-| `DATABASE_URL` | LMS — ignored; never a fallback |
-| Forbidden DB names | `primer`, `primer_test`, `primer_tv`, `primer_tv_test`, `tv`, `tv_test` |
+| `STUDIO_TEST_DATABASE_URL` | **Only** external override for Go integration tests |
+| `DATABASE_URL` / bare `TEST_DATABASE_URL` | LMS — ignored; never a fallback |
+| Forbidden DB names | `primer`, `primer_test`, `primer_tv`, `primer_tv_test`, `tv`, `tv_test`, `primer_identity`, `primer_identity_test` |
 
 Suggested database name: `curriculum_studio` (tests: `curriculum_studio_test`).
+Library `Connect` / `Migrate` / `Up` / `Status` / `DownWithPolicy` all enforce the
+same pgx-parsed forbidden-name check as config/CLI (no bypass).
 
 ## Commands
 
 ```bash
-export STUDIO_DATABASE_URL='postgres://studio:studio@127.0.0.1:5432/curriculum_studio?sslmode=disable'
+export STUDIO_DATABASE_URL='postgres://studio:***@127.0.0.1:5432/curriculum_studio?sslmode=disable'
 
-cd curriculum-studio
-go run ./cmd/migrate up
+# Root (F0-owned) or module-local:
+make migrate-studio
+# or: cd curriculum-studio && go run ./cmd/migrate up
 go run ./cmd/migrate status
 go run ./cmd/migrate down   # non-live only
 

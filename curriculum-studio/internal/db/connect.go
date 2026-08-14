@@ -10,15 +10,20 @@ import (
 )
 
 // Connect opens a pgx pool to the given Studio database URL and pings it.
+// Forbidden LMS/TV/Identity database names are always refused.
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	return ConnectWithConfig(ctx, Config{DatabaseURL: databaseURL, GuardForbiddenDBNames: false})
+	return ConnectWithConfig(ctx, Config{DatabaseURL: databaseURL, GuardForbiddenDBNames: true})
 }
 
 // ConnectWithConfig opens a pool using cfg.DatabaseURL and optional MaxConns.
-// DSN isolation guards are the caller's responsibility (migrate CLI uses Validate).
+// DSN isolation is always enforced so library callers cannot bypass CLI/config
+// Validate by clearing GuardForbiddenDBNames.
 func ConnectWithConfig(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
 		return nil, fmt.Errorf("database url is required")
+	}
+	if err := ValidateDatabaseURL(cfg.DatabaseURL); err != nil {
+		return nil, err
 	}
 	pcfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {

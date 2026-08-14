@@ -2,7 +2,6 @@ package db
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,17 +14,6 @@ const VersionTable = "studio_goose_db_version"
 
 // SchemaName is the PostgreSQL schema that owns all Studio domain tables.
 const SchemaName = "curriculum_studio"
-
-// ForbiddenDBNames are database names Studio migrate refuses by default so an
-// operator cannot accidentally apply Studio migrations onto LMS/TV DBs.
-var ForbiddenDBNames = []string{
-	"primer",
-	"primer_test",
-	"primer_tv",
-	"primer_tv_test",
-	"tv",
-	"tv_test",
-}
 
 // Config is the minimal Studio database configuration used by migrate and the
 // connection pool (Phase 2).
@@ -41,7 +29,7 @@ type Config struct {
 	// Documented in MIGRATION_POLICY.md; never set by default.
 	BreakGlassDown bool
 	// GuardForbiddenDBNames enables refusal when the DSN database name is in
-	// ForbiddenDBNames (default true for migrate).
+	// ForbiddenDBNames (default true for migrate and library connect paths).
 	GuardForbiddenDBNames bool
 }
 
@@ -51,6 +39,7 @@ type Config struct {
 // Live classification is dual-signal and fail-closed:
 //   - STUDIO_MIGRATIONS_LIVE truthy (TrimSpace+ToLower; 1/true/yes/on), and/or
 //   - STUDIO_MIGRATIONS_LIVE marker beside the migration root (see ResolveLiveMarkerPath).
+//
 // Break-glass down remains a separately named env and does not enable freeze writes.
 func LoadConfig() (Config, error) {
 	cfg := Config{
@@ -124,14 +113,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("STUDIO_DATABASE_URL is required (no fallback to DATABASE_URL)")
 	}
 	if c.GuardForbiddenDBNames {
-		name, err := databaseName(c.DatabaseURL)
-		if err != nil {
-			return fmt.Errorf("parse STUDIO_DATABASE_URL: %w", err)
-		}
-		for _, banned := range ForbiddenDBNames {
-			if strings.EqualFold(name, banned) {
-				return fmt.Errorf("refusing Studio migrate against forbidden database name %q", name)
-			}
+		if err := ValidateDatabaseURL(c.DatabaseURL); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -156,30 +139,4 @@ func Truthy(v string) bool {
 	default:
 		return false
 	}
-}
-
-func databaseName(dsn string) (string, error) {
-	// Accept both URL form and key=value libpq form.
-	if strings.Contains(dsn, "://") {
-		u, err := url.Parse(dsn)
-		if err != nil {
-			return "", err
-		}
-		name := strings.TrimPrefix(u.Path, "/")
-		if i := strings.IndexByte(name, '?'); i >= 0 {
-			name = name[:i]
-		}
-		if name == "" {
-			return "", fmt.Errorf("database name missing in URL path")
-		}
-		return name, nil
-	}
-	// libpq keywords
-	for _, part := range strings.Fields(dsn) {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) == 2 && kv[0] == "dbname" {
-			return kv[1], nil
-		}
-	}
-	return "", fmt.Errorf("could not determine database name from DSN")
 }

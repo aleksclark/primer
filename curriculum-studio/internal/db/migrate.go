@@ -29,12 +29,19 @@ func NewMigrator(fsys fs.FS, table string) *Migrator {
 var Studio = NewMigrator(studiodbschema.MigrationsFS, VersionTable)
 
 // Migrate applies all pending Studio up migrations.
+// Forbidden LMS/TV/Identity database names are always refused.
 func Migrate(ctx context.Context, databaseURL string) error {
+	if err := ValidateDatabaseURL(databaseURL); err != nil {
+		return err
+	}
 	return Studio.Up(ctx, databaseURL)
 }
 
-// Up applies all pending up migrations.
+// Up applies all pending up migrations after DSN isolation checks.
 func (m *Migrator) Up(ctx context.Context, databaseURL string) error {
+	if err := ValidateDatabaseURL(databaseURL); err != nil {
+		return err
+	}
 	return m.with(ctx, databaseURL, func(p *goose.Provider) error {
 		_, err := p.Up(ctx)
 		return err
@@ -42,7 +49,8 @@ func (m *Migrator) Up(ctx context.Context, databaseURL string) error {
 }
 
 // down rolls back a single migration. Unexported so callers cannot bypass
-// DownWithPolicy / Config.AllowDown live guards.
+// DownWithPolicy / Config.AllowDown live guards. Caller must already have
+// validated the DSN (DownWithPolicy does).
 func (m *Migrator) down(ctx context.Context, databaseURL string) error {
 	return m.with(ctx, databaseURL, func(p *goose.Provider) error {
 		_, err := p.Down(ctx)
@@ -52,6 +60,9 @@ func (m *Migrator) down(ctx context.Context, databaseURL string) error {
 
 // Status returns applied migration version rows (goose provider status).
 func (m *Migrator) Status(ctx context.Context, databaseURL string) ([]*goose.MigrationStatus, error) {
+	if err := ValidateDatabaseURL(databaseURL); err != nil {
+		return nil, err
+	}
 	var out []*goose.MigrationStatus
 	err := m.with(ctx, databaseURL, func(p *goose.Provider) error {
 		st, err := p.Status(ctx)
@@ -66,6 +77,9 @@ func (m *Migrator) Status(ctx context.Context, databaseURL string) ([]*goose.Mig
 
 // CurrentVersion returns the highest applied goose version, or 0 if none.
 func (m *Migrator) CurrentVersion(ctx context.Context, databaseURL string) (int64, error) {
+	if err := ValidateDatabaseURL(databaseURL); err != nil {
+		return 0, err
+	}
 	var ver int64
 	err := m.with(ctx, databaseURL, func(p *goose.Provider) error {
 		v, err := p.GetDBVersion(ctx)
@@ -80,7 +94,11 @@ func (m *Migrator) CurrentVersion(ctx context.Context, databaseURL string) (int6
 
 // DownWithPolicy applies one down step only when cfg.AllowDown() is true.
 // This is the sole exported destructive down entrypoint for Studio.
+// Forbidden database names are refused before any goose work.
 func (m *Migrator) DownWithPolicy(ctx context.Context, databaseURL string, cfg Config) error {
+	if err := ValidateDatabaseURL(databaseURL); err != nil {
+		return err
+	}
 	if !cfg.AllowDown() {
 		return fmt.Errorf("refusing migrate down: STUDIO_MIGRATIONS_LIVE is set (break-glass: STUDIO_MIGRATE_BREAK_GLASS_DOWN=true)")
 	}

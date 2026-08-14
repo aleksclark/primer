@@ -46,7 +46,9 @@ func studioMigrationsDir(t *testing.T) string {
 
 func startPostgres(t *testing.T) string {
 	t.Helper()
-	if u := os.Getenv("TEST_DATABASE_URL"); u != "" {
+	if u := os.Getenv("STUDIO_TEST_DATABASE_URL"); u != "" {
+		// Fail closed: only accept Studio-safe external DSNs.
+		require.NoError(t, studiodb.ValidateDatabaseURL(u))
 		return u
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

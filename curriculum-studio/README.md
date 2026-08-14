@@ -96,7 +96,8 @@ Ownership split and auth presentation are documented in
 | `make studio-build` | deferred until `cmd/studio-server` exists (S1) |
 | `make studio-cover` | deferred until internal packages exist (≥85% when active) |
 | `make studio-openapi` / `studio-client` / `studio-web` / `studio-e2e*` | deferred |
-| `make dev-db-studio` / `migrate-studio` | deferred (no hollow compose/DB claim) |
+| `make dev-db-studio` | deferred — no coherent Compose surface (refuses hollow compose) |
+| `make migrate-studio` | real Studio migrator (`STUDIO_DATABASE_URL` required; fail-closed) |
 
 Foundation check: `make foundation-check`.
 
@@ -110,7 +111,7 @@ Foundation check: `make foundation-check`.
 
 Postgres is **mandatory** for durable Studio state. There is no in-memory production
 repository path. Integration tests use real PostgreSQL via testcontainers or
-`TEST_DATABASE_URL`.
+`STUDIO_TEST_DATABASE_URL` only (never ambient bare `TEST_DATABASE_URL` / LMS DSN).
 
 ```bash
 cd curriculum-studio
@@ -128,7 +129,9 @@ make studio-test
 # Disposable Postgres via Docker (preferred)
 cd curriculum-studio/db && python3 -m pytest tests -q
 
-# Or point at a throwaway local database (never a shared LMS/TV database)
+# Or point at a throwaway local database (never a shared LMS/TV/Identity database)
+STUDIO_TEST_DATABASE_URL='postgres://primer:***@127.0.0.1:5432/curriculum_studio_test' \
+  go test ./internal/... -count=1
 TEST_DATABASE_URL='postgres://primer:***@127.0.0.1:5432/curriculum_studio_test' \
   python3 -m pytest tests -q
 
