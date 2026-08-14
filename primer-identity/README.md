@@ -8,7 +8,7 @@ This tree is a **separate deployable** with its own PostgreSQL database
 (`primer_identity`, goose table `identity_goose_db_version`). It does not share
 a database with the LMS (`server/`), TV, or Curriculum Studio.
 
-## Layout (I1)
+## Layout (I1 + I2)
 
 ```text
 primer-identity/
@@ -18,13 +18,31 @@ primer-identity/
   cmd/identity-migrate/    # migrate-only entry (module-local)
   internal/config/         # IDENTITY_* envconfig, fail-fast validation
   internal/db/             # pgx pool + embedded goose migrations
-  internal/db/migrations/  # foundation only (no accounts/OAuth yet)
+  internal/db/migrations/  # foundation + accounts/external_identities/password
+  internal/db/SCHEMA.md    # schema notes
+  internal/domain/         # Account, ExternalIdentity, bounds, typed errors
+  internal/password/       # Argon2id PHC KDF (never stores plaintext)
+  internal/repo/           # Create/Get/Lock account, external identities, password
   internal/api/            # chi+Huma /healthz /readyz /metrics + request IDs
   internal/app/            # process bootstrap
   internal/logging/        # structured JSON logs with secret redaction
   internal/testutil/       # Postgres testcontainer (primer_identity_test)
+  internal/testutil/factory/ # account/identity test builders
   internal/testutil/e2e/   # process-level fail-fast + SIGTERM proofs
 ```
+
+## Accounts and identities (I2)
+
+- Stable JWT `sub` = `accounts.id` (UUID).
+- External identities are unique on `(provider, provider_subject)` only.
+- `primary_email` is **not** unique and is **never** used to auto-merge or
+  find-or-create accounts. `ListAccountsByEmail` is non-authoritative and may
+  return multiple rows.
+- Password credentials use Argon2id PHC (`internal/password`); plaintext is
+  never stored or logged. Disabled credentials fail closed.
+- **Students are out of scope for Identity v1** — no `students` table and no
+  `student` provider. LMS owns student records; Identity principals are
+  educators/operators/service accounts only in later waves.
 
 ## Configuration
 

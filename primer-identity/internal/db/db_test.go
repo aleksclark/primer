@@ -3,9 +3,13 @@ package db_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/aleksclark/primer/identity/internal/db"
 	"github.com/aleksclark/primer/identity/internal/testutil"
@@ -112,10 +116,28 @@ func TestConnectRejectsBadURL(t *testing.T) {
 }
 
 func TestMigrateDownAgainstLiveDB(t *testing.T) {
-	// Not parallel: mutates shared harness schema; re-up at end.
-	url := testutil.DatabaseURL(t)
-	ctx := context.Background()
+	// Dedicated container: shared harness must stay fully migrated for parallel tests.
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
+
+	container, err := tcpostgres.Run(ctx,
+		"postgres:17-alpine",
+		tcpostgres.WithDatabase("primer_identity_test"),
+		tcpostgres.WithUsername("primer"),
+		tcpostgres.WithPassword("primer"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+
+	url, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+
 	require.NoError(t, db.Migrate(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
-	require.NoError(t, db.Migrate(ctx, url), "re-apply after down for other tests")
+	require.NoError(t, db.Migrate(ctx, url), "re-apply after down")
 }
