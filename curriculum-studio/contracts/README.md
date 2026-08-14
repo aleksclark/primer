@@ -10,6 +10,9 @@ these contracts; it does not share a database with Studio.
 
 ## Contract ownership
 
+Implementation ownership, package map, generated-output policy, and
+cross-plan interfaces: [`OWNERS.md`](./OWNERS.md).
+
 One non-duplicative rule:
 
 | Surface | Source of truth | Audience |
@@ -94,6 +97,7 @@ clients derived from these files.
 ```text
 curriculum-studio/contracts/
   README.md
+  OWNERS.md                      # ownership freeze (C1)
   buf.yaml
   buf.gen.yaml
   .gitignore
@@ -102,6 +106,10 @@ curriculum-studio/contracts/
   lint/.spectral.yaml
   scripts/validate.sh
 ```
+
+Sibling package map (server edge, clients, gates): see `OWNERS.md` and
+`../Makefile` targets `contracts-validate`, `contracts-ownership`,
+`contracts-parity`, `contracts-gates`.
 
 ## Validate offline
 

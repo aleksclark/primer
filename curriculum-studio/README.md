@@ -22,17 +22,31 @@ integration records.
 ```text
 curriculum-studio/
   README.md
-  go.mod              # module root (F0)
-  doc.go              # compile anchor (F0)
-  Makefile            # module-local migrate / freeze / test targets
-  cmd/migrate/        # Studio-owned goose CLI (D1)
-  internal/db/        # migrator, config, freeze gate, Connect (D1)
-  db/                 # standalone PostgreSQL schema + tests + embed
-  contracts/          # OpenAPI (authoring) + protobuf (integration)
+  go.mod                 # module root (F0)
+  doc.go                 # compile anchor (F0)
+  Makefile               # module-local migrate / freeze / test + contract targets
+  cmd/migrate/           # Studio-owned goose CLI (D1)
+  cmd/openapi-gen/       # offline OpenAPI emitter (C6)
+  cmd/studio-api/        # process binary hook (platform S1 owns fullness)
+  internal/db/           # migrator, config, freeze gate, Connect (D1)
+  internal/repo/         # Querier, WithTx, Factory (D2)
+  internal/testutil/     # testcontainers harness + savepoints (D2)
+  internal/api/          # Huma authoring edge
+  internal/grpcapi/      # gRPC integration edge
+  internal/boundary/     # wire helpers — NOT a DTO catalog
+  internal/authn/        # JWT/JWKS adapter interface
+  db/                    # standalone PostgreSQL schema + tests + embed
+  contracts/             # OpenAPI (authoring) + protobuf (integration)
+  clients/ts-rest/       # TS authoring client package
+  clients/go-rest/       # Go authoring client package
+  clients/go-grpc/       # Go gRPC client package
+  tools/contract-gates/  # ownership, parity, spikes, policy gates
 ```
 
-Service shell (`cmd/studio-server`) lands in platform wave **S1**. Persistence
-repositories and the testcontainers harness land in database wave **D2**.
+Ownership freeze: [`contracts/OWNERS.md`](contracts/OWNERS.md).
+Service shell fullness lands in platform wave **S1**. Persistence repositories
+and the testcontainers harness land in database wave **D2**. Contracts C1
+reserves package boundaries and generation policy.
 
 ## Database
 
@@ -52,7 +66,7 @@ the `curriculum_studio` schema only.
 **DSN:** `STUDIO_DATABASE_URL` only — never falls back to LMS `DATABASE_URL`.
 
 ```bash
-export STUDIO_DATABASE_URL='postgres://studio:studio@127.0.0.1:5432/curriculum_studio?sslmode=disable'
+export STUDIO_DATABASE_URL='postgres://studio:***@127.0.0.1:5432/curriculum_studio?sslmode=disable'
 cd curriculum-studio
 go run ./cmd/migrate up
 go run ./cmd/migrate -check-freeze
@@ -105,7 +119,6 @@ go test ./internal/repo/... -race -count=1
 ```
 
 ## Validate
-
 
 ```bash
 # Module foundation

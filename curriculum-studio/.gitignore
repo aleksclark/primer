@@ -1,0 +1,11 @@
+# Build-only outputs for Curriculum Studio (never commit).
+# Module-local companion to contracts/.gitignore (REQ-OWN-4 / D6).
+
+contracts/gen/
+contracts/.tmp/
+clients/**/generated/
+**/openapi.emitted.yaml
+*.pb.go
+*_grpc.pb.go
+*.desc.binpb
+*.pb.bin
