@@ -16,11 +16,16 @@ bash "$SPIKES/generate_twice.sh"
 GEN_MOD="$SPIKE_OUT/gen-mod"
 [[ -f "$GEN_MOD/go.mod" ]] || fail "missing gen module $GEN_MOD"
 
-echo "==== C3 Go shape harness ===="
+echo "==== C3 Go shape harness (nested module spike.local/harness) ===="
+# Source tree is a nested module (go/harness/go.mod) so production
+# curriculum-studio never resolves spike.local/gen. Runtime still copies into
+# SPIKE_OUT and pins replace → gen-mod for a real local compile/test.
 HARNESS_MOD="$SPIKE_OUT/harness-mod"
 rm -rf "$HARNESS_MOD"
 mkdir -p "$HARNESS_MOD"
 cp -a "$SPIKES/go/harness/." "$HARNESS_MOD/"
+# Drop any leftover go.sum from a prior manual tidy of the source tree.
+rm -f "$HARNESS_MOD/go.sum"
 
 cat >"$HARNESS_MOD/go.mod" <<EOF
 module spike.local/harness

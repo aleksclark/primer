@@ -1,9 +1,9 @@
 # Curriculum Studio module-local targets (root Makefile is F0-owned).
 # Root Makefile / go.work / CI remain F0-owned — do not duplicate root edits here.
 #
-# Root wiring request: point `make migrate-studio` at:
-#   cd curriculum-studio && $(MAKE) migrate
-# and `make dev-db-studio` at a real curriculum_studio DB once compose exists.
+# Root wiring (F0-owned names):
+#   make migrate-studio  → go run ./cmd/migrate up (STUDIO_DATABASE_URL required)
+#   make dev-db-studio   → deferred (no coherent Compose surface; no hollow compose)
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -97,6 +97,12 @@ contracts-gates: contracts-ownership
 	bash "$(GATES)/check_no_tracked_generated.sh"
 	bash "$(GATES)/check_no_tracked_generated.sh" --self-test
 	bash "$(CONTRACTS)/scripts/bootstrap_local_plugins.sh" --self-test
+	# Nested spike harness must not pollute production module requirements.
+	@echo "==== production module go mod tidy -diff (must be empty) ===="
+	cd "$(STUDIO_ROOT)" && GOWORK=off go mod tidy -diff
+	@test -f "$(GATES)/spikes/go/harness/go.mod" || { echo "FAIL: missing nested harness go.mod" >&2; exit 1; }
+	@grep -q '^module spike.local/harness$$' "$(GATES)/spikes/go/harness/go.mod" \
+		|| { echo "FAIL: harness go.mod must declare module spike.local/harness" >&2; exit 1; }
 
 # C3 qualification spikes
 contracts-spikes:

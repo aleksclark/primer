@@ -15,7 +15,7 @@ make contracts-spikes
 spikes/
   fixtures/           # retained JSON fixtures (conformance seeds)
   evidence/           # last-run digests and shape evidence (committed)
-  go/harness/         # in-process gRPC + codec tests (compiled against gen)
+  go/harness/         # nested module spike.local/harness (isolated from production go.mod)
   generate_twice.sh   # deterministic proto + openapi-typescript generation
   run_spikes.sh       # full gate
   REPORT.md           # PROCEED/STOP per shape
