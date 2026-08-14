@@ -146,18 +146,28 @@ npx --yes @stoplight/spectral-cli@6.15.0 lint \
   --ruleset lint/.spectral.yaml
 ```
 
-Generate language stubs locally via the **production-intended** path (requires
-network for remote plugins pinned in `buf.gen.yaml`):
+Generate language stubs via the **production-intended** pinned **local** plugin
+path (no BSR remote plugins — remote execution hit `resource_exhausted` rate
+limits and is not reproducible):
 
 ```bash
 # from curriculum-studio/contracts/
+./scripts/bootstrap_local_plugins.sh   # installs exact pins into ignored .tmp cache
+# PATH is printed; or:
+eval "$(./scripts/bootstrap_local_plugins.sh | awk -F= '/^plugin_bin_dir=/{print "export PATH=" $2 ":$PATH"}')"
 buf generate
 ```
 
-C3 qualification (`make contracts-spikes`) runs the same `buf generate` config
-in an isolated temp copy and records digests only from that path. It does **not**
-invoke host `protoc` / host `protoc-gen-go`. Pin drift or remote-plugin failure
-is STOP.
+Exact pins (fail closed; no ambient 1.36.5 fallback):
+
+- `protoc-gen-go@v1.36.11` (`google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11`)
+- `protoc-gen-go-grpc@v1.5.1` (`google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1`)
+- Buf CLI `1.72.x`
+
+C3 qualification (`make contracts-spikes`) bootstraps the private bin, runs the
+same committed `buf.gen.yaml` local-plugin config in an isolated temp copy, and
+records digests only from that path. Pin drift, missing plugins, or any remote
+plugin reference is STOP.
 
 ## Primer integration
 

@@ -3,6 +3,7 @@
 
 contracts/gen/
 contracts/.tmp/
+contracts/.tmp/pinned-plugins/
 clients/**/generated/
 **/openapi.emitted.yaml
 tools/contract-gates/spikes/.tmp/

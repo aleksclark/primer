@@ -10,19 +10,26 @@ What actually ran for the digests below:
 
 - **Command:** `buf generate`
 - **Working set:** isolated temp copy of `curriculum-studio/contracts/{buf.yaml,buf.gen.yaml,proto}` (repo tree not mutated)
-- **Config:** `curriculum-studio/contracts/buf.gen.yaml`
-- **Detail:** buf generate (isolated temp copy of contracts/; remote plugins from committed buf.gen.yaml: protocolbuffers/go:v1.36.11, grpc/go:v1.5.1)
-- **Host `protoc` / host `protoc-gen-go`:** **not used** (no raw-protoc fallback)
+- **Config:** `curriculum-studio/contracts/buf.gen.yaml` (local plugins only — no BSR remote plugins)
+- **Detail:** buf generate (isolated temp copy of contracts/; local plugins from private bin: protoc-gen-go@v1.36.11, protoc-gen-go-grpc@v1.5.1; bin=curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin)
+- **Private plugin bin:** `curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin`
+- **protoc-gen-go path:** `curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin/protoc-gen-go`
+- **protoc-gen-go-grpc path:** `curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin/protoc-gen-go-grpc`
+- **Host ambient `protoc-gen-go`:** **not used** (private bin prepended; exact pin verified)
+- **BSR remote plugins:** **not used** (avoids `resource_exhausted` rate limits)
 
-If remote plugins, network, or pin checks fail, this gate is **STOP** (no false PROCEED).
+If local plugin bootstrap, version checks, or `buf generate` fail, this gate is **STOP** (no ambient/remote fallback).
 
 ## Pins
 
 | Tool | Version / pin |
 | --- | --- |
 | Buf CLI (actual) | 1.72.0 |
-| buf.gen.yaml remote | buf.build/protocolbuffers/go:v1.36.11 |
-| buf.gen.yaml remote | buf.build/grpc/go:v1.5.1 |
+| plugin mode | local |
+| buf.gen.yaml local | local:protoc-gen-go@v1.36.11 |
+| buf.gen.yaml local | local:protoc-gen-go-grpc@v1.5.1 |
+| go install module | google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 |
+| go install module | google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1 |
 | protoc-gen-go (from generated headers) | protoc-gen-go v1.36.11 |
 | protoc-gen-go-grpc (from generated headers) | protoc-gen-go-grpc v1.5.1 |
 | openapi-typescript | 7.13.0 |
@@ -67,6 +74,7 @@ See `evidence/go_shapes.txt`.
 - Spike fixtures retained as conformance seeds for later phases.
 - No business materializer was implemented; harnesses only.
 - Generated stubs remain under gitignored `spikes/.tmp/` only.
-- C3 digests and PROCEED are valid **only** for the pinned `buf generate` path above.
+- C3 digests and PROCEED are valid **only** for the pinned local `buf generate` path above.
+- Ordinary second run must not call BSR remote plugins (reproducibility / no rate-limit STOP).
 
 ## Overall: PROCEED

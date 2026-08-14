@@ -10,6 +10,7 @@ Deterministic offline gates for Curriculum Studio contracts.
 | `enum_parity.py` | C2 | Proto / OpenAPI / DB wire-string parity |
 | `enum_mappings.yaml` | C2 | Mapping rules only (not value catalogs) |
 | `spikes/` | C3 | Hard-type qualification fixtures + REPORT |
+| `contracts/scripts/bootstrap_local_plugins.sh` | C3/C4 | Exact local protoc plugin pins (`--self-test` fail-closed) |
 | `requirements.txt` | C1→C11 | REQ-* registry seed |
 
 Run via `curriculum-studio/Makefile` targets (`contracts-validate`,

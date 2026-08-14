@@ -49,13 +49,26 @@ Root `go.work` / root Makefile / CI are owned by delivery wave **F0** only.
 Never commit:
 
 - `curriculum-studio/contracts/gen/**`
-- `curriculum-studio/contracts/.tmp/**`
+- `curriculum-studio/contracts/.tmp/**` (includes pinned local plugin cache)
 - `curriculum-studio/clients/**/generated/**`
 - `curriculum-studio/**/openapi.emitted.yaml`
 - `*.pb.go`, `*_grpc.pb.go`, descriptor binaries
 
 Enforced by contracts `.gitignore`, monorepo ignore notes, and
 `tools/contract-gates/check_no_tracked_generated.sh`.
+
+## Generator path (C3/C4)
+
+Production and C3 qualification use **local** Buf plugins only (not BSR remote):
+
+- Config: `contracts/buf.gen.yaml` (`local: protoc-gen-go`, `local: protoc-gen-go-grpc`)
+- Bootstrap: `contracts/scripts/bootstrap_local_plugins.sh`
+  installs exact Go module pins into ignored `.tmp/pinned-plugins/` and fails
+  closed on missing/mismatched versions (no ambient fallback).
+- Pins: `protoc-gen-go@v1.36.11`, `protoc-gen-go-grpc@v1.5.1`, Buf CLI `1.72.x`.
+
+Remote BSR plugins are non-reproducible under rate limits (`resource_exhausted`)
+and must not re-enter the ordinary generate path.
 
 ## Cross-plan interfaces (REQ-OWN-5)
 

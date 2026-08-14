@@ -1,0 +1,33 @@
+# RED — BSR remote plugin path is not reproducible
+
+## Observation (parent verification, impl/C1-ownership @ 958b4d4)
+
+Ordinary `make contracts-spikes` was run twice against the prior production
+intent (`buf.gen.yaml` remote plugins):
+
+1. First run: `buf generate` with
+   `buf.build/protocolbuffers/go:v1.36.11` and
+   `buf.build/grpc/go:v1.5.1` succeeded and produced stable digests.
+2. Second ordinary run: BSR remote plugin execution failed with
+   `resource_exhausted: too many requests` (rate limit).
+
+Therefore C3 could not claim stable PROCEED under the remote-plugin path:
+ordinary re-verification is non-deterministic and network/rate-limit coupled.
+
+## Decision
+
+Convert production + spike generation to exact **local** Buf plugins with
+module-version pins:
+
+- `protoc-gen-go@v1.36.11`
+- `protoc-gen-go-grpc@v1.5.1`
+
+Bootstrapped into an ignored private bin (no ambient tool fallback; missing or
+mismatched version → STOP). Ordinary second run must not call BSR plugins.
+
+## Mechanical locks
+
+- Committed `contracts/buf.gen.yaml` uses `local:` only (no `remote:`).
+- `generate_twice.sh` refuses `remote:` and requires private-bin PATH pins.
+- GREEN: ≥2 consecutive ordinary `make contracts-spikes` with identical
+  evidence digests and clean tree.

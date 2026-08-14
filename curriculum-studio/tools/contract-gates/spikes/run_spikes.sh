@@ -10,7 +10,7 @@ mkdir -p "$EVIDENCE"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-echo "==== C3 generate_twice (pinned buf generate) ===="
+echo "==== C3 generate_twice (pinned local buf generate) ===="
 bash "$SPIKES/generate_twice.sh"
 
 GEN_MOD="$SPIKE_OUT/gen-mod"
@@ -63,8 +63,14 @@ GEN_PATH="$(require_digest_key generation_path)"
 GEN_DETAIL="$(require_digest_key generation_path_detail)"
 BUF_CLI="$(require_digest_key buf_cli)"
 BUF_GEN_YAML="$(require_digest_key buf_gen_yaml)"
+PLUGIN_MODE="$(require_digest_key plugin_mode)"
+PLUGIN_BIN_DIR="$(require_digest_key plugin_bin_dir)"
+PLUGIN_PGO_PATH="$(require_digest_key plugin_protoc_gen_go_path)"
+PLUGIN_PGGRPC_PATH="$(require_digest_key plugin_protoc_gen_go_grpc_path)"
 PLUGIN_PGO="$(require_digest_key plugin_protoc_gen_go)"
 PLUGIN_PGGRPC="$(require_digest_key plugin_protoc_gen_go_grpc)"
+PLUGIN_PGO_MOD="$(require_digest_key plugin_protoc_gen_go_module)"
+PLUGIN_PGGRPC_MOD="$(require_digest_key plugin_protoc_gen_go_grpc_module)"
 PROTO_D="$(require_digest_key proto_digest)"
 TS_D="$(require_digest_key ts_digest)"
 TS_STRICT="$(require_digest_key ts_strict)"
@@ -72,9 +78,12 @@ PGO="$(require_digest_key protoc_gen_go)"
 PGGRPC="$(require_digest_key protoc_gen_go_grpc)"
 OTS="$(require_digest_key openapi_typescript)"
 
-# Fail closed: PROCEED only when the qualified path is the pinned buf generate chain.
+# Fail closed: PROCEED only when the qualified path is the pinned local buf generate chain.
 if [[ "$GEN_PATH" != "buf generate" ]]; then
   fail "C3 generation_path must be 'buf generate' (got '$GEN_PATH'); refusing PROCEED"
+fi
+if [[ "$PLUGIN_MODE" != "local" ]]; then
+  fail "C3 plugin_mode must be 'local' (got '$PLUGIN_MODE'); refusing remote/BSR path"
 fi
 if [[ "$PGO" != "protoc-gen-go v1.36.11" ]]; then
   fail "C3 protoc-gen-go pin mismatch: '$PGO' (want protoc-gen-go v1.36.11)"
@@ -82,15 +91,64 @@ fi
 if [[ "$PGGRPC" != "protoc-gen-go-grpc v1.5.1" ]]; then
   fail "C3 protoc-gen-go-grpc pin mismatch: '$PGGRPC' (want protoc-gen-go-grpc v1.5.1)"
 fi
-if [[ "$PLUGIN_PGO" != "buf.build/protocolbuffers/go:v1.36.11" ]]; then
-  fail "C3 remote plugin pin mismatch: '$PLUGIN_PGO'"
+if [[ "$PLUGIN_PGO" != "local:protoc-gen-go@v1.36.11" ]]; then
+  fail "C3 local plugin pin mismatch: '$PLUGIN_PGO'"
 fi
-if [[ "$PLUGIN_PGGRPC" != "buf.build/grpc/go:v1.5.1" ]]; then
-  fail "C3 remote plugin pin mismatch: '$PLUGIN_PGGRPC'"
+if [[ "$PLUGIN_PGGRPC" != "local:protoc-gen-go-grpc@v1.5.1" ]]; then
+  fail "C3 local plugin pin mismatch: '$PLUGIN_PGGRPC'"
+fi
+if [[ ! "$PLUGIN_PGO_MOD" =~ protoc-gen-go@v1\.36\.11$ ]]; then
+  fail "C3 protoc-gen-go module pin mismatch: '$PLUGIN_PGO_MOD'"
+fi
+if [[ ! "$PLUGIN_PGGRPC_MOD" =~ protoc-gen-go-grpc@v1\.5\.1$ ]]; then
+  fail "C3 protoc-gen-go-grpc module pin mismatch: '$PLUGIN_PGGRPC_MOD'"
+fi
+if [[ ! -x "$PLUGIN_PGO_PATH" ]]; then
+  # Evidence may store studio-relative path; resolve against repo if needed.
+  if [[ -x "$SPIKES/../../../$PLUGIN_PGO_PATH" ]]; then
+    PLUGIN_PGO_PATH_ABS="$(cd "$(dirname "$SPIKES/../../../$PLUGIN_PGO_PATH")" && pwd)/$(basename "$PLUGIN_PGO_PATH")"
+  elif [[ "$PLUGIN_PGO_PATH" == curriculum-studio/* ]]; then
+    REPO_ROOT="$(cd "$SPIKES/../../../.." && pwd)"
+    PLUGIN_PGO_PATH_ABS="$REPO_ROOT/$PLUGIN_PGO_PATH"
+  else
+    PLUGIN_PGO_PATH_ABS="$PLUGIN_PGO_PATH"
+  fi
+else
+  PLUGIN_PGO_PATH_ABS="$PLUGIN_PGO_PATH"
+fi
+if [[ ! -x "$PLUGIN_PGGRPC_PATH" ]]; then
+  if [[ "$PLUGIN_PGGRPC_PATH" == curriculum-studio/* ]]; then
+    REPO_ROOT="$(cd "$SPIKES/../../../.." && pwd)"
+    PLUGIN_PGGRPC_PATH_ABS="$REPO_ROOT/$PLUGIN_PGGRPC_PATH"
+  else
+    PLUGIN_PGGRPC_PATH_ABS="$PLUGIN_PGGRPC_PATH"
+  fi
+else
+  PLUGIN_PGGRPC_PATH_ABS="$PLUGIN_PGGRPC_PATH"
+fi
+if [[ ! -x "$PLUGIN_PGO_PATH_ABS" ]]; then
+  fail "C3 private protoc-gen-go path missing/not executable: $PLUGIN_PGO_PATH (resolved $PLUGIN_PGO_PATH_ABS)"
+fi
+if [[ ! -x "$PLUGIN_PGGRPC_PATH_ABS" ]]; then
+  fail "C3 private protoc-gen-go-grpc path missing/not executable: $PLUGIN_PGGRPC_PATH (resolved $PLUGIN_PGGRPC_PATH_ABS)"
 fi
 if [[ ! "$BUF_CLI" =~ ^1\.72\.[0-9]+$ ]]; then
   fail "C3 buf CLI pin mismatch: '$BUF_CLI' (want 1.72.x)"
 fi
+if [[ "$GEN_DETAIL" == *buf.build/* ]]; then
+  fail "C3 generation_path_detail still references BSR plugins: $GEN_DETAIL"
+fi
+# Require local-plugin marker in detail string.
+case "$GEN_DETAIL" in
+  *"local plugins"*) ;;
+  *) fail "C3 generation_path_detail must describe local plugins: $GEN_DETAIL" ;;
+esac
+case "$PLUGIN_BIN_DIR" in
+  curriculum-studio/*) ;;
+  /*)
+    fail "C3 plugin_bin_dir in evidence must be studio-relative (got '$PLUGIN_BIN_DIR')"
+    ;;
+esac
 
 go_ok=1
 if grep -E '^FAIL' "$EVIDENCE/go_shapes.txt" >/dev/null 2>&1; then
@@ -139,19 +197,26 @@ What actually ran for the digests below:
 
 - **Command:** \`buf generate\`
 - **Working set:** isolated temp copy of \`curriculum-studio/contracts/{buf.yaml,buf.gen.yaml,proto}\` (repo tree not mutated)
-- **Config:** \`${BUF_GEN_YAML}\`
+- **Config:** \`${BUF_GEN_YAML}\` (local plugins only — no BSR remote plugins)
 - **Detail:** ${GEN_DETAIL}
-- **Host \`protoc\` / host \`protoc-gen-go\`:** **not used** (no raw-protoc fallback)
+- **Private plugin bin:** \`${PLUGIN_BIN_DIR}\`
+- **protoc-gen-go path:** \`${PLUGIN_PGO_PATH}\`
+- **protoc-gen-go-grpc path:** \`${PLUGIN_PGGRPC_PATH}\`
+- **Host ambient \`protoc-gen-go\`:** **not used** (private bin prepended; exact pin verified)
+- **BSR remote plugins:** **not used** (avoids \`resource_exhausted\` rate limits)
 
-If remote plugins, network, or pin checks fail, this gate is **STOP** (no false PROCEED).
+If local plugin bootstrap, version checks, or \`buf generate\` fail, this gate is **STOP** (no ambient/remote fallback).
 
 ## Pins
 
 | Tool | Version / pin |
 | --- | --- |
 | Buf CLI (actual) | ${BUF_CLI} |
-| buf.gen.yaml remote | ${PLUGIN_PGO} |
-| buf.gen.yaml remote | ${PLUGIN_PGGRPC} |
+| plugin mode | ${PLUGIN_MODE} |
+| buf.gen.yaml local | ${PLUGIN_PGO} |
+| buf.gen.yaml local | ${PLUGIN_PGGRPC} |
+| go install module | ${PLUGIN_PGO_MOD} |
+| go install module | ${PLUGIN_PGGRPC_MOD} |
 | protoc-gen-go (from generated headers) | ${PGO} |
 | protoc-gen-go-grpc (from generated headers) | ${PGGRPC} |
 | openapi-typescript | ${OTS} |
@@ -196,7 +261,8 @@ See \`evidence/go_shapes.txt\`.
 - Spike fixtures retained as conformance seeds for later phases.
 - No business materializer was implemented; harnesses only.
 - Generated stubs remain under gitignored \`spikes/.tmp/\` only.
-- C3 digests and PROCEED are valid **only** for the pinned \`buf generate\` path above.
+- C3 digests and PROCEED are valid **only** for the pinned local \`buf generate\` path above.
+- Ordinary second run must not call BSR remote plugins (reproducibility / no rate-limit STOP).
 
 ## Overall: ${OVERALL}
 EOF
@@ -205,11 +271,13 @@ echo "REPORT written to $REPORT"
 echo "OVERALL=$OVERALL"
 echo "generation_path=$GEN_PATH"
 echo "buf_cli=$BUF_CLI"
+echo "plugin_mode=$PLUGIN_MODE"
 echo "plugins=$PLUGIN_PGO $PLUGIN_PGGRPC"
+echo "plugin_bin_dir=$PLUGIN_BIN_DIR"
 
 if [[ "$OVERALL" != "PROCEED" ]]; then
   echo "C3 overall STOP — see REPORT.md" >&2
   exit 2
 fi
 
-echo "OK: C3 spikes PROCEED (pinned buf generate)"
+echo "OK: C3 spikes PROCEED (pinned local buf generate)"
