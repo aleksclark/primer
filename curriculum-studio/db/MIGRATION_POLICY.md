@@ -38,17 +38,28 @@ These four files are the **immutable initial history** once the freeze inventory
 - **Additive only:** new numbered goose files (`00005+`).
 - **Never** edit applied baseline file bytes.
 - **Never** `goose fix` rewrite history on shared environments.
-- Live marker: env `STUDIO_MIGRATIONS_LIVE=true` and/or file
-  `db/STUDIO_MIGRATIONS_LIVE`.
+- **Live classification (dual-signal, fail-closed)** — shared by Go writers,
+  Python `freeze_inventory.py`, `LoadConfig`, and CLI `migrate down`:
+  - Env: `STUDIO_MIGRATIONS_LIVE` truthy after trim+lower ∈
+    `{1, true, yes, on}` (any case / surrounding whitespace; e.g. `True`,
+    `YES`, ` on `). Sole Go parser: `studiodb.Truthy` (no CLI-local fork).
+  - Marker: path `db/STUDIO_MIGRATIONS_LIVE` beside the migration root. **Any
+    existing path** classifies live — regular file, directory, symlink-to-file,
+    symlink-to-dir (`os.Stat` / `Path.exists`). Broken symlinks are **not** live.
+  - Either signal alone is sufficient. Check mode stays available when live.
 
 ## Up / down policy
 
 | Environment | `up` | `down` |
 | --- | --- | --- |
 | Disposable / non-live | allowed | one step at a time (tests, local reset) |
-| Live-classified | allowed (forward) | **refused** unless `STUDIO_MIGRATE_BREAK_GLASS_DOWN=true` |
+| Live-classified (env **or** marker) | allowed (forward) | **refused** unless `STUDIO_MIGRATE_BREAK_GLASS_DOWN=true` |
 
 Forward-fix for production mistakes is a **new migration**, not down+edit.
+
+`STUDIO_MIGRATE_BREAK_GLASS_DOWN` is a separately named, auditable control for
+one-step down only. It does **not** enable `-write-freeze` / `--write` manifest
+regeneration.
 
 ## Freeze gate
 
@@ -63,13 +74,15 @@ CI / developers must fail if a frozen baseline file’s sha256 drifts from
 `baseline_manifest.json`.
 
 **Write-freeze is pre-live only.** Both `go run ./cmd/migrate -write-freeze` and
-`db/scripts/freeze_inventory.py --write` refuse when `STUDIO_MIGRATIONS_LIVE` is
-truthy or when `db/STUDIO_MIGRATIONS_LIVE` exists. There is no break-glass rewrite
-flag: post-live drift must be fixed with additive `00005+` migrations, not
-manifest regeneration. `-check-freeze` / `--check` remain available on live envs.
+`db/scripts/freeze_inventory.py --write` refuse when live-classified (env truthy
+**or** marker path exists in any shape). There is no break-glass rewrite flag:
+post-live drift must be fixed with additive `00005+` migrations, not manifest
+regeneration. `-check-freeze` / `--check` remain available on live envs.
 
 **Down path:** the only exported destructive API is `Migrator.DownWithPolicy`
-(CLI `migrate down`). There is no package-level `MigrateDown` bypass.
+(CLI `migrate down`). CLI folds the same migration-root marker into
+`Config.MigrationsLive` before the call, so marker-only live refuses down the
+same way env-live does. There is no package-level `MigrateDown` bypass.
 
 ## DSN isolation
 

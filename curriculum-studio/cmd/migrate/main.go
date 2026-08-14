@@ -37,10 +37,11 @@ func main() {
 		migDir = defaultMigrationsDir()
 	}
 
+	liveMarker := studiodb.LiveMarkerPathForMigrations(migDir)
+	envLive := os.Getenv("STUDIO_MIGRATIONS_LIVE")
+
 	if *writeFreeze {
-		dbRoot := filepath.Dir(migDir)
-		liveMarker := filepath.Join(dbRoot, studiodb.LiveMarkerFilename)
-		if err := studiodb.GuardWriteFreeze(truthyEnv("STUDIO_MIGRATIONS_LIVE"), liveMarker); err != nil {
+		if err := studiodb.GuardWriteFreeze(studiodb.Truthy(envLive), liveMarker); err != nil {
 			slog.Error("write freeze refused", "error", err)
 			os.Exit(1)
 		}
@@ -49,7 +50,7 @@ func main() {
 			slog.Error("build freeze manifest", "error", err)
 			os.Exit(1)
 		}
-		out := filepath.Join(dbRoot, studiodb.BaselineManifestName)
+		out := filepath.Join(filepath.Dir(migDir), studiodb.BaselineManifestName)
 		if err := studiodb.WriteManifest(out, m); err != nil {
 			slog.Error("write freeze manifest", "error", err)
 			os.Exit(1)
@@ -65,7 +66,8 @@ func main() {
 			slog.Error("load freeze manifest", "error", err)
 			os.Exit(1)
 		}
-		live := studiodb.IsLiveEnv(truthyEnv("STUDIO_MIGRATIONS_LIVE"), filepath.Join(filepath.Dir(migDir), studiodb.LiveMarkerFilename))
+		// check-freeze stays available when live; classification only tightens messages.
+		live := studiodb.ClassifyLive(envLive, liveMarker)
 		if err := studiodb.VerifyManifest(migDir, m, live); err != nil {
 			slog.Error("freeze check", "error", err)
 			os.Exit(1)
@@ -84,6 +86,10 @@ func main() {
 		slog.Error("config", "error", err)
 		os.Exit(1)
 	}
+	// Destructive down must honor the same dual-signal live model as write-freeze
+	// (env truthy OR migration-root marker). Break-glass remains env-only/auditable
+	// and does not enable manifest writes.
+	studiodb.ApplyLiveMarker(&cfg, migDir)
 
 	ctx := context.Background()
 	switch direction {
@@ -98,7 +104,7 @@ func main() {
 			break
 		}
 		for _, row := range st {
-			fmt.Printf("%v\t%v\t%s\n", row.Source.Version, row.State, row.Source.Path)
+			fmt.Printf("%v	%v	%s\n", row.Source.Version, row.State, row.Source.Path)
 		}
 		return
 	default:
@@ -110,15 +116,6 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("migrations applied", "direction", direction)
-}
-
-func truthyEnv(k string) bool {
-	switch os.Getenv(k) {
-	case "1", "true", "TRUE", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }
 
 func defaultMigrationsDir() string {

@@ -38,6 +38,8 @@ func TestLoadConfigMaxConnsAndLiveFlags(t *testing.T) {
 	t.Setenv("STUDIO_DB_MAX_CONNS", "8")
 	t.Setenv("STUDIO_MIGRATIONS_LIVE", "true")
 	t.Setenv("STUDIO_MIGRATE_BREAK_GLASS_DOWN", "1")
+	// Isolate from ambient db/STUDIO_MIGRATIONS_LIVE beside module root.
+	t.Setenv("STUDIO_MIGRATIONS_DIR", t.TempDir())
 	cfg, err := studiodb.LoadConfig()
 	require.NoError(t, err)
 	require.Equal(t, int32(8), cfg.MaxConns)
@@ -66,6 +68,7 @@ func TestVerifyManifestMissingFile(t *testing.T) {
 
 func TestDatabaseNameLibpq(t *testing.T) {
 	// Exercise Validate with libpq-style DSN via LoadConfig path.
+	t.Setenv("STUDIO_MIGRATIONS_DIR", t.TempDir())
 	t.Setenv("STUDIO_DATABASE_URL", "host=127.0.0.1 user=studio password=studio dbname=curriculum_studio sslmode=disable")
 	cfg, err := studiodb.LoadConfig()
 	require.NoError(t, err)

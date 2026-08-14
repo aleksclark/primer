@@ -10,7 +10,9 @@ This script remains a thin checksum helper for environments without a Go
 toolchain on the path of the Python schema suite.
 
 Write mode is pre-live only: refused when STUDIO_MIGRATIONS_LIVE is truthy or
-when db/STUDIO_MIGRATIONS_LIVE marker exists. Check mode remains available.
+when db/STUDIO_MIGRATIONS_LIVE marker exists (any path shape). Check mode remains
+available. Live classification matches Go studiodb.ClassifyLive / Truthy /
+LiveMarkerExists — do not fork a third parser.
 """
 
 from __future__ import annotations
@@ -32,6 +34,9 @@ BASELINE = [
     "00003_materialization_and_integration.sql",
     "00004_invariants.sql",
 ]
+
+# Match Go studiodb.Truthy: TrimSpace + ToLower ∈ {1, true, yes, on}.
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
 def sha256_file(path: Path) -> str:
@@ -55,15 +60,34 @@ def build() -> dict:
     }
 
 
+def _truthy_env_value(value: str) -> bool:
+    """Shared truthy parser (Go studiodb.Truthy parity)."""
+    return value.strip().lower() in _TRUTHY
+
+
 def _truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+    return _truthy_env_value(os.environ.get(name, ""))
+
+
+def live_marker_exists(path: Path | None = None) -> bool:
+    """Match Go LiveMarkerExists / os.Stat: any existing path is live.
+
+    Regular file, directory, symlink-to-file, and symlink-to-dir all classify
+    live. Broken symlinks (lexists but not exists after resolve) are not live.
+    """
+    p = LIVE_MARKER if path is None else path
+    try:
+        # Path.exists() follows symlinks like os.Stat; False for broken links.
+        return p.exists()
+    except OSError:
+        return False
 
 
 def is_live_env() -> bool:
-    """Match Go studiodb.IsLiveEnv: env flag or marker file under db root."""
+    """Match Go studiodb.ClassifyLive: env flag or marker under db root."""
     if _truthy_env("STUDIO_MIGRATIONS_LIVE"):
         return True
-    return LIVE_MARKER.is_file()
+    return live_marker_exists()
 
 
 def guard_write_freeze() -> None:

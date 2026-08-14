@@ -124,19 +124,36 @@ func VerifyManifest(migrationsDir string, manifest BaselineManifest, live bool) 
 	return nil
 }
 
-// LiveMarkerPath is the optional ops marker file that classifies an env as live.
+// LiveMarkerFilename is the optional ops marker that classifies an env as live.
+// Any existing path at this name (regular file, directory, symlink-to-file/dir)
+// is live. Broken symlinks (Stat error) are not live — only resolvable existing paths.
 const LiveMarkerFilename = "STUDIO_MIGRATIONS_LIVE"
 
-// IsLiveEnv reports whether migrations are live via env flag or marker file path.
-func IsLiveEnv(envTruthy bool, markerPath string) bool {
-	if envTruthy {
-		return true
-	}
+// LiveMarkerExists reports whether markerPath exists as any filesystem node.
+// Uses os.Stat (follows symlinks): regular file, directory, and symlink-to-*
+// that resolve all count as live. Broken symlinks and missing paths do not.
+// Python freeze_inventory.live_marker_exists must match these semantics.
+func LiveMarkerExists(markerPath string) bool {
 	if markerPath == "" {
 		return false
 	}
 	_, err := os.Stat(markerPath)
 	return err == nil
+}
+
+// ClassifyLive is the single dual-signal live classifier for env value + marker path.
+// Env uses Truthy (trim+lower); marker uses LiveMarkerExists (any existing path).
+func ClassifyLive(envValue, markerPath string) bool {
+	return Truthy(envValue) || LiveMarkerExists(markerPath)
+}
+
+// IsLiveEnv reports whether migrations are live via pre-parsed env flag or marker path.
+// Prefer ClassifyLive when the raw env string is available so spellings stay centralized.
+func IsLiveEnv(envTruthy bool, markerPath string) bool {
+	if envTruthy {
+		return true
+	}
+	return LiveMarkerExists(markerPath)
 }
 
 // GuardWriteFreeze refuses regenerating baseline_manifest.json when the

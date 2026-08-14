@@ -124,3 +124,111 @@ def test_write_allowed_non_live(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads((tmp_path / "baseline_manifest.json").read_text(encoding="utf-8"))
     assert data["migrations"], "manifest should be regenerated"
+
+
+LIVE_TRUTHY_SPELLINGS = [
+    "1",
+    "true",
+    "TRUE",
+    "True",
+    "yes",
+    "YES",
+    "on",
+    "ON",
+    "Yes",
+    " true",
+    "true ",
+    " true ",
+]
+
+NON_LIVE_SPELLINGS = ["", "0", "false", "FALSE", "no", "off", "t", "y"]
+
+
+@pytest.mark.parametrize("spelling", LIVE_TRUTHY_SPELLINGS)
+def test_write_refuses_truthy_spellings(tmp_path: Path, spelling: str) -> None:
+    mig = _seed_tree(tmp_path)
+    target = mig / "00002_plan_domain.sql"
+    target.write_bytes(target.read_bytes() + b"\n-- py spelling drift\n")
+    before = (tmp_path / "baseline_manifest.json").read_bytes()
+
+    proc = _run_write(tmp_path, {"STUDIO_MIGRATIONS_LIVE": spelling})
+    assert proc.returncode != 0, f"spelling {spelling!r} must refuse: {proc.stdout}{proc.stderr}"
+    assert "live" in (proc.stderr + proc.stdout).lower()
+    after = (tmp_path / "baseline_manifest.json").read_bytes()
+    assert after == before, f"manifest must stay byte-identical for {spelling!r}"
+
+
+@pytest.mark.parametrize("spelling", NON_LIVE_SPELLINGS)
+def test_truthy_helper_non_live(spelling: str) -> None:
+    # Import helpers from a temp-patched copy is heavy; assert via script module
+    # semantics by reading the installed helper after import patch.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("freeze_inventory", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._truthy_env_value(spelling) is False
+
+
+@pytest.mark.parametrize("spelling", LIVE_TRUTHY_SPELLINGS)
+def test_truthy_helper_live(spelling: str) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("freeze_inventory", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._truthy_env_value(spelling) is True
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["regular-file", "directory", "symlink-to-file", "symlink-to-dir"],
+)
+def test_write_refuses_marker_shapes(tmp_path: Path, shape: str) -> None:
+    mig = _seed_tree(tmp_path)
+    marker = tmp_path / "STUDIO_MIGRATIONS_LIVE"
+    if shape == "regular-file":
+        marker.write_text("1\n", encoding="utf-8")
+    elif shape == "directory":
+        marker.mkdir()
+    elif shape == "symlink-to-file":
+        tgt = tmp_path / "marker-target"
+        tgt.write_text("1\n", encoding="utf-8")
+        marker.symlink_to(tgt)
+    elif shape == "symlink-to-dir":
+        tgt = tmp_path / "marker-target-dir"
+        tgt.mkdir()
+        marker.symlink_to(tgt)
+
+    target = mig / "00001_identity_and_catalogs.sql"
+    target.write_bytes(target.read_bytes() + b"\n-- py shape drift\n")
+    before = (tmp_path / "baseline_manifest.json").read_bytes()
+
+    proc = _run_write(tmp_path, {"STUDIO_MIGRATIONS_LIVE": ""})
+    assert proc.returncode != 0, f"shape {shape} must refuse: {proc.stdout}{proc.stderr}"
+    after = (tmp_path / "baseline_manifest.json").read_bytes()
+    assert after == before, f"manifest unchanged for marker shape {shape}"
+
+
+def test_marker_exists_broken_symlink_not_live(tmp_path: Path) -> None:
+    import importlib.util
+
+    marker = tmp_path / "STUDIO_MIGRATIONS_LIVE"
+    marker.symlink_to(tmp_path / "missing-target")
+    # Patch ROOT for helper
+    text = SCRIPT.read_text(encoding="utf-8")
+    script_copy = tmp_path / "scripts" / "freeze_inventory.py"
+    script_copy.parent.mkdir(parents=True, exist_ok=True)
+    text = text.replace(
+        "ROOT = Path(__file__).resolve().parents[1]",
+        f"ROOT = Path({str(tmp_path)!r})",
+    )
+    script_copy.write_text(text, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("freeze_inventory_broken", script_copy)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.live_marker_exists(marker) is False
+    assert mod.is_live_env() is False
