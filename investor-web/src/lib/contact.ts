@@ -1,9 +1,9 @@
 /**
- * Contact CTA helpers. Prefer env override for real deploys.
- * Placeholder local address is intentional until a public inbox is chosen.
+ * Contact CTA helpers. Production contact defaults to the PrimerLMS inbox and
+ * can still be overridden for previews with VITE_CONTACT_EMAIL.
  */
 
-const FALLBACK_EMAIL = "aleks@primer.local";
+const FALLBACK_EMAIL = "aleks@primerlms.com";
 
 export function contactEmail(): string {
   const fromEnv = (import.meta.env.VITE_CONTACT_EMAIL as string | undefined)?.trim();
