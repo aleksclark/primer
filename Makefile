@@ -285,13 +285,21 @@ studio-e2e:
 studio-e2e-go:
 	@echo "studio-e2e-go: deferred until Studio Go E2E harness exists"; exit 2
 
-## Create Studio dev database — deferred (no hollow compose/DB claim in F0).
+## Create Studio dev database — deferred: no coherent additive Compose surface
+## exists for curriculum_studio yet (F0 will not invent hollow compose). Use a
+## disposable Postgres + STUDIO_DATABASE_URL with migrate-studio, or S1/D1
+## compose once it lands.
 dev-db-studio:
-	@echo "dev-db-studio: deferred — no additive compose surface in F0; use S1/D1 for curriculum_studio DB"; exit 2
+	@echo "dev-db-studio: deferred — no coherent Compose surface for curriculum_studio in F0 (refusing hollow compose); use disposable Postgres + STUDIO_DATABASE_URL with migrate-studio, or S1/D1 compose when added"; exit 2
 
-## Apply Studio migrations — deferred until migrator exists (D1/S1).
+## Apply Studio migrations (D1). Requires STUDIO_DATABASE_URL; never prints DSN.
+## F0 sole ownership of this root target name — delegates to reviewed Studio CLI.
 migrate-studio:
-	@echo "migrate-studio: deferred until Studio migrator exists (D1/S1)"; exit 2
+	@if [ -z "$${STUDIO_DATABASE_URL:-}" ]; then \
+		echo "migrate-studio: STUDIO_DATABASE_URL is required (no fallback to DATABASE_URL)" >&2; \
+		exit 2; \
+	fi
+	@cd curriculum-studio && go run ./cmd/migrate up
 
 ## Identity module unit/package tests (minimal F0 root; no business coverage claim).
 identity-test:
@@ -318,14 +326,26 @@ identity-openapi:
 identity-test-oauth:
 	@echo "identity-test-oauth: deferred until Identity OAuth packages exist (I4+)"; exit 2
 
-## Identity process E2E — deferred.
+## Identity process E2E (I1 harness under internal/testutil/e2e).
 identity-e2e:
-	@echo "identity-e2e: deferred until Identity E2E harness exists"; exit 2
+	cd primer-identity && go test ./internal/testutil/e2e/ -count=1 -timeout 10m
 
-## Create Identity dev database — deferred (no hollow compose/DB claim in F0).
+## Create Identity dev database — deferred: no coherent additive Compose surface
+## exists for primer_identity yet (F0 will not invent hollow compose). Use a
+## disposable Postgres + IDENTITY_DATABASE_URL with migrate-identity, or I1
+## compose once it lands.
 dev-db-identity:
-	@echo "dev-db-identity: deferred — no additive compose surface in F0; use I1 for primer_identity DB"; exit 2
+	@echo "dev-db-identity: deferred — no coherent Compose surface for primer_identity in F0 (refusing hollow compose); use disposable Postgres + IDENTITY_DATABASE_URL with migrate-identity, or I1 compose when added"; exit 2
 
-## Apply Identity migrations — deferred until migrator exists (I1).
+## Apply Identity migrations (I1). Requires IDENTITY_DATABASE_URL (+ IDENTITY_ISSUER
+## for config.Load). Never prints DSN. F0 sole ownership of this root target name.
 migrate-identity:
-	@echo "migrate-identity: deferred until Identity migrator exists (I1)"; exit 2
+	@if [ -z "$${IDENTITY_DATABASE_URL:-}" ]; then \
+		echo "migrate-identity: IDENTITY_DATABASE_URL is required (no fallback to DATABASE_URL)" >&2; \
+		exit 2; \
+	fi
+	@if [ -z "$${IDENTITY_ISSUER:-}" ]; then \
+		echo "migrate-identity: IDENTITY_ISSUER is required by identity config.Load" >&2; \
+		exit 2; \
+	fi
+	@cd primer-identity && go run ./cmd/identity-migrate up

@@ -91,14 +91,13 @@ go test ./... -count=1
 # GET /metrics  → identity_http_requests_total
 ```
 
-### F0 follow-up request (do not edit root from I1)
+### Root Makefile (F0-owned)
 
-Please wire root Makefile targets once F0 owns the change:
-
-1. **`migrate-identity`**: `cd primer-identity && go run ./cmd/identity-migrate up` (honor `IDENTITY_DATABASE_URL`).
-2. **`identity-e2e`**: `cd primer-identity && go test ./internal/testutil/e2e/ -count=1` (or a dedicated e2e tag).
-3. **`dev-db-identity`**: remains deferred until there is a coherent Compose surface for `primer_identity` (no additive compose from I1).
-
+| Target | Behavior |
+| --- | --- |
+| `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
+| `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
+| `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
 ## Request logging (P1-S6)
 
 Every request (including `/healthz`) emits one JSON access line through the
