@@ -1,0 +1,99 @@
+# Cross-layer mapping rules ONLY — not a value catalog (REQ-OWN-3 / P2-S3).
+# Humans edit proto, OpenAPI, and DB migrations for values.
+# This file records renames, storage-only values, and transform rules.
+
+version: 1
+
+sets:
+  # Shared closed wire strings compared after transforms.
+  materialization_status:
+    layers: [proto, openapi, db]
+    proto_enum: MaterializationStatus
+    proto_prefix: MATERIALIZATION_STATUS_
+    openapi_schema: MaterializationStatus
+    db:
+      table: materialization_runs
+      column: status
+
+  materialized_item_kind:
+    layers: [proto, openapi, db]
+    proto_enum: MaterializedItemKind
+    proto_prefix: MATERIALIZED_ITEM_KIND_
+    openapi_schema: MaterializedItemKind
+    db:
+      table: materialized_items
+      column: kind
+
+  materialized_item_status:
+    layers: [proto, openapi, db]
+    proto_enum: MaterializedItemStatus
+    proto_prefix: MATERIALIZED_ITEM_STATUS_
+    openapi_schema: MaterializedItemStatus
+    db:
+      table: materialized_items
+      column: status
+
+  revision_state:
+    layers: [proto, openapi, db]
+    proto_enum: RevisionState
+    proto_prefix: REVISION_STATE_
+    openapi_schema: RevisionState
+    db:
+      table: plan_revisions
+      column: status
+
+  item_lock_state:
+    layers: [proto, openapi, db_bool]
+    proto_enum: ItemLockState
+    proto_prefix: ITEM_LOCK_STATE_
+    openapi_schema: ItemLockState
+    # DB stores boolean locked; mapping is mechanical, not a third enum catalog.
+    db_bool:
+      table: materialized_items
+      column: locked
+      true_wire: locked
+      false_wire: editable
+
+  event_type:
+    layers: [proto, openapi, db_event]
+    proto_enum: EventType
+    proto_prefix: EVENT_TYPE_
+    openapi_schema: EventTypeName
+    wire_transform: proto_suffix_to_dot_snake
+    # outbox event_type is free TEXT with product closed set; enforce via SCHEMA.md
+    # suggested list + OpenAPI/proto (no SQL CHECK). Parsed from SCHEMA.md section.
+    db_event:
+      schema_md_section: "Domain events"
+
+  error_code:
+    layers: [proto, openapi]
+    proto_enum: ErrorCode
+    proto_prefix: ERROR_CODE_
+    openapi_schema: ErrorCode
+
+  curriculum_status:
+    layers: [proto, openapi, db]
+    proto_enum: CurriculumStatus
+    proto_prefix: CURRICULUM_STATUS_
+    openapi_schema: CurriculumStatus
+    db:
+      table: curricula
+      column: status
+    api_to_db:
+      archived: retired
+    # draft is storage-only unless a documented exception exposes it.
+    storage_only: [draft]
+    # active is shared identity on all layers after mapping.
+    # After api_to_db, compare API values mapped into DB space + storage_only.
+
+  export_format:
+    layers: [proto, openapi, db]
+    proto_enum: ExportFormat
+    proto_prefix: EXPORT_FORMAT_
+    openapi_schema: ExportFormat
+    db:
+      table: exports
+      column: format
+    api_to_db:
+      csv_coverage: csv
+      json_bundle: json

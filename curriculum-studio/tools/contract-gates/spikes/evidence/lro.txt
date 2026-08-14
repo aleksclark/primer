@@ -1,0 +1,1 @@
+id=mat_spike_1 idempotent=true fail=MATERIALIZATION_STATUS_FAILED

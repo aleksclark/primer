@@ -1,0 +1,4 @@
+# Qualification spike build outputs (C3). Never commit.
+.tmp/
+# Nested harness never commits a resolved sum (deps only exist under .tmp/).
+go/harness/go.sum

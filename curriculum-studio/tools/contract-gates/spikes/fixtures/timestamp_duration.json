@@ -1,0 +1,8 @@
+{
+  "shape": "timestamp_duration",
+  "valid_rfc3339": "2026-08-13T15:04:05Z",
+  "valid_with_offset": "2026-08-13T11:04:05-04:00",
+  "normalized_utc": "2026-08-13T15:04:05Z",
+  "invalid": "not-a-timestamp",
+  "available_minutes": 90
+}

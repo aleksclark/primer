@@ -1,0 +1,146 @@
+// Curriculum Studio internal module relationships.
+
+model {
+  curriculum_studio.studio_ui -> curriculum_studio.studio.curriculum_api 'HTTPS authoring, review, lock, rematerialize, export' {
+    description '
+      UI is a client of the Curriculum API only. Source:
+      primer-curriculum-studio-product-plan.md Service architecture
+      (UI → Curriculum API).
+    '
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.plan_domain 'Creates and edits curricula, drafts, and published revisions' {
+    description 'Source: primer-curriculum-studio-product-plan.md Internal modules Plan domain.'
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.standards_catalog 'Reads and imports standards, crosswalks, prerequisites' {
+    description 'Source: primer-curriculum-studio-product-plan.md Internal modules Standards catalog; Phase 1 Standards import.'
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.resource_catalog 'Manages resource metadata and references' {
+    description 'Source: primer-curriculum-studio-product-plan.md Resource; Internal modules Resource catalog.'
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.validation_engine 'Runs coverage, prerequisite, evidence, and lock checks' {
+    description 'Source: primer-curriculum-studio-product-plan.md Deterministic validation.'
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.materialization_domain 'Starts, resumes, and reads materialization runs' {
+    description 'Source: primer-curriculum-studio-product-plan.md Materialization; Internal modules.'
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.export_service 'Requests PDF, Markdown, DOCX, CSV, calendar, JSON bundle' {
+    description 'Source: primer-curriculum-studio-product-plan.md Publish or export.'
+  }
+
+  curriculum_studio.studio.curriculum_api -> curriculum_studio.studio.integration_gateway 'Issues API keys, webhooks, and Primer adapter calls' {
+    description 'Source: primer-curriculum-studio-product-plan.md Internal modules Integration gateway.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.plan_domain 'Draft create, graph read/patch, publish propose/confirm via app services' {
+    description '
+      MCP tools never bypass plan domain invariants (immutability, optimistic
+      concurrency). Source: curriculum-studio-mcp-design.md M12; platform phase-19.
+    '
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.standards_catalog 'Standards search tools' {
+    description 'Source: curriculum-studio-mcp-design.md tool inventory.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.resource_catalog 'Resource search tools' {
+    description 'Source: curriculum-studio-mcp-design.md tool inventory.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.validation_engine 'Validate draft and read findings' {
+    description 'Same deterministic validation as REST. Source: curriculum-studio-mcp-design.md.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> identity_service 'Fetches JWKS; validates access JWTs locally on every MCP request' {
+    description '
+      Same validator posture as Curriculum API. No token mint, no introspection
+      required. Sources: curriculum-studio-mcp-design.md M7;
+      primer-identity-service-design.md JWKS.
+    '
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.postgres 'Audit and idempotency via domain/persistence (no cross-DB)' {
+    description '
+      Uses existing audit_events and idempotency_keys through app/repo layers —
+      not a second database. Source: curriculum-studio-mcp-design.md §7;
+      database plan MCP mapping.
+    '
+  }
+
+  curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.agent_workflow_runner 'Runs staged generation / critique workflows' {
+    description '
+      Source: primer-curriculum-studio-product-plan.md Service
+      architecture (MAT → Agent workflow runner) and Agent workflow design.
+    '
+  }
+
+  curriculum_studio.studio.plan_domain -> curriculum_studio.studio.validation_engine 'Validates graph, coverage, and publication invariants' {
+    description 'Source: primer-curriculum-studio-product-plan.md Deterministic validation.'
+  }
+
+  curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.validation_engine 'Enforces locks, provenance, and evidence before publish' {
+    description 'Source: primer-curriculum-studio-product-plan.md Deterministic validation (locked content, snapshots, rubrics).'
+  }
+
+  curriculum_studio.studio.plan_domain -> curriculum_studio.postgres 'Persists curricula, revisions, and plan graphs' {
+    description 'Source: primer-curriculum-studio-product-plan.md Service architecture (PLAN → Curriculum database).'
+  }
+
+  curriculum_studio.studio.standards_catalog -> curriculum_studio.postgres 'Persists standards, crosswalks, and mastery criteria' {
+    description 'Source: primer-curriculum-studio-product-plan.md Internal modules Standards catalog.'
+  }
+
+  curriculum_studio.studio.resource_catalog -> curriculum_studio.postgres 'Persists resource metadata (not file bytes)' {
+    description 'Source: primer-curriculum-studio-product-plan.md Resource.'
+  }
+
+  curriculum_studio.studio.materialization_domain -> curriculum_studio.postgres 'Persists runs, input snapshots, item metadata, locks, provenance' {
+    description 'Source: primer-curriculum-studio-product-plan.md Service architecture (MAT → Curriculum database).'
+  }
+
+  curriculum_studio.studio.agent_workflow_runner -> curriculum_studio.postgres 'Persists workflow stage checkpoints for resume' {
+    description 'Source: primer-curriculum-studio-product-plan.md Agent workflow design (persist every stage).'
+  }
+
+  curriculum_studio.studio.agent_workflow_runner -> curriculum_studio.artifact_store 'Writes generated lesson / packet bytes' {
+    description 'Source: primer-curriculum-studio-product-plan.md Service architecture (JOB → Generated artifact store).'
+  }
+
+  curriculum_studio.studio.export_service -> curriculum_studio.artifact_store 'Reads generated bytes and writes export packets' {
+    description 'Source: primer-curriculum-studio-product-plan.md Publish or export; Generated artifact store.'
+  }
+
+  curriculum_studio.studio.export_service -> curriculum_studio.postgres 'Reads plan/item metadata for export manifests' {
+    description 'Source: primer-curriculum-studio-product-plan.md Export service module.'
+  }
+
+  curriculum_studio.studio.agent_workflow_runner -> model_providers 'Invokes judgment-heavy generation and critique' {
+    description '
+      Deterministic invariants stay in Studio. Source:
+      primer-curriculum-studio-product-plan.md Agent workflow design.
+    '
+  }
+
+  // Service-level durability legs so parent-only views still render
+  // Studio → its own DB / object store without expanding modules.
+  curriculum_studio.studio -> curriculum_studio.postgres 'Owns all Studio relational state; no foreign service connects' {
+    description '
+      Service-level ownership edge for container and deployment views.
+      Source: primer-curriculum-studio-product-plan.md Curriculum database;
+      AGENTS.md no shared databases across independently deployed services.
+    '
+  }
+
+  curriculum_studio.studio -> curriculum_studio.artifact_store 'Owns generated artifact bytes' {
+    description 'Source: primer-curriculum-studio-product-plan.md Generated artifact store.'
+  }
+
+  curriculum_studio.studio -> model_providers 'Calls external model / agent providers' {
+    description 'Source: primer-curriculum-studio-product-plan.md Agent workflow design.'
+  }
+}

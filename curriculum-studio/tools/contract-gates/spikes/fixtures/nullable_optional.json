@@ -1,0 +1,33 @@
+{
+  "shape": "nullable_optional",
+  "cases": [
+    {
+      "name": "end_absent",
+      "window": {
+        "start": "2026-08-01T00:00:00Z",
+        "available_minutes": 45
+      },
+      "expect_end_present": false
+    },
+    {
+      "name": "end_set",
+      "window": {
+        "start": "2026-08-01T00:00:00Z",
+        "end": "2026-08-08T00:00:00Z",
+        "available_minutes": 45
+      },
+      "expect_end_present": true
+    },
+    {
+      "name": "empty_error_message_vs_absent",
+      "materialization": {
+        "id": "mat_1",
+        "plan_revision_id": "prev_1",
+        "context_fingerprint": "sha256:abc",
+        "status": "FAILED",
+        "error_message": ""
+      },
+      "note": "proto3 optional not on error_message; empty string is distinct from unset only if optional — document policy"
+    }
+  ]
+}

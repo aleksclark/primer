@@ -1,0 +1,17 @@
+{
+  "shape": "struct_tutor_context",
+  "tutor_context": {
+    "schema_version": "tutor_context.v1",
+    "voice": "socratic",
+    "standards": ["6.NS.A.1", "6.EE.A.2"],
+    "nested": {
+      "hints": ["draw a diagram", "check units"],
+      "flags": {"require_units": true, "allow_calculator": false}
+    }
+  },
+  "event_data": {
+    "reason": "rematerialize",
+    "previous_item_id": "mit_old",
+    "meta": {"agent": "lesson-writer", "attempt": 2}
+  }
+}

@@ -1,0 +1,17 @@
+# Buf v2 module for Curriculum Studio protobuf.
+# Pin: Buf CLI 1.72.0 (system package, verified 2026-08-13).
+version: v2
+modules:
+  - path: proto
+    name: buf.build/primer/curriculum-studio
+lint:
+  use:
+    - STANDARD
+  except:
+    # Integration request messages use explicit ids rather than google.api.resource.
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+breaking:
+  use:
+    - FILE

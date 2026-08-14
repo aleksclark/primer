@@ -1,0 +1,103 @@
+// Actors, adjacent systems, and product boundaries.
+
+model {
+  teacher = actor 'Teacher' {
+    description '
+      Classroom teacher who plans courses, reviews generated outcomes,
+      materializes units or weeks, and exports packets.
+      Source: primer-curriculum-studio-product-plan.md Product value
+      proposition and Standalone product workflow.
+    '
+  }
+
+  homeschool_parent = actor 'Homeschool parent' {
+    description '
+      Parent acting as primary educator who authors or adapts a curriculum
+      without running the rest of Primer. Distinct from the live-student
+      parent role inside Primer LMS.
+      Sources: primer-curriculum-studio-product-plan.md Product concept
+      and Product value proposition; AGENTS.md Core Principles
+      (parent is the primary educator).
+    '
+  }
+
+  curriculum_author = actor 'Curriculum author' {
+    description '
+      Authoring organization, co-op, or specialist who builds reusable
+      plans. Collaborative authoring is Phase 5.
+      Source: primer-curriculum-studio-product-plan.md Workspace and
+      Phase 5 Collaborative authoring.
+    '
+  }
+
+  curriculum_planning_agent = actor 'Curriculum-planning agent' {
+    description '
+      External MCP client (Hermes, mcporter, or equivalent agent runtime)
+      that plans curriculum on behalf of an authorized user or service
+      principal. Connects to Studio Streamable HTTP MCP at /mcp with a
+      Primer Identity Bearer JWT (aud=curriculum-studio). Not a Studio
+      deployable and not a token issuer.
+      Sources: curriculum-studio-mcp-design.md; primer-curriculum-studio-product-plan.md
+      Agent MCP surface; foundation crosswalk L7.
+    '
+  }
+
+  identity_service = softwareSystem 'Primer Identity' {
+    #external
+    #trustBoundary
+    description '
+      Independently deployable identity/auth service with its own
+      PostgreSQL. Owns accounts, external identities (provider+sub),
+      human sessions, signing keys/JWKS, OAuth clients, and service
+      principals. Does not own Studio workspace roles or LMS product
+      authorization. Google OIDC is the primary interactive IdP;
+      Identity is OP to Studio and LMS BFFs. Host-only cookies; no
+      cross-product session cookie; no email auto-link.
+      Sources: agent_docs/plans/primer-identity-service-design.md;
+      agent_docs/plans/curriculum-studio-foundation-crosswalk.md L3–L4.
+    '
+  }
+
+  model_providers = softwareSystem 'Agent / model providers' {
+    #external
+    description '
+      External LLM and agent backends used only for judgment-heavy
+      transformations (objectives, mapping, sequencing, generation,
+      critique). Deterministic validation stays in Studio code.
+      Sources: primer-curriculum-studio-product-plan.md Agent workflow
+      design; AGENTS.md Tech Stack (Bedrock primary, OpenRouter/OpenAI
+      fallback) as the existing Primer provider pattern, not a Studio
+      vendor lock-in.
+    '
+  }
+
+  primer_lms = softwareSystem 'Primer LMS' {
+    #external
+    #trustBoundary
+    description '
+      Existing Primer tutoring / LMS product. Owns the live student
+      experience, mastery state, tutoring, session execution, grades,
+      transcripts, portfolio storage, and parent notifications.
+      Independently deployed Go HTTP API (Huma/chi/pgx) with its own
+      PostgreSQL. Consumes Curriculum Studio through explicit service
+      contracts; never shares Studio\'s database.
+      Sources: primer-curriculum-studio-product-plan.md Product boundary
+      and Primer integration contract; AGENTS.md LMS Server and
+      Service boundary and credentials.
+    '
+  }
+
+  curriculum_studio = softwareSystem 'Curriculum Studio' {
+    #trustBoundary
+    description '
+      Standalone planning and lesson-production product. Owns what
+      should be taught and the concrete instructional materials derived
+      from it. Independently valuable without Primer. One independently
+      deployable modular service plus a product-owned browser UI,
+      separate PostgreSQL, and artifact/object store.
+      Source: primer-curriculum-studio-product-plan.md Product concept,
+      Product boundary, Service architecture, Most important product
+      decision.
+    '
+  }
+}

@@ -1,0 +1,18 @@
+extends: [[spectral:oas, all]]
+rules:
+  info-contact: off
+  info-license: off
+  operation-tags: error
+  operation-operationId: error
+  operation-success-response: error
+  oas3-schema: error
+  oas3-unused-component: warn
+  oas3-valid-media-example: off
+  no-$ref-siblings: error
+  typed-enum: error
+overrides:
+  - files:
+      - openapi/v1/curriculum-studio.yaml
+    rules:
+      # Authoring REST is design-first until Huma handlers exist.
+      oas3-api-servers: off

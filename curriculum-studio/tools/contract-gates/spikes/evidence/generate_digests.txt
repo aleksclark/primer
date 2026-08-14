@@ -1,0 +1,20 @@
+generation_path=buf generate
+generation_path_detail=buf generate (isolated temp copy of contracts/; local plugins from private bin: protoc-gen-go@v1.36.11, protoc-gen-go-grpc@v1.5.1; bin=curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin)
+buf_cli=1.72.0
+buf_gen_yaml=curriculum-studio/contracts/buf.gen.yaml
+plugin_mode=local
+plugin_bin_dir=curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin
+plugin_protoc_gen_go_path=curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin/protoc-gen-go
+plugin_protoc_gen_go_grpc_path=curriculum-studio/contracts/.tmp/pinned-plugins/v1.36.11_v1.5.1/bin/protoc-gen-go-grpc
+plugin_protoc_gen_go=local:protoc-gen-go@v1.36.11
+plugin_protoc_gen_go_grpc=local:protoc-gen-go-grpc@v1.5.1
+plugin_protoc_gen_go_module=google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+plugin_protoc_gen_go_grpc_module=google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+plugin_protoc_gen_go_reported=protoc-gen-go v1.36.11
+plugin_protoc_gen_go_grpc_reported=protoc-gen-go-grpc 1.5.1
+protoc_gen_go=protoc-gen-go v1.36.11
+protoc_gen_go_grpc=protoc-gen-go-grpc v1.5.1
+proto_digest=8338959407a56eccdf1ae4705fc91fa34a684b279ac4a6281efeae7b0de36984
+ts_digest=6e4d245b79278a0b218e55cac3d038a355eb9d66564ee2d09b3b0c0a45ded7d8
+openapi_typescript=7.13.0
+ts_strict=ok

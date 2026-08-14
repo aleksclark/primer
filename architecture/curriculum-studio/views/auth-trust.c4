@@ -1,0 +1,39 @@
+views {
+  view auth_trust {
+    title 'Auth and trust boundaries'
+    description '
+      Primer Identity is the decided external authn system. Studio and
+      LMS validate single-audience JWTs via JWKS and own product
+      authorization locally. Host-only BFF cookies; no shared identity
+      or product database. X-Service-Token is migration-only.
+      Sources: primer-identity-service-design.md;
+      curriculum-studio-foundation-crosswalk.md L3–L4.
+    '
+    include teacher
+    include homeschool_parent
+    include curriculum_author
+    include curriculum_planning_agent
+    include identity_service
+    include curriculum_studio.studio_ui
+    include curriculum_studio.studio
+    include curriculum_studio.studio.curriculum_api
+    include curriculum_studio.studio.mcp_adapter
+    include primer_lms.lms_web
+    include primer_lms.lms_api
+    include teacher -> identity_service
+    include homeschool_parent -> identity_service
+    include curriculum_author -> identity_service
+    include curriculum_planning_agent -> identity_service
+    include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
+    include curriculum_studio.studio_ui -> identity_service
+    include curriculum_studio.studio.curriculum_api -> identity_service
+    include curriculum_studio.studio.mcp_adapter -> identity_service
+    include primer_lms.lms_api -> identity_service
+    include primer_lms.lms_web -> identity_service
+    include teacher -> curriculum_studio.studio_ui
+    include curriculum_studio.studio_ui -> curriculum_studio.studio.curriculum_api
+    include primer_lms.lms_web -> primer_lms.lms_api
+    include primer_lms.lms_api -> curriculum_studio.studio
+    autoLayout TopBottom
+  }
+}

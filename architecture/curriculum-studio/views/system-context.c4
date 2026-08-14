@@ -1,0 +1,32 @@
+views {
+  view studio_system_context {
+    title 'Curriculum Studio system context'
+    description '
+      Standalone Curriculum Studio product, its authors, proposed
+      adjacent identity service (unsettled), model providers, and
+      Primer LMS as an explicit consumer — not an owner.
+      Sources: primer-curriculum-studio-product-plan.md Product concept,
+      Product boundary, Primer integration contract.
+    '
+    include teacher
+    include homeschool_parent
+    include curriculum_author
+    include curriculum_planning_agent
+    include identity_service
+    include model_providers
+    include primer_lms
+    include curriculum_studio
+    include teacher -> curriculum_studio.studio_ui
+    include homeschool_parent -> curriculum_studio.studio_ui
+    include curriculum_author -> curriculum_studio.studio_ui
+    include teacher -> identity_service
+    include homeschool_parent -> identity_service
+    include curriculum_author -> identity_service
+    include curriculum_planning_agent -> identity_service
+    include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
+    include primer_lms -> curriculum_studio
+    include curriculum_studio -> primer_lms
+    include curriculum_studio.studio -> model_providers
+    autoLayout LeftRight
+  }
+}

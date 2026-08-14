@@ -7,6 +7,9 @@ export
 endif
 
 COVER_MIN := 85
+# Module coverage floors (Identity starts lower; Studio matches root COVER_MIN).
+STUDIO_COVER_MIN := 85
+IDENTITY_COVER_MIN := 80
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
 	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
@@ -14,7 +17,12 @@ COVER_MIN := 85
 	activity-validate activity-publish student-build student-deploy student-acceptance \
 	student-stub student-harness \
 	workstation-package workstation-check update-student-vendor-hash \
-	investor-web investor-web-dev investor-web-test investor-web-ci
+	investor-web investor-web-dev investor-web-test investor-web-ci \
+	foundation-check \
+	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
+	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
+	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
+	identity-e2e dev-db-identity migrate-identity
 
 all: build openapi openapi-tv client tv-client
 
@@ -228,3 +236,116 @@ workstation-check:
 ## Recompute packages/primer-student.nix vendorHash after go.mod changes.
 update-student-vendor-hash:
 	./workstation/scripts/update-primer-student-vendor-hash.sh
+
+# =============================================================================
+# Curriculum Studio + Primer Identity foundations (delivery wave F0)
+# Honest targets only: compile/test where modules exist; clear deferral otherwise.
+# Binaries, migrations, coverage floors, OpenAPI clients, and E2E are owned by
+# later S1/I1+ waves — do not claim them green here.
+# =============================================================================
+
+## Mechanical F0 foundation check (module paths, go.work, Make names, no coupling).
+foundation-check:
+	./scripts/check-f0-foundations.sh
+
+## Studio module unit/package tests (minimal F0 root; no business coverage claim).
+studio-test:
+	cd curriculum-studio && go test ./...
+
+## Studio binary build — deferred until cmd/studio-server exists (S1).
+studio-build:
+	@if [ -d curriculum-studio/cmd/studio-server ]; then \
+		cd curriculum-studio && go build -o ../bin/studio-server ./cmd/studio-server; \
+	else \
+		echo "studio-build: deferred until curriculum-studio/cmd/studio-server exists (S1)"; \
+		exit 2; \
+	fi
+
+## Studio coverage gate (≥85%) — deferred until internal packages exist.
+studio-cover:
+	@./scripts/enforce-module-cover.sh curriculum-studio $(STUDIO_COVER_MIN) studio
+
+## Studio OpenAPI emission — deferred until cmd/openapi-gen exists.
+studio-openapi:
+	@echo "studio-openapi: deferred until Studio OpenAPI generator exists (S*/C*)"; exit 2
+
+## Studio TS client codegen — deferred until OpenAPI + web surface exist.
+studio-client:
+	@echo "studio-client: deferred until Studio OpenAPI client pipeline exists (C*/S9)"; exit 2
+
+## Studio SPA build — deferred until web surface exists.
+studio-web:
+	@echo "studio-web: deferred until Studio SPA exists (S9–S10)"; exit 2
+
+## Studio process/UI E2E — deferred.
+studio-e2e:
+	@echo "studio-e2e: deferred until Studio E2E harness exists"; exit 2
+
+## Studio Go process E2E (S1 harness under internal/testutil/e2e).
+studio-e2e-go:
+	cd curriculum-studio && go test ./internal/testutil/e2e/ -count=1 -timeout 10m
+
+## Create Studio dev database — deferred: no coherent additive Compose surface
+## exists for curriculum_studio yet (F0 will not invent hollow compose). Use a
+## disposable Postgres + STUDIO_DATABASE_URL with migrate-studio, or S1/D1
+## compose once it lands.
+dev-db-studio:
+	@echo "dev-db-studio: deferred — no coherent Compose surface for curriculum_studio in F0 (refusing hollow compose); use disposable Postgres + STUDIO_DATABASE_URL with migrate-studio, or S1/D1 compose when added"; exit 2
+
+## Apply Studio migrations (D1). Requires STUDIO_DATABASE_URL; never prints DSN.
+## F0 sole ownership of this root target name — delegates to reviewed Studio CLI.
+migrate-studio:
+	@if [ -z "$${STUDIO_DATABASE_URL:-}" ]; then \
+		echo "migrate-studio: STUDIO_DATABASE_URL is required (no fallback to DATABASE_URL)" >&2; \
+		exit 2; \
+	fi
+	@cd curriculum-studio && go run ./cmd/migrate up
+
+## Identity module unit/package tests (minimal F0 root; no business coverage claim).
+identity-test:
+	cd primer-identity && go test ./...
+
+## Identity binary build — deferred until cmd/identity-server exists (I1).
+identity-build:
+	@if [ -d primer-identity/cmd/identity-server ]; then \
+		cd primer-identity && go build -o ../bin/identity-server ./cmd/identity-server; \
+	else \
+		echo "identity-build: deferred until primer-identity/cmd/identity-server exists (I1)"; \
+		exit 2; \
+	fi
+
+## Identity coverage gate (≥80%) — deferred until internal packages exist (I1+; raise later).
+identity-cover:
+	@./scripts/enforce-module-cover.sh primer-identity $(IDENTITY_COVER_MIN) identity
+
+## Identity OpenAPI emission — deferred.
+identity-openapi:
+	@echo "identity-openapi: deferred until Identity OpenAPI generator exists (I1+)"; exit 2
+
+## Identity OAuth adversarial suite — deferred until OAuth packages exist (I4+).
+identity-test-oauth:
+	@echo "identity-test-oauth: deferred until Identity OAuth packages exist (I4+)"; exit 2
+
+## Identity process E2E (I1 harness under internal/testutil/e2e).
+identity-e2e:
+	cd primer-identity && go test ./internal/testutil/e2e/ -count=1 -timeout 10m
+
+## Create Identity dev database — deferred: no coherent additive Compose surface
+## exists for primer_identity yet (F0 will not invent hollow compose). Use a
+## disposable Postgres + IDENTITY_DATABASE_URL with migrate-identity, or I1
+## compose once it lands.
+dev-db-identity:
+	@echo "dev-db-identity: deferred — no coherent Compose surface for primer_identity in F0 (refusing hollow compose); use disposable Postgres + IDENTITY_DATABASE_URL with migrate-identity, or I1 compose when added"; exit 2
+
+## Apply Identity migrations (I1). Requires IDENTITY_DATABASE_URL (+ IDENTITY_ISSUER
+## for config.Load). Never prints DSN. F0 sole ownership of this root target name.
+migrate-identity:
+	@if [ -z "$${IDENTITY_DATABASE_URL:-}" ]; then \
+		echo "migrate-identity: IDENTITY_DATABASE_URL is required (no fallback to DATABASE_URL)" >&2; \
+		exit 2; \
+	fi
+	@if [ -z "$${IDENTITY_ISSUER:-}" ]; then \
+		echo "migrate-identity: IDENTITY_ISSUER is required by identity config.Load" >&2; \
+		exit 2; \
+	fi
+	@cd primer-identity && go run ./cmd/identity-migrate up

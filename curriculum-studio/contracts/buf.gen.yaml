@@ -1,0 +1,21 @@
+# Code generation is a local/CI build step. Generated sources are not committed.
+# Pin: Buf CLI 1.72.x (workspace; C3 qualifies exact `buf --version`).
+# Production-intended path (C3/C4): `buf generate` with **local** plugins below.
+# Exact pins installed by contracts/scripts/bootstrap_local_plugins.sh into an
+# ignored module-local cache (not ambient host tools; not BSR remote plugins):
+#   protoc-gen-go@v1.36.11
+#   protoc-gen-go-grpc@v1.5.1
+# C3 spikes invoke this config in an isolated temp copy with the private bin on PATH.
+version: v2
+clean: true
+plugins:
+  - local: protoc-gen-go
+    out: gen/go
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: gen/go
+    opt:
+      - paths=source_relative
+inputs:
+  - directory: proto

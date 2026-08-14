@@ -1,0 +1,16 @@
+=== RUN   TestSpikeNullableOptionalPresence
+--- PASS: TestSpikeNullableOptionalPresence (0.00s)
+=== RUN   TestSpikeTimestampDuration
+--- PASS: TestSpikeTimestampDuration (0.00s)
+=== RUN   TestSpikeTypedErrorsGRPCAndREST
+--- PASS: TestSpikeTypedErrorsGRPCAndREST (0.00s)
+=== RUN   TestSpikePaginationRESTAndGRPC
+--- PASS: TestSpikePaginationRESTAndGRPC (0.00s)
+=== RUN   TestSpikeLongRunningMaterialization
+--- PASS: TestSpikeLongRunningMaterialization (0.00s)
+=== RUN   TestSpikeStructTutorContextAndEventData
+--- PASS: TestSpikeStructTutorContextAndEventData (0.00s)
+=== RUN   TestSpikePlantedAssertionTeeth
+--- PASS: TestSpikePlantedAssertionTeeth (0.00s)
+PASS
+ok  	spike.local/harness	0.000s

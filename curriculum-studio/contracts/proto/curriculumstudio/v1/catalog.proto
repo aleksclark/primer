@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package curriculumstudio.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+
+// StandardSource identifies a standards authority.
+enum StandardSource {
+  STANDARD_SOURCE_UNSPECIFIED = 0;
+  STANDARD_SOURCE_TENNESSEE = 1;
+  STANDARD_SOURCE_COMMON_CORE = 2;
+  STANDARD_SOURCE_CUSTOM = 3;
+}
+
+// StandardsCatalog is an imported or workspace-owned set of standards.
+message StandardsCatalog {
+  // Catalog id.
+  string id = 1;
+  // Owning workspace. Empty for deployment-global catalogs.
+  string workspace_id = 2;
+  // Authority.
+  StandardSource source = 3;
+  // Jurisdiction or publisher label.
+  string jurisdiction = 4;
+  // Catalog title.
+  string title = 5;
+  // When imported or created.
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// Standard is one measurable expectation.
+message Standard {
+  // Studio id.
+  string id = 1;
+  // Catalog this standard belongs to.
+  string catalog_id = 2;
+  // Public code such as `TN.MATH.6.RP.A.3`.
+  string code = 3;
+  // Authority.
+  StandardSource source = 4;
+  // Subject code.
+  string subject = 5;
+  // Grade band, for example `6`.
+  string grade = 6;
+  // Domain slug.
+  string domain = 7;
+  // Cluster slug.
+  string cluster = 8;
+  // Human description.
+  string description = 9;
+  // TCAP weight hint such as `high`.
+  string tcap_weight = 10;
+  // Mastery criteria statements.
+  repeated string mastery_criteria = 11;
+  // Prerequisite standard codes.
+  repeated string prerequisite_codes = 12;
+}
+
+// StandardCrosswalk maps one standard onto another authority.
+message StandardCrosswalk {
+  // Crosswalk id.
+  string id = 1;
+  // Source standard code.
+  string from_code = 2;
+  // Target standard code.
+  string to_code = 3;
+  // Relationship note.
+  string note = 4;
+}
+
+// ResourceKind classifies a curated reference. Studio stores metadata, not file bytes.
+enum ResourceKind {
+  RESOURCE_KIND_UNSPECIFIED = 0;
+  RESOURCE_KIND_BOOK = 1;
+  RESOURCE_KIND_DOCUMENT = 2;
+  RESOURCE_KIND_VIDEO = 3;
+  RESOURCE_KIND_TOOL = 4;
+  RESOURCE_KIND_PROJECT_SUPPLY = 5;
+  RESOURCE_KIND_URL = 6;
+}
+
+// Resource is a reference to an external book, document, video, tool, or URL.
+message Resource {
+  // Resource id.
+  string id = 1;
+  // Owning workspace.
+  string workspace_id = 2;
+  // Kind.
+  ResourceKind kind = 3;
+  // Title.
+  string title = 4;
+  // Optional authors or creators.
+  repeated string creators = 5;
+  // External locator (ISBN, URL, tool id).
+  string locator = 6;
+  // Notes for authors.
+  string notes = 7;
+  // When created.
+  google.protobuf.Timestamp created_at = 8;
+  // When updated.
+  google.protobuf.Timestamp updated_at = 9;
+}

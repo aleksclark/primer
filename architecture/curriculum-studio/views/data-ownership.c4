@@ -1,0 +1,25 @@
+views {
+  view data_ownership_deployment {
+    title 'Data ownership and deployment'
+    description '
+      Curriculum Studio is independently deployed with its own
+      PostgreSQL and artifact store. Primer LMS keeps a separate
+      PostgreSQL. There is no Studio → LMS DB edge and no LMS →
+      Studio DB edge. Mastery crosses only as an HTTP snapshot.
+      Sources: primer-curriculum-studio-product-plan.md Service
+      architecture and integration contract; AGENTS.md Service
+      boundary (two services never share a database).
+    '
+    include curriculum_studio.studio
+    include curriculum_studio.postgres
+    include curriculum_studio.artifact_store
+    include primer_lms.lms_api
+    include primer_lms.lms_postgres
+    include curriculum_studio.studio -> curriculum_studio.postgres
+    include curriculum_studio.studio -> curriculum_studio.artifact_store
+    include primer_lms.lms_api -> primer_lms.lms_postgres
+    include primer_lms.lms_api -> curriculum_studio.studio
+    include curriculum_studio.studio -> primer_lms.lms_api
+    autoLayout LeftRight
+  }
+}

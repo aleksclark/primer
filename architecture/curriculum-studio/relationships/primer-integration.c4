@@ -1,0 +1,103 @@
+// Primer ↔ Curriculum Studio integration. HTTP/events only; no shared DB.
+
+model {
+  // Synchronous materialization: Primer → Studio
+  primer_lms.lms_api.learner_state -> curriculum_studio.studio.integration_gateway 'POSTs materialization_context (learner snapshot, window, overrides)' {
+    description '
+      Primer supplies plan_revision_id, learner mastery_summary,
+      reinforcement_due, accommodations, active_projects, window, and
+      overrides. Explicit HTTP contract; not a database read of Studio
+      or a Studio read of LMS mastery tables.
+      Source: primer-curriculum-studio-product-plan.md Primer supplies
+      materialization_context; Service contracts rather than database
+      access.
+    '
+  }
+
+  primer_lms.lms_api.curriculum_consumer -> curriculum_studio.studio.integration_gateway 'Requests synchronous materialization / JSON session bundle' {
+    description '
+      Studio returns materialization_bundle (sessions, activities,
+      assessment_specs, tutor_context, completion_criteria,
+      remediation_branches). Primer converts specs into live tutor
+      interactions.
+      Source: primer-curriculum-studio-product-plan.md Curriculum Studio
+      returns; Phase 3 Materialization API.
+    '
+  }
+
+  // Service-level request so context views render Primer → Studio
+  // without expanding nested components.
+  primer_lms.lms_api -> curriculum_studio.studio 'HTTPS materialization API (context in, session bundle out)' {
+    description '
+      Service-level Primer → Studio contract. Direction is LMS calling
+      Studio. Studio does not query LMS PostgreSQL for mastery.
+      Source: primer-curriculum-studio-product-plan.md Primer integration
+      contract.
+    '
+  }
+
+  primer_lms -> curriculum_studio 'Consumes Studio as an explicit adjacent product API' {
+    description '
+      System-context edge: Primer is a consumer, not an owner, of
+      Curriculum Studio. Source: primer-curriculum-studio-product-plan.md
+      Product concept and Most important product decision.
+    '
+  }
+
+  curriculum_studio -> primer_lms 'Publishes domain events / webhooks Primer may subscribe to' {
+    description '
+      System-context reverse path. Complements the synchronous
+      materialization API; Studio remains independently useful without
+      a subscriber. Source: primer-curriculum-studio-product-plan.md
+      Domain events.
+    '
+  }
+
+  // Asynchronous events: Studio → Primer
+  curriculum_studio.studio.integration_gateway -> primer_lms.lms_api.event_subscriber 'Delivers domain events / webhooks' {
+    description '
+      Events: curriculum.created, plan_revision.published,
+      materialization.requested, materialization.ready,
+      materialization.failed, materialized_item.superseded,
+      plan_change.proposed. Optional complement to the sync API.
+      Source: primer-curriculum-studio-product-plan.md Domain events.
+    '
+  }
+
+  curriculum_studio.studio -> primer_lms.lms_api 'Pushes curriculum domain events and webhook callbacks' {
+    description '
+      Service-level Studio → Primer callback/event path. Does not imply
+      Studio writes LMS tables; LMS subscriber applies locally.
+      Source: primer-curriculum-studio-product-plan.md Domain events.
+    '
+  }
+
+  // Possible later push of a JSON bundle onto existing LMS import.
+  // Marked uncertain: product plan says JSON bundle for Primer and
+  // Phase 3 adapter; current LMS has parent-guarded
+  // /curriculum/import/{plan,apply}, not a machine Studio ingest.
+  curriculum_studio.studio.integration_gateway -> primer_lms.lms_api.curriculum_consumer 'May later push JSON curriculum bundle (adapter unsettled)' {
+    #uncertainty
+    description '
+      Existing LMS import is POST /curriculum/import/plan and
+      /curriculum/import/apply under parent session auth. Whether the
+      Primer adapter pushes a Studio JSON bundle onto that surface,
+      LMS pulls Studio, or a new machine credential is added is not
+      decided. Modeled as uncertain so it is not treated as the
+      primary Phase 3 path (sync materialization API is).
+      Sources: primer-curriculum-studio-product-plan.md JSON bundle for
+      Primer; Phase 3 Primer adapter; AGENTS.md LMS Server.
+    '
+  }
+
+  primer_lms.lms_api -> primer_lms.lms_postgres 'Owns LMS relational state exclusively' {
+    description '
+      Source: AGENTS.md LMS Server schema. Shown so deployment views
+      can contrast Studio DB vs LMS DB with no cross edge.
+    '
+  }
+
+  primer_lms.lms_web -> primer_lms.lms_api 'Parent/admin HTTPS (existing LMS SPA)' {
+    description 'Source: AGENTS.md LMS Server Admin SPA.'
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "shape": "pagination",
+  "rest": {
+    "page_size": 2,
+    "totalCount": 5,
+    "items": ["a", "b", "c", "d", "e"]
+  },
+  "grpc": {
+    "page_size": 2,
+    "total": 5,
+    "items": ["a", "b", "c", "d", "e"]
+  }
+}

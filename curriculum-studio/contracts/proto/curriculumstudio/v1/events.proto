@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package curriculumstudio.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1;curriculumstudiov1";
+
+// EventType is the closed set of domain events Curriculum Studio publishes.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_CURRICULUM_CREATED = 1;
+  EVENT_TYPE_PLAN_REVISION_PUBLISHED = 2;
+  EVENT_TYPE_MATERIALIZATION_REQUESTED = 3;
+  EVENT_TYPE_MATERIALIZATION_READY = 4;
+  EVENT_TYPE_MATERIALIZATION_FAILED = 5;
+  EVENT_TYPE_MATERIALIZED_ITEM_SUPERSEDED = 6;
+  EVENT_TYPE_PLAN_CHANGE_PROPOSED = 7;
+}
+
+// DomainEvent is the webhook and event-stream payload.
+message DomainEvent {
+  // Event id (unique, used for at-least-once delivery dedupe).
+  string id = 1;
+  // Event type.
+  EventType type = 2;
+  // Owning workspace.
+  string workspace_id = 3;
+  // Related curriculum, when applicable.
+  string curriculum_id = 4;
+  // Related revision, when applicable.
+  string revision_id = 5;
+  // Related materialization, when applicable.
+  string materialization_id = 6;
+  // Related item, when applicable.
+  string item_id = 7;
+  // Occurred-at timestamp.
+  google.protobuf.Timestamp occurred_at = 8;
+  // Type-specific payload. Schema is versioned with this package.
+  google.protobuf.Struct data = 9;
+}
+
+// WebhookEndpoint is a subscriber Studio will POST events to.
+message WebhookEndpoint {
+  // Endpoint id.
+  string id = 1;
+  // Owning workspace.
+  string workspace_id = 2;
+  // HTTPS URL.
+  string url = 3;
+  // Event types to deliver. Empty means all types.
+  repeated EventType event_types = 4;
+  // True when deliveries are enabled.
+  bool enabled = 5;
+  // When created.
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// WebhookDelivery is one attempted POST.
+message WebhookDelivery {
+  // Delivery id.
+  string id = 1;
+  // Endpoint.
+  string endpoint_id = 2;
+  // Event.
+  string event_id = 3;
+  // HTTP status from the subscriber, 0 if no response.
+  int32 http_status = 4;
+  // Attempt count.
+  int32 attempt = 5;
+  // When attempted.
+  google.protobuf.Timestamp attempted_at = 6;
+}

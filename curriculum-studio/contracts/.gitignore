@@ -1,0 +1,9 @@
+# Generated protobuf and OpenAPI client outputs. Never commit these.
+gen/
+.tmp/
+# Pinned local protoc plugin cache (bootstrap_local_plugins.sh)
+.tmp/pinned-plugins/
+*.pb.go
+*_grpc.pb.go
+*.desc.binpb
+*.pb.bin

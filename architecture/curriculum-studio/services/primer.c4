@@ -1,0 +1,65 @@
+// Primer LMS — adjacent consumer. Modeled only at the integration boundary.
+
+model {
+  extend primer_lms {
+    lms_web = component 'Primer LMS admin SPA (browser)' {
+      #public
+      description '
+        Existing Vite/React parent/admin SPA. Product-owned by Primer LMS;
+        not a Studio surface. Authenticates today via LMS
+        POST /auth/login bearer sessions.
+        Source: AGENTS.md LMS Server (Admin SPA).
+      '
+    }
+
+    lms_api = service 'Primer LMS API' {
+      #public
+      description '
+        Existing independently deployed Go HTTP API. Owns students,
+        enrollments, mastery, assessments, instruction logs, and
+        live tutoring/session execution. Consumes Studio over HTTP.
+        Sources: AGENTS.md LMS Server; primer-curriculum-studio-product-plan.md
+        Product boundary and Primer integration contract.
+      '
+
+      learner_state = component 'Learner-state snapshot' {
+        #private
+        description '
+          Builds the materialization_context Primer supplies: learner
+          id/grade, mastery_summary, reinforcement_due, accommodations,
+          active projects, window, overrides. Authoritative mastery
+          stays in LMS.
+          Source: primer-curriculum-studio-product-plan.md Primer
+          supplies materialization_context.
+        '
+      }
+
+      curriculum_consumer = component 'Curriculum consumer' {
+        #private
+        description '
+          Calls Studio\'s synchronous materialization API and/or
+          converts a JSON session bundle into live tutor interactions.
+          Existing LMS import surface is POST /curriculum/import/plan
+          and /curriculum/import/apply (parent-guarded bundle ingest).
+          Whether Studio pushes to those endpoints, LMS pulls Studio,
+          or a new machine consumer is added is not settled.
+          Sources: primer-curriculum-studio-product-plan.md Curriculum
+          Studio returns materialization_bundle; Phase 3 Primer
+          integration; AGENTS.md LMS curriculum resources.
+        '
+      }
+
+      event_subscriber = component 'Studio event subscriber' {
+        #private
+        description '
+          Subscribes to Studio domain events / webhooks
+          (curriculum.created, plan_revision.published,
+          materialization.requested/ready/failed,
+          materialized_item.superseded, plan_change.proposed).
+          Optional; Studio must also work synchronously.
+          Source: primer-curriculum-studio-product-plan.md Domain events.
+        '
+      }
+    }
+  }
+}
