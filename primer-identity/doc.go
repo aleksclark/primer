@@ -3,6 +3,8 @@
 // Module path (frozen): github.com/aleksclark/primer/identity
 // Physical root: primer-identity/
 //
-// F0 establishes the module boundary only. Service binaries, OAuth/OIDC,
-// sessions, and JWKS land in later I* waves.
+// I1 delivers the service shell: cmd/identity-server, IDENTITY_ config,
+// embedded goose migrations (identity_goose_db_version), health/ready, and an
+// isolated Postgres test harness. OAuth/OIDC, accounts, JWKS, and sessions
+// land in later I* waves.
 package identity
