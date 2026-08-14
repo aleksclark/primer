@@ -1,0 +1,26 @@
+{
+  "version_table": "studio_goose_db_version",
+  "schema": "curriculum_studio",
+  "migrations": [
+    {
+      "file": "00001_identity_and_catalogs.sql",
+      "sha256": "de4733e46c181a3dcfbb4fa26d182625c91ab8a1a3b4c8030245644b43d2a81a",
+      "baseline_immutable_after_live": true
+    },
+    {
+      "file": "00002_plan_domain.sql",
+      "sha256": "8b7dab4a6d286b0fb1c49b6b9bff84d8ff065eb2a274b13f39089079ce5b8cea",
+      "baseline_immutable_after_live": true
+    },
+    {
+      "file": "00003_materialization_and_integration.sql",
+      "sha256": "c8e8d3503fd9e7812d4dfa8df005bf11e26144a4c6084be273d7cbee2618739f",
+      "baseline_immutable_after_live": true
+    },
+    {
+      "file": "00004_invariants.sql",
+      "sha256": "9cfccdf106d318694c017b8d857ecc80220e491743549d892d4c07d0965c8e9f",
+      "baseline_immutable_after_live": true
+    }
+  ]
+}

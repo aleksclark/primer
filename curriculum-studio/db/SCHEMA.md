@@ -9,6 +9,12 @@ If this schema ever shares a PostgreSQL *instance* with another Primer service,
 use a dedicated goose version table (`studio_goose_db_version`) and keep the
 `curriculum_studio` Postgres schema so public-table names cannot collide.
 
+**Migration freeze (D1):** files `00001`–`00004` are the immutable initial
+history. Checksums live in [`baseline_manifest.json`](baseline_manifest.json);
+policy in [`MIGRATION_POLICY.md`](MIGRATION_POLICY.md). Go migrator:
+`curriculum-studio/cmd/migrate` + `internal/db` (embeds this directory; do not
+duplicate SQL).
+
 ## Isolation rules
 
 - No foreign keys, views, materialized views, or FDW/dblink reads into LMS/TV.

@@ -24,12 +24,15 @@ curriculum-studio/
   README.md
   go.mod              # module root (F0)
   doc.go              # compile anchor (F0)
-  db/                 # standalone PostgreSQL schema + tests
+  Makefile            # module-local migrate / freeze / test targets
+  cmd/migrate/        # Studio-owned goose CLI (D1)
+  internal/db/        # migrator, config, freeze gate, Connect (D1)
+  db/                 # standalone PostgreSQL schema + tests + embed
   contracts/          # OpenAPI (authoring) + protobuf (integration)
 ```
 
-Service shell (`cmd/studio-server`, `internal/*`) lands in platform wave **S1**
-and later. F0 only freezes the module root.
+Service shell (`cmd/studio-server`) lands in platform wave **S1**. Persistence
+repositories and the testcontainers harness land in database wave **D2**.
 
 ## Database
 
@@ -37,15 +40,28 @@ The schema lives in [`db/`](db/):
 
 - [`db/SCHEMA.md`](db/SCHEMA.md) — table inventory, enums, invariant map
 - [`db/ERD.md`](db/ERD.md) — entity-relationship diagrams
-- [`db/migrations/`](db/migrations/) — PostgreSQL / goose migrations
+- [`db/migrations/`](db/migrations/) — PostgreSQL / goose migrations (**single SQL source**)
+- [`db/baseline_manifest.json`](db/baseline_manifest.json) — frozen sha256 inventory for 00001–00004
+- [`db/MIGRATION_POLICY.md`](db/MIGRATION_POLICY.md) — up/down and immutability policy
 - [`db/tests/`](db/tests/) — executable schema tests
 
 Curriculum Studio uses its own database (suggested name `curriculum_studio`)
-and, if it ever shares a PostgreSQL instance, the dedicated goose table
-`studio_goose_db_version`.
+and the dedicated goose table `studio_goose_db_version`. Domain tables live in
+the `curriculum_studio` schema only.
+
+**DSN:** `STUDIO_DATABASE_URL` only — never falls back to LMS `DATABASE_URL`.
+
+```bash
+export STUDIO_DATABASE_URL='postgres://studio:studio@127.0.0.1:5432/curriculum_studio?sslmode=disable'
+cd curriculum-studio
+go run ./cmd/migrate up
+go run ./cmd/migrate -check-freeze
+make test
+```
 
 Human memberships use `subject_ref = identity:<uuid>` (Primer Identity `sub`).
-Credentials are never stored here.
+Credentials are never stored here. Postgres is mandatory for durable Studio
+state (no in-memory production repositories).
 
 ## Contracts
 
