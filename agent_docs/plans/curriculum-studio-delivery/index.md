@@ -24,12 +24,13 @@ or merge `master` without explicit user authorization.
 | LikeC4 topology | Authored | [`../../../architecture/curriculum-studio/`](../../../architecture/curriculum-studio/) |
 | Studio contracts (hand) | Present | `curriculum-studio/contracts/` |
 | Studio DB migrations 00001–00004 | Present (design-time) | `curriculum-studio/db/` |
-| Platform phased plan | Present (18 phases) | [`../curriculum-studio-platform/`](../curriculum-studio-platform/) |
-| Contracts phased plan | Present (11 phases) | [`../curriculum-studio-contracts/`](../curriculum-studio-contracts/) |
+| Platform phased plan | Present (19 phases) | [`../curriculum-studio-platform/`](../curriculum-studio-platform/) |
+| Contracts phased plan | Present (12 phases) | [`../curriculum-studio-contracts/`](../curriculum-studio-contracts/) |
 | Database phased plan | Present (12 phases) | [`../curriculum-studio-database/`](../curriculum-studio-database/) |
 | Identity phased plan | Present (14 phases) | [`../primer-identity-service/`](../primer-identity-service/) |
-| Studio Go runtime / SPA | Missing | — |
-| Identity Go runtime | Missing | — |
+| MCP design | Decision-complete | [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-design.md) |
+| Studio Go runtime / SPA | Partial / missing product surfaces | `curriculum-studio/` foundation present; MCP not implemented |
+| Identity Go runtime | Missing / partial per tip | — |
 
 **This roadmap does not implement production code.** It assigns waves, ownership,
 dependencies, acceptance commands, review protocol, and stop gates.
@@ -73,6 +74,7 @@ dependencies, acceptance commands, review protocol, and stop gates.
 | R10 | Studio→LMS import push stays deferred. Primer integration primary path = **generated gRPC client** + webhooks/events. |
 | R11 | Plans are local-only. Implementation may commit locally; **no push/PR/master merge** without explicit user authorization. |
 | R12 | Foundation crosswalk auth table backticks fixed; detailed plans point here for orchestration. |
+| R13 | **MCP** is same Studio deployable, route `/mcp`, Streamable HTTP, spec `2026-07-28`, Go SDK `v1.7.0` (qualify API before mass build). Identity issues JWTs; Studio authorizes tools. No third service/DB. Waves **S19**, **C12**, **X7**. Do not renumber historical F0/PG1/PG2. Sequence: transport qual after S1/I3; read tools after S4–S8/D4–D6; mutations after S6–S8/D5/C8; publish confirmation after Identity/BFF milestones; final conformance before treating agent surface GA (and before over-claiming S15 as only machine path). |
 
 ---
 
@@ -89,9 +91,10 @@ dependencies, acceptance commands, review protocol, and stop gates.
 | SPA + BFF shell + planning MVP UI | Platform | `S9`–`S10` | Identity OP |
 | Materialization/workflow/export/outbox/Primer adapter | Platform | `S11`–`S15` | Identity DB |
 | Projects/collab/ops live | Platform | `S16`–`S18` | Live Google without approval |
-| Enum parity, buf gen, spikes, gRPC harness, Huma emission, clients, policy gates | Contracts | `C1`–`C11` | Business repos, SPA product features |
-| Goose freeze, pgx repos, UoW, leases, outbox tables, audit/ops DB | Database | `D1`–`D12` | Huma routes, Identity |
-| Identity OP, JWKS, Google RP, BFF contract, service principals, LMS/TV migration S0–S7 | Identity | `I1`–`I14` | Studio product authz roles |
+| Enum parity, buf gen, spikes, gRPC harness, Huma emission, clients, policy gates, MCP tool-schema/conformance | Contracts | `C1`–`C12` | Business repos, SPA product features |
+| Goose freeze, pgx repos, UoW, leases, outbox tables, audit/ops DB | Database | `D1`–`D12` | Huma routes, Identity, MCP transport |
+| Identity OP, JWKS, Google RP, BFF contract, service principals, LMS/TV migration S0–S7, MCP client/resource registration support | Identity | `I1`–`I14` | Studio product authz roles |
+| Streamable HTTP MCP `/mcp` adapter + tools | Platform | `S19` | Token mint; OpenAPI/proto authorship |
 
 Detailed BDD/E2E remain in the four plan directories. This roadmap only sequences and assigns.
 
@@ -155,6 +158,7 @@ Delivery is complete only when:
 - [Product plan](../primer-curriculum-studio-product-plan.md)
 - [Foundation crosswalk](../curriculum-studio-foundation-crosswalk.md)
 - [Identity design](../primer-identity-service-design.md)
+- [MCP design](../curriculum-studio-mcp-design.md)
 - [Platform plan](../curriculum-studio-platform/)
 - [Contracts plan](../curriculum-studio-contracts/)
 - [Database plan](../curriculum-studio-database/)

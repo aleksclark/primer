@@ -18,6 +18,7 @@ without an explicit decision commit.
 | L4 | Auth end-state: Google OIDC → Identity OP; stable `provider+sub`; **no email auto-link**; **host-only BFF cookies**; short-lived **single-audience** JWTs + JWKS; service JWT end-state. `X-Service-Token` is **migration-only**. | identity design, contracts |
 | L5 | TV **device** tokens remain TV-owned. Human TV admin **may** migrate to Identity. | identity design |
 | L6 | OpenAPI and protobuf have a **non-overlapping ownership split** (below). | contracts |
+| L7 | **MCP** is a third Studio surface on the **same** deployable (`/mcp`, Streamable HTTP). SoT = pinned official MCP spec + **code-defined tool schemas**. Not OpenAPI, not protobuf; no third DB/service. Identity issues JWTs; Studio authorizes tools. | MCP design, contracts, platform |
 
 ## Artifact map (canonical paths)
 
@@ -26,12 +27,14 @@ without an explicit decision commit.
 | Product plan | `agent_docs/plans/primer-curriculum-studio-product-plan.md` |
 | This crosswalk | `agent_docs/plans/curriculum-studio-foundation-crosswalk.md` |
 | Identity design | `agent_docs/plans/primer-identity-service-design.md` |
+| MCP design | `agent_docs/plans/curriculum-studio-mcp-design.md` |
 | LikeC4 model | `architecture/curriculum-studio/` |
 | Studio service root | `curriculum-studio/` |
 | Studio DB | `curriculum-studio/db/` |
 | Studio contracts | `curriculum-studio/contracts/` |
 | OpenAPI (authoring REST) | `curriculum-studio/contracts/openapi/v1/curriculum-studio.yaml` |
 | Protobuf (gRPC + integration) | `curriculum-studio/contracts/proto/curriculumstudio/v1/` |
+| MCP tools (agent) | Code-defined schemas beside `internal/mcp` (pinned MCP spec); not OpenAPI/proto |
 
 **Boundary move:** top-level `contracts/` was relocated under
 `curriculum-studio/contracts/` so the standalone service tree owns its API
@@ -55,12 +58,15 @@ no Studio credential columns.
 | --- | --- | --- | --- |
 | OpenAPI `…/curriculum-studio.yaml` | Hand-authored until Huma generates | Browser / Studio UI REST | Authoring CRUD, generic learner profile, run status, lock/edit, export, webhook CRUD, event **read** for UI |
 | Protobuf `curriculumstudio.v1` | Hand-authored | Primer and machine callers (gRPC) | `MaterializationContext`, `MaterializationBundle`, `DomainEvent`, integration RPCs, published-revision reads |
+| MCP Streamable HTTP `/mcp` | Pinned official MCP spec + **code-defined tool schemas** | Curriculum-planning agents (user-delegated or service) | Tool names, JSON Schema I/O, authz-filtered `tools/list`; adapters call app services — **no** OpenAPI/proto DTO mirror |
 
 **Parity rule:** shared closed enums (statuses, item kinds, event type strings,
 error codes) must match **wire string values** across OpenAPI, proto
 (after stripping enum prefix), and DB CHECK constraints. Integration payload
 **shapes** live only in protobuf — OpenAPI must not restate
 `MaterializationContext` / `MaterializationBundle` / full Primer context.
+MCP tool schemas must not become a fourth hand-maintained enum catalog; they
+reuse the same wire strings when exposing status fields.
 
 When a Huma server exists, OpenAPI is regenerated from handlers; this YAML is
 the compatibility baseline until then.
@@ -83,9 +89,10 @@ Identity authenticates; Studio authorizes via `workspace_memberships`.
 
 | Caller | End-state header | Migration alias | Validation |
 | --- | --- | --- | --- |
-| Human (via product BFF) | `Authorization: Bearer <JWT>` | — | Local JWKS; `aud` = product (`curriculum-studio` / `primer-lms`); short TTL |
-| Service | `Authorization: Bearer <JWT>` | `X-Service-Token: <JWT>` (discouraged) then legacy static until S7 | Same JWT rules; static path dual-accept then remove |
-| gRPC | metadata `authorization: Bearer <JWT>` | no second scheme | Same |
+| Human (via product BFF) | `Authorization: Bearer` + JWT | — | Local JWKS; `aud` = product (`curriculum-studio` / `primer-lms`); short TTL |
+| Service | `Authorization: Bearer` + JWT | `X-Service-Token` JWT (discouraged) then legacy static until S7 | Same JWT rules; static path dual-accept then remove |
+| gRPC | metadata `authorization: Bearer` + JWT | no second scheme | Same |
+| MCP agent client | `Authorization: Bearer` + JWT on every `/mcp` request | none | Same JWKS/`aud=curriculum-studio`; workspace authz on every tool + opaque handle; MCP never mints tokens |
 
 Studio never issues login sessions or stores passwords. Browser sessions are
 **host-only BFF cookies** on Studio / LMS / Identity origins — never
@@ -167,11 +174,13 @@ Proto `EventType` maps 1:1 (`EVENT_TYPE_CURRICULUM_CREATED` → `curriculum.crea
 | Flow | Direction | Transport | Payload SoT | Notes |
 | --- | --- | --- | --- | --- |
 | Authoring CRUD | UI → Studio API | HTTPS REST OpenAPI | OpenAPI | BFF cookie → access JWT |
+| Agent curriculum planning | MCP client → Studio `/mcp` | HTTPS Streamable HTTP MCP | MCP tool schemas (code) + MCP spec | Per-request Bearer JWT; opaque draft IDs; no implicit MCP sessions |
 | Sync materialize | LMS → Studio | gRPC (primary) / future machine HTTPS | protobuf | Context in, bundle out |
 | Domain events | Studio → subscribers (LMS optional) | Webhook POST + outbox | protobuf `DomainEvent` | Studio works without subscribers |
 | JWT validate | Studio/LMS → Identity | HTTPS JWKS fetch | Identity | No login hop on API path |
 | Interactive login | Browser → Identity (via BFF) | OIDC auth code + PKCE | Identity | Host-only cookies |
 | Service credentials | Caller → Identity token endpoint | client_credentials | Identity | Replaces static secrets |
+| MCP client tokens | MCP client → Identity (AS) | OAuth as required by MCP client + protected-resource metadata | Identity | Studio may advertise resource metadata pointing at Identity; never mints tokens |
 | Artifacts | Studio modules → object store | SDK/API | refs in Studio DB | Bytes not in Postgres |
 | LMS import push | Studio → LMS import | **Deferred** | — | Existing LMS import is parent-session; not Phase-3 primary path |
 
@@ -250,6 +259,7 @@ BDD/E2E source of truth.
 1. Product plan (boundary and phases)
 2. **This crosswalk** (vocabulary / ownership / flows)
 3. Identity design (auth mechanics)
-4. LikeC4 (topology)
-5. `curriculum-studio/contracts` + `curriculum-studio/db` (wire + storage)
-6. Delivery roadmap (wave order / ownership / gates)
+4. MCP design (Streamable HTTP agent endpoint)
+5. LikeC4 (topology)
+6. `curriculum-studio/contracts` + `curriculum-studio/db` (wire + storage)
+7. Delivery roadmap (wave order / ownership / gates)

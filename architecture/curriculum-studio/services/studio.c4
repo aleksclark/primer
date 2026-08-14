@@ -125,6 +125,23 @@ model {
           auth presentation; Internal modules (Integration gateway).
         '
       }
+
+      mcp_adapter = component 'MCP adapter (Streamable HTTP)' {
+        #public
+        description '
+          Authenticated Streamable HTTP MCP endpoint at /mcp on the same
+          Studio deployable (not under REST /studio/v1). Tools-only
+          capability set; JSON-RPC POST with JSON or request-scoped SSE;
+          no implicit MCP protocol sessions — opaque draft/resource IDs
+          across calls. Validates Identity JWTs (aud=curriculum-studio)
+          per request; authorization-filters tools; calls the same plan/
+          standards/resources/validation/publish application services as
+          REST/gRPC. Never raw repositories, never a third DB, never a
+          token issuer. Publish requires human confirmation/step-up.
+          Sources: curriculum-studio-mcp-design.md; platform phase-19;
+          contracts phase-12; foundation crosswalk L7.
+        '
+      }
     }
   }
 }

@@ -48,6 +48,24 @@ model {
     '
   }
 
+  curriculum_planning_agent -> identity_service 'Obtains user-delegated or service access JWT (OAuth / client_credentials as required)' {
+    description '
+      MCP clients never mint Studio tokens. Identity is the authorization
+      server; audience curriculum-studio; MCP scopes as registered.
+      Studio may advertise protected-resource metadata pointing at Identity.
+      Sources: curriculum-studio-mcp-design.md M7–M8;
+      primer-identity-service-design.md §8.3.1.
+    '
+  }
+
+  curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter 'Streamable HTTP MCP tools (discover, draft, validate, propose publish)' {
+    description '
+      Single /mcp endpoint; Bearer JWT per request; tools call Studio
+      domain services; human confirmation for publish.
+      Source: curriculum-studio-mcp-design.md; product plan Agent MCP surface.
+    '
+  }
+
   curriculum_studio.studio_ui -> identity_service 'OIDC authorize / BFF token acquisition' {
     description '
       Browser UI uses the Studio BFF as confidential client. Host-only

@@ -303,9 +303,22 @@ flowchart TD
 | Materialization domain | Runs, snapshots, generated items, provenance |
 | Agent workflow runner | Decomposition, sequencing, generation, critique |
 | Export service | PDF, DOCX, Markdown, JSON |
-| Integration gateway | API keys, events, webhooks, Primer adapter |
+| Integration gateway | Events, webhooks, Primer adapter, machine JWT validation |
+| MCP adapter | Authenticated Streamable HTTP MCP (`/mcp`) for curriculum-planning agents; tools call the same domain services as REST/gRPC |
 
 These can become separate services only when scaling or ownership pressure justifies it.
+
+### Agent MCP surface (planning agents)
+
+External curriculum-planning agents connect to Curriculum Studio over **Streamable HTTP MCP** on the **same** Studio deployable:
+
+- Endpoint: dedicated `/mcp` (not under REST `/studio/v1`); HTTPS in production
+- Auth: per-request Bearer JWT from Primer Identity (`aud=curriculum-studio`); MCP never issues tokens
+- Tools: workspace/curriculum discovery, standards/resource search, draft create, plan-graph read/patch, validate/findings, publish proposal; **publish/share/export destructive paths require human confirmation**
+- Continuity: explicit opaque draft/resource IDs across calls — no implicit MCP protocol sessions in the initial revision
+- Ownership detail: [`curriculum-studio-mcp-design.md`](./curriculum-studio-mcp-design.md)
+
+MCP is a first-class **agent entrypoint** for draft planning on behalf of an authorized user. It does not replace the Studio UI governance loop or the Primer gRPC materialization contract.
 
 ## Agent workflow design
 
@@ -394,6 +407,16 @@ At this point, it becomes a genuinely useful teacher product.
 - Plan templates
 - Organization-specific standards and policies
 - Selective curriculum sharing
+
+### Phase 6: Authenticated MCP for planning agents
+
+- Streamable HTTP MCP endpoint on the Studio deployable (`/mcp`)
+- Identity-issued user/service JWTs; workspace-scoped tool authz
+- Draft planning tools for agents (discover, search, graph patch, validate)
+- Human-in-the-loop publish confirmation (never silent publish)
+- Conformance with official MCP client + one external Streamable HTTP client
+
+Detailed decisions: [`curriculum-studio-mcp-design.md`](./curriculum-studio-mcp-design.md). Platform Phase 19 / contracts Phase 12 / delivery waves `S19`/`C12`/`X7`.
 
 ## Most important product decision
 

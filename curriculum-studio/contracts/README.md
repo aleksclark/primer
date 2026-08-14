@@ -19,12 +19,16 @@ One non-duplicative rule:
 | --- | --- | --- |
 | `openapi/v1/curriculum-studio.yaml` | Hand-authored OpenAPI 3.1 | Browser / public authoring REST |
 | `proto/curriculumstudio/v1/*.proto` | Hand-authored protobuf | Primer and other services (gRPC) |
+| Studio MCP `/mcp` | Pinned official MCP spec + **code-defined tool schemas** beside `internal/mcp` | Curriculum-planning agents |
 
 **Do not maintain overlapping DTOs.** Integration payloads from the product
 plan (`MaterializationContext`, `MaterializationBundle`, `DomainEvent`) live
 only in protobuf. Authoring REST may expose a *subset* needed by the Studio
 UI (generic learner profile, run status, lock/edit, export, webhook CRUD)
-but must not restate the Primer context/bundle schema.
+but must not restate the Primer context/bundle schema. MCP tool JSON Schemas
+must not mirror OpenAPI or protobuf message catalogs; adapters map to the
+same application services. See
+`agent_docs/plans/curriculum-studio-mcp-design.md` and contracts plan Phase 12.
 
 **Parity rule:** closed enum **wire strings** (statuses, item kinds, event
 type names, error codes) must match across OpenAPI, protobuf (suffix after

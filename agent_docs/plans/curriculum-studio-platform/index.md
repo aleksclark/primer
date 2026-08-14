@@ -135,8 +135,9 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 | [Phase 16: Projects integrated](./phase-16-projects-integrated.md) | Multi-subject projects, phases, off-screen activities, tool requirements | Phases 12–13 |
 | [Phase 17: Collaborative authoring](./phase-17-collaborative-authoring.md) | Comments/approvals, revision diff, templates, sharing policies | Phases 10, 16 |
 | [Phase 18: Deploy ops live gates](./phase-18-deploy-ops-live-gates.md) | Nomad/Docker packaging, runbooks; **BLOCKED** live Google/model/deploy proof | Phases 15–17 |
+| [Phase 19: Streamable HTTP MCP endpoint](./phase-19-streamable-http-mcp.md) | Authenticated `/mcp` tools for curriculum-planning agents; same domain services; human publish confirmation | Phases 1–8 (full tools); authz Phase 2; Identity JWKS/BFF/service for prod-auth; contracts Phase 12 for conformance |
 
-**Parallelism notes:** Phases 4 and 5 may proceed in parallel after Phase 3. Phase 9 may start after Phase 3 and track API growth. Phase 14 may begin after Phase 8 for plan events and extend when materialization events exist.
+**Parallelism notes:** Phases 4 and 5 may proceed in parallel after Phase 3. Phase 9 may start after Phase 3 and track API growth. Phase 14 may begin after Phase 8 for plan events and extend when materialization events exist. Phase 19 transport qualification may start after Phases 1–2; read tools after 3–5/7; mutation tools after 6–8; publish confirmation after Identity/BFF milestones; final MCP conformance before claiming agent GA (delivery X7), and should complete before treating S15 as the sole agent/machine surface narrative.
 
 ---
 
@@ -211,6 +212,7 @@ Open blockers filed in phase gates when sibling outputs are absent.
 | W6 | 14–15 | Events + Primer |
 | W7 | 16–17 | Projects + collab |
 | W8 | 18 | Deploy + live BLOCKED items |
+| W9 | 19 | Streamable HTTP MCP endpoint |
 
 Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 
@@ -296,6 +298,13 @@ Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 | OPS-3 | Live Google OIDC proof | 18 | P18-S3 | P18-E3 |
 | OPS-4 | Live model provider proof | 18 | P18-S4 | P18-E4 |
 | OPS-5 | Production deploy smoke | 18 | P18-S5 | P18-E5 |
+| MCP-1 | Streamable HTTP `/mcp` initialize + deterministic authz-filtered tools/list | 19 | P19-S1 | P19-E1 |
+| MCP-2 | Read tools via app services (workspaces/curricula/standards/resources) | 19 | P19-S2 | P19-E2 |
+| MCP-3 | Draft create + optimistic/idempotent graph patch | 19 | P19-S3 | P19-E3, P19-E4 |
+| MCP-4 | Validate + findings + audit | 19 | P19-S4 | P19-E10 |
+| MCP-5 | Publish propose/confirm human-in-loop (never silent) | 19 | P19-S5 | P19-E5 |
+| MCP-6 | JWT aud/IDOR/Origin/protocol negatives + cancel | 19 | P19-S6, P19-S7 | P19-E6, P19-E7, P19-E9 |
+| MCP-7 | Official SDK + external Streamable HTTP client | 19 | P19-S8 | P19-E1, P19-E8 |
 
 ---
 
@@ -304,12 +313,14 @@ Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 Authoritative wave order, ownership, and acceptance commands:
 [`../curriculum-studio-delivery/`](../curriculum-studio-delivery/).
 This plan remains the detailed BDD/E2E source for platform phases.
+MCP design decisions: [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-design.md).
 
 ## References
 
 - [Product plan](../primer-curriculum-studio-product-plan.md)
 - [Foundation crosswalk](../curriculum-studio-foundation-crosswalk.md)
 - [Identity design](../primer-identity-service-design.md)
+- [MCP design](../curriculum-studio-mcp-design.md)
 - [Architecture README](../../../architecture/curriculum-studio/README.md)
 - [Studio README](../../../curriculum-studio/README.md)
 - [Contracts README](../../../curriculum-studio/contracts/README.md)

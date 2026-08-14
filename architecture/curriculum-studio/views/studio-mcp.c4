@@ -1,0 +1,32 @@
+views {
+  view studio_mcp {
+    title 'Curriculum Studio MCP (Streamable HTTP)'
+    description '
+      External curriculum-planning agents obtain JWTs from Primer Identity
+      and call Studio MCP adapter at /mcp. Tools invoke plan, standards,
+      resources, and validation modules; audit/idempotency land in Studio
+      Postgres only. No LMS DB edge. No MCP token issuer on Studio.
+      Sources: curriculum-studio-mcp-design.md; foundation crosswalk L7;
+      platform phase-19; identity design §8.3.1.
+    '
+    include curriculum_planning_agent
+    include identity_service
+    include curriculum_studio.studio
+    include curriculum_studio.studio.mcp_adapter
+    include curriculum_studio.studio.plan_domain
+    include curriculum_studio.studio.standards_catalog
+    include curriculum_studio.studio.resource_catalog
+    include curriculum_studio.studio.validation_engine
+    include curriculum_studio.postgres
+    include curriculum_planning_agent -> identity_service
+    include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
+    include curriculum_studio.studio.mcp_adapter -> identity_service
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.plan_domain
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.standards_catalog
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.resource_catalog
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.validation_engine
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.postgres
+    include curriculum_studio.studio.plan_domain -> curriculum_studio.postgres
+    autoLayout TopBottom
+  }
+}

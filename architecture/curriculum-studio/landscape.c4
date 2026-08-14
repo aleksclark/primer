@@ -30,6 +30,18 @@ model {
     '
   }
 
+  curriculum_planning_agent = actor 'Curriculum-planning agent' {
+    description '
+      External MCP client (Hermes, mcporter, or equivalent agent runtime)
+      that plans curriculum on behalf of an authorized user or service
+      principal. Connects to Studio Streamable HTTP MCP at /mcp with a
+      Primer Identity Bearer JWT (aud=curriculum-studio). Not a Studio
+      deployable and not a token issuer.
+      Sources: curriculum-studio-mcp-design.md; primer-curriculum-studio-product-plan.md
+      Agent MCP surface; foundation crosswalk L7.
+    '
+  }
+
   identity_service = softwareSystem 'Primer Identity' {
     #external
     #trustBoundary

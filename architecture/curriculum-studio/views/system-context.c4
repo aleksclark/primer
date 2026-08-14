@@ -11,6 +11,7 @@ views {
     include teacher
     include homeschool_parent
     include curriculum_author
+    include curriculum_planning_agent
     include identity_service
     include model_providers
     include primer_lms
@@ -21,6 +22,8 @@ views {
     include teacher -> identity_service
     include homeschool_parent -> identity_service
     include curriculum_author -> identity_service
+    include curriculum_planning_agent -> identity_service
+    include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
     include primer_lms -> curriculum_studio
     include curriculum_studio -> primer_lms
     include curriculum_studio.studio -> model_providers

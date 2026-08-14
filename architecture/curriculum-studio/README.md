@@ -13,7 +13,8 @@ Workspace path: `architecture/curriculum-studio/`
 | `agent_docs/plans/primer-curriculum-studio-product-plan.md` | Product boundary, modules, Primer contract, events |
 | `agent_docs/plans/curriculum-studio-foundation-crosswalk.md` | **Authoritative** vocabulary, ownership, auth, enum crosswalk |
 | `agent_docs/plans/primer-identity-service-design.md` | Decided Primer Identity boundaries and JWT/BFF mechanics |
-| `curriculum-studio/contracts/` | OpenAPI + protobuf wire contracts |
+| `agent_docs/plans/curriculum-studio-mcp-design.md` | Streamable HTTP MCP endpoint decisions |
+| `curriculum-studio/contracts/` | OpenAPI + protobuf wire contracts (+ MCP third-surface policy) |
 | `curriculum-studio/db/` | Standalone Studio PostgreSQL schema |
 | `AGENTS.md` | Existing LMS/TV independently deployed services, separate PostgreSQL |
 
@@ -40,6 +41,7 @@ architecture/curriculum-studio/
   views/primer-integration.c4
   views/data-ownership.c4
   views/auth-trust.c4
+  views/studio-mcp.c4
   README.md
 ```
 
@@ -52,7 +54,7 @@ LikeC4 recursively merges `*.c4` in this directory.
    `plan → validate → materialize → edit → publish → export` loop.
 2. **One deployable service + modules.** Internal plan / standards /
    resources / validation / materialization / agent runner / export /
-   integration-gateway modules are components, not a service fleet.
+   integration-gateway / **MCP adapter** modules are components, not a service fleet.
 3. **Browser UI is owned by Studio** but executes outside the Go
    process. It is not a peer `softwareSystem`.
 4. **Separate PostgreSQL and artifact/object store.** No direct
@@ -69,6 +71,10 @@ LikeC4 recursively merges `*.c4` in this directory.
 8. **Contracts live under the Studio service tree** at
    `curriculum-studio/contracts/` (OpenAPI authoring vs protobuf
    integration ownership split).
+9. **MCP Streamable HTTP** is a same-deployable agent surface at `/mcp`
+   (crosswalk L7). External curriculum-planning agents obtain tokens
+   from Identity and call `mcp_adapter`; tools use domain modules;
+   Studio Postgres only; no third service/DB.
 
 ## Pinned CLI
 
@@ -91,11 +97,12 @@ them.
 
 | View ID | Concern |
 | --- | --- |
-| `studio_system_context` | Authors, Studio, Identity, model providers, Primer |
-| `studio_containers` | Studio UI, service modules, DB, artifact store |
+| `studio_system_context` | Authors, Studio, Identity, model providers, Primer, planning agent |
+| `studio_containers` | Studio UI, service modules (incl. MCP adapter), DB, artifact store |
 | `primer_integration` | Sync materialization API + async events |
 | `data_ownership_deployment` | Separate DBs, no cross-DB edges |
-| `auth_trust` | Decided Identity trust boundaries (JWKS, BFF, no shared DB) |
+| `auth_trust` | Decided Identity trust boundaries (JWKS, BFF, MCP, no shared DB) |
+| `studio_mcp` | Focused MCP agent → Identity → mcp_adapter → domain → Studio DB |
 
 LikeC4 may also emit a generated `index` view.
 
@@ -109,9 +116,12 @@ are not proof):
 - `curriculum_studio.studio` → `primer_lms.lms_api` (events/callbacks)
 - `curriculum_studio.studio` → `curriculum_studio.postgres`
 - `curriculum_studio.studio.curriculum_api` → `identity_service` (JWKS)
+- `curriculum_studio.studio.mcp_adapter` → `identity_service` (JWKS)
+- `curriculum_planning_agent` → `curriculum_studio.studio.mcp_adapter`
 - `curriculum_studio.studio_ui` → `identity_service` (OIDC/BFF)
 - **Absence** of `curriculum_studio.*` → `primer_lms.lms_postgres`
 - **Absence** of `primer_lms.*` → `curriculum_studio.postgres`
+- **Absence** of MCP path → LMS Postgres (positive isolation)
 
 ## Out of scope
 

@@ -62,6 +62,8 @@ Every wave:
 | G-studio-test | `make studio-test` | S*/D* after harness |
 | G-studio-cover | `make studio-cover` (**≥85%**) | first Studio cover gate onward |
 | G-studio-e2e | `make studio-e2e` / `make studio-e2e-go` | UI/process E2E waves |
+| G-studio-mcp | `make studio-mcp-e2e` (official SDK + negatives) | S19 / C12 / X7 |
+| G-studio-mcp-ext | `make studio-mcp-external-e2e` (Hermes/mcporter or equiv.) | S19 / C12 / X7 |
 | G-identity-test | `make identity-test` | I* after shell |
 | G-identity-oauth | `make identity-test-oauth` | I4–I10 adversarial |
 | G-identity-e2e | `make identity-e2e` | I* process |
@@ -132,6 +134,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **C9** | Events + webhook envelope conformance | Contracts | [phase-09](../curriculum-studio-contracts/phase-09-events-webhooks.md) | C5, C8 | PG7c | `impl/C9-events` | envelope tests | — |
 | **C10** | Compatibility + exclusive-use + clean-checkout gates | Contracts | [phase-10](../curriculum-studio-contracts/phase-10-compatibility-and-policy-gates.md) | C4–C9 | PG8c | `impl/C10-policy-gates` | planted reds | — |
 | **C11** | Full contract conformance E2E matrix | Contracts | [phase-11](../curriculum-studio-contracts/phase-11-conformance-e2e.md) | C10 | PG9c | `impl/C11-conformance` | matrix green | — |
+| **C12** | MCP protocol + tool-schema conformance (official + external client) | Contracts | [phase-12](../curriculum-studio-contracts/phase-12-mcp-protocol-tool-schemas.md); [MCP design](../curriculum-studio-mcp-design.md) | C8+; runtime hard on S19 transport | PG-MCP | `impl/C12-mcp-conformance` | official SDK + external client matrix; no OpenAPI/proto DTO mirror | **HARD** if custom transport invented |
 
 ### 3.5 Platform track (`S*`)
 
@@ -155,6 +158,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **S16** | Projects integrated | Platform | [phase-16](../curriculum-studio-platform/phase-16-projects-integrated.md) | S12–S13 | PG13 | `impl/S16-projects` | G-studio-test | — |
 | **S17** | Collaborative authoring | Platform | [phase-17](../curriculum-studio-platform/phase-17-collaborative-authoring.md) | S10, S16 | PG14 | `impl/S17-collab` | G-studio-e2e | — |
 | **S18** | Deploy/ops; live Google/model/deploy BLOCKED | Platform | [phase-18](../curriculum-studio-platform/phase-18-deploy-ops-live-gates.md) | S15–S17 | PG15 | `impl/S18-ops-live` | packaging gates; live **BLOCKED** | needs user approval |
+| **S19** | Streamable HTTP MCP `/mcp` tools (authz-filtered; human publish confirm) | Platform | [phase-19](../curriculum-studio-platform/phase-19-streamable-http-mcp.md); [MCP design](../curriculum-studio-mcp-design.md) | S1+S2 for transport qual; S3–S8 + D4–D6/D5/D11 for full tools; I3 (and I7/I8/I12 for prod-auth + MCP client/resource); C12 for conformance claim | PG-MCP | `impl/S19-mcp-endpoint` | G-studio-test; `make studio-mcp-e2e`; Origin/aud/IDOR/idempotency/publish negatives | never mint tokens; never silent publish |
 
 ### 3.6 Cross-cutting integration gates (`X*`)
 
@@ -166,6 +170,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **X4** | Contract conformance + platform handlers aligned | C11, S8+, S15 | C11 matrix + platform E2E |
 | **X5** | Fail-open secrets closed pre-S7 | I13 | SharedSecretGuard empty secret fails closed |
 | **X6** | Local integration tip green (no remote) | all non-BLOCKED through S15 + I12 | local `impl/cs-local` build/test matrix |
+| **X7** | MCP agent surface GA gate (transport + tools + conformance) | S19, C12, I3; publish-confirm path needs I7/I12 as applicable; prefer before over-claiming S15-only machine narrative | official + external clients; MCP-T1–T12 design matrix; no third DB |
 
 ---
 
@@ -193,9 +198,21 @@ F0
     → S14 (S8+S11+D11+C9)
     → S15 (S12–S14+C5/C11+I8+I12)
     → S16 → S17 → S18
+    → S19 MCP (after S1/S2+I3 transport; S3–S8/D4–D6 tools; I7/I12 publish-confirm; C12 conformance ∥)
+       ↘ X7 (S19+C12)
+
+C12 documents SoT anytime after C8; runtime conformance hard on S19.
 ```
 
 `C6*` needs S1 openapi-gen host hooks (SOFT: contracts may ship emission against harness handlers first).
+
+**MCP sequencing (stable; do not renumber F0/PG1/PG2 history):**
+
+1. Transport qualification: after **S1** + **I3** (JWKS) — spike SDK `v1.7.0` Streamable HTTP stateless handler.
+2. Read tools: after **S4–S8** domain readiness and **D4–D6** persistence (workspaces/catalogs/plan/validate as needed).
+3. Mutation tools: after **S6–S8**, **D5**, **C8** (idempotency/error semantics).
+4. Publish confirmation: after Identity/BFF milestones (**I7**, **I12**) + **S8** publish path.
+5. Final conformance (**C12**/**X7**): before claiming MCP GA; coordinate relative to **S15** so Primer gRPC is not described as the only machine/agent path once MCP is in scope.
 
 ---
 
@@ -214,6 +231,7 @@ F0
 | **PG8** | I10–I11, S9–S10, D9–D11, C10 | MVP UI + persistence depth |
 | **PG9** | I12, X3, D12, C11, S11 | Studio↔Identity joint |
 | **PG10+** | S12–S18, I13–I14, X4–X6 | materialize → Primer → migrations |
+| **PG-MCP** | S19, C12, X7 | After S1/I3 for spike; full tools after S8/D5; publish-confirm after I7/I12; do not reorder PG0–PG2 history |
 
 ---
 
@@ -241,6 +259,7 @@ F0
 | 16 Projects | S16 |
 | 17 Collab | S17 |
 | 18 Deploy/live | S18 |
+| 19 Streamable HTTP MCP | S19, X7 |
 
 ### Contracts → waves
 
@@ -257,6 +276,7 @@ F0
 | 9 Events/webhooks | C9 |
 | 10 Policy gates | C10 |
 | 11 Conformance E2E | C11, X4 |
+| 12 MCP protocol/tool schemas | C12, X7 |
 
 ### Database → waves
 
@@ -317,7 +337,9 @@ F0
 | gRPC server harness | **C5** |
 | gRPC production wiring + Primer adapter | **S15** |
 | Generated gRPC/REST clients | **C4, C7** |
-| Identity OP / JWKS / Google / LMS cutover | **I\*** |
+| MCP tool schemas + MCP conformance harness | **C12** |
+| MCP `/mcp` adapter + tool wiring | **S19** |
+| Identity OP / JWKS / Google / LMS cutover / MCP client+resource registration | **I*** |
 
 ---
 

@@ -100,7 +100,7 @@ deterministic from a clean checkout.
 
 | ID | Decision | Rationale |
 | --- | --- | --- |
-| D1 | **Non-overlap ownership:** OpenAPI owns browser/public authoring REST; protobuf owns Primer/machine integration payloads and `CurriculumIntegrationService`. | Crosswalk L6; contracts README |
+| D1 | **Non-overlap ownership:** OpenAPI owns browser/public authoring REST; protobuf owns Primer/machine integration payloads and `CurriculumIntegrationService`; **MCP owns agent tool schemas** (pinned MCP spec + code-defined JSON Schema) on `/mcp`. | Crosswalk L6–L7; MCP design |
 | D2 | **Proto-first exception for gRPC:** `.proto` is SoT for integration RPC/types; generated stubs are build-only; clients are exclusive. | generated-api-client-architecture explicit-IDL exception |
 | D3 | **Huma signature-derived OpenAPI for authoring:** once Studio HTTP handlers exist, offline `openapi-gen` (Studio builder) emits OpenAPI; hand YAML becomes **immutable compatibility baseline**, not a live second source. | Matches LMS `server/cmd/openapi-gen`; contracts README handoff clause |
 | D4 | **Boundary DTOs live at the edge:** Huma request/response/error structs (authoring) and proto messages (integration) are the only wire models; domain/persistence types map inside adapters — never exported as public DTOs. | Prevents ORM/domain leakage and dual catalogs |
@@ -153,8 +153,9 @@ deterministic from a clean checkout.
 | [Phase 9: Domain events and webhook envelopes](./phase-09-events-webhooks.md) | Event envelope, pull/ack, webhook CRUD/delivery headers conformance | Phase 5, 8 |
 | [Phase 10: Compatibility, exclusive-use, clean-checkout gates](./phase-10-compatibility-and-policy-gates.md) | Breaking gates, raw-transport bans, no-tracked-gen, determinism, planted reds | Phase 4–9 |
 | [Phase 11: Full contract conformance E2E matrix](./phase-11-conformance-e2e.md) | End-to-end matrix across REST+gRPC with real clients; plan completion evidence | Phase 10 |
+| [Phase 12: MCP protocol, tool schemas, and conformance](./phase-12-mcp-protocol-tool-schemas.md) | Third surface SoT (MCP spec + code tool schemas); official + external Streamable HTTP client matrix | Phase 8+ patterns; platform MCP handler for runtime proof |
 
-Phases 4 and 6 may proceed in parallel after Phase 3 PROCEED. Phase 5 needs Phase 4. Phase 7 needs Phase 6. Phase 8 needs both surfaces.
+Phases 4 and 6 may proceed in parallel after Phase 3 PROCEED. Phase 5 needs Phase 4. Phase 7 needs Phase 6. Phase 8 needs both surfaces. Phase 12 may document SoT/inventory in parallel with platform Phase 19 spike; runtime conformance is hard-gated on `/mcp`.
 
 ---
 
@@ -239,6 +240,15 @@ Every requirement ID appears in ≥1 phase BDD scenario and ≥1 E2E ID.
 | REQ-E2E-1 | Full REST+gRPC conformance matrix | P11-S1, P11-S2, P11-S3, P11-S4 | E11-01, E11-02, E11-03, E11-04 |
 | REQ-E2E-2 | Traceability coverage JSON complete | P11-S5 | E11-05 |
 | REQ-E2E-3 | Plan completion evidence + LMS client compile sample | P11-S6 | E11-06, E11-07 |
+| REQ-MCP-1 | MCP third-surface SoT (spec + code schemas; no OpenAPI/proto DTO mirror) | P12-S1 | E12-01 |
+| REQ-MCP-2 | Frozen tool inventory + deterministic authz-filtered list | P12-S2 | E12-02 |
+| REQ-MCP-3 | Official Go SDK Streamable HTTP conformance tour | P12-S3 | E12-03 |
+| REQ-MCP-4 | External Streamable HTTP client interoperability | P12-S4 | E12-04 |
+| REQ-MCP-5 | Protocol version / Origin / header negatives | P12-S5 | E12-05 |
+| REQ-MCP-6 | Wrong audience + IDOR handle fail-closed | P12-S6 | E12-06 |
+| REQ-MCP-7 | Idempotent patch, concurrent conflict, publish confirmation | P12-S7 | E12-07, E12-08 |
+| REQ-MCP-8 | Disconnect/cancel semantics | P12-S8 | E12-09 |
+| REQ-MCP-9 | REQ-MCP coverage matrix complete | P12-S9 | E12-10 |
 
 ---
 
@@ -246,7 +256,7 @@ Every requirement ID appears in ≥1 phase BDD scenario and ≥1 E2E ID.
 
 The plan is complete only when:
 
-1. All phases 1–11 Completion Gates are checked with real command evidence.
+1. All phases 1–12 Completion Gates are checked with real command evidence (Phase 12 runtime rows may share evidence with platform Phase 19).
 2. Traceability matrix rows are green (BDD + E2E IDs observed).
 3. Clean-checkout T10 passes with empty `gen/` at start and clean git status at end.
 4. No tracked files under generated paths; raw Studio transport ban lint is green.
@@ -254,6 +264,7 @@ The plan is complete only when:
 6. Hand OpenAPI is not a live second source (handoff complete or explicitly still baseline-only with Huma emission matching it within tolerance and consumers on generated clients).
 7. Cross-plan interface appendix is published and no ownership bleed into DB/Identity/LMS business plans.
 8. Live Identity OP and full materialization agents remain explicitly **not claimed**.
+9. MCP surface does not duplicate OpenAPI/proto DTOs; official + external client proofs exist or are explicitly BLOCKED with named dependency.
 
 ---
 
@@ -261,10 +272,12 @@ The plan is complete only when:
 
 Wave order and exclusive ownership of codegen vs handlers:
 [`../curriculum-studio-delivery/`](../curriculum-studio-delivery/).
-This plan owns enum parity, protobuf/OpenAPI lifecycle, and contract harnesses — not business repos or SPA.
+This plan owns enum parity, protobuf/OpenAPI lifecycle, contract harnesses, and **MCP tool-schema/conformance** — not business repos or SPA.
+MCP design: [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-design.md).
 
 ## 10. Rollback posture
 
 - Each phase keeps the repository buildable; prefer feature flags only for migration alias headers, not for dual contract sources.
 - If Huma emission diverges from baseline incompatibly, **stop handoff** (Phase 7), keep baseline authoritative, open a spike fix — do not dual-write fields in both forever.
 - Compatibility baseline corruption → restore from last green CI artifact; never silently skip breaking checks.
+- MCP conformance failures must not be “fixed” by weakening REST/gRPC gates.

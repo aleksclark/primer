@@ -37,6 +37,41 @@ model {
     description 'Source: primer-curriculum-studio-product-plan.md Internal modules Integration gateway.'
   }
 
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.plan_domain 'Draft create, graph read/patch, publish propose/confirm via app services' {
+    description '
+      MCP tools never bypass plan domain invariants (immutability, optimistic
+      concurrency). Source: curriculum-studio-mcp-design.md M12; platform phase-19.
+    '
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.standards_catalog 'Standards search tools' {
+    description 'Source: curriculum-studio-mcp-design.md tool inventory.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.resource_catalog 'Resource search tools' {
+    description 'Source: curriculum-studio-mcp-design.md tool inventory.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.validation_engine 'Validate draft and read findings' {
+    description 'Same deterministic validation as REST. Source: curriculum-studio-mcp-design.md.'
+  }
+
+  curriculum_studio.studio.mcp_adapter -> identity_service 'Fetches JWKS; validates access JWTs locally on every MCP request' {
+    description '
+      Same validator posture as Curriculum API. No token mint, no introspection
+      required. Sources: curriculum-studio-mcp-design.md M7;
+      primer-identity-service-design.md JWKS.
+    '
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.postgres 'Audit and idempotency via domain/persistence (no cross-DB)' {
+    description '
+      Uses existing audit_events and idempotency_keys through app/repo layers —
+      not a second database. Source: curriculum-studio-mcp-design.md §7;
+      database plan MCP mapping.
+    '
+  }
+
   curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.agent_workflow_runner 'Runs staged generation / critique workflows' {
     description '
       Source: primer-curriculum-studio-product-plan.md Service

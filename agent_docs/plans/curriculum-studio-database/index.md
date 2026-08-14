@@ -212,13 +212,31 @@ Each requirement maps to BDD scenario IDs and E2E test IDs. Implementers must ke
 
 | Dependency | Direction | Notes |
 | --- | --- | --- |
-| Foundation crosswalk L1–L6 | inbound | Locked boundaries |
+| Foundation crosswalk L1–L7 | inbound | Locked boundaries (incl. MCP third surface L7) |
 | Identity design (subject_ref, no product authz in Identity) | inbound | Memberships only |
 | Contracts enums/event strings | inbound parity | DB CHECK ↔ wire strings; this plan does not own contracts |
+| MCP design / platform Phase 19 | peer | MCP maps audit/idempotency/optimistic concurrency onto **existing** tables; additive migration only if confirmation storage cannot fit (ownership stays this track) |
 | Future Studio API/handlers plan | outbound | Consumes repositories from this plan |
 | Future agent/materializer plan | outbound | Consumes workflow checkpoint APIs |
 | LMS/TV migrate binaries | reference-only | Pattern mirror; no shared version table |
 | Artifact object store plan | peer | Bytes vs refs split (D9) |
+
+---
+
+## MCP persistence mapping (no phase renumber)
+
+Curriculum Studio MCP does **not** introduce a third database. Prefer existing tables:
+
+| MCP concern | Tables / phases | Notes |
+| --- | --- | --- |
+| Workspace authz | tenants, workspaces, workspace_memberships (Phase 3) | Every tool + opaque handle |
+| Draft/graph/publish | plan_revisions, graph tables (Phase 5) | Optimistic concurrency on existing version columns |
+| Validation findings | validation_reports/findings (Phase 6) | Same as REST |
+| Idempotent tool mutations | `idempotency_keys` (Phase 11) | scope e.g. `mcp:<tool>` |
+| Audit | `audit_events` (Phase 12) | tool name, subject_ref, workspace_id, opaque ids |
+| Publish step-up evidence | Prefer audit + idempotency rows | **Additive migration only if required**; label `0000N` ownership = this DB track; platform/MCP must not invent ad-hoc SQL |
+
+**Default for MCP delivery:** zero new migrations. If a confirmation-nonce table is proven necessary, open an additive goose file here with Up/Down + Python/Go tests — never from contracts OpenAPI/proto.
 
 ---
 

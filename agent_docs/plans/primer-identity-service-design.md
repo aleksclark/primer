@@ -119,9 +119,11 @@ Curriculum Studio and Primer LMS remain authorization owners. They validate iden
 | Actor | Credential | Issuer | Consumer |
 | --- | --- | --- | --- |
 | Studio author (teacher/parent/curriculum author) | Host-only BFF session → JWT `aud=curriculum-studio` | Identity via Studio BFF | Studio API |
+| Curriculum-planning MCP agent (user-delegated) | Bearer access JWT `aud=curriculum-studio` (and scopes such as `studio:mcp` / `studio:read` / `studio:draft` / `studio:publish` as registered) obtained via Identity OAuth / protected-resource flow required by the MCP client | Identity (AS); Studio may advertise protected-resource metadata pointing at Identity | Studio MCP `/mcp` (validates JWT; **never** mints tokens) |
 | LMS parent / admin | Host-only BFF session → JWT `aud=primer-lms` | Identity via LMS BFF | LMS API |
 | LMS service caller (TV server, future jobs) | Client-credentials JWT `aud=primer-lms`, scope e.g. `ingest:instruction_logs` | Identity | LMS API |
 | Studio service caller (Primer materialize) | Client-credentials JWT `aud=curriculum-studio`, scope e.g. `materialize:write` | Identity | Studio API / gRPC |
+| Studio MCP service principal (optional automation) | Client-credentials JWT `aud=curriculum-studio`, MCP scopes; still subject to Studio workspace authz projections | Identity | Studio MCP `/mcp` |
 | TV admin human | Same as LMS admin session with LMS authz role (or dedicated `aud` only if TV stays separate admin host — see deferred) | Identity | TV admin API via BFF |
 | TV device | Opaque device token | TV service | TV device API |
 | Student workstation | Opaque device token | LMS | LMS student API |
@@ -280,12 +282,34 @@ Scopes are coarse API capabilities, not Studio workspace roles:
 | `profile` | display name via userinfo |
 | `offline_access` | BFF refresh (confidential only) |
 | `studio:api` | call Studio authoring API (authz still local) |
+| `studio:mcp` | connect to Studio MCP `/mcp` (tools/list baseline) |
+| `studio:read` | MCP/API read tools (discovery, search, graph read, findings) |
+| `studio:draft` | MCP/API draft mutations (create draft, patch graph, validate) |
+| `studio:publish` | MCP/API publish proposal/confirm eligibility (Studio still enforces human step-up + roles) |
 | `lms:api` | call LMS parent API |
 | `ingest:instruction_logs` | LMS ingest |
 | `studio:materialize` | Studio integration materialize |
 | `identity:link` | manage own external links |
 
 Workspace role checks (`owner|admin|author|…`) remain in Studio using `sub` → `workspace_memberships`.
+MCP tools re-check membership **and** scopes on every call; JWT never carries workspace roles.
+
+### 8.3.1 MCP clients, protected resource, and delegation
+
+Curriculum Studio MCP (`/mcp`) is a **resource** of audience `curriculum-studio`, not an authorization server.
+
+| Concern | Owner |
+| --- | --- |
+| Authorization server (authorize/token/JWKS/revoke) | **Identity** |
+| OAuth client registration for MCP clients (public/confidential as required by the MCP client) | **Identity** |
+| Protected-resource metadata for `https://<studio>/mcp` (points clients at Identity AS; advertises resource/audiences) | **Studio may host resource metadata**; **Identity** remains AS |
+| Access token mint + refresh + revocation | **Identity** |
+| Tool authorization / workspace RBAC / opaque handle checks | **Studio** (never Identity) |
+| User delegation to an agent | User authenticates to Identity; agent presents user-delegated or service token with MCP scopes; Studio maps `sub` → `subject_ref` |
+
+**Revocation:** short access TTL; `jti` denylist / session revoke on Identity side; Studio validates every MCP HTTP request (stateless — no MCP protocol session to revoke). Service principal credential rotation follows §10.
+
+See also: [`curriculum-studio-mcp-design.md`](./curriculum-studio-mcp-design.md).
 
 ### 8.4 UserInfo and account API
 
