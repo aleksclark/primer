@@ -26,11 +26,22 @@ duplicate SQL).
 
 | Field | Canonical form | Owner |
 | --- | --- | --- |
-| `workspace_memberships.subject_ref` (human) | `identity:<uuid>` | UUID is Primer Identity account `sub` |
-| `workspace_memberships.subject_ref` (service) | `identity:svc:<id>` | Identity service principal id |
+| `workspace_memberships.subject_ref` (human) | `identity:<uuid>` (UUID always lowercase hex) | UUID is Primer Identity account `sub` |
+| `workspace_memberships.subject_ref` (service) | `identity:svc:<id>` (prefix lowercase; `<id>` case-preserving validated token) | Identity service principal id |
 | `*_subject_ref` columns generally | same opaque text convention | Never FK to Identity/LMS DBs |
 | `integration_identities.system` | `primer_lms` \| `primer_identity` \| `oidc` \| `other` | Snapshot source system |
-| `integration_identities.external_ref` | opaque foreign id | LMS learner id, OIDC sub, etc. |
+| `integration_identities.external_ref` | opaque foreign id (≤512 UTF-8 bytes; no controls/NUL) | LMS learner id, OIDC sub, etc. |
+| `integration_identities.display_label` | optional label (≤256 UTF-8 bytes; no controls/NUL) | Display only |
+| `integration_identities.snapshot` | JSON **object** ≤64KiB; nested secret-bearing keys rejected | Private metadata; never log at info |
+
+Application layer **must** canonicalize `subject_ref` before insert/lookup so case
+variants of human UUIDs (`IDENTITY:…`, mixed-case UUID hex) cannot create
+duplicate active memberships. Service refs use deterministic `identity:svc:<id>`.
+
+Snapshot sanitization rejects secret-bearing keys case-insensitively
+(`access_token`, `refresh_token`, `id_token`, `password`, `client_secret`,
+`authorization`, `secret` and common compounds). SQLSTATE `22021` maps to
+validation failure as defense-in-depth.
 
 `primer_identity` is preferred when the snapshot is an Identity-issued
 subject. `oidc` remains for generic/external OIDC provider snapshots that

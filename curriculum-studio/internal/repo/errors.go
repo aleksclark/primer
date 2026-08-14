@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
 )
 
 // Sentinel-mapped error classes for persistence callers.
@@ -19,6 +21,8 @@ var (
 )
 
 // MapError converts pgx/pgconn errors into stable package sentinels when possible.
+// SQLSTATE 22021 (character_not_in_repertoire / invalid byte sequence) maps to
+// domain.ErrInvalidIntegrationIdentity as defense-in-depth for unsanitized text.
 func MapError(err error) error {
 	if err == nil {
 		return nil
@@ -35,6 +39,8 @@ func MapError(err error) error {
 			return fmt.Errorf("%w: %s", ErrForeignKey, pgErr.ConstraintName)
 		case "23514": // check_violation
 			return fmt.Errorf("%w: %s", ErrCheckViolation, pgErr.ConstraintName)
+		case "22021": // character_not_in_repertoire
+			return fmt.Errorf("%w: invalid byte sequence", domain.ErrInvalidIntegrationIdentity)
 		case "57014": // query_canceled
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err

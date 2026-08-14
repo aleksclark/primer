@@ -6,7 +6,6 @@ import (
 )
 
 // Factory constructs domain repositories bound to a Querier.
-// Domain methods are filled in D3+; this phase lands the type and health probe.
 type Factory struct {
 	Q Querier
 }
@@ -37,6 +36,26 @@ func (f *Factory) Ping(ctx context.Context) error {
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}
+}
+
+// Tenants returns the tenant repository.
+func (f *Factory) Tenants() *TenantRepo {
+	return NewTenantRepo(f.Q)
+}
+
+// Workspaces returns the workspace repository.
+func (f *Factory) Workspaces() *WorkspaceRepo {
+	return NewWorkspaceRepo(f.Q)
+}
+
+// Memberships returns the workspace membership repository.
+func (f *Factory) Memberships() *MembershipRepo {
+	return NewMembershipRepo(f.Q)
+}
+
+// IntegrationIdentities returns the integration identity repository.
+func (f *Factory) IntegrationIdentities() *IntegrationIdentityRepo {
+	return NewIntegrationIdentityRepo(f.Q)
 }
 
 // HealthRepo exposes readiness probes used by later service wiring.
