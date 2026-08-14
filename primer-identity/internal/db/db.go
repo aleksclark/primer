@@ -1,6 +1,10 @@
 // Package db owns the Identity service's PostgreSQL access and embedded goose
 // migrations. The goose version table is identity-specific so Identity never
 // shares migration bookkeeping with LMS, TV, or Studio.
+//
+// DSN isolation: Connect, Migrator.with (therefore Up/Down), Migrate, and
+// MigrateDown all call ValidateDatabaseURL before any dial or goose work so
+// library callers cannot bypass config/CLI gates.
 package db
 
 import (
@@ -21,8 +25,12 @@ var migrationsFS embed.FS
 // VersionTable is the goose bookkeeping table for the Identity schema.
 const VersionTable = "identity_goose_db_version"
 
-// Connect opens a pgx connection pool to the given database URL.
+// Connect opens a pgx connection pool to the given database URL and pings it.
+// Forbidden LMS/TV/Studio database names are always refused before dial.
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	if err := ValidateDatabaseURL(url); err != nil {
+		return nil, err
+	}
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
@@ -50,6 +58,7 @@ func NewMigrator(fsys fs.FS, table string) *Migrator {
 }
 
 // Up applies all pending up migrations against the given database URL.
+// Forbidden database names are refused before any goose work.
 func (m *Migrator) Up(ctx context.Context, url string) error {
 	return m.with(ctx, url, func(p *goose.Provider) error {
 		_, err := p.Up(ctx)
@@ -58,6 +67,7 @@ func (m *Migrator) Up(ctx context.Context, url string) error {
 }
 
 // Down rolls back a single migration.
+// Forbidden database names are refused before any goose work.
 func (m *Migrator) Down(ctx context.Context, url string) error {
 	return m.with(ctx, url, func(p *goose.Provider) error {
 		_, err := p.Down(ctx)
@@ -66,6 +76,12 @@ func (m *Migrator) Down(ctx context.Context, url string) error {
 }
 
 func (m *Migrator) with(ctx context.Context, url string, fn func(*goose.Provider) error) error {
+	if err := ValidateDatabaseURL(url); err != nil {
+		return err
+	}
+	if m == nil || m.fsys == nil {
+		return fmt.Errorf("migrator: nil filesystem")
+	}
 	sqlDB, err := sql.Open("pgx", url)
 	if err != nil {
 		return fmt.Errorf("open sql db: %w", err)
@@ -93,7 +109,9 @@ func (m *Migrator) with(ctx context.Context, url string, fn func(*goose.Provider
 var migrator = NewMigrator(migrationsFS, VersionTable)
 
 // Migrate applies all pending Identity up migrations.
+// Forbidden LMS/TV/Studio database names are always refused.
 func Migrate(ctx context.Context, url string) error { return migrator.Up(ctx, url) }
 
 // MigrateDown rolls back a single Identity migration.
+// Forbidden LMS/TV/Studio database names are always refused.
 func MigrateDown(ctx context.Context, url string) error { return migrator.Down(ctx, url) }

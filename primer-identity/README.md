@@ -44,9 +44,19 @@ DSNs cannot satisfy Identity config.
 | `IDENTITY_SHUTDOWN_TIMEOUT` | Graceful shutdown bound | `10s` |
 | `IDENTITY_HTTP_READ_HEADER_TIMEOUT` | HTTP header read timeout | `10s` |
 
-**Do not** point `IDENTITY_DATABASE_URL` at LMS (`primer`), TV (`primer_tv`), or
-Studio (`curriculum_studio`) databases. Validation rejects those names in every
-environment. Missing/blank `IDENTITY_DATABASE_URL` fails before migrate/listen.
+**Do not** point `IDENTITY_DATABASE_URL` at LMS (`primer` / `primer_test`), TV
+(`primer_tv` / `primer_tv_test` / `tv` / `tv_test`), or Studio
+(`curriculum_studio` / `curriculum_studio_test` / `studio`) databases. The same
+pgx-parsed forbidden-name check runs in config, `db.Connect`, `db.Migrate` /
+`MigrateDown` / Migrator.with, and the test harness — library callers cannot
+bypass CLI gates. Missing/blank `IDENTITY_DATABASE_URL` fails before
+migrate/listen.
+
+Allowed canonical names: `primer_identity`, `primer_identity_test`. Other
+non-reserved ephemeral names are permitted at the library/config boundary;
+`IDENTITY_TEST_DATABASE_URL` (the only harness override; bare
+`TEST_DATABASE_URL` / `DATABASE_URL` ignored) additionally requires an
+Identity-safe name.
 
 Example (local):
 

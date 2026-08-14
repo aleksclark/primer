@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kelseyhightower/envconfig"
+
+	"github.com/aleksclark/primer/identity/internal/db"
 )
 
 // EnvPrefix namespaces every Identity setting (e.g. IDENTITY_DATABASE_URL).
@@ -90,48 +91,10 @@ func (c *Config) Validate() error {
 	if c.HTTPMaxBodyBytes <= 0 {
 		return fmt.Errorf("identity config: http max body bytes must be positive")
 	}
-	if err := validateIdentityDatabaseURL(c.DatabaseURL); err != nil {
-		return err
+	// Same pgx-parsed forbidden-name validator as library Connect/Migrate —
+	// no forked deny list in config.
+	if err := db.ValidateDatabaseURL(c.DatabaseURL); err != nil {
+		return fmt.Errorf("identity config: %w", err)
 	}
 	return nil
-}
-
-// Forbidden database path names that belong to other Primer products.
-// Identity must never silently reuse LMS/TV/Studio DSNs.
-var forbiddenDBNames = map[string]struct{}{
-	"primer":            {},
-	"primer_tv":         {},
-	"primer_test":       {},
-	"curriculum_studio": {},
-	"studio":            {},
-	"tv":                {},
-}
-
-// validateIdentityDatabaseURL parses the DSN with the same pgx/pgxpool config
-// path used for connections, then rejects empty and reserved product DB names.
-// This covers URI, keyword/libpq, and slash-normalized forms that url.Parse misses.
-func validateIdentityDatabaseURL(raw string) error {
-	cfg, err := pgxpool.ParseConfig(raw)
-	if err != nil {
-		return fmt.Errorf("identity config: parse database url: %w", err)
-	}
-	name := normalizeDatabaseName(cfg.ConnConfig.Database)
-	if name == "" {
-		return fmt.Errorf("identity config: database url missing database name")
-	}
-	if _, bad := forbiddenDBNames[name]; bad {
-		return fmt.Errorf("identity config: database name %q is reserved for another Primer product; use primer_identity", name)
-	}
-	// Reject obvious LMS default path reuse even when host differs.
-	if name == "goose_db_version" {
-		return fmt.Errorf("identity config: invalid database name %q", name)
-	}
-	return nil
-}
-
-func normalizeDatabaseName(name string) string {
-	name = strings.TrimSpace(name)
-	name = strings.Trim(name, "/")
-	name = strings.TrimSpace(name)
-	return strings.ToLower(name)
 }

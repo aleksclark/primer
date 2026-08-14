@@ -81,11 +81,15 @@ func TestLoadFailFastRejectsForeignDatabaseNames(t *testing.T) {
 		"postgres://u:p@localhost:5432/primer?sslmode=disable",
 		"postgres://u:p@localhost:5432/primer_tv?sslmode=disable",
 		"postgres://u:p@localhost:5432/curriculum_studio?sslmode=disable",
+		"postgres://u:p@localhost:5432/curriculum_studio_test?sslmode=disable",
 		"postgres://u:p@localhost:5432/primer_test?sslmode=disable",
+		"postgres://u:p@localhost:5432/primer_tv_test?sslmode=disable",
+		"postgres://u:p@localhost:5432/tv_test?sslmode=disable",
 		// Keyword/libpq form previously bypassed url.Parse.Path checks.
 		"host=localhost user=u password=p dbname=primer sslmode=disable",
 		"host=localhost dbname=primer_tv",
 		"user=identity password=x dbname=curriculum_studio host=db",
+		"host=localhost dbname=curriculum_studio_test",
 		// Double-slash / trailing-slash URI forms normalize via pgx.
 		"postgres://u:p@localhost:5432//primer",
 		"postgres://u:p@localhost:5432/primer/",
@@ -103,8 +107,10 @@ func TestLoadFailFastRejectsForeignDatabaseNames(t *testing.T) {
 			require.Error(t, err)
 			msg := strings.ToLower(err.Error())
 			assert.True(t,
-				strings.Contains(msg, "database") || strings.Contains(msg, "reserved"),
-				"expected reserved/database rejection, got %v", err,
+				strings.Contains(msg, "forbidden") ||
+					strings.Contains(msg, "database") ||
+					strings.Contains(msg, "reserved"),
+				"expected forbidden/database rejection, got %v", err,
 			)
 		})
 	}

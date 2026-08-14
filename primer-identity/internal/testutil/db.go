@@ -1,12 +1,17 @@
 // Package testutil provides the Identity integration-test harness: a
 // PostgreSQL testcontainer with DB name primer_identity_test and Identity
 // migrations only. It never loads LMS/TV/Studio migrations.
+//
+// IDENTITY_TEST_DATABASE_URL is the only external DSN override. Ambient bare
+// TEST_DATABASE_URL / DATABASE_URL are never inherited. Foreign overrides fail
+// loudly; unset uses a real testcontainer.
 package testutil
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +24,9 @@ import (
 
 	"github.com/aleksclark/primer/identity/internal/db"
 )
+
+// TestDatabaseEnv is the only external DSN override the Identity harness honors.
+const TestDatabaseEnv = "IDENTITY_TEST_DATABASE_URL"
 
 // DBName is the Identity-specific test database name.
 const DBName = "primer_identity_test"
@@ -52,6 +60,29 @@ func DatabaseURL(t *testing.T) string {
 // Tx begins a transaction on the shared Identity pool and rolls it back on cleanup.
 func Tx(t *testing.T) pgx.Tx { return identity.Tx(t) }
 
+// ResolveTestDatabaseURL returns the external Identity test DSN when
+// IDENTITY_TEST_DATABASE_URL is set. Unset means the caller should start a
+// testcontainer (empty url, usedExternal=false). Ambient bare
+// TEST_DATABASE_URL / DATABASE_URL / STUDIO_* are never read.
+// Supplied external DSNs must pass Identity isolation and use an Identity-safe name.
+func ResolveTestDatabaseURL() (url string, usedExternal bool, err error) {
+	raw := strings.TrimSpace(os.Getenv(TestDatabaseEnv))
+	if raw == "" {
+		return "", false, nil
+	}
+	if err := db.ValidateDatabaseURL(raw); err != nil {
+		return "", false, fmt.Errorf("%s: %w", TestDatabaseEnv, err)
+	}
+	name, err := db.ParseDatabaseName(raw)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", TestDatabaseEnv, err)
+	}
+	if !db.IsIdentitySafeTestDBName(name) {
+		return "", false, fmt.Errorf("%s: database name %q is not an Identity-safe test name (use primer_identity or primer_identity_test)", TestDatabaseEnv, name)
+	}
+	return raw, true, nil
+}
+
 // DB returns the harness's migrated pool, starting the container on first use.
 func (h *Harness) DB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -81,8 +112,11 @@ func (h *Harness) setup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	url := os.Getenv("IDENTITY_TEST_DATABASE_URL")
-	if url == "" {
+	url, usedExternal, err := ResolveTestDatabaseURL()
+	if err != nil {
+		return err
+	}
+	if !usedExternal {
 		// Fail closed: require Docker rather than silently skipping.
 		container, err := tcpostgres.Run(ctx,
 			"postgres:17-alpine",
