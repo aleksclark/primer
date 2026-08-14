@@ -86,7 +86,26 @@ Ownership split and auth presentation are documented in
 
 Foundation check: `make foundation-check`.
 
+## Persistence foundation (D2)
+
+| Package | Role |
+| --- | --- |
+| `internal/db` | Config, Connect pool, goose migrator, freeze gate |
+| `internal/repo` | `Querier`, `WithTx` UoW, error mapping, `Factory` + health probe |
+| `internal/testutil` | testcontainers harness (`curriculum_studio_test`), `Tx` rollback, savepoints |
+
+Postgres is **mandatory** for durable Studio state. There is no in-memory production
+repository path. Integration tests use real PostgreSQL via testcontainers or
+`TEST_DATABASE_URL`.
+
+```bash
+cd curriculum-studio
+go test ./internal/db/... ./internal/repo/... ./internal/testutil/... -count=1
+go test ./internal/repo/... -race -count=1
+```
+
 ## Validate
+
 
 ```bash
 # Module foundation
