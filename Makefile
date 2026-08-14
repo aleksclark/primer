@@ -281,9 +281,9 @@ studio-web:
 studio-e2e:
 	@echo "studio-e2e: deferred until Studio E2E harness exists"; exit 2
 
-## Studio Go process E2E — deferred.
+## Studio Go process E2E (S1 harness under internal/testutil/e2e).
 studio-e2e-go:
-	@echo "studio-e2e-go: deferred until Studio Go E2E harness exists"; exit 2
+	cd curriculum-studio && go test ./internal/testutil/e2e/ -count=1 -timeout 10m
 
 ## Create Studio dev database — deferred: no coherent additive Compose surface
 ## exists for curriculum_studio yet (F0 will not invent hollow compose). Use a
