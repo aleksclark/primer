@@ -5,6 +5,7 @@ contracts/gen/
 contracts/.tmp/
 clients/**/generated/
 **/openapi.emitted.yaml
+tools/contract-gates/spikes/.tmp/
 *.pb.go
 *_grpc.pb.go
 *.desc.binpb

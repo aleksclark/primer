@@ -1,0 +1,2 @@
+protojson={"data":{"meta":{"agent":"lesson-writer","attempt":2},"previous_item_id":"mit_old","reason":"rematerialize"},"id":"evt_1","occurredAt":"2026-08-13T15:04:05Z","type":"EVENT_TYPE_MATERIALIZED_ITEM_SUPERSEDED","workspaceId":"ws_1"}
+rest={"data":{"meta":{"agent":"lesson-writer","attempt":2},"previous_item_id":"mit_old","reason":"rematerialize"},"id":"evt_1","occurredAt":"2026-08-13T15:04:05Z","type":"materialized_item.superseded","workspaceId":"ws_1"}

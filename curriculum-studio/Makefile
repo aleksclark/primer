@@ -96,7 +96,6 @@ contracts-parity:
 contracts-gates: contracts-ownership
 	bash "$(GATES)/check_no_tracked_generated.sh"
 
-# Filled in C3 — keep name stable.
+# C3 qualification spikes
 contracts-spikes:
-	@echo "TODO(C3): qualification spike runner" >&2
-	@exit 1
+	bash "$(GATES)/spikes/run_spikes.sh"

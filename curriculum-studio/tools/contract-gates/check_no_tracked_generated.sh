@@ -53,6 +53,7 @@ samples=(
   "curriculum-studio/clients/go-rest/generated/client.go"
   "curriculum-studio/clients/go-grpc/generated/client.go"
   "curriculum-studio/contracts/openapi/v1/openapi.emitted.yaml"
+  "curriculum-studio/tools/contract-gates/spikes/.tmp/proto-gen/x.go"
 )
 
 for s in "${samples[@]}"; do

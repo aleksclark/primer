@@ -1,0 +1,8 @@
+{
+  "shape": "long_running_materialization",
+  "idempotency_key": "idem-spike-1",
+  "plan_revision_id": "prev_spike_1",
+  "transitions": ["requested", "running", "ready"],
+  "failure_transition": ["requested", "running", "failed"],
+  "bundle_before_ready_error": "failed_precondition"
+}

@@ -1,0 +1,22 @@
+{
+  "shape": "typed_errors",
+  "codes": [
+    "unauthenticated",
+    "permission_denied",
+    "not_found",
+    "already_exists",
+    "failed_precondition",
+    "aborted",
+    "invalid_argument",
+    "resource_locked",
+    "revision_immutable",
+    "validation_failed",
+    "materialization_failed",
+    "idempotency_key_conflict",
+    "quota_exceeded",
+    "internal"
+  ],
+  "unknown_policy": "map_to_internal_or_fail_closed",
+  "rest_content_type": "application/problem+json",
+  "grpc_detail_type": "curriculumstudio.v1.ErrorDetail"
+}
