@@ -111,6 +111,22 @@ Sibling package map (server edge, clients, gates): see `OWNERS.md` and
 `../Makefile` targets `contracts-validate`, `contracts-ownership`,
 `contracts-parity`, `contracts-gates`.
 
+## Closed-enum parity (C2)
+
+Shared closed wire strings are checked mechanically across protobuf enum
+suffixes, OpenAPI component enums, and DB CHECK constraints:
+
+```bash
+# from curriculum-studio/
+make contracts-parity
+# or
+./contracts/scripts/parity.sh
+```
+
+Mapping rules (renames / storage-only only — not a value catalog) live in
+`../tools/contract-gates/enum_mappings.yaml`. The extractor never introduces a
+third hand-maintained enum SoT.
+
 ## Validate offline
 
 From `curriculum-studio/contracts/`:

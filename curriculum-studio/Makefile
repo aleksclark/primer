@@ -91,8 +91,7 @@ clients-generate:
 
 # Filled in C2 — keep name stable.
 contracts-parity:
-	@echo "TODO(C2): enum parity gate" >&2
-	@exit 1
+	bash "$(CONTRACTS)/scripts/parity.sh"
 
 contracts-gates: contracts-ownership
 	bash "$(GATES)/check_no_tracked_generated.sh"

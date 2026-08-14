@@ -45,6 +45,16 @@ enum ItemLockState {
   ITEM_LOCK_STATE_LOCKED = 2;
 }
 
+// MaterializedItemStatus is the generated-item lifecycle (distinct from lock).
+// Wire strings match OpenAPI and DB materialized_items.status.
+enum MaterializedItemStatus {
+  MATERIALIZED_ITEM_STATUS_UNSPECIFIED = 0;
+  MATERIALIZED_ITEM_STATUS_DRAFT = 1;
+  MATERIALIZED_ITEM_STATUS_READY = 2;
+  MATERIALIZED_ITEM_STATUS_PUBLISHED = 3;
+  MATERIALIZED_ITEM_STATUS_SUPERSEDED = 4;
+}
+
 // MasteryStatus is a snapshot of learner mastery supplied by Primer. Studio
 // does not own authoritative mastery records.
 enum MasteryStatus {
@@ -208,6 +218,8 @@ message MaterializedItem {
   google.protobuf.Timestamp edited_at = 9;
   // True when this item superseded a previous item id.
   string supersedes_item_id = 10;
+  // Lifecycle status (draft/ready/published/superseded). Distinct from lock_state.
+  MaterializedItemStatus status = 11;
 }
 
 // ExportFormat names a downloadable artifact.
