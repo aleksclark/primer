@@ -22,7 +22,11 @@ func TestMigrateDownAndStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, st)
 
-	require.NoError(t, studiodb.MigrateDown(ctx, url))
+	// Sole destructive path is DownWithPolicy (no exported MigrateDown bypass).
+	require.NoError(t, studiodb.Studio.DownWithPolicy(ctx, url, studiodb.Config{
+		DatabaseURL:    url,
+		MigrationsLive: false,
+	}))
 	v, err := studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), v)

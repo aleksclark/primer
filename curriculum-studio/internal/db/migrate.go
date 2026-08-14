@@ -33,11 +33,6 @@ func Migrate(ctx context.Context, databaseURL string) error {
 	return Studio.Up(ctx, databaseURL)
 }
 
-// MigrateDown rolls back a single Studio migration (non-live / break-glass).
-func MigrateDown(ctx context.Context, databaseURL string) error {
-	return Studio.Down(ctx, databaseURL)
-}
-
 // Up applies all pending up migrations.
 func (m *Migrator) Up(ctx context.Context, databaseURL string) error {
 	return m.with(ctx, databaseURL, func(p *goose.Provider) error {
@@ -46,8 +41,9 @@ func (m *Migrator) Up(ctx context.Context, databaseURL string) error {
 	})
 }
 
-// Down rolls back a single migration.
-func (m *Migrator) Down(ctx context.Context, databaseURL string) error {
+// down rolls back a single migration. Unexported so callers cannot bypass
+// DownWithPolicy / Config.AllowDown live guards.
+func (m *Migrator) down(ctx context.Context, databaseURL string) error {
 	return m.with(ctx, databaseURL, func(p *goose.Provider) error {
 		_, err := p.Down(ctx)
 		return err
@@ -83,11 +79,12 @@ func (m *Migrator) CurrentVersion(ctx context.Context, databaseURL string) (int6
 }
 
 // DownWithPolicy applies one down step only when cfg.AllowDown() is true.
+// This is the sole exported destructive down entrypoint for Studio.
 func (m *Migrator) DownWithPolicy(ctx context.Context, databaseURL string, cfg Config) error {
 	if !cfg.AllowDown() {
 		return fmt.Errorf("refusing migrate down: STUDIO_MIGRATIONS_LIVE is set (break-glass: STUDIO_MIGRATE_BREAK_GLASS_DOWN=true)")
 	}
-	return m.Down(ctx, databaseURL)
+	return m.down(ctx, databaseURL)
 }
 
 func (m *Migrator) with(ctx context.Context, databaseURL string, fn func(*goose.Provider) error) error {

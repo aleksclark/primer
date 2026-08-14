@@ -8,6 +8,9 @@ Preferred path is the Go migrator:
 
 This script remains a thin checksum helper for environments without a Go
 toolchain on the path of the Python schema suite.
+
+Write mode is pre-live only: refused when STUDIO_MIGRATIONS_LIVE is truthy or
+when db/STUDIO_MIGRATIONS_LIVE marker exists. Check mode remains available.
 """
 
 from __future__ import annotations
@@ -15,12 +18,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "migrations"
 MANIFEST = ROOT / "baseline_manifest.json"
+LIVE_MARKER = ROOT / "STUDIO_MIGRATIONS_LIVE"
 BASELINE = [
     "00001_identity_and_catalogs.sql",
     "00002_plan_domain.sql",
@@ -50,20 +55,43 @@ def build() -> dict:
     }
 
 
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_live_env() -> bool:
+    """Match Go studiodb.IsLiveEnv: env flag or marker file under db root."""
+    if _truthy_env("STUDIO_MIGRATIONS_LIVE"):
+        return True
+    return LIVE_MARKER.is_file()
+
+
+def guard_write_freeze() -> None:
+    if not is_live_env():
+        return
+    raise SystemExit(
+        "refusing write-freeze: migrations are live-classified "
+        "(STUDIO_MIGRATIONS_LIVE env or STUDIO_MIGRATIONS_LIVE marker); "
+        "baseline rewrite is pre-live only — use --check and add 00005+ instead"
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--write", action="store_true", help="write baseline_manifest.json")
+    p.add_argument("--write", action="store_true", help="write baseline_manifest.json (pre-live only)")
     p.add_argument("--check", action="store_true", help="verify manifest matches files")
     args = p.parse_args()
     if not args.write and not args.check:
         args.check = True
 
-    built = build()
     if args.write:
+        guard_write_freeze()
+        built = build()
         MANIFEST.write_text(json.dumps(built, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {MANIFEST}")
         return 0
 
+    built = build()
     if not MANIFEST.is_file():
         print(f"missing {MANIFEST}", file=sys.stderr)
         return 1

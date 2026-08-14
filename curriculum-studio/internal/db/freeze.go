@@ -139,6 +139,16 @@ func IsLiveEnv(envTruthy bool, markerPath string) bool {
 	return err == nil
 }
 
+// GuardWriteFreeze refuses regenerating baseline_manifest.json when the
+// environment is live-classified (STUDIO_MIGRATIONS_LIVE env and/or marker file).
+// Check mode remains available; there is intentionally no break-glass rewrite flag.
+func GuardWriteFreeze(envTruthy bool, markerPath string) error {
+	if !IsLiveEnv(envTruthy, markerPath) {
+		return nil
+	}
+	return fmt.Errorf("refusing write-freeze: migrations are live-classified (STUDIO_MIGRATIONS_LIVE env or %s marker); baseline rewrite is pre-live only — use -check-freeze / --check and add 00005+ instead", LiveMarkerFilename)
+}
+
 // HashFS hashes baseline files from an fs.FS with migrations/ prefix.
 func HashFS(fsys fs.FS) (map[string]string, error) {
 	out := make(map[string]string, len(BaselineFiles))

@@ -8,7 +8,8 @@
 // Environment:
 //
 //	STUDIO_DATABASE_URL              required for up/down/status
-//	STUDIO_MIGRATIONS_LIVE           when true, down is refused unless break-glass
+//	STUDIO_MIGRATIONS_LIVE           when true, down and -write-freeze are refused
+//	                                 (down needs break-glass; write-freeze has none)
 //	STUDIO_MIGRATE_BREAK_GLASS_DOWN  allow one down on live envs
 //	STUDIO_DB_MAX_CONNS              optional pool hint (reserved for service)
 package main
@@ -37,12 +38,18 @@ func main() {
 	}
 
 	if *writeFreeze {
+		dbRoot := filepath.Dir(migDir)
+		liveMarker := filepath.Join(dbRoot, studiodb.LiveMarkerFilename)
+		if err := studiodb.GuardWriteFreeze(truthyEnv("STUDIO_MIGRATIONS_LIVE"), liveMarker); err != nil {
+			slog.Error("write freeze refused", "error", err)
+			os.Exit(1)
+		}
 		m, err := studiodb.BuildManifest(migDir)
 		if err != nil {
 			slog.Error("build freeze manifest", "error", err)
 			os.Exit(1)
 		}
-		out := filepath.Join(filepath.Dir(migDir), studiodb.BaselineManifestName)
+		out := filepath.Join(dbRoot, studiodb.BaselineManifestName)
 		if err := studiodb.WriteManifest(out, m); err != nil {
 			slog.Error("write freeze manifest", "error", err)
 			os.Exit(1)

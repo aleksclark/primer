@@ -62,6 +62,15 @@ go run ./cmd/migrate -write-freeze
 CI / developers must fail if a frozen baseline file’s sha256 drifts from
 `baseline_manifest.json`.
 
+**Write-freeze is pre-live only.** Both `go run ./cmd/migrate -write-freeze` and
+`db/scripts/freeze_inventory.py --write` refuse when `STUDIO_MIGRATIONS_LIVE` is
+truthy or when `db/STUDIO_MIGRATIONS_LIVE` exists. There is no break-glass rewrite
+flag: post-live drift must be fixed with additive `00005+` migrations, not
+manifest regeneration. `-check-freeze` / `--check` remain available on live envs.
+
+**Down path:** the only exported destructive API is `Migrator.DownWithPolicy`
+(CLI `migrate down`). There is no package-level `MigrateDown` bypass.
+
 ## DSN isolation
 
 | Variable | Purpose |
