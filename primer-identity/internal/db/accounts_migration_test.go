@@ -127,7 +127,7 @@ func TestAccountsMigrationFreshAndUpgrade(t *testing.T) {
 	url, err := container.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
 
-	// Fresh: apply all migrations (00001 + 00002).
+	// Fresh: apply all migrations.
 	require.NoError(t, db.Migrate(ctx, url))
 
 	pool, err := db.Connect(ctx, url)
@@ -142,14 +142,22 @@ SELECT EXISTS (
 )`).Scan(&accounts))
 	assert.True(t, accounts)
 
-	// Upgrade path: down to phase-1 foundation, then up again.
+	// One down removes only the additive Stytch mapping table.
 	require.NoError(t, db.MigrateDown(ctx, url))
+	var stytchMappings bool
+	require.NoError(t, pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'stytch_mappings'
+)`).Scan(&stytchMappings))
+	assert.False(t, stytchMappings)
+
 	require.NoError(t, pool.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM information_schema.tables
   WHERE table_schema = 'public' AND table_name = 'accounts'
 )`).Scan(&accounts))
-	assert.False(t, accounts, "down should drop accounts")
+	assert.True(t, accounts, "one down must preserve accounts")
 
 	var meta bool
 	require.NoError(t, pool.QueryRow(ctx, `
@@ -159,13 +167,28 @@ SELECT EXISTS (
 )`).Scan(&meta))
 	assert.True(t, meta, "foundation remains after one down")
 
-	require.NoError(t, db.Migrate(ctx, url), "upgrade from phase 1 must apply 00002")
+	// A second down reaches the phase-1 foundation.
+	require.NoError(t, db.MigrateDown(ctx, url))
+	require.NoError(t, pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'accounts'
+)`).Scan(&accounts))
+	assert.False(t, accounts, "second down should drop accounts")
+
+	require.NoError(t, db.Migrate(ctx, url), "upgrade from phase 1 must apply all later migrations")
 	require.NoError(t, pool.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM information_schema.tables
   WHERE table_schema = 'public' AND table_name = 'accounts'
 )`).Scan(&accounts))
 	assert.True(t, accounts)
+	require.NoError(t, pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = 'stytch_mappings'
+)`).Scan(&stytchMappings))
+	assert.True(t, stytchMappings)
 }
 
 func TestAntiCheat_NoEmailConflictMergeInMigrations(t *testing.T) {

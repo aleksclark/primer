@@ -62,9 +62,11 @@ LikeC4 recursively merges `*.c4` in this directory.
 5. **Sync + async integration.** Primer → Studio HTTPS/gRPC
    materialization API, and Studio → Primer domain events/webhooks.
    Both are required by the plan; events are optional for Primer.
-6. **Primer Identity is decided and adjacent.** Google OIDC, host-only
-   BFF cookies, single-audience JWTs + JWKS. Studio API validates JWKS
-   only; product authorization stays in Studio. See crosswalk L3–L4.
+6. **Primer Identity is the Stytch-only broker boundary.** Stytch B2B is
+   upstream only of Primer Identity; Studio validates only Primer JWKS and
+   never receives a Stytch token, tuple, or role. Host-only BFF cookies,
+   single-audience JWTs, and local Studio authorization remain mandatory.
+   See crosswalk L3–L4.
 7. **Existing LMS import is not silently the Phase 3 adapter.**
    `POST /curriculum/import/{plan,apply}` is parent-session guarded
    today. A Studio→LMS bundle push remains `#uncertainty` / deferred.

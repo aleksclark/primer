@@ -2,20 +2,23 @@ views {
   view studio_system_context {
     title 'Curriculum Studio system context'
     description '
-      Standalone Curriculum Studio product, its authors, proposed
-      adjacent identity service (unsettled), model providers, and
-      Primer LMS as an explicit consumer — not an owner.
-      Sources: primer-curriculum-studio-product-plan.md Product concept,
-      Product boundary, Primer integration contract.
+      Standalone Curriculum Studio product, its authors, Stytch B2B
+      upstream of the adjacent Primer Identity broker, model providers,
+      and Primer LMS as an explicit consumer — not an owner. Stytch has
+      no direct Studio, LMS, MCP, or database edge.
+      Sources: primer-identity-service-design.md §§1–4;
+      primer-curriculum-studio-product-plan.md Product boundary.
     '
     include teacher
     include homeschool_parent
     include curriculum_author
     include curriculum_planning_agent
+    include stytch_b2b
     include identity_service
     include model_providers
     include primer_lms
     include curriculum_studio
+    include stytch_b2b -> identity_service
     include teacher -> curriculum_studio.studio_ui
     include homeschool_parent -> curriculum_studio.studio_ui
     include curriculum_author -> curriculum_studio.studio_ui

@@ -57,7 +57,7 @@ Close the operational loop: mutate-path audit trails, retention jobs that respec
 5. Makefile finalize: `studio-test`, `studio-cover` (**≥85%** — repository `COVER_MIN`; never lower), `studio-db-pytest`, `studio-migrate`, `studio-backup-drill` (may be manual tagged). Root Makefile target wires go through delivery wave **F0** ownership.
 6. Update `curriculum-studio/README.md` and `SCHEMA.md` ops sections.
 7. Confirm Python + Go suites green together.
-8. Still out of scope: HTTP handlers, Identity OP, contract codegen ownership.
+8. Still out of scope: HTTP handlers, Primer Identity token broker, contract codegen ownership.
 
 ## End-to-End Test Plan
 

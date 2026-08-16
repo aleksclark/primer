@@ -91,7 +91,7 @@ curriculum-studio/
 | `studio:publish` | Generate publish proposal; still requires human confirmation path |
 | `materialize:write` | Unrelated Primer gRPC path (not initial MCP tools) |
 
-Exact scope strings freeze in Identity client registration + Studio authz map during I8/I12/S2 alignment; names above are planning vocabulary.
+Exact scope strings freeze in Identity client registration + Studio authz map during **I7 / IB3** and the applicable **I12 / IB8** integration chain; **I6 / IB2** supplies the Primer JWT/JWKS bridge and **I8 / IB4** is the signed webhook/two-plane revocation gate. Names above are planning vocabulary.
 
 ### 4.4 Opaque handles
 
@@ -227,3 +227,14 @@ Platform Phase 19 owns: handler mount, authz filter, tool → app service wiring
 | Database index | MCP mapping section (no phase renumber) |
 | Delivery | Waves `S19` / `C12` / `X7` (and supporting deps) |
 | LikeC4 | Agent actor, `mcp_adapter` component, `studio_mcp` view |
+
+**Identity dependency rule:** credential-free test Identity/JWKS may prove local transport only. Delegated MCP writes and delivery X7 require **I6 / IB2 + I8 / IB4**; require **I7 / IB3 + applicable I12 / IB8** when Identity client registration, BFF mediation, or publish confirmation is in scope. MCP accepts Primer JWTs only and re-authorizes every request against local Studio membership; it rejects raw Stytch bearer/SessionJWT material.
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

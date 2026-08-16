@@ -197,6 +197,99 @@ func TestBinaryFailFastProductionUnsetDatabaseURL(t *testing.T) {
 	}
 }
 
+// Process regression (IA-R): production with only hostile bare SECRET/ISSUER
+// (and sibling unprefixed names) must fail at config validation before
+// migrate/listen. Prefixed IDENTITY_ISSUER / IDENTITY_STYTCH_SECRET are absent.
+func TestBinaryFailFastProductionHostileBareSecretAndIssuer(t *testing.T) {
+	bin := buildIdentityServer(t)
+
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := probe.Addr().(*net.TCPAddr).Port
+	require.NoError(t, probe.Close())
+
+	const hostileSecret = "hostile-bare-secret-must-not-be-used"
+	cmd := exec.Command(bin)
+	cmd.Env = scrubEnv(os.Environ(),
+		"IDENTITY_DATABASE_URL",
+		"IDENTITY_ISSUER",
+		"IDENTITY_STYTCH_SECRET",
+		"IDENTITY_STYTCH_PROJECT_ID",
+		"IDENTITY_STYTCH_ENABLED",
+		"IDENTITY_STYTCH_ENV",
+		"IDENTITY_STYTCH_BASE_URI",
+		"IDENTITY_HOST",
+		"IDENTITY_PORT",
+		"IDENTITY_ENV",
+		"DATABASE_URL",
+		"ISSUER",
+		"SECRET",
+		"PROJECT_ID",
+		"ENABLED",
+		"ENV",
+		"BASE_URI",
+		"HOST",
+		"PORT",
+		"LOG_LEVEL",
+		"REQUEST_TIMEOUT",
+		"POSITIVE_CACHE_TTL",
+		"NEGATIVE_CACHE_TTL",
+		"POSITIVE_CACHE_CAPACITY",
+		"NEGATIVE_CACHE_CAPACITY",
+		"SHUTDOWN_TIMEOUT",
+		"HTTP_READ_HEADER_TIMEOUT",
+		"HTTP_MAX_BODY_BYTES",
+	)
+	cmd.Env = append(cmd.Env,
+		"IDENTITY_ENV=production",
+		"IDENTITY_HOST=127.0.0.1",
+		fmt.Sprintf("IDENTITY_PORT=%d", port),
+		"IDENTITY_LOG_LEVEL=info",
+		"IDENTITY_DATABASE_URL=postgres://identity:hostile-db-pass-must-not-leak@127.0.0.1:1/primer_identity?sslmode=disable",
+		"IDENTITY_STYTCH_ENABLED=true",
+		"IDENTITY_STYTCH_ENV=live",
+		"IDENTITY_STYTCH_PROJECT_ID=project-live-example",
+		// IDENTITY_ISSUER and IDENTITY_STYTCH_SECRET intentionally absent.
+		"SECRET="+hostileSecret,
+		"PROJECT_ID=project-live-hostile-bare",
+		"ISSUER=https://hostile-bare.example",
+		"ENABLED=true",
+		"ENV=production",
+		"BASE_URI=https://hostile-bare.stytch.example",
+		"HOST=127.0.0.1",
+		fmt.Sprintf("PORT=%d", port),
+		"LOG_LEVEL=error",
+		"REQUEST_TIMEOUT=4s",
+		"POSITIVE_CACHE_TTL=16s",
+		"NEGATIVE_CACHE_TTL=6s",
+		"POSITIVE_CACHE_CAPACITY=10001",
+		"NEGATIVE_CACHE_CAPACITY=2001",
+	)
+
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "expected non-zero exit when prefixed issuer/secret are missing: %s", out)
+	if ee, ok := err.(*exec.ExitError); ok {
+		assert.NotEqual(t, 0, ee.ExitCode())
+	}
+	combined := string(out)
+	lower := strings.ToLower(combined)
+	assert.NotContains(t, combined, "listening")
+	assert.NotContains(t, combined, hostileSecret)
+	assert.NotContains(t, combined, "hostile-db-pass-must-not-leak")
+	assert.NotContains(t, lower, "migrate:")
+	assert.NotContains(t, lower, "password authentication failed")
+	assert.True(t,
+		strings.Contains(lower, "issuer is required") || strings.Contains(lower, "credential"),
+		"expected issuer or credential fail-closed, got %s", combined,
+	)
+
+	conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		t.Fatalf("process listened on %d despite missing prefixed issuer/secret; output=%s", port, combined)
+	}
+}
+
 // scrubEnv returns env without keys in drop (case-sensitive KEY= prefix match).
 func scrubEnv(environ []string, drop ...string) []string {
 	deny := make(map[string]struct{}, len(drop))

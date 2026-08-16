@@ -7,7 +7,7 @@
 
 ## Goal
 
-Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, runbooks) and define live proof gates for Google OIDC, real model providers, and production smoke. Credential-free platform remains complete without these; live items stay BLOCKED until credentials and environments exist.
+Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, runbooks) and define live proof gates for the approved **Stytch B2B → Identity-hosted broker → Studio BFF** path, real model providers, and production smoke. Credential-free platform remains complete without these; live items stay BLOCKED until the named Identity-owned credentials, configuration, and environments exist.
 
 ## Scope
 
@@ -18,7 +18,7 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
 - env documentation `STUDIO_*`
 - backup/restore runbook for Postgres + object store
 - health checks in Nomad
-- Live OIDC E2E checklist against Identity deploy
+- Live Stytch B2B → Identity-hosted broker → Studio BFF E2E checklist against the Identity deploy
 - Live model provider soak test harness
 - Production smoke script
 - Security: secrets from Nomad vars not images
@@ -45,12 +45,14 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
 - **Then** restore yields readable workspaces
 - **And** artifact objects restored or re-linked procedure documented
 
-#### Scenario: P18-S3 — Live Google OIDC
+#### Scenario: P18-S3 — Approved live Stytch B2B → Identity broker → Studio BFF
 
-- **Given** Identity deployed + Google client + Studio client registration
-- **When** human login via real Google
-- **Then** BLOCKED until credentials
-- **And** when unblocked: host-only cookies, me endpoint real sub
+- **Given** an approved live Stytch B2B project and its credentials are configured **only in Primer Identity**, with exact Identity-hosted callback redirect URI, Studio BFF origin/redirect URI, and Origin allowlist registered for the target environment
+- **When** a human starts login from the Studio BFF and completes the Stytch B2B flow through the Identity-hosted broker
+- **Then** the item remains BLOCKED until the Identity-owned live project, credentials, redirects/origins, deploy access, and approval are present
+- **And** when unblocked, Studio/browser code has no Stytch credential or raw Stytch token; it receives only Primer BFF/session/JWT material
+- **And** Studio accepts only a Primer ES256 JWT for `aud=curriculum-studio`, rejects a raw Stytch bearer/SessionJWT, and independently authorizes the resolved subject through local workspace membership
+- **And** signed Stytch webhook/revocation evidence proves cache-and-grant revocation and an access-JWT revocation bound of **≤15 minutes**
 
 #### Scenario: P18-S4 — Live model provider
 
@@ -71,9 +73,10 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
 
 1. Multi-stage Docker build: build web, build go, distroless/alpine runtime.
 2. Nomad service + migrate batch pattern from `deploy/deploy.sh` conventions.
-3. Separate live test build tag `live` or env `STUDIO_LIVE_E2E=1`.
-4. Completion gate splits: **credential-free packaging complete** vs **live BLOCKED**.
-5. Never store Google client secret in repo.
+3. Separate live test build tag `live` or env `STUDIO_LIVE_E2E=1`; this suite may run only against the approved Identity-hosted broker path, never a direct Studio-to-Stytch or browser-to-Stytch path.
+4. Configure the live Stytch B2B project ID, secret, and webhook verification material only in Identity’s secret store. Register the exact Identity callback redirect URI plus the Studio BFF origin/redirect URI and Origin allowlist for the selected environment. Studio deploy variables contain Primer issuer/JWKS/BFF configuration only—never a Stytch client credential, project secret, or raw Stytch token.
+5. Completion gate splits: **credential-free packaging complete** versus **approved live Stytch broker proof BLOCKED**; no loopback/fixture proof may be promoted to live.
+6. Never store live Stytch or BFF secrets in repo, image layers, browser configuration, or logs.
 
 ## End-to-End Test Plan
 
@@ -93,13 +96,16 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
   - data roundtrip
 - **Command:** `manual/scripted ops test`
 
-#### P18-E3 — Live OIDC
+#### P18-E3 — Approved live Stytch broker and Studio BFF
 
-- **Setup:** external
-- **Action:** browser login Google
+- **Setup:** approved live Stytch B2B project/credentials configured in Identity only; deployed Identity broker; exact registered Identity callback + Studio BFF redirect/origin/Origin allowlist; seeded local Studio workspace membership; signed webhook receiver and audit access
+- **Action:** complete a browser login from Studio BFF through the Identity-hosted broker, call `/auth/me` and an authorized Studio route, then revoke/end the upstream session and deliver/replay the signed Stytch webhook
 - **Assert:**
-  - BLOCKED or pass
-- **Command:** `make studio-e2e-live-oidc`
+  - BLOCKED with the missing named approval/configuration, or pass with an evidence bundle
+  - browser/Studio use Primer-only BFF/JWT material; no direct Stytch credential/token is exposed
+  - raw Stytch bearer/SessionJWT is rejected; valid Primer JWT is accepted only with local workspace membership
+  - forged/replayed/out-of-order webhook is rejected/idempotent as applicable; valid revocation invalidates cache/grant and prevents fresh BFF use within **≤15 minutes**
+- **Command:** `make studio-e2e-live-stytch-broker`
 
 #### P18-E4 — Live model
 
@@ -119,7 +125,10 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
 
 ## Anti-Cheating Audit
 
-- Do not mark S3–S5 complete on test auth/scripted model
+- Do not mark S3–S5 complete on test auth/scripted model or a direct Studio/browser Stytch flow
+- Verify all Stytch live credentials and webhook secrets are Identity-only; inspect Studio image/env/browser assets/logs for their absence
+- Verify accepted Studio requests use Primer JWT/JWKS plus local membership, and raw Stytch tokens fail before authorization
+- Verify the live evidence includes signed-webhook signature/timestamp/replay/idempotency results and the ≤15-minute revocation bound
 - Image must not embed .env secrets
 - Healthcheck must hit ready not only process exists
 - Runbooks not empty stubs
@@ -128,7 +137,8 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
 
 - [ ] Dockerfile + Nomad template merged
 - [ ] Local docker smoke green (credential-free)
-- [ ] Live OIDC/model/deploy items listed BLOCKED with owners or green with evidence bundles
+- [ ] Live Stytch B2B → Identity broker → Studio BFF/model/deploy items listed BLOCKED with named Identity-owned credentials/configuration/approval or green with evidence bundles
+- [ ] P18-E3 proves exact redirects/origins, Identity-only Stytch credentials, Primer-only Studio BFF/JWT, local membership authorization, raw-token rejection, signed revocation evidence, and ≤15-minute JWT revocation bound
 - [ ] Platform plan completion rule satisfiable for credential-free scope
 
 
@@ -143,3 +153,12 @@ Package Curriculum Studio for deployment (Docker, Nomad template, migrate job, r
 - Revert the phase PR(s); drop any additive migrations only via forward-fix sibling db track (never destructive rollback in prod without backup).
 - Feature flags: prefer `STUDIO_*` env gates over half-applied routes.
 - SPA: revert `curriculum-studio/web` routes; keep generated client in sync with OpenAPI.
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

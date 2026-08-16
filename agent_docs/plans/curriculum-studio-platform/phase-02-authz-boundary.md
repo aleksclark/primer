@@ -26,7 +26,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 
 ### Out of scope / YAGNI
 
-- Google OIDC / Identity OP implementation (identity track + Phase 18 live)
+- Stytch B2B broker / Primer Identity token broker implementation (identity track + Phase 18 live)
 - Full BFF OAuth code exchange with real Identity (wired in Phase 9 against test mode; live Phase 18)
 - SPA UI (Phase 9)
 
@@ -107,7 +107,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 6. Seed helper in testutil: `SeedMembership(workspace, subject, role)`.
 7. Probe routes: `GET /studio/v1/auth/me` returns subject + memberships (human-readable workspace names when joined).
 8. CSRF: double-submit cookie or header `X-CSRF-Token` matching session.
-9. Production-auth promotion: when Identity JWKS/BFF/service-principal milestones land (identity phases 3/7/8 + delivery waves I3/I7/I8), set `STUDIO_AUTH_MODE=jwks` against real Identity issuer; keep middleware identical. Live Google remains BLOCKED until identity Phase 14 approval.
+9. Production validator/cutover: credential-free test Identity/narrow verifier work is independent of production auth. Promote `STUDIO_AUTH_MODE=jwks` only after **I6 / IB2** provides the Primer ES256/JWKS bridge, **I8 / IB4** provides signed webhook/two-plane revocation, and the applicable **I12 / IB8** Studio integration chain is green; set it against the real Identity issuer and keep middleware identical. The live BFF path separately requires **I7 / IB3 + I8 / IB4**. Live Stytch remains BLOCKED until the approved live gate.
 
 ## End-to-End Test Plan
 
@@ -194,7 +194,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 ## Dependencies
 
 - Upstream: Phase 1
-- Sibling tracks: schema (`curriculum-studio/db`), contracts (`curriculum-studio/contracts`), identity (when leaving test auth)
+- Sibling tracks: schema (`curriculum-studio/db`), contracts (`curriculum-studio/contracts`), identity (credential-free test Identity/narrow verifier is separate; production validator/cutover requires I6+I8 and applicable I12; live BFF requires I7+I8)
 - Downstream consumers: later phases listed in index
 
 ## Rollback
@@ -202,3 +202,12 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 - Revert the phase PR(s); drop any additive migrations only via forward-fix sibling db track (never destructive rollback in prod without backup).
 - Feature flags: prefer `STUDIO_*` env gates over half-applied routes.
 - SPA: revert `curriculum-studio/web` routes; keep generated client in sync with OpenAPI.
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

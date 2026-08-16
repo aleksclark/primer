@@ -1,7 +1,7 @@
 # Phase 15: Primer integration
 
 **File:** `phase-15-primer-integration.md`
-**Depends on:** Phases 12–14
+**Depends on:** Phases 12–14; credential-free test Identity for local E2E; **I9 / IB5 Primer-owned service principals** for production machine JWT
 **Duration guess:** 6–9 days
 **Handoff wave:** see index orchestrator map
 
@@ -27,7 +27,7 @@ Expose Primer integration surface: gRPC CurriculumIntegrationService Materialize
 
 - LMS production cutover PR (separate)
 - Studio→LMS import push
-- Live Identity service credentials (use test JWKS service principals)
+- Live Identity service credentials; credential-free E2E may use a test Identity-issued JWT, but production machine auth requires I9/IB5 service-principal `client_credentials`
 
 ## BDD Success Criteria
 
@@ -156,7 +156,7 @@ Expose Primer integration surface: gRPC CurriculumIntegrationService Materialize
 ## Dependencies
 
 - Upstream: Phases 12–14
-- Sibling tracks: schema (`curriculum-studio/db`), contracts (`curriculum-studio/contracts`), identity (when leaving test auth)
+- Sibling tracks: schema (`curriculum-studio/db`), contracts (`curriculum-studio/contracts`), identity (credential-free test Identity is separate; production machine JWT requires I9/IB5)
 - Downstream consumers: later phases listed in index
 
 ## Rollback

@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -16,8 +17,85 @@ import (
 // EnvPrefix namespaces every Identity setting (e.g. IDENTITY_DATABASE_URL).
 const EnvPrefix = "IDENTITY"
 
+// StytchConfig contains the narrowly scoped settings used by the B2B session
+// adapter. Credentials are intentionally kept here, rather than in a generic
+// provider map, so validation can fail closed before a client is constructed.
+type StytchConfig struct {
+	// split_words (without envconfig alt) yields IDENTITY_STYTCH_* only;
+	// envconfig's Alt fallback would otherwise inherit bare SECRET, PROJECT_ID,
+	// ENABLED, ENV, BASE_URI, and cache/timeout names.
+	Enabled bool `split_words:"true" default:"false"`
+
+	ProjectID string `split_words:"true"`
+	Secret    string `split_words:"true"`
+	Env       string `split_words:"true" default:"test"`
+	BaseURI   string `split_words:"true"`
+
+	RequestTimeout        time.Duration `split_words:"true" default:"3s"`
+	PositiveCacheTTL      time.Duration `split_words:"true" default:"15s"`
+	NegativeCacheTTL      time.Duration `split_words:"true" default:"5s"`
+	PositiveCacheCapacity int           `split_words:"true" default:"10000"`
+	NegativeCacheCapacity int           `split_words:"true" default:"2000"`
+}
+
+// Validate checks Stytch settings without constructing an SDK client.
+func (c *StytchConfig) Validate() error {
+	c.ProjectID = strings.TrimSpace(c.ProjectID)
+	c.Secret = strings.TrimSpace(c.Secret)
+	c.Env = strings.ToLower(strings.TrimSpace(c.Env))
+	c.BaseURI = strings.TrimSpace(c.BaseURI)
+
+	if (c.ProjectID == "") != (c.Secret == "") {
+		return fmt.Errorf("identity stytch config: credentials project id and secret must be provided together")
+	}
+	if c.Enabled && (c.ProjectID == "" || c.Secret == "") {
+		return fmt.Errorf("identity stytch config: credentials are required when enabled")
+	}
+	if c.Env != "test" && c.Env != "live" {
+		return fmt.Errorf("identity stytch config: env must be test|live, got %q", c.Env)
+	}
+	if c.Env == "live" && c.BaseURI != "" {
+		return fmt.Errorf("identity stytch config: live env does not allow a base URI override")
+	}
+	if c.ProjectID != "" && c.Secret != "" {
+		wantPrefix := "project-test-"
+		if c.Env == "live" {
+			wantPrefix = "project-live-"
+		}
+		if !strings.HasPrefix(c.ProjectID, wantPrefix) {
+			return fmt.Errorf("identity stytch config: project id must use %q prefix for env %s", wantPrefix, c.Env)
+		}
+	}
+	if c.RequestTimeout != 3*time.Second {
+		return fmt.Errorf("identity stytch config: request timeout must be 3s")
+	}
+	if c.PositiveCacheTTL <= 0 || c.PositiveCacheTTL > 15*time.Second {
+		return fmt.Errorf("identity stytch config: positive cache ttl must be >0 and <=15s")
+	}
+	if c.NegativeCacheTTL <= 0 || c.NegativeCacheTTL > 5*time.Second {
+		return fmt.Errorf("identity stytch config: negative cache ttl must be >0 and <=5s")
+	}
+	if c.PositiveCacheCapacity < 1 || c.PositiveCacheCapacity > 10000 {
+		return fmt.Errorf("identity stytch config: positive cache capacity must be 1..10000")
+	}
+	if c.NegativeCacheCapacity < 1 || c.NegativeCacheCapacity > 2000 {
+		return fmt.Errorf("identity stytch config: negative cache capacity must be 1..2000")
+	}
+	if c.BaseURI != "" {
+		u, err := url.Parse(c.BaseURI)
+		if err != nil || !u.IsAbs() || u.Host == "" || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(u.Path, "?#") {
+			return fmt.Errorf("identity stytch config: base URI must be an absolute http/https URI without userinfo, query, or fragment")
+		}
+	}
+	return nil
+}
+
 // Config holds all Identity runtime configuration, populated from the environment.
 type Config struct {
+	// Stytch is mandatory in production. Development and test may remain
+	// explicitly disabled; callers must not create a provider client then.
+	Stytch StytchConfig `split_words:"true"`
+
 	// DatabaseURL is the PostgreSQL connection string for the Identity DB only.
 	// Required and non-empty in every environment (no localhost default).
 	// Loaded only from IDENTITY_DATABASE_URL — bare DATABASE_URL is ignored so
@@ -26,21 +104,22 @@ type Config struct {
 	// envconfig's Alt fallback would otherwise inherit bare DATABASE_URL.
 	DatabaseURL string `split_words:"true"`
 	// Host is the address the HTTP server binds to.
-	Host string `envconfig:"HOST" default:"0.0.0.0"`
+	Host string `split_words:"true" default:"0.0.0.0"`
 	// Port is the TCP port the HTTP server listens on.
-	Port int `envconfig:"PORT" default:"8090"`
+	Port int `split_words:"true" default:"8090"`
 	// Env is the deployment environment name: development|test|production.
-	Env string `envconfig:"ENV" default:"development"`
+	Env string `split_words:"true" default:"development"`
 	// LogLevel is the slog level name (debug|info|warn|error).
-	LogLevel string `envconfig:"LOG_LEVEL" default:"info"`
+	LogLevel string `split_words:"true" default:"info"`
 	// Issuer is the OIDC issuer URL. Required non-empty in every environment.
-	Issuer string `envconfig:"ISSUER"`
+	// Loaded only from IDENTITY_ISSUER — bare ISSUER is ignored.
+	Issuer string `split_words:"true"`
 	// ShutdownTimeout bounds graceful HTTP shutdown after SIGINT/SIGTERM.
-	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"10s"`
+	ShutdownTimeout time.Duration `split_words:"true" default:"10s"`
 	// HTTPReadHeaderTimeout bounds how long the server waits for request headers.
-	HTTPReadHeaderTimeout time.Duration `envconfig:"HTTP_READ_HEADER_TIMEOUT" default:"10s"`
+	HTTPReadHeaderTimeout time.Duration `split_words:"true" default:"10s"`
 	// HTTPMaxBodyBytes caps request body size for future write endpoints.
-	HTTPMaxBodyBytes int64 `envconfig:"HTTP_MAX_BODY_BYTES" default:"1048576"`
+	HTTPMaxBodyBytes int64 `split_words:"true" default:"1048576"`
 }
 
 // Load reads Identity configuration from the environment and validates it.
@@ -62,9 +141,10 @@ func (c *Config) Addr() string {
 
 // Validate enforces fail-fast rules for Identity configuration.
 func (c *Config) Validate() error {
-	switch strings.ToLower(strings.TrimSpace(c.Env)) {
+	serviceEnv := strings.ToLower(strings.TrimSpace(c.Env))
+	switch serviceEnv {
 	case "development", "test", "production":
-		c.Env = strings.ToLower(strings.TrimSpace(c.Env))
+		c.Env = serviceEnv
 	default:
 		return fmt.Errorf("identity config: env must be development|test|production, got %q", c.Env)
 	}
@@ -95,6 +175,25 @@ func (c *Config) Validate() error {
 	// no forked deny list in config.
 	if err := db.ValidateDatabaseURL(c.DatabaseURL); err != nil {
 		return fmt.Errorf("identity config: %w", err)
+	}
+	if serviceEnv == "production" {
+		if !c.Stytch.Enabled {
+			return fmt.Errorf("identity config: production service requires Stytch enabled")
+		}
+		if !strings.EqualFold(strings.TrimSpace(c.Stytch.Env), "live") {
+			return fmt.Errorf("identity config: production service requires Stytch env live")
+		}
+		if strings.TrimSpace(c.Stytch.BaseURI) != "" {
+			return fmt.Errorf("identity config: production service does not allow a Stytch base URI override")
+		}
+	}
+	// Older tests and explicit programmatic configs may omit the optional
+	// provider entirely. envconfig populates all defaults for Load; only run
+	// provider validation when it was actually configured.
+	if c.Stytch != (StytchConfig{}) || serviceEnv == "production" {
+		if err := c.Stytch.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

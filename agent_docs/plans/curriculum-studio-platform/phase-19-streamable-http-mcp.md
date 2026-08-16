@@ -1,7 +1,7 @@
 # Phase 19: Streamable HTTP MCP endpoint
 
 **File:** `phase-19-streamable-http-mcp.md`
-**Depends on:** Phases 1–8 (shell, authz, workspaces, catalogs, plan, validate, publish); Identity JWKS/BFF/service milestones for production-auth and publish confirmation; contracts Phase 12 for tool-schema/conformance harness
+**Depends on:** Phases 1–8 (shell, authz, workspaces, catalogs, plan, validate, publish); credential-free test Identity/narrow verifier for local transport work; **I6 / IB2 + I8 / IB4** for production delegated writes; **I7 / IB3 + applicable I12 / IB8** where client registration or publish confirmation applies; contracts Phase 12 for tool-schema/conformance harness
 **Duration guess:** 6–10 days
 **Handoff wave:** delivery `S19` (see curriculum-studio-delivery)
 **Design SoT:** [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-design.md)
@@ -36,7 +36,7 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
 - Roots, sampling, logging capabilities
 - Primer materialize gRPC replacement
 - Silent publish; agent-owned production deploy
-- Live Google / live model providers (remain BLOCKED elsewhere)
+- Live Stytch / live model providers (remain BLOCKED elsewhere)
 
 ## BDD Success Criteria
 
@@ -204,7 +204,7 @@ Reviewers must verify:
 ## Dependencies
 
 - **Upstream platform:** Phases 1–8 (hard for full tools); Phase 2 authz (hard for any authenticated MCP); Phase 1 (hard for transport spike)
-- **Upstream identity:** I3 JWKS (hard prod-auth); I7/I8/I12 for BFF/service/MCP client registration and publish step-up alignment
+- **Upstream identity:** credential-free test Identity/narrow verifier is sufficient only for local transport/tests. Production delegated MCP writes and X7 require **I6 / IB2 Primer ES256/JWKS bridge + I8 / IB4 signed webhook/two-plane revocation**; require **I7 / IB3 + applicable I12 / IB8** for Identity client registration, BFF mediation, or publish-confirmation alignment. Raw Stytch bearer/SessionJWTs are never accepted.
 - **Upstream contracts:** Phase 12 tool-schema/conformance (parallelizable after spike; hard before claiming protocol conformance)
 - **Upstream database:** D3–D6, D11–D12 paths as consumed by domain (no MCP-specific schema by default)
 - **Downstream:** delivery X7 MCP conformance gate; S15 remains Primer gRPC (independent); do not block S15 on MCP unless explicitly re-sequenced
@@ -214,3 +214,12 @@ Reviewers must verify:
 - Feature-flag `STUDIO_MCP_ENABLED=false` removes route registration
 - No data migration to reverse if no additive MCP tables were introduced
 - If additive confirmation table was added via DB track, down only in non-live envs per migration policy
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

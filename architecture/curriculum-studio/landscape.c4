@@ -47,14 +47,29 @@ model {
     #trustBoundary
     description '
       Independently deployable identity/auth service with its own
-      PostgreSQL. Owns accounts, external identities (provider+sub),
-      human sessions, signing keys/JWKS, OAuth clients, and service
-      principals. Does not own Studio workspace roles or LMS product
-      authorization. Google OIDC is the primary interactive IdP;
-      Identity is OP to Studio and LMS BFFs. Host-only cookies; no
-      cross-product session cookie; no email auto-link.
+      PostgreSQL. Sole Stytch B2B SDK/API client and downstream Primer
+      token broker. Server-validates opaque Stytch sessions, maps the
+      exact project/org/member tuple to local accounts, and owns Primer
+      grants, signing keys/JWKS, OAuth/BFF broker contracts, and local
+      service principals. Does not own Studio workspace roles or LMS
+      product authorization. Products receive only single-audience
+      Primer JWTs; host-only cookies remain product-owned. No email
+      auto-link or automatic cross-organization linking.
       Sources: agent_docs/plans/primer-identity-service-design.md;
       agent_docs/plans/curriculum-studio-foundation-crosswalk.md L3–L4.
+    '
+  }
+
+  stytch_b2b = softwareSystem 'Stytch B2B' {
+    #external
+    #trustBoundary
+    description '
+      Upstream authority for ordinary human authentication and session
+      validity. It is connected only to Primer Identity: opaque session
+      tokens and SessionJWTs never reach Studio, LMS, TV, MCP, browser
+      JavaScript, or product databases. Organization/member roles are
+      eligibility hints, never product authorization.
+      Source: primer-identity-service-design.md §§1–4.
     '
   }
 
