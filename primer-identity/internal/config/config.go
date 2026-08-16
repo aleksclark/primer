@@ -21,18 +21,21 @@ const EnvPrefix = "IDENTITY"
 // adapter. Credentials are intentionally kept here, rather than in a generic
 // provider map, so validation can fail closed before a client is constructed.
 type StytchConfig struct {
-	Enabled bool `envconfig:"ENABLED" default:"false"`
+	// split_words (without envconfig alt) yields IDENTITY_STYTCH_* only;
+	// envconfig's Alt fallback would otherwise inherit bare SECRET, PROJECT_ID,
+	// ENABLED, ENV, BASE_URI, and cache/timeout names.
+	Enabled bool `split_words:"true" default:"false"`
 
-	ProjectID string `envconfig:"PROJECT_ID"`
-	Secret    string `envconfig:"SECRET"`
-	Env       string `envconfig:"ENV" default:"test"`
-	BaseURI   string `envconfig:"BASE_URI"`
+	ProjectID string `split_words:"true"`
+	Secret    string `split_words:"true"`
+	Env       string `split_words:"true" default:"test"`
+	BaseURI   string `split_words:"true"`
 
-	RequestTimeout        time.Duration `envconfig:"REQUEST_TIMEOUT" default:"3s"`
-	PositiveCacheTTL      time.Duration `envconfig:"POSITIVE_CACHE_TTL" default:"15s"`
-	NegativeCacheTTL      time.Duration `envconfig:"NEGATIVE_CACHE_TTL" default:"5s"`
-	PositiveCacheCapacity int           `envconfig:"POSITIVE_CACHE_CAPACITY" default:"10000"`
-	NegativeCacheCapacity int           `envconfig:"NEGATIVE_CACHE_CAPACITY" default:"2000"`
+	RequestTimeout        time.Duration `split_words:"true" default:"3s"`
+	PositiveCacheTTL      time.Duration `split_words:"true" default:"15s"`
+	NegativeCacheTTL      time.Duration `split_words:"true" default:"5s"`
+	PositiveCacheCapacity int           `split_words:"true" default:"10000"`
+	NegativeCacheCapacity int           `split_words:"true" default:"2000"`
 }
 
 // Validate checks Stytch settings without constructing an SDK client.
@@ -91,7 +94,7 @@ func (c *StytchConfig) Validate() error {
 type Config struct {
 	// Stytch is mandatory in production. Development and test may remain
 	// explicitly disabled; callers must not create a provider client then.
-	Stytch StytchConfig `envconfig:"STYTCH"`
+	Stytch StytchConfig `split_words:"true"`
 
 	// DatabaseURL is the PostgreSQL connection string for the Identity DB only.
 	// Required and non-empty in every environment (no localhost default).
@@ -101,21 +104,22 @@ type Config struct {
 	// envconfig's Alt fallback would otherwise inherit bare DATABASE_URL.
 	DatabaseURL string `split_words:"true"`
 	// Host is the address the HTTP server binds to.
-	Host string `envconfig:"HOST" default:"0.0.0.0"`
+	Host string `split_words:"true" default:"0.0.0.0"`
 	// Port is the TCP port the HTTP server listens on.
-	Port int `envconfig:"PORT" default:"8090"`
+	Port int `split_words:"true" default:"8090"`
 	// Env is the deployment environment name: development|test|production.
-	Env string `envconfig:"ENV" default:"development"`
+	Env string `split_words:"true" default:"development"`
 	// LogLevel is the slog level name (debug|info|warn|error).
-	LogLevel string `envconfig:"LOG_LEVEL" default:"info"`
+	LogLevel string `split_words:"true" default:"info"`
 	// Issuer is the OIDC issuer URL. Required non-empty in every environment.
-	Issuer string `envconfig:"ISSUER"`
+	// Loaded only from IDENTITY_ISSUER — bare ISSUER is ignored.
+	Issuer string `split_words:"true"`
 	// ShutdownTimeout bounds graceful HTTP shutdown after SIGINT/SIGTERM.
-	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"10s"`
+	ShutdownTimeout time.Duration `split_words:"true" default:"10s"`
 	// HTTPReadHeaderTimeout bounds how long the server waits for request headers.
-	HTTPReadHeaderTimeout time.Duration `envconfig:"HTTP_READ_HEADER_TIMEOUT" default:"10s"`
+	HTTPReadHeaderTimeout time.Duration `split_words:"true" default:"10s"`
 	// HTTPMaxBodyBytes caps request body size for future write endpoints.
-	HTTPMaxBodyBytes int64 `envconfig:"HTTP_MAX_BODY_BYTES" default:"1048576"`
+	HTTPMaxBodyBytes int64 `split_words:"true" default:"1048576"`
 }
 
 // Load reads Identity configuration from the environment and validates it.
