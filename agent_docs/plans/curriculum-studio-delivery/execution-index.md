@@ -4,6 +4,9 @@ Companion to [`index.md`](./index.md). Implementation orchestrators treat this
 file as the wave cursor. Detailed BDD scenarios and E2E IDs live in the four
 source plans; this file maps them 1:N to master waves.
 
+**Current status:** IA-R reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b`: specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**.
+**Next cursor:** **IB0 / I4** is now dependency-ready; **IB1+ remain blocked on IB0**.
+
 **Legend**
 
 | Prefix | Track |
@@ -430,6 +433,6 @@ Do not start S2 production validator/cutover, I13, or S15 until their hard depen
 
 **Human-facing Identity phase labels:** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**. Historical phase filenames remain for link stability only and are non-authoritative.
 
-Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. IA is implemented foundation at `87d5c215134825edb410266a62c15534e1e9ecea` but is not composed or approved. The authoritative ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning freeze → **IB1** composed Stytch exchange → **IB2** Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
+Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`; IA-R is reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` with specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. **IB0** is now the next dependency-ready cursor; **IB1+ remain blocked on IB0**. The authoritative ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning freeze → **IB1** composed Stytch exchange → **IB2** Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
 
 S2 production validator/cutover waits for IB2+IB4 and applicable IB8 integration, and rejects raw Stytch tokens/roles/tuples. S9 live BFF waits for IB3+IB4; S15 uses only IB5-issued local service-principal machine JWTs; S19/X7 accept only Primer JWTs and need IB2+IB4 for delegated human writes, plus IB3+applicable IB8 for registration/publish confirmation. X2 is credential-free downstream Primer-token evidence; X3 is IB2+IB3+IB4 plus applicable IB8/S2/S9; X7 is IB2+IB4 plus S19/C12. `G-identity-stytch-broker` covers tuple mapping, Primer-only bridge, provider-outage fail-closed/no-negative-cache, and signed webhook replay/forgery/dedupe/out-of-order proof.

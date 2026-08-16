@@ -1,6 +1,6 @@
 # Primer Stytch Integration — reconciled implementation record
 
-**Status:** **IA library foundation implemented at `87d5c215134825edb410266a62c15534e1e9ecea`; pending blocking remediation and fresh specification/quality review. It is not composed into an application and is not approved for production authentication.**
+**Status:** **IA-R reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` (`fix(identity): require namespaced configuration`): specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**.** The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`.
 
 ## Selected production architecture
 
@@ -36,10 +36,10 @@ Not in this work: direct product-Stytch integration, roles as product authorizat
 
 | Wave | Status | Required outcome / dependency |
 |---|---|---|
-| IA | implemented, not approved | I1/I2 Stytch config, adapter/cache and exact tuple mapping foundation |
-| IA-R | required | close config, invalidation, dependency/index residuals; fresh spec + quality review |
-| IB0 | design freeze | exact Identity-hosted interactive broker/redirect, webhook event contract, durable grant association, local break-glass policy, organization provisioning policy, Primer OAuth AS |
-| IB1 | planned | compose Stytch client/cache/mapping into Identity broker/exchange; Primer-only grant association |
+| IA | implemented; credential-free/library foundation complete, not production auth | I1/I2 Stytch config, adapter/cache and exact tuple mapping foundation |
+| IA-R | reviewed at `8623ee639bd64d40f819d3079c52ed567b65b27b`; specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important | close config, invalidation, dependency/index residuals; fresh spec + quality review |
+| IB0 | **next dependency-ready wave / roadmap cursor** | exact Identity-hosted interactive broker/redirect, webhook event contract, durable grant association, local break-glass policy, organization provisioning policy, Primer OAuth AS |
+| IB1 | blocked on IB0 | compose Stytch client/cache/mapping into Identity broker/exchange; Primer-only grant association |
 | IB2 | planned | ES256/JWKS single-audience Primer token bridge bound to validated mapped Stytch session |
 | IB3 | planned | product BFF contract, host-only cookie/CSRF/PKCE, Primer-only material |
 | IB4 | planned hard gate | signed webhook, cache/grant revoke, replay/idempotency; production BFF/MCP dependency |
@@ -47,6 +47,8 @@ Not in this work: direct product-Stytch integration, roles as product authorizat
 | IB6 | planned | refresh/logout/provider-plus-local lifecycle |
 | IB7 | planned | Primer signing-key rotation and hardening |
 | IB8 | planned | admin/audit/recovery, LMS/TV and live Stytch cutover |
+
+**Roadmap cursor:** **IB0** is now the next dependency-ready wave; **IB1+ remain blocked on IB0**. Live Stytch still **BLOCKED**.
 
 ## Required evidence gates
 

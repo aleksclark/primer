@@ -4,7 +4,9 @@
 
 Primer Identity is the **sole Stytch B2B client** and the downstream Primer token broker/authorization server. Stytch owns ordinary human authentication and session validity. Identity server-validates opaque sessions, resolves exact `(project_id, organization_id, member_id)` to `accounts.id`, then issues short-lived single-audience Primer JWTs/JWKS to product BFFs and MCP. Product authorization remains local.
 
-At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Stytch config, official adapter, bounded cache and normalized mapping. It is **not composed and not security-approved**: no application/API wiring, broker/exchange, JWT/JWKS, BFF, webhook or live-provider proof exists. Historical F0/PG1/PG2 work is complete history, not a reason to redispatch I1/I2.
+At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Stytch config, official adapter, bounded cache and normalized mapping. IA-R was reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` (`fix(identity): require namespaced configuration`): specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. Historical F0/PG1/PG2 work is complete history, not a reason to redispatch I1/I2.
+
+**Roadmap cursor:** **IB0** is now the next dependency-ready wave; **IB1+ remain blocked on IB0**.
 
 ## Non-negotiable boundaries
 
@@ -23,7 +25,7 @@ At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Sty
 |---|---|---|
 | [01: IA / service shell and Stytch foundation](./phase-01-service-shell-and-db.md) | Implemented foundation: configuration, adapter/cache, and only the bounded provider boundary. | IA-R config remediation and fresh review. |
 | [02: IA / accounts and Stytch tuple mappings](./phase-02-accounts-and-external-identities.md) | Implemented tuple mapping foundation with exact distinct persona semantics. | IA-R index cleanup and fresh review. |
-| [03: IA-R / residual remediation and review](./phase-03-keys-jwks-access-tokens.md) | Close the blocking foundation residuals before composition. | Fresh quality and specification approval. |
+| [03: IA-R / residual remediation and review](./phase-03-keys-jwks-access-tokens.md) | Close the blocking foundation residuals before composition. **Status:** reviewed at `8623ee639bd64d40f819d3079c52ed567b65b27b`: specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important; credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**. | Fresh quality and specification approval. |
 | [04: IB0 / broker, webhook, and provisioning design freeze](./phase-04-oauth-clients-and-op.md) | Freeze the exact external contracts before endpoints are composed. | IA-R approval. |
 | [05: IB1 / compose validated Stytch broker exchange](./phase-05-sessions-cookies-login-csrf.md) | Compose adapter/cache/mapping into the Identity public broker/exchange path. | IB0 frozen contract. |
 | [06: IB2 / Primer ES256 JWT and JWKS bridge](./phase-06-google-rp-loopback.md) | Issue only Primer token material after the broker exchange. | IB1. |
