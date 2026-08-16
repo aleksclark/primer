@@ -31,7 +31,7 @@ const (
 type requestKey struct{}
 
 func (s *Server) registerBrokerRoutes(api huma.API) {
-	if s.broker == nil {
+	if s.broker == nil && !s.registerBrokerInventory {
 		return
 	}
 
@@ -62,6 +62,9 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 		}
 		parsed, err := broker.ParseAuthorizeRequest(r.URL.Query())
 		if err != nil {
+			return nil, s.brokerLocalError(true)
+		}
+		if s.broker == nil {
 			return nil, s.brokerLocalError(true)
 		}
 		started, err := s.broker.Authorize(ctx, parsed)
@@ -99,7 +102,7 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 				cookie = c.Value
 			}
 		}
-		if cookie == "" || s.broker.BoundCookie(ctx, cookie) != nil {
+		if cookie == "" || s.broker == nil || s.broker.BoundCookie(ctx, cookie) != nil {
 			return nil, s.brokerLocalError(true)
 		}
 		csrf := csrfForCookie(cookie)
@@ -176,7 +179,7 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 			cookie = c.Value
 		}
 		artifact, ok := singleCallbackArtifact(r.URL.Query())
-		if !ok || cookie == "" {
+		if !ok || cookie == "" || s.broker == nil {
 			return nil, s.brokerLocalError(true)
 		}
 		result, err := s.broker.CompleteCallback(ctx, broker.CallbackInput{
@@ -237,6 +240,9 @@ func (s *Server) registerStartRoute(api huma.API, attach huma.Middlewares, id, p
 		if !ok {
 			return nil, s.brokerLocalError(true)
 		}
+		if s.broker == nil {
+			return nil, s.brokerLocalError(true)
+		}
 		if _, err := s.broker.StartMethod(ctx, cookie, method); err != nil {
 			return nil, s.brokerLocalError(true)
 		}
@@ -282,7 +288,7 @@ func (s *Server) requireBrokerPOST(r *http.Request) (string, url.Values, error) 
 	if !csrfValid(c.Value, csrf) {
 		return "", nil, s.brokerLocalError(true)
 	}
-	if err := s.broker.BoundCookie(r.Context(), c.Value); err != nil {
+	if s.broker == nil || s.broker.BoundCookie(r.Context(), c.Value) != nil {
 		return "", nil, s.brokerLocalError(true)
 	}
 	return c.Value, r.PostForm, nil

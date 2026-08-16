@@ -51,12 +51,13 @@ type Pinger interface {
 
 // Server holds shared handler dependencies.
 type Server struct {
-	pool          Pinger
-	now           func() time.Time
-	reqTotal      atomic.Int64
-	broker        *broker.Service
-	requireBroker bool
-	brokerHTTP    BrokerHTTPOptions
+	pool                    Pinger
+	now                     func() time.Time
+	reqTotal                atomic.Int64
+	broker                  *broker.Service
+	requireBroker           bool
+	brokerHTTP              BrokerHTTPOptions
+	registerBrokerInventory bool
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -74,7 +75,13 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 		panic("api: InsecureTestCookie is rejected when Production is true")
 	}
 	s := &Server{pool: pool, now: now, broker: opts.Broker, requireBroker: opts.RequireBroker, brokerHTTP: opts.BrokerHTTP}
+	return s.build()
+}
 
+func (s *Server) build() (huma.API, http.Handler) {
+	if s.now == nil {
+		s.now = time.Now
+	}
 	router := chi.NewMux()
 	router.Use(middleware.Recoverer)
 	router.Use(RequestIDMiddleware)
