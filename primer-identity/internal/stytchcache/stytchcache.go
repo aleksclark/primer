@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -210,8 +209,23 @@ type loadResult struct {
 }
 
 type loadCall struct {
-	done   chan struct{}
-	result loadResult
+	done     chan struct{}
+	canceled chan struct{}
+	cancel   sync.Once
+	result   loadResult
+}
+
+func (call *loadCall) invalidate() {
+	call.cancel.Do(func() { close(call.canceled) })
+}
+
+func (call *loadCall) invalidated() bool {
+	select {
+	case <-call.canceled:
+		return true
+	default:
+		return false
+	}
 }
 
 // Cache validates opaque sessions through the provider and caches only
@@ -227,14 +241,18 @@ type Cache struct {
 	maxConcurrentLoads int
 	positive           *lruStore
 	negative           *lruStore
-	loadsMu            sync.Mutex
-	loads              map[string]*loadCall
-	loadPermits        chan struct{}
-	stats              counters
-	fence              sync.RWMutex
-	// generation is a single bounded global fence. Including it in the
-	// singleflight key prevents post-invalidation joins without an unbounded
-	// per-token epoch map; insertion and the generation check share fence.
+	// Lock order: loadsMu before fence. Cache hits take fence alone.
+	// Insertion and invalidation serialize on fence; admission takes
+	// loadsMu then a fence read lock so a generation/call change cannot
+	// land between lookup and registration.
+	loadsMu     sync.Mutex
+	loads       map[string]*loadCall
+	loadPermits chan struct{}
+	stats       counters
+	fence       sync.RWMutex
+	// generation is the bounded global InvalidateAll barrier. Per-token
+	// Invalidate marks only the matching in-flight call and never retains
+	// an epoch or raw token after that call completes.
 	generation atomic.Uint64
 }
 
@@ -352,8 +370,13 @@ func (c *Cache) AuthenticateSession(ctx context.Context, token string) (stytch.S
 	select {
 	case <-ctx.Done():
 		return stytch.SessionSnapshot{}, ctx.Err()
+	case <-call.canceled:
+		return stytch.SessionSnapshot{}, ErrUnavailable
 	case <-call.done:
 		loaded := call.result
+		if call.invalidated() {
+			return stytch.SessionSnapshot{}, ErrUnavailable
+		}
 		c.fence.RLock()
 		fresh := c.generation.Load() == generation
 		c.fence.RUnlock()
@@ -367,12 +390,11 @@ func (c *Cache) AuthenticateSession(ctx context.Context, token string) (stytch.S
 	}
 }
 
-// joinOrStartLoadLocked deduplicates by HMAC key and generation. It is called
-// with loadsMu and the invalidation read fence held, so an invalidation cannot
-// advance the generation between lookup and registration.
+// joinOrStartLoadLocked deduplicates by HMAC key. It is called with loadsMu
+// and the invalidation read fence held, so Invalidate cannot swap or fence
+// the matching call between lookup and registration.
 func (c *Cache) joinOrStartLoadLocked(token, key string, generation uint64) (*loadCall, bool) {
-	flight := flightKey(key, generation)
-	if call, ok := c.loads[flight]; ok {
+	if call, ok := c.loads[key]; ok && !call.invalidated() {
 		return call, true
 	}
 	select {
@@ -381,19 +403,19 @@ func (c *Cache) joinOrStartLoadLocked(token, key string, generation uint64) (*lo
 		c.stats.loadOverloadRejections.Add(1)
 		return nil, false
 	}
-	call := &loadCall{done: make(chan struct{})}
-	c.loads[flight] = call
+	call := &loadCall{done: make(chan struct{}), canceled: make(chan struct{})}
+	c.loads[key] = call
 	c.stats.loads.Add(1)
 	c.stats.inFlightLoads.Add(1)
-	go c.runLoad(token, key, generation, flight, call)
+	go c.runLoad(token, key, generation, call)
 	return call, true
 }
 
-func (c *Cache) runLoad(token, key string, generation uint64, flight string, call *loadCall) {
-	loaded := c.load(token, key, generation)
+func (c *Cache) runLoad(token, key string, generation uint64, call *loadCall) {
+	loaded := c.load(token, key, generation, call)
 	c.loadsMu.Lock()
-	if current, ok := c.loads[flight]; ok && current == call {
-		delete(c.loads, flight)
+	if current, ok := c.loads[key]; ok && current == call {
+		delete(c.loads, key)
 	}
 	<-c.loadPermits
 	c.stats.inFlightLoads.Add(^uint64(0))
@@ -402,7 +424,7 @@ func (c *Cache) runLoad(token, key string, generation uint64, flight string, cal
 	close(call.done)
 }
 
-func (c *Cache) load(token, key string, generation uint64) loadResult {
+func (c *Cache) load(token, key string, generation uint64, call *loadCall) loadResult {
 	providerCtx, cancel := context.WithTimeout(context.Background(), c.loadTimeout)
 	defer cancel()
 	snapshot, err := c.client.AuthenticateSession(providerCtx, token)
@@ -412,7 +434,7 @@ func (c *Cache) load(token, key string, generation uint64) loadResult {
 			return loadResult{err: ErrUnavailable}
 		}
 		if errors.Is(err, stytch.ErrDefinitive) {
-			c.cacheNegative(key, generation)
+			c.cacheNegative(key, generation, call)
 			return loadResult{err: ErrDenied}
 		}
 		c.stats.transientErrors.Add(1)
@@ -430,7 +452,7 @@ func (c *Cache) load(token, key string, generation uint64) loadResult {
 	now := c.now()
 	if snapshot.ProjectID != c.projectID || !snapshot.Active || !snapshot.Eligible ||
 		snapshot.OrganizationID == "" || snapshot.MemberID == "" || !snapshot.ExpiresAt.After(now) {
-		c.cacheNegative(key, generation)
+		c.cacheNegative(key, generation, call)
 		return loadResult{err: ErrDenied}
 	}
 	expires := now.Add(c.positiveTTL)
@@ -439,40 +461,56 @@ func (c *Cache) load(token, key string, generation uint64) loadResult {
 	}
 	c.fence.Lock()
 	defer c.fence.Unlock()
-	if c.generation.Load() != generation {
+	if c.generation.Load() != generation || call.invalidated() {
 		return loadResult{err: ErrUnavailable}
 	}
 	c.positive.put(key, expires, snapshot, payloadBytes, now)
 	return loadResult{snapshot: cloneSnapshot(snapshot)}
 }
 
-func (c *Cache) cacheNegative(key string, generation uint64) {
+func (c *Cache) cacheNegative(key string, generation uint64, call *loadCall) {
 	c.fence.Lock()
 	defer c.fence.Unlock()
 	now := c.now()
-	if c.generation.Load() == generation {
+	if c.generation.Load() == generation && !call.invalidated() {
 		c.negative.put(key, now.Add(c.negativeTTL), stytch.SessionSnapshot{}, 0, now)
 	}
 }
 
-// Invalidate removes one locally cached validation. It never revokes the
-// provider session.
+// Invalidate removes one locally cached validation and isolates only that
+// token's matching in-flight load. It never revokes the provider session.
 func (c *Cache) Invalidate(token string) {
-	c.fence.Lock()
-	defer c.fence.Unlock()
+	if len(token) == 0 || len(token) > maxSessionTokenBytes {
+		return
+	}
 	key := c.digest(token)
-	c.generation.Add(1)
+	c.loadsMu.Lock()
+	c.fence.Lock()
 	c.positive.remove(key)
 	c.negative.remove(key)
+	if call, ok := c.loads[key]; ok {
+		call.invalidate()
+		delete(c.loads, key)
+	}
+	c.fence.Unlock()
+	c.loadsMu.Unlock()
 }
 
-// InvalidateAll clears both bounded stores without invoking the provider.
+// InvalidateAll is the bounded global generation barrier. It clears both
+// stores and isolates every current in-flight load without invoking the
+// provider.
 func (c *Cache) InvalidateAll() {
+	c.loadsMu.Lock()
 	c.fence.Lock()
-	defer c.fence.Unlock()
 	c.generation.Add(1)
 	c.positive.clear()
 	c.negative.clear()
+	for key, call := range c.loads {
+		call.invalidate()
+		delete(c.loads, key)
+	}
+	c.fence.Unlock()
+	c.loadsMu.Unlock()
 }
 
 // Stats returns aggregate counters and current bounded entry counts.
@@ -486,10 +524,6 @@ func (c *Cache) Stats() Stats {
 		LoadOverloadRejections: c.stats.loadOverloadRejections.Load(),
 		InFlightLoads:          c.stats.inFlightLoads.Load(),
 	}
-}
-
-func flightKey(key string, generation uint64) string {
-	return key + "\x00" + strconv.FormatUint(generation, 10)
 }
 
 func validateSnapshotPayload(snapshot stytch.SessionSnapshot) (int, bool) {
