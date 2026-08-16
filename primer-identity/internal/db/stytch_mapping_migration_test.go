@@ -90,11 +90,13 @@ func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
 	require.NotContains(t, indexNames, "stytch_mappings_project_org_idx")
 
 	_, err = pool.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, accountID)
-	require.NoError(t, err)
+	require.Error(t, err, "IB1 forward-fix must restrict account deletion while mapping exists")
 	var mappingCount int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM stytch_mappings`).Scan(&mappingCount))
-	require.Zero(t, mappingCount, "account cascade must remove mappings")
+	require.Equal(t, 1, mappingCount, "restricted account deletion preserves mapping evidence")
 
+	require.NoError(t, db.MigrateDown(ctx, url))
+	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_class WHERE relname='stytch_mappings'`).Scan(&mappingCount))
 	require.Zero(t, mappingCount)
