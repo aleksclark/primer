@@ -180,6 +180,23 @@ func validateCanonicalArray(field string, values []string) error {
 	return nil
 }
 func ValidateCanonicalScopes(scopes []string) error { return validateCanonicalArray("scopes", scopes) }
+
+const (
+	MaxProviderMemberSessionIDRunes = 255
+	MaxProviderMemberSessionIDBytes = 1024
+)
+
+func ValidateProviderMemberSessionID(id string) error {
+	if id == "" || !utf8.ValidString(id) || utf8.RuneCountInString(id) > MaxProviderMemberSessionIDRunes || len(id) > MaxProviderMemberSessionIDBytes {
+		return invalidf("provider_member_session_id", "must be non-empty UTF-8, <=255 runes and <=1024 bytes")
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f {
+			return invalidf("provider_member_session_id", "must not contain control characters")
+		}
+	}
+	return nil
+}
 func ValidateBrokerStatus(s string) error {
 	switch s {
 	case BrokerStatusPending, BrokerStatusProviderStarted, BrokerStatusProviderValidating, BrokerStatusAuthorized, BrokerStatusDenied, BrokerStatusFailed, BrokerStatusExpired:
@@ -193,19 +210,29 @@ func CanonicalScopes(scopes []string) []string {
 	sort.Strings(out)
 	return out
 }
+func AssociationFromSnapshot(accountID, mappingID uuid.UUID, projectID, organizationID, memberID, memberSessionID string, expiresAt, validatedAt time.Time) (ProviderSessionAssociation, error) {
+	assoc := ProviderSessionAssociation{
+		AccountID: accountID, StytchMappingID: mappingID, Provider: "stytch_b2b",
+		ProviderProjectID: projectID, ProviderOrganizationID: organizationID,
+		ProviderMemberID: memberID, ProviderMemberSessionID: memberSessionID,
+		ProviderExpiresAt: expiresAt, Status: "active", LastValidatedAt: validatedAt,
+	}
+	return assoc, ValidateProviderSessionAssociation(assoc)
+}
+
 func ValidateProviderSessionAssociation(a ProviderSessionAssociation) error {
-	if a.ID == uuid.Nil || a.AccountID == uuid.Nil || a.StytchMappingID == uuid.Nil {
+	if a.AccountID == uuid.Nil || a.StytchMappingID == uuid.Nil {
 		return invalidf("association", "IDs must be present")
 	}
 	if a.Provider != "stytch_b2b" {
 		return invalidf("provider", "must be stytch_b2b")
 	}
-	for n, v := range map[string]string{"provider_project_id": a.ProviderProjectID, "provider_organization_id": a.ProviderOrganizationID, "provider_member_id": a.ProviderMemberID, "provider_member_session_id": a.ProviderMemberSessionID} {
+	for n, v := range map[string]string{"provider_project_id": a.ProviderProjectID, "provider_organization_id": a.ProviderOrganizationID, "provider_member_id": a.ProviderMemberID} {
 		if err := validateBoundedText(n, v, 255); err != nil {
 			return err
 		}
 	}
-	return nil
+	return ValidateProviderMemberSessionID(a.ProviderMemberSessionID)
 }
 func ValidateAuthorizationCode(c OAuthAuthorizationCode) error {
 	if len(c.CodeHash) != 32 || c.PepperVersion <= 0 {
@@ -213,6 +240,9 @@ func ValidateAuthorizationCode(c OAuthAuthorizationCode) error {
 	}
 	if !c.ExpiresAt.After(c.IssuedAt) || c.ExpiresAt.After(c.IssuedAt.Add(time.Minute)) {
 		return invalidf("expires_at", "must be <=60 seconds")
+	}
+	if c.ConsumedAt != nil {
+		return invalidf("consumed_at", "IB1 must not persist or accept code consumption")
 	}
 	if err := validatePKCE(c.PKCEChallenge, c.PKCEMethod); err != nil {
 		return err
