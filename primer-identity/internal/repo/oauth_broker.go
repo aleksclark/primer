@@ -2,8 +2,11 @@ package repo
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/aleksclark/primer/identity/internal/domain"
@@ -211,7 +214,11 @@ func IssueCallbackArtifacts(ctx context.Context, pool *pgxpool.Pool, in IssueCal
 }
 
 func issueCallbackArtifactsTx(ctx context.Context, tx pgx.Tx, in IssueCallbackArtifactsInput) (*IssuedCallbackArtifacts, error) {
-	assoc, err := CreateProviderSessionAssociation(ctx, tx, domain.ProviderSessionAssociation{
+	claimed, err := claimBrokerTransaction(ctx, tx, in.BrokerID, in.ExpectedVersion)
+	if err != nil {
+		return nil, err
+	}
+	assoc, err := upsertProviderSessionAssociation(ctx, tx, domain.ProviderSessionAssociation{
 		AccountID: in.AccountID, StytchMappingID: in.MappingID, Provider: "stytch_b2b",
 		ProviderProjectID: in.ProviderProjectID, ProviderOrganizationID: in.ProviderOrganizationID,
 		ProviderMemberID: in.ProviderMemberID, ProviderMemberSessionID: in.ProviderMemberSessionID,
@@ -220,7 +227,7 @@ func issueCallbackArtifactsTx(ctx context.Context, tx pgx.Tx, in IssueCallbackAr
 	if err != nil {
 		return nil, err
 	}
-	grant, err := CreateOAuthGrant(ctx, tx, domain.OAuthGrant{
+	grant, err := reuseOrCreateActiveHumanGrant(ctx, tx, domain.OAuthGrant{
 		AccountID: &in.AccountID, OAuthClientID: in.OAuthClientID, ProviderSessionAssociationID: &assoc.ID,
 		ResourceURI: in.ResourceURI, Audience: in.Audience, Scopes: in.Scopes, SubjectClass: "human",
 		Status: "active", GrantedAt: in.IssuedAt, NotAfter: in.GrantNotAfter,
@@ -242,15 +249,127 @@ UPDATE broker_transactions
 SET account_id=$1, provider_session_association_id=$2, status='authorized', version=version+1,
     completed_at=now(), state_sealed=NULL, provider_code_sealed=NULL, provider_code_key_version=NULL
 WHERE id=$3 AND version=$4 AND status='provider_validating'`,
-		in.AccountID, assoc.ID, in.BrokerID, in.ExpectedVersion)
+		in.AccountID, assoc.ID, claimed.ID, claimed.Version)
 	if err != nil {
 		return nil, wrapf("issue callback artifacts", err)
 	}
 	if tag.RowsAffected() != 1 {
 		return nil, ErrStaleCAS
 	}
-	broker := &domain.BrokerTransaction{ID: in.BrokerID, Status: domain.BrokerStatusAuthorized, Version: in.ExpectedVersion + 1}
+	broker := &domain.BrokerTransaction{ID: claimed.ID, Status: domain.BrokerStatusAuthorized, Version: claimed.Version + 1}
 	return &IssuedCallbackArtifacts{Association: assoc, Grant: grant, Code: code, Broker: broker}, nil
+}
+
+func claimBrokerTransaction(ctx context.Context, tx pgx.Tx, id uuid.UUID, expectedVersion int64) (*domain.BrokerTransaction, error) {
+	out := &domain.BrokerTransaction{}
+	err := tx.QueryRow(ctx, `
+SELECT id, version, status
+FROM broker_transactions
+WHERE id=$1 AND version=$2 AND status='provider_validating'
+FOR UPDATE`, id, expectedVersion).Scan(&out.ID, &out.Version, &out.Status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrStaleCAS
+	}
+	if err != nil {
+		return nil, wrapf("issue callback artifacts", err)
+	}
+	return out, nil
+}
+
+func upsertProviderSessionAssociation(ctx context.Context, q Querier, in domain.ProviderSessionAssociation) (*domain.ProviderSessionAssociation, error) {
+	if in.Provider == "" {
+		in.Provider = "stytch_b2b"
+	}
+	if in.Status == "" {
+		in.Status = "active"
+	}
+	if err := domain.ValidateProviderSessionAssociation(in); err != nil {
+		return nil, wrapf("upsert provider session association", err)
+	}
+	out := &domain.ProviderSessionAssociation{}
+	err := q.QueryRow(ctx, `
+INSERT INTO provider_session_associations(
+  account_id,stytch_mapping_id,provider,provider_project_id,provider_organization_id,
+  provider_member_id,provider_member_session_id,provider_expires_at,status,last_validated_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+ON CONFLICT (provider,provider_project_id,provider_member_session_id) DO UPDATE
+SET last_validated_at = GREATEST(provider_session_associations.last_validated_at, EXCLUDED.last_validated_at),
+    provider_expires_at = GREATEST(provider_session_associations.provider_expires_at, EXCLUDED.provider_expires_at),
+    updated_at = now()
+WHERE provider_session_associations.account_id = EXCLUDED.account_id
+  AND provider_session_associations.stytch_mapping_id = EXCLUDED.stytch_mapping_id
+  AND provider_session_associations.provider_organization_id = EXCLUDED.provider_organization_id
+  AND provider_session_associations.provider_member_id = EXCLUDED.provider_member_id
+  AND provider_session_associations.status = 'active'
+RETURNING id,account_id,stytch_mapping_id,provider,provider_project_id,provider_organization_id,provider_member_id,provider_member_session_id,provider_expires_at,status,last_validated_at,revoked_at,revoke_reason_code,created_at,updated_at`,
+		in.AccountID, in.StytchMappingID, in.Provider, in.ProviderProjectID, in.ProviderOrganizationID,
+		in.ProviderMemberID, in.ProviderMemberSessionID, in.ProviderExpiresAt, in.Status, in.LastValidatedAt,
+	).Scan(&out.ID, &out.AccountID, &out.StytchMappingID, &out.Provider, &out.ProviderProjectID, &out.ProviderOrganizationID, &out.ProviderMemberID, &out.ProviderMemberSessionID, &out.ProviderExpiresAt, &out.Status, &out.LastValidatedAt, &out.RevokedAt, &out.RevokeReasonCode, &out.CreatedAt, &out.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, wrapf("upsert provider session association", fmt.Errorf("%w: association account, tuple, or status mismatch", domain.ErrConflict))
+	}
+	return out, wrapf("upsert provider session association", err)
+}
+
+func reuseOrCreateActiveHumanGrant(ctx context.Context, q Querier, in domain.OAuthGrant) (*domain.OAuthGrant, error) {
+	if in.AccountID == nil || in.ProviderSessionAssociationID == nil {
+		return nil, wrapf("reuse oauth grant", domain.ErrInvalid)
+	}
+	existing, err := getActiveHumanGrant(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience)
+	if err == nil {
+		return reuseActiveHumanGrant(existing, in.Scopes)
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+	created, createErr := CreateOAuthGrant(ctx, q, in)
+	if createErr == nil {
+		return created, nil
+	}
+	if !errors.Is(createErr, domain.ErrConflict) {
+		return nil, createErr
+	}
+	existing, err = getActiveHumanGrant(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience)
+	if err != nil {
+		return nil, createErr
+	}
+	return reuseActiveHumanGrant(existing, in.Scopes)
+}
+
+func getActiveHumanGrant(ctx context.Context, q Querier, accountID, clientID, associationID uuid.UUID, resourceURI, audience string) (*domain.OAuthGrant, error) {
+	out := &domain.OAuthGrant{}
+	err := q.QueryRow(ctx, `
+SELECT id,account_id,service_principal_id,oauth_client_id,provider_session_association_id,resource_uri,audience,scopes,subject_class,status,granted_at,not_after,revoked_at,revoke_reason_code,version
+FROM oauth_grants
+WHERE account_id=$1 AND oauth_client_id=$2 AND provider_session_association_id=$3
+  AND resource_uri=$4 AND audience=$5 AND subject_class='human' AND status='active'
+FOR UPDATE`,
+		accountID, clientID, associationID, resourceURI, audience,
+	).Scan(&out.ID, &out.AccountID, &out.ServicePrincipalID, &out.OAuthClientID, &out.ProviderSessionAssociationID, &out.ResourceURI, &out.Audience, &out.Scopes, &out.SubjectClass, &out.Status, &out.GrantedAt, &out.NotAfter, &out.RevokedAt, &out.RevokeReasonCode, &out.Version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, wrapf("get oauth grant", domain.ErrNotFound)
+	}
+	return out, wrapf("get oauth grant", err)
+}
+
+func reuseActiveHumanGrant(existing *domain.OAuthGrant, requested []string) (*domain.OAuthGrant, error) {
+	if !scopesSatisfiedBy(existing.Scopes, requested) {
+		return nil, wrapf("reuse oauth grant", fmt.Errorf("%w: grant scope widening is forbidden", domain.ErrConflict))
+	}
+	return existing, nil
+}
+
+func scopesSatisfiedBy(existing, requested []string) bool {
+	have := make(map[string]struct{}, len(existing))
+	for _, scope := range existing {
+		have[scope] = struct{}{}
+	}
+	for _, scope := range requested {
+		if _, ok := have[scope]; !ok {
+			return false
+		}
+	}
+	return len(requested) > 0
 }
 
 func validTransition(from, to string) bool {
@@ -266,6 +385,18 @@ func validTransition(from, to string) bool {
 	return false
 }
 
+func isRetryableSerialization(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		return pe.Code == "40001" || pe.Code == "40P01"
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLSTATE 40001") || strings.Contains(msg, "SQLSTATE 40P01")
+}
+
 func isTerminal(s string) bool {
 	return s == domain.BrokerStatusDenied || s == domain.BrokerStatusFailed || s == domain.BrokerStatusExpired || s == domain.BrokerStatusAuthorized
 }
@@ -278,31 +409,79 @@ func validateRegistration(a, b, c string) error {
 }
 
 func WithSerializableRetry(ctx context.Context, p *pgxpool.Pool, fn func(pgx.Tx) error) error {
-	const maxAttempts = 3
+	const (
+		maxAttempts   = 8
+		baseBackoff   = 5 * time.Millisecond
+		maxBackoff    = 80 * time.Millisecond
+		jitterCeiling = 16
+	)
+	var last error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		tx, err := p.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 		if err != nil {
+			if isRetryableSerialization(err) && attempt < maxAttempts {
+				last = err
+				if sleepErr := sleepSerializableBackoff(ctx, attempt, baseBackoff, maxBackoff, jitterCeiling); sleepErr != nil {
+					return sleepErr
+				}
+				continue
+			}
 			return err
 		}
 		err = fn(tx)
 		if err == nil {
 			err = tx.Commit(ctx)
+			if err != nil {
+				_ = tx.Rollback(context.Background())
+			}
 		} else {
-			_ = tx.Rollback(ctx)
+			_ = tx.Rollback(context.Background())
 		}
 		if err == nil {
 			return nil
 		}
-		var pe *pgconn.PgError
-		if errors.As(err, &pe) && (pe.Code == "40001" || pe.Code == "40P01") && attempt < maxAttempts {
+		last = err
+		if isRetryableSerialization(err) && attempt < maxAttempts {
+			if sleepErr := sleepSerializableBackoff(ctx, attempt, baseBackoff, maxBackoff, jitterCeiling); sleepErr != nil {
+				return sleepErr
+			}
 			continue
 		}
 		return err
 	}
-	return fmt.Errorf("serializable retry exhausted")
+	return last
+}
+
+func sleepSerializableBackoff(ctx context.Context, attempt int, base, capDelay time.Duration, jitterCeiling int) error {
+	shift := attempt - 1
+	if shift > 4 {
+		shift = 4
+	}
+	delay := base << shift
+	if delay > capDelay {
+		delay = capDelay
+	}
+	delay += time.Duration(randIntn(jitterCeiling)) * time.Millisecond
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
+}
+
+func randIntn(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return int(v.Int64())
 }
 
 func PurgeBrokerTransactions(ctx context.Context, q Querier, now time.Time) (int64, error) {
