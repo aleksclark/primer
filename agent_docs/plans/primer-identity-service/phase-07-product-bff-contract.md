@@ -1,37 +1,43 @@
 # 07: IB3 / product BFF cookie, CSRF, and PKCE contract
 
+**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+
 ## Goal
 
-Give each product a safe broker-facing browser contract. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
+Implement each product’s server-side OAuth client boundary against Primer Identity only after the candidate routes/cookie/redirect/resource/PKCE rules in [`../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md`](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) pass the IB0 zero-finding exact-tip review.
 
 ## BDD Success Criteria
 
-### Scenario: IB3 / product BFF cookie, CSRF, and PKCE contract
+#### Scenario: IB3-S1 — Product-owned browser session
+- **Given** a product `/auth/login`
+- **When** the broker flow completes
+- **Then** the BFF validates state/`iss`, exchanges code+S256 verifier server-to-server and sets only `__Host-<product>-session`
+- **And** JS/URL/storage contain no access/refresh/Stytch material.
 
-- **Given** the preceding phase gates and a bounded, sanitized test environment
-- **When** bFF uses Identity callback/exchange and host-only cookie/CSRF/PKCE; browser storage/API receives no Stytch material.
-- **Then** the behavior is observable through the named public boundary and durable local evidence
-- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
+#### Scenario: IB3-S2 — No implicit cross-product SSO
+- **Given** successful Studio login
+- **When** LMS authorization starts
+- **Then** it creates a new broker transaction and separate host-only LMS cookie.
+
+#### Scenario: IB3-S3 — CSRF/redirect fail closed
+- **Given** missing/bad Origin/CSRF/state/verifier or unregistered redirect/resource/audience
+- **When** a mutation/callback executes
+- **Then** it is rejected without token issuance or open redirect.
 
 ## Implementation Instructions
 
-- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
-- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
-- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
-- **Dependency gate:** IB2 and IB0 contract.
+Product BFF owns `/auth/login`, exact `/auth/callback`, `/auth/logout`, `/auth/me`, server-side pre-auth/session/refresh custody, and CSRF. Identity owns no product cookie. Token/revoke routes have no browser CORS. Keep registration static and exact; no DCR.
 
 ## End-to-End Test Plan
 
-Browser E2E proves cookie scope, CSRF, redirect allowlist, and no token in JS/localStorage. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
+Run IB3-E01..E06 with real browser+BFF+Identity processes: exact state/iss/PKCE, separate products/cookies, browser storage/network scan, CSRF/Origin, open redirect/Host poisoning, restart durability and CORS denial.
 
 ## Anti-Cheating Audit
 
-No parent-domain cookie or product-owned human session authority. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
+No localStorage, browser-readable token cookie, parent Domain cookie, frontend token exchange, wildcard redirect, implicit mock user, or inherited Identity SSO.
 
 ## Completion Gate
 
-- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
-- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
-- [ ] No Stytch material or provider authorization leaks to products.
-- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
-- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.
+- [ ] IB3-S* and IB3-E01..E06 green.
+- [ ] Production product/MCP remains blocked until IB4.
+- [ ] Browser artifact scan and independent security review pass.

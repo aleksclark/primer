@@ -56,20 +56,12 @@ model {
     description 'Same deterministic validation as REST. Source: curriculum-studio-mcp-design.md.'
   }
 
-  curriculum_studio.studio.mcp_adapter -> identity_service 'Fetches JWKS; validates access JWTs locally on every MCP request' {
-    description '
-      Same validator posture as Curriculum API. No token mint, no introspection
-      required. Sources: curriculum-studio-mcp-design.md M7;
-      primer-identity-service-design.md JWKS.
-    '
+  curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.audit_idempotency 'Redacted audit/idempotency and MRTR coordination boundary' {
+    description 'No direct adapter→PostgreSQL relation. Candidate/STOP; source: stytch-identity-ib0 §02.'
   }
 
-  curriculum_studio.studio.mcp_adapter -> curriculum_studio.postgres 'Audit and idempotency via domain/persistence (no cross-DB)' {
-    description '
-      Uses existing audit_events and idempotency_keys through app/repo layers —
-      not a second database. Source: curriculum-studio-mcp-design.md §7;
-      database plan MCP mapping.
-    '
+  curriculum_studio.studio.audit_idempotency -> curriculum_studio.postgres 'Persists redacted MCP receipts, idempotency, and confirmation consumption' {
+    description 'No third DB and no raw token/provider payload. Candidate/STOP; source: stytch-identity-ib0 §§02–03.'
   }
 
   curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.agent_workflow_runner 'Runs staged generation / critique workflows' {

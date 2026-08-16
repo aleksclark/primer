@@ -1,4 +1,4 @@
-// Actors, adjacent systems, and product boundaries.
+// Candidate IB0 topology; STOP pending independent exact-tip review.
 
 model {
   teacher = actor 'Teacher' {
@@ -58,6 +58,65 @@ model {
       Sources: agent_docs/plans/primer-identity-service-design.md;
       agent_docs/plans/curriculum-studio-foundation-crosswalk.md L3–L4.
     '
+
+    identity_broker = component 'OAuth AS and Stytch broker' {
+      #public
+      description '
+        Owns /oauth/authorize, the Identity-hosted Stytch login/discovery/
+        callback boundary, exact client/redirect/resource/audience/scope
+        registration, state and S256 PKCE, durable Primer grants, and
+        one-use Primer authorization codes. Each product authorization
+        starts a new broker transaction; no implicit cross-product SSO.
+        Source: agent_docs/plans/stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md.
+      '
+    }
+
+    token_authority = component 'Primer token and JWKS authority' {
+      #public
+      description '
+        Owns /oauth/token, /oauth/revoke, authorization-server metadata,
+        ES256 single-audience access JWTs (sub=accounts.id, <=15m),
+        rotating refresh families, Primer service principals, and public
+        JWKS. Provider/product roles and Stytch tuple/session claims are
+        absent by default.
+        Source: agent_docs/plans/stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md.
+      '
+    }
+
+    stytch_webhook = component 'Stytch webhook receiver and revoker' {
+      #public
+      description '
+        Identity-only POST /webhooks/stytch. Verifies the raw body with
+        Svix signed id/timestamp/signature headers, durably receipts
+        before effects, globally invalidates the provider cache, and
+        revokes provider-associated Primer grants/refresh families.
+        Never grants or changes product membership.
+        Source: agent_docs/plans/stytch-identity-ib0/04-stytch-webhook-and-provisioning.md.
+      '
+    }
+
+    identity_audit = component 'Identity audit and revocation ledger' {
+      #private
+      #durable
+      description '
+        Append-only sanitized OAuth, webhook, refresh-reuse and revocation
+        evidence. Stores bounded identifiers, hashes and outcomes; never
+        raw provider payloads, tokens, secrets, email/profile, or product roles.
+        Source: agent_docs/plans/stytch-identity-ib0/03-data-state-and-revocation.md.
+      '
+    }
+
+    identity_postgres = datastore 'Identity PostgreSQL' {
+      #private
+      #durable
+      description '
+        Identity-owned accounts/mappings, OAuth clients/redirects, broker
+        transactions, provider-session associations, grants, hashed codes/
+        refresh families, signing-key custody, webhook ledger and audit.
+        No shared product DB and no raw Stytch token or payload.
+        Source: agent_docs/plans/stytch-identity-ib0/03-data-state-and-revocation.md.
+      '
+    }
   }
 
   stytch_b2b = softwareSystem 'Stytch B2B' {

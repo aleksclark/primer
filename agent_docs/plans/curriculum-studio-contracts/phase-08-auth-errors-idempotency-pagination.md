@@ -11,20 +11,21 @@ transport-specific pagination — via adapters/harnesses and generated-client E2
 
 ## BDD Success Criteria
 
-#### Scenario: P8-S1 — REST Bearer JWT with audience curriculum-studio
+#### Scenario: P8-S1 — REST Bearer JWT with audience and public client identity
 
-- **Given** fixture JWKS and valid access token `aud=curriculum-studio`
+- **Given** fixture JWKS and valid access token `aud=curriculum-studio` with required signed public `client_id`
 - **When** generated REST client calls a protected authoring route
 - **Then** request succeeds
 - **And** token with `aud=primer-lms` is rejected as unauthenticated/forbidden
   per policy
+- **And** missing/wrong/overlong/control-bearing `client_id`, `azp`, or internal OAuth-client UUID is rejected
 
 #### Scenario: P8-S2 — gRPC authorization metadata
 
-- **Given** same fixture issuer
-- **When** generated gRPC client attaches `authorization: Bearer <jwt>`
+- **Given** the same fixture issuer and required signed public `client_id`
+- **When** generated gRPC client attaches `authorization: Bearer <JWT>`
 - **Then** integration RPC succeeds
-- **And** missing/invalid metadata fails with `ERROR_CODE_UNAUTHENTICATED`
+- **And** missing/invalid metadata, invalid client identity, or `azp` fails with `ERROR_CODE_UNAUTHENTICATED`
 
 #### Scenario: P8-S3 — Scope metadata enforced on service calls
 
@@ -100,9 +101,9 @@ transport-specific pagination — via adapters/harnesses and generated-client E2
 
 | ID | Setup | Action | Assert |
 | --- | --- | --- | --- |
-| E8-01 | fixture JWT aud studio | REST protected call | 200 |
-| E8-02 | JWT aud lms | REST call | 401/403 |
-| E8-03 | gRPC with/without bearer | Materialize | success/unauthenticated |
+| E8-01 | fixture JWT aud studio + signed public `client_id` | REST protected call | 200; validated client identity in auth context |
+| E8-02 | JWT aud lms or missing/wrong/overlong/control `client_id`, `azp`, internal UUID | REST call | 401/403 |
+| E8-03 | gRPC with/without bearer and valid/invalid public `client_id` | Materialize | success/unauthenticated |
 | E8-04 | scope matrix | Materialize | deny/allow |
 | E8-05 | migration on/off | X-Service-Token | accept/reject |
 | E8-06 | error matrix | REST+gRPC | codes match wire |
@@ -113,6 +114,7 @@ transport-specific pagination — via adapters/harnesses and generated-client E2
 
 - Auth only on REST not gRPC (or reverse)
 - Accepting any JWT without aud check
+- Accepting missing/wrong client identity, treating `azp` as `client_id`, or exposing Identity's internal OAuth-client UUID
 - Idempotency always creating new ids
 - Error bodies as plain text without code
 - Pagination tested with single-page only

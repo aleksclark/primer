@@ -13,7 +13,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 
 ### In scope
 
-- `internal/auth` JWT validate (iss, aud, exp, nbf, kid via JWKS cache)
+- `internal/auth` JWT validate (iss, aud, exp, nbf, kid via JWKS cache, plus required signed public `client_id`; reject `azp` and internal OAuth-client UUIDs)
 - `STUDIO_AUTH_MODE=jwks|test` with production refuse of `test` and of test/loopback Identity providers when `STUDIO_ENV=production`
 - Preferred credential-free path: real loopback/test Identity process (or in-harness OP) issuing single-aud JWTs; Studio validates via JWKS only
 - Narrow test-only verifier alternative: inject JWKS URL + pre-minted JWTs from test helper **outside** Studio process; Studio middleware identical to production
@@ -34,7 +34,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 
 #### Scenario: P2-S1 — Valid JWT accepted
 
-- **Given** JWKS available and a signed JWT with aud=curriculum-studio, valid exp, known kid
+- **Given** JWKS available and a signed JWT with aud=curriculum-studio, valid exp, known kid, and registered public `client_id`
 - **When** client calls an authenticated probe route with Authorization Bearer
 - **Then** request authorized
 - **And** subject_ref derived as identity:<sub>
@@ -42,7 +42,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 #### Scenario: P2-S2 — Invalid JWT rejected
 
 - **Given** server running
-- **When** client presents expired, wrong-aud, bad-sig, or unknown-kid token
+- **When** client presents expired, wrong-aud, bad-sig, unknown-kid, missing/wrong/overlong/control-bearing `client_id`, internal UUID as `client_id`, or any `azp` token
 - **Then** 401 responses
 - **And** no workspace data leaked in body
 
@@ -100,7 +100,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 ## Implementation Instructions
 
 1. Implement JWKS cache with kid rotation window (dual-key accept). Studio is a **validator only**.
-2. Define `AuthContext` on request context: SubjectRef, Kind (human/service), Scopes, SessionID.
+2. Define `AuthContext` on request context: SubjectRef, Kind (human/service), Scopes, SessionID, and validated public ClientID. Never map `azp` or an internal Identity OAuth-client UUID into ClientID.
 3. Credential-free: prefer harness that starts loopback Identity (identity plan `internal/oauthtest` / test OP) and points `STUDIO_JWKS_URL` at it. Alternative narrow test mode: test helper mints JWT with external key material; Studio only loads JWKS — **do not** expose Studio as OP or `/oauth/token`.
 4. BFF session store: server-side session table **or** encrypted cookie binding subject; prefer server-side `bff_sessions` only if additive migration filed through db track — otherwise signed cookie session v1 with short TTL documented as interim **with** same cookie name production will keep. Cookie is not an access-token substitute for machine callers.
 5. If new tables needed, open blocker to db track; until then signed cookie is acceptable if documented in phase PR.
@@ -119,6 +119,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
   - 200
   - subject_ref prefix identity:
   - workspace list names present when membership exists
+  - public client_id present in AuthContext; no azp accepted
 - **Command:** `make studio-test`
 
 #### P2-E2 — Test session cookie E2E
@@ -181,6 +182,7 @@ Establish authentication **validation** and workspace authorization at the HTTP 
 - JWKS fetch failures fail closed (not allow-all)
 - CSRF not disabled via broad `if test` on all envs
 - Membership checks hit Postgres, not hard-coded map in handler forever without DB
+- Missing/wrong `client_id`, `azp`, or an internal OAuth-client UUID cannot be normalized into a valid AuthContext
 
 ## Completion Gate
 

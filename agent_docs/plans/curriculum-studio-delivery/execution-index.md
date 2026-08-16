@@ -1,11 +1,13 @@
 # Curriculum Studio delivery — execution index
 
+**IB0 status: STOP — candidate remediation under independent exact-tip review; this is not a dispatch cursor.**
+
 Companion to [`index.md`](./index.md). Implementation orchestrators treat this
 file as the wave cursor. Detailed BDD scenarios and E2E IDs live in the four
 source plans; this file maps them 1:N to master waves.
 
 **Current status:** IA-R reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b`: specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**.
-**Next cursor:** **IB0 / I4** is now dependency-ready; **IB1+ remain blocked on IB0**.
+**Next cursor:** **STOP: IB0 / I4 is a candidate under independent exact-tip review in [`../stytch-identity-ib0/`](../stytch-identity-ib0/); IB1 / I5 is blocked.** IB1+ runtime and live Stytch remain unimplemented/BLOCKED.
 
 **Legend**
 
@@ -93,17 +95,17 @@ Focused package commands from detailed phases are **required in addition** when 
 | **I1** | IA foundation / Stytch service shell | Identity | [phase-01](../primer-identity-service/phase-01-service-shell-and-db.md) P1-S*, P1-E* | F0 | **PG1** | `impl/I1-shell-db` | G-identity-test; separate goose table | stop if LMS DSN accepted |
 | **I2** | IA foundation / exact tuple mapping | Identity | [phase-02](../primer-identity-service/phase-02-accounts-and-external-identities.md) | I1 | PG2 | `impl/I2-accounts` | G-identity-test | no email auto-link |
 | **I3** | IA-R / residual remediation and review | Identity | [phase-03](../primer-identity-service/phase-03-keys-jwks-access-tokens.md) | I2 | PG3 | `impl/I3-ia-r-residual` | G-identity-test; fresh quality/spec review | residual closure only; **not** JWT/JWKS or production auth |
-| **I4** | IB0 / broker, webhook, provisioning design freeze | Identity | [phase-04](../primer-identity-service/phase-04-oauth-clients-and-op.md) | I3 | PG4 | `impl/I4-oauth-op` | G-identity-stytch-broker | — |
-| **I5** | IB1 / composed Stytch broker exchange | Identity | [phase-05](../primer-identity-service/phase-05-sessions-cookies-login-csrf.md) | I4 | PG5 | `impl/I5-sessions` | G-identity-stytch-broker; concurrent callback | — |
-| **I6** | IB2 / Primer ES256 JWT and JWKS bridge | Identity | [phase-06](../primer-identity-service/phase-06-google-rp-loopback.md) | I5 | PG5b | `impl/IB2-primer-jwks` | G-identity-stytch-broker; prod rejects test IdP | Live Stytch **BLOCKED** |
+| **I4** | IB0 / candidate broker, webhook, provisioning contract remediation (docs/architecture only) | Identity | [phase-04](../primer-identity-service/phase-04-oauth-clients-and-op.md); [IB0 package](../stytch-identity-ib0/) | I3 | PG4 | `impl/I4-oauth-op` | fresh zero-finding exact-tip review after docs links/traceability + LikeC4 1.46 + diff/allowlist gate | **STOP**; no runtime/live-provider claim |
+| **I5** | IB1 / composed Stytch broker exchange | Identity | [phase-05](../primer-identity-service/phase-05-sessions-cookies-login-csrf.md) | I4 | PG5 | `impl/I5-sessions` | G-identity-stytch-broker; IB1-E01..E10 including IB1-only migration fresh/upgrade/down, sealed state, exactly one unpaginated v18.1.0 `Sessions.Get(OrganizationID,MemberID)`, 1 MiB/256/exact-ID/duplicate behavior, tuple/account and composite association/account FK negatives, authorization-code CAS/unique/index behavior, and no raw provider token; no future-wave tables | — |
+| **I6** | IB2 / Primer ES256 JWT and JWKS bridge | Identity | [phase-06](../primer-identity-service/phase-06-google-rp-loopback.md) | I5 | PG5b | `impl/IB2-primer-jwks` | G-identity-stytch-broker; IB2-E00..E11 including initial signing-key/refresh-family/current-token migration constraints, copied 400-day issuance evidence with nullable `ON DELETE SET NULL`, required signed public `client_id`, no `azp`/internal UUID, private_key_jwt/RFC7009/sign-before-commit, and Studio MRTR claim binding; prod rejects test IdP | Live Stytch **BLOCKED** |
 | **I7** | IB3 / BFF cookie, CSRF and PKCE contract | Identity | [phase-07](../primer-identity-service/phase-07-product-bff-contract.md) | I5, I6 | PG6 | `impl/I7-bff-contract` | G-identity-e2e | **milestone:** Studio BFF OIDC |
-| **I8** | IB4 / signed webhook and two-plane revocation | Identity | [phase-08](../primer-identity-service/phase-08-service-principals.md) | I5, I6 | PG6 | `impl/I8-webhook-revocation` | G-identity-stytch-broker; signed webhook replay/forgery/dedupe/out-of-order E2E | **milestone:** hard production BFF/MCP revocation gate |
+| **I8** | IB4 / signed webhook and two-plane revocation | Identity | [phase-08](../primer-identity-service/phase-08-service-principals.md) | I5, I6, **I7** | PG6b | `impl/I8-webhook-revocation` | G-identity-stytch-broker; IB4-E01..E11 including receipt/collision/security-alert/revocation/audit migrations, indexes, leases, delete actions and 400-day retention; signed replay/forgery/dedupe/out-of-order, lease/backoff, four reason-bound collision classes, concurrent one-event/observation/alert, and no authority effect | **milestone:** hard production BFF/MCP revocation gate |
 | **I9** | IB5 / Primer-owned service principals and client_credentials | Identity | [phase-09](../primer-identity-service/phase-09-refresh-revoke-logout.md) | I6 | PG7 | `impl/I9-service-principals` | G-identity-e2e; client_credentials class/scope/audience proof | **milestone:** S15 machine JWT |
-| **I10** | IB6 / provider-plus-Primer lifecycle | Identity | [phase-10](../primer-identity-service/phase-10-key-rotation-and-hardening.md) | I7, I8 | PG8 | `impl/I10-lifecycle` | G-identity-test | — |
-| **I11** | IB7 / key rotation and hardening | Identity | [phase-11](../primer-identity-service/phase-11-admin-audit-recovery.md) | I6, I8 | PG8 | `impl/I11-hardening` | G-identity-test | — |
+| **I10** | IB6 / provider-plus-Primer lifecycle | Identity | [phase-10](../primer-identity-service/phase-10-key-rotation-and-hardening.md) | I7, I8 | PG8 | `impl/I10-lifecycle` | G-identity-test; IB6-E01 including refresh rotation/reuse terminal constraints, restart/upgrade durability, and 400-day refresh/grant/revocation/audit retention | — |
+| **I11** | IB7 / key rotation and hardening | Identity | [phase-11](../primer-identity-service/phase-11-admin-audit-recovery.md) | I6, I8 | PG8 | `impl/I11-hardening` | G-identity-test; IB7-E01..E04 including the full next/active/retired/destroyed migration/rotation lifecycle, at-most-one active/next, ordered timestamps, and no ciphertext after destroy | — |
 | **I12** | IB8 / Studio local-authorization proof | Identity (+ Platform consumer) | [phase-12](../primer-identity-service/phase-12-studio-integration.md); Platform S2 | I6, I8, S2 | PG9 | `impl/I12-studio-integration` | G-identity-e2e + G-studio-test joint | **milestone:** applicable production validator/cutover chain |
-| **I13** | IB8 / LMS dual-run local-role cutover | Identity | [phase-13](../primer-identity-service/phase-13-lms-dual-login-and-service-cutover.md) | I7–I9, I11 | PG10 | `impl/I13-lms-dual` | G-lms-test; empty secret fail-closed | close fail-open **before S7** |
-| **I14** | IB8 / TV admin, operations and live Stytch cutover | Identity | [phase-14](../primer-identity-service/phase-14-tv-admin-s7-ops-live.md) | I13 | PG11 | `impl/I14-s7-ops` | G-lms-test; device tokens still local | Live Stytch **BLOCKED** without approval |
+| **I13** | IB8 / LMS dual-run local-role cutover | Identity | [phase-13](../primer-identity-service/phase-13-lms-dual-login-and-service-cutover.md) | **I7–I10** | PG10 | `impl/I13-lms-dual` | G-lms-test; empty secret fail-closed | close fail-open **before S7** |
+| **I14** | IB8 / TV admin, operations and live Stytch cutover | Identity | [phase-14](../primer-identity-service/phase-14-tv-admin-s7-ops-live.md) | **I8–I11, I13**, approved live credentials/configuration | PG11 | `impl/I14-s7-ops` | G-lms-test; device tokens still local | Live Stytch **BLOCKED** without approval |
 
 ### 3.3 Database track (`D*`)
 
@@ -137,7 +139,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **C9** | Events + webhook envelope conformance | Contracts | [phase-09](../curriculum-studio-contracts/phase-09-events-webhooks.md) | C5, C8 | PG7c | `impl/C9-events` | envelope tests | — |
 | **C10** | Compatibility + exclusive-use + clean-checkout gates | Contracts | [phase-10](../curriculum-studio-contracts/phase-10-compatibility-and-policy-gates.md) | C4–C9 | PG8c | `impl/C10-policy-gates` | planted reds | — |
 | **C11** | Full contract conformance E2E matrix | Contracts | [phase-11](../curriculum-studio-contracts/phase-11-conformance-e2e.md) | C10 | PG9c | `impl/C11-conformance` | matrix green | — |
-| **C12** | MCP protocol + tool-schema conformance (official + external client) | Contracts | [phase-12](../curriculum-studio-contracts/phase-12-mcp-protocol-tool-schemas.md); [MCP design](../curriculum-studio-mcp-design.md) | C8+; runtime hard on S19 transport | PG-MCP | `impl/C12-mcp-conformance` | official SDK + external client matrix; no OpenAPI/proto DTO mirror | **HARD** if custom transport invented |
+| **C12** | MCP protocol + tool-schema conformance (official + external client) | Contracts | [phase-12](../curriculum-studio-contracts/phase-12-mcp-protocol-tool-schemas.md); [MCP design](../curriculum-studio-mcp-design.md); [IB0 MCP contract](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) | C8+; runtime hard on S19 transport | PG-MCP | `impl/C12-mcp-conformance` | stateless 2026-07-28 clients; RFC 9728 metadata; static registration; required public `client_id` and missing/wrong/`azp`/internal-UUID MRTR negatives; no OpenAPI/proto DTO mirror | **HARD** if custom transport/DCR invented |
 
 ### 3.5 Platform track (`S*`)
 
@@ -151,7 +153,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **S6** | Plan domain drafts | Platform | [phase-06](../curriculum-studio-platform/phase-06-plan-domain-drafts.md) | S4–S5, D5 | PG6d | `impl/S6-plan-drafts` | G-studio-test | — |
 | **S7** | Validation engine | Platform | [phase-07](../curriculum-studio-platform/phase-07-validation-engine.md) | S6, D6 | PG7d | `impl/S7-validation` | G-studio-test | — |
 | **S8** | Publish immutability + plan outbox enqueue | Platform | [phase-08](../curriculum-studio-platform/phase-08-publish-immutability.md) | S7, D5, D11 core | PG7d | `impl/S8-publish` | G-studio-test | — |
-| **S9** | SPA/BFF shell (house system) | Platform | [phase-09](../curriculum-studio-platform/phase-09-spa-bff-shell.md) | S3; credential-free shell may use test Identity; **live BFF** requires I7+I8 | PG5e soft / live BFF hard after I7+I8 | `impl/S9-spa-bff` | G-studio-e2e shell | generated client only |
+| **S9** | SPA/BFF shell (house system) | Platform | [phase-09](../curriculum-studio-platform/phase-09-spa-bff-shell.md); [IB0 BFF contract](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) | S3; credential-free shell may use test Identity; **live BFF** requires I7+I8 | PG5e soft / live BFF hard after I7+I8 | `impl/S9-spa-bff` | G-studio-e2e shell | exact registered redirect/resource/audience; host-only cookie; no browser token |
 | **S10** | Planning MVP UI + MD/PDF export | Platform | [phase-10](../curriculum-studio-platform/phase-10-planning-mvp-ui.md) | S8–S9, S5 | PG8d | `impl/S10-planning-mvp` | G-studio-e2e | — |
 | **S11** | Materialization domain | Platform | [phase-11](../curriculum-studio-platform/phase-11-materialization-domain.md) | S8, D7, D9 | PG9d | `impl/S11-materialization` | G-studio-test | — |
 | **S12** | Agent workflow runner (scripted model) | Platform | [phase-12](../curriculum-studio-platform/phase-12-agent-workflow-runner.md) | S11, D8 | PG10d | `impl/S12-workflow` | G-studio-test resume/kill | live models BLOCKED |
@@ -161,7 +163,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **S16** | Projects integrated | Platform | [phase-16](../curriculum-studio-platform/phase-16-projects-integrated.md) | S12–S13 | PG13 | `impl/S16-projects` | G-studio-test | — |
 | **S17** | Collaborative authoring | Platform | [phase-17](../curriculum-studio-platform/phase-17-collaborative-authoring.md) | S10, S16 | PG14 | `impl/S17-collab` | G-studio-e2e | — |
 | **S18** | Deploy/ops; live Stytch/model/deploy BLOCKED | Platform | [phase-18](../curriculum-studio-platform/phase-18-deploy-ops-live-gates.md) | S15–S17 | PG15 | `impl/S18-ops-live` | packaging gates; live **BLOCKED** | needs user approval |
-| **S19** | Streamable HTTP MCP `/mcp` tools (authz-filtered; human publish confirm) | Platform | [phase-19](../curriculum-studio-platform/phase-19-streamable-http-mcp.md); [MCP design](../curriculum-studio-mcp-design.md) | S1+S2 + credential-free test Identity for transport qual; S3–S8 + D4–D6/D5/D11 for full tools; **I6+I8** for production delegated writes; **I7+applicable I12** for client registration/publish confirmation; C12 for conformance claim | PG-MCP | `impl/S19-mcp-endpoint` | G-studio-test; `make studio-mcp-e2e`; Origin/aud/IDOR/idempotency/publish negatives | never mint tokens; never silent publish |
+| **S19** | Streamable HTTP MCP `/mcp` protected resource (authz-filtered; human publish confirm) | Platform | [phase-19](../curriculum-studio-platform/phase-19-streamable-http-mcp.md); [MCP design](../curriculum-studio-mcp-design.md); [IB0 MCP contract](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) | S1+S2 + credential-free test Identity for transport qual; S3–S8 + D4–D6/D5/D11 for full tools; **I6+I8** for production delegated writes; **I7+applicable I12** for static client registration/publish confirmation; C12 for conformance claim | PG-MCP | `impl/S19-mcp-endpoint` | G-studio-test; `make studio-mcp-e2e`; RFC 9728/resource/aud/raw-Stytch/Origin/IDOR/idempotency/publish negatives; confirmation DB handle binds validated public `client_id`; missing/wrong claim, `azp`, internal UUID denied/audited | no DCR/token mint; service cannot confirm publish |
 
 ### 3.6 Cross-cutting integration gates (`X*`)
 
@@ -169,11 +171,11 @@ Focused package commands from detailed phases are **required in addition** when 
 | --- | --- | --- | --- |
 | **X1** | First Studio cover ≥85% established | S1 (+ enough pkgs) | G-studio-cover |
 | **X2** | Credential-free Studio↔loopback Identity joint auth | S2 + loopback/test Identity (or narrow verifier) | joint e2e; same middleware; not production auth |
-| **X3** | Production-auth Studio (Primer JWT/JWKS + BFF against Identity) | I6, I7, I8, applicable I12, S2, S9 | G-studio-e2e + G-identity-e2e |
+| **X3** | Production-auth Studio (Primer JWT/JWKS + BFF against Identity) | I6, I7, I8, applicable I12, S2, S9 | G-studio-e2e + G-identity-e2e; required public `client_id`, absent `azp`, internal UUID denied |
 | **X4** | Contract conformance + platform handlers aligned | C11, S8+, S15 | C11 matrix + platform E2E |
 | **X5** | Fail-open secrets closed pre-S7 | I13 | SharedSecretGuard empty secret fails closed |
 | **X6** | Local integration tip green (no remote) | all non-BLOCKED through S15 + I12 | local `impl/cs-local` build/test matrix |
-| **X7** | MCP agent surface GA gate (transport + tools + conformance) | S19, C12, I6+I8; client-registration/publish-confirm path needs I7+applicable I12 | official + external clients; MCP-T1–T12 design matrix; no third DB |
+| **X7** | MCP agent surface GA gate (transport + protected-resource OAuth + tools + conformance) | S19, C12, I6+I8; static client-registration/publish-confirm path needs I7+applicable I12 | official + external stateless clients; metadata→Identity code+PKCE; raw Stytch rejection; signed public `client_id` issuance/validation and MRTR binding; missing/wrong claim, `azp`, internal UUID denied/audited; human/service publish matrix; no third DB |
 
 ---
 
@@ -182,8 +184,7 @@ Focused package commands from detailed phases are **required in addition** when 
 ```text
 F0
 ├── PG1 parallel:
-│   ├── I1 → I2 → I3 → I4 → I5 → I6 → I7
-│   │                                ↘ I8 (from I5/I6; webhook/revocation)
+│   ├── I1 → I2 → I3 → I4 → I5 → I6 → I7 → I8 (webhook/revocation hard dependency)
 │   │                                → I9 (service principals) → I10
 │   │                                → I11
 │   │                                → I12 (needs S2 + I6/I8)
@@ -229,7 +230,8 @@ C12 documents SoT anytime after C8; runtime conformance hard on S19.
 | **PG3** | I3, C4, S2(credential-free), D4 prep | IA-R residual remediation; no JWKS milestone |
 | **PG4** | I4, C5, S3 | — |
 | **PG5** | I5–I6, S4∥S5, C7 path, D5 | catalogs parallel |
-| **PG6** | I7∥I8, S6, D6∥D7, C8 | BFF + signed webhook/two-plane revocation |
+| **PG6** | I7, S6, D6∥D7, C8 | BFF first; I8 must wait for I7 |
+| **PG6b** | I8 | signed webhook/two-plane revocation after I7 |
 | **PG7** | I9, S7–S8, D8, C9 | publish + service principals |
 | **PG8** | I10–I11, S9–S10, D9–D11, C10 | MVP UI + persistence depth |
 | **PG9** | I12, X3, D12, C11, S11 | Studio↔Identity joint |
@@ -311,9 +313,9 @@ C12 documents SoT anytime after C8; runtime conformance hard on S19.
 | 7 IB3 BFF cookie/CSRF/PKCE contract | I7, X3 |
 | 8 IB4 signed webhook/two-plane revocation | I8, X3 |
 | 9 IB5 Primer-owned service principals | I9 |
-| 10 Key rotation | I10 |
-| 11 Admin/audit | I11 |
-| 12 Studio integration | I12, X3 |
+| 10 IB6 provider-plus-Primer lifecycle | I10 |
+| 11 IB7 key rotation and hardening | I11 |
+| 12 IB8 Studio integration | I12, X3 |
 | 13 LMS dual-login | I13, X5 |
 | 14 TV/S7/ops/live | I14 |
 
@@ -386,7 +388,7 @@ Deliver: code + tests for this wave's BDD/E2E IDs only; update nothing outside o
 
 **Step 0:** F0 (`impl/F0-root-modules`) — root owner only.
 
-**Step 1 (PG1) — dispatch immediately after F0 green:**
+**Historical Step 1 (PG1) — dispatched after F0 green; do not redispatch:**
 
 | Agent | Wave | Worktree branch |
 | --- | --- | --- |
@@ -431,8 +433,8 @@ Do not start S2 production validator/cutover, I13, or S15 until their hard depen
 
 ## Stytch delivery supersession
 
-**Human-facing Identity phase labels:** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**. Historical phase filenames remain for link stability only and are non-authoritative.
+**Human-facing Identity phase labels:** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**; Phase 10 = **IB6 provider-plus-Primer lifecycle**; Phase 11 = **IB7 key rotation and hardening**. Historical phase filenames remain for link stability only and are non-authoritative.
 
-Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`; IA-R is reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` with specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. **IB0** is now the next dependency-ready cursor; **IB1+ remain blocked on IB0**. The authoritative ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning freeze → **IB1** composed Stytch exchange → **IB2** Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
+Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`; IA-R is reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` with specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. **IB0 is a candidate under independent exact-tip review and remains STOP; IB1+ remain blocked until a fresh zero-finding review.** The candidate ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning contract review → **IB1** composed Stytch callback/code issuance → **IB2** public code consumption and Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
 
 S2 production validator/cutover waits for IB2+IB4 and applicable IB8 integration, and rejects raw Stytch tokens/roles/tuples. S9 live BFF waits for IB3+IB4; S15 uses only IB5-issued local service-principal machine JWTs; S19/X7 accept only Primer JWTs and need IB2+IB4 for delegated human writes, plus IB3+applicable IB8 for registration/publish confirmation. X2 is credential-free downstream Primer-token evidence; X3 is IB2+IB3+IB4 plus applicable IB8/S2/S9; X7 is IB2+IB4 plus S19/C12. `G-identity-stytch-broker` covers tuple mapping, Primer-only bridge, provider-outage fail-closed/no-negative-cache, and signed webhook replay/forgery/dedupe/out-of-order proof.

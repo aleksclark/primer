@@ -1,37 +1,61 @@
-# 04: IB0 / broker, webhook, and provisioning design freeze
+# 04: IB0 / candidate broker, webhook, and provisioning remediation
+
+**Status: STOP — under independent exact-tip review; not frozen or dispatch-ready.**
 
 ## Goal
 
-Freeze the exact external contracts before endpoints are composed. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
+Produce one candidate implementation authority for IB1–IB8 before any endpoint/schema work. The package is [`../stytch-identity-ib0/`](../stytch-identity-ib0/), remains **STOP**, and becomes authoritative only after a fresh independent zero-finding exact-tip review. It owns exact OAuth/BFF/MCP endpoints, tables, state machines, Stytch callback/webhook rules, failure semantics, rollout, traceability, and JWKS donor intake. IA-R at this branch base remains credential-free foundation only; live Stytch remains **BLOCKED**.
 
 ## BDD Success Criteria
 
-### Scenario: IB0 / broker, webhook, and provisioning design freeze
+#### Scenario: IB0-P04-S1 — Complete broker contract
 
-- **Given** the preceding phase gates and a bounded, sanitized test environment
-- **When** identity-hosted callback/broker handles opaque Stytch session; product receives only Primer code/session/JWT; break-glass is explicit and disabled by default.
-- **Then** the behavior is observable through the named public boundary and durable local evidence
-- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
+- **Given** the IA-R adapter/cache/tuple foundation
+- **When** an IB1 implementer follows the IB0 package
+- **Then** every authorize/callback/token transition, field, lifetime, error and transaction boundary is specified without redesign
+- **And** Identity alone receives Stytch one-time/session artifacts
+- **And** products receive only Primer material.
+
+#### Scenario: IB0-P04-S2 — Complete revocation and provisioning contract
+
+- **Given** Stytch/Svix verified source facts and unordered provider events
+- **When** an IB4 implementer follows the package
+- **Then** signature headers, raw-body/skew/idempotency/receipt/effect behavior are exact
+- **And** dual-ID/hash collisions are fingerprint-idempotent immutable evidence with a separately leased/retryable alert item and no authority effect
+- **And** intended member/organization family categories remain disabled until committed official Dashboard/catalog fixtures qualify exact identifiers, schemas, and update eligibility mappings
+- **And** `InvalidateAll` plus provider-associated grant/family revocation is the initial safe reaction
+- **And** no webhook or provider role mutates product membership.
+
+#### Scenario: IB0-P04-S3 — Traceable downstream contract
+
+- **Given** IB1–IB8, Studio BFF/MCP, and the JWKS donor
+- **When** the plans/architecture are reviewed
+- **Then** each requirement maps to BDD/E2E evidence and a dependency wave
+- **And** the donor is marked read-only/not merged/not reviewed
+- **And** live provider proof remains blocked.
 
 ## Implementation Instructions
 
-- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
-- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
-- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
-- **Dependency gate:** IA-R approval.
+1. Treat [`../stytch-identity-ib0/index.md`](../stytch-identity-ib0/index.md) as the IB0 decision record.
+2. IB1 migration gates cover only broker transactions/sealed state, provider-session association tuple/account integrity, human grants and composite account/association FKs, authorization-code issuance, and their CAS/unique/index/down/upgrade behavior; add bounded `provider_member_session_id` to the internal Stytch snapshot and never persist raw provider material.
+3. IB2 owns strict ES256 JWT/JWKS after IB1, the initial signing-key and refresh-family/current-token/code-exchange schema, and copied issuance evidence with nullable `ON DELETE SET NULL`; it may selectively reimplement/rebase only approved donor pieces from [`../stytch-identity-ib0/jwks-donor-evidence.md`](../stytch-identity-ib0/jwks-donor-evidence.md).
+4. IB3 owns product host-only cookie/CSRF/state/PKCE; IB4 owns signed webhook/two-plane revocation plus receipt/collision/security-alert worker schema, indexes, leases, and retention, and is the production BFF/MCP hard gate.
+5. IB5 service principals remain Primer-owned; IB6 owns refresh rotation/reuse, terminal lifecycle, and long-lived retention; IB7 owns full signing-key next/active/retired/destroyed rotation; IB8 owns product/MCP migration/live proof.
+6. OpenAPI and generated-client parity begin with implementation waves; IB0 creates no code/schema/generated artifacts.
 
 ## End-to-End Test Plan
 
-Design fixtures cover redirect/PKCE/CSRF binding, durable provider-session/grant association without raw tokens, and webhook envelopes. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
+IB0 is docs/architecture-only. Run the link/heading/requirement/E2E traceability audit, LikeC4 1.46 validate/build/export with positive/negative edge assertions, docs/architecture allowlist, and `git diff --check`. Runtime E2Es are assigned in [`../stytch-identity-ib0/05-verification-rollout-traceability.md`](../stytch-identity-ib0/05-verification-rollout-traceability.md); fake provider evidence never satisfies live Stytch.
 
 ## Anti-Cheating Audit
 
-No browser/product direct Stytch call; no role-to-workspace mapping or email linking. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
+Reject TBDs, invented Stytch session-event names, direct product→Stytch edges, provider roles as product roles, browser token storage, in-memory persistence substitutes, immediate-JWT-revocation claims, generated/code artifacts, wholesale donor intake, or any status text calling IB1–IB8/live Stytch implemented.
 
 ## Completion Gate
 
-- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
-- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
-- [ ] No Stytch material or provider authorization leaks to products.
-- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
-- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.
+- [ ] All files in the IB0 package resolve and distinguish verified facts from Primer policy.
+- [ ] `REQ-IB0-*` → `IB0-S*` → future `IB*-E*` traceability is complete.
+- [ ] Phase 05–09 and Studio/MCP/delivery/crosswalk dependencies agree.
+- [ ] LikeC4 required positive edges render and prohibited Stytch edges are absent.
+- [ ] Docs/architecture-only allowlist and `git diff --check` pass.
+- [ ] IB1 remains blocked unless the IB0 STOP/PROCEED checklist passes.

@@ -42,6 +42,7 @@ architecture/curriculum-studio/
   views/data-ownership.c4
   views/auth-trust.c4
   views/studio-mcp.c4
+  views/identity-broker-revocation.c4
   README.md
 ```
 
@@ -104,6 +105,7 @@ them.
 | `primer_integration` | Sync materialization API + async events |
 | `data_ownership_deployment` | Separate DBs, no cross-DB edges |
 | `auth_trust` | Decided Identity trust boundaries (JWKS, BFF, MCP, no shared DB) |
+| `identity_broker_revocation` | Candidate/STOP focused IB0 broker, webhook, token/JWKS, durable revocation/audit state, and direct-Stytch negative topology |
 | `studio_mcp` | Focused MCP agent → Identity → mcp_adapter → domain → Studio DB |
 
 LikeC4 may also emit a generated `index` view.

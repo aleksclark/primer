@@ -1,37 +1,54 @@
 # 05: IB1 / compose validated Stytch broker exchange
 
+**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+
 ## Goal
 
-Compose adapter/cache/mapping into the Identity public broker/exchange path. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
+Candidate IB1 scope, pending review of [`../stytch-identity-ib0/`](../stytch-identity-ib0/): `/oauth/authorize`, Identity-owned Stytch login/discovery/callback, recoverable state, bounded provider revalidation, durable provider-session/grant association, and one-use Primer code issuance. IB1 has no public token endpoint, code consume/replay, or access JWT; those start in IB2.
 
 ## BDD Success Criteria
 
-### Scenario: IB1 / compose validated Stytch broker exchange
+#### Scenario: IB1-S1 — Exact tuple creates one Primer grant/code
+- **Given** an exact registered client tuple and freshly validated Stytch session
+- **When** Identity maps project/org/member/member-session IDs
+- **Then** one serializable transaction creates the provider association, grant and 60-second hashed code
+- **And** only the exact BFF redirect receives it.
 
-- **Given** the preceding phase gates and a bounded, sanitized test environment
-- **When** only a freshly validated, eligible, unexpired snapshot with exact local mapping can create a Primer grant; outage is unavailable/fail-closed and not negative cached.
-- **Then** the behavior is observable through the named public boundary and durable local evidence
-- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
+#### Scenario: IB1-S2 — Exact unpaginated revalidation and replay/outage fail closed
+- **Given** concurrent callback/code replay and the pinned Stytch Go v18.1.0 `Sessions.Get` provider boundary
+- **When** the flow executes
+- **Then** callback/code CAS yields at most one success
+- **And** revalidation makes exactly one unpaginated `client.Sessions.Get(ctx, &sessions.GetParams{OrganizationID, MemberID})` call and accepts exactly one byte-equal active, unexpired stored `member_session_id` for the exact tuple
+- **And** the response body is capped at 1 MiB and `MemberSessions` at 256 entries
+- **And** transient failures are unavailable/not negative-cached/no stale success
+- **And** missing exact session or inactive/expired is denial, while body/count overflow, duplicate IDs, malformed payload, or tuple mismatch is unavailable/fail-closed.
+
+#### Scenario: IB1-S3 — Persona/provisioning isolation
+- **Given** same-email cross-org tuples and provider admin roles
+- **When** authentication succeeds
+- **Then** tuples remain distinct accounts
+- **And** no Studio/LMS/TV membership or role is created.
 
 ## Implementation Instructions
 
-- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
-- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
-- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
-- **Dependency gate:** IB0 frozen contract.
+- Add only the IB1-owned broker-transaction, provider-session-association, human-grant, and authorization-code migrations; exact columns/keys/lifetimes are in `03-data-state-and-revocation.md`. Do not create or gate signing-key, refresh, token-issuance-audit, webhook, collision, alert, revocation, or later audit tables.
+- Extend `StytchSessionSnapshot` with bounded `ProviderMemberSessionID`; map `member_session.member_session_id`; preserve no-token/no-PII snapshot boundary.
+- Compose only the bounded cache/adapter path. Qualify exactly one unpaginated official Go SDK v18.1.0 `client.Sessions.Get(ctx, &sessions.GetParams{OrganizationID: exactOrganizationID, MemberID: exactMemberID})`; `GetParams` has no cursor/page/limit and the response is `*sessions.GetResponse` with `MemberSessions []sessions.MemberSession`. Enforce a two-second total deadline, 1 MiB transport-body cap, and at most 256 returned sessions. Missing/inactive/expired exact stored session is denial; duplicate IDs, overflow, malformed payload, tuple mismatch, timeout/429/5xx are unavailable. Identity consumes Stytch one-time/intermediate/session artifacts in memory and erases them after completion.
+- Add `UNIQUE (id, account_id)` on provider-session associations and composite deferrable FKs from broker transactions and human grants so a provider association cannot be attached to the wrong account; enforce the NULL-safe human-grant account/association branch now, while IB5 owns service-principal grant enablement and its FK.
+- Implement allowed Magic Link, Email OTP and SAML/OIDC SSO fixture paths with Identity callback ownership and incomplete-MFA continuation.
+- Add Identity-owned OpenAPI handlers/schema and fail generated-client parity; expose no provider payload type.
 
 ## End-to-End Test Plan
 
-Public exchange E2E with provider test boundary and real mapping store. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
+Run IB1-E01..E10 from the IB0 verification matrix using real HTTP processes and disposable PostgreSQL plus a scripted provider boundary. Include fresh/upgrade/down for IB1-owned tables only; sealed-state/status/CAS and authorization-code unique/index behavior; tuple/account consistency; wrong-account broker/grant inserts rejected by the composite association/account FKs; callback-artifact/code-issuance CAS races (not code redemption); same-email isolation; member-session association; outage/cache classification; handler/OpenAPI/generated-client parity; exact `state-seal-v1` vectors/terminal zeroing; and an adapter qualification proving the exact unpaginated v18.1.0 method/params/response, 1 MiB/256 bounds, exact-session denial, duplicate/fail-closed behavior, and no stale success. Include raw-provider-token/payload schema and secret/log scans. Do not require any later-wave table. Live Stytch remains BLOCKED.
 
 ## Anti-Cheating Audit
 
-Do not invoke uncapped direct adapter paths; cache-only or capped token boundary is enforced. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
+No in-memory broker/code store, fake mapping success, raw token/session persistence, code returned before commit, email lookup, provider-role membership, direct adapter bypass, redirect wildcard, or test-only production auth path.
 
 ## Completion Gate
 
-- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
-- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
-- [ ] No Stytch material or provider authorization leaks to products.
-- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
-- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.
+- [ ] IB1-S* and IB1-E01..E10 green at exact tip.
+- [ ] Public OpenAPI parity, race suite, IB1-owned real-DB migrations/constraints, full build/vet/coverage and diff hygiene pass without a future-wave table.
+- [ ] No Primer access token is issued before IB2.
+- [ ] Fresh specification and quality/security review approves the exact tip.

@@ -215,7 +215,7 @@ Each requirement maps to BDD scenario IDs and E2E test IDs. Implementers must ke
 | Foundation crosswalk L1–L7 | inbound | Locked boundaries (incl. MCP third surface L7) |
 | Identity design (subject_ref, no product authz in Identity) | inbound | Memberships only |
 | Contracts enums/event strings | inbound parity | DB CHECK ↔ wire strings; this plan does not own contracts |
-| MCP design / platform Phase 19 | peer | MCP maps audit/idempotency/optimistic concurrency onto **existing** tables; additive migration only if confirmation storage cannot fit (ownership stays this track) |
+| MCP design / platform Phase 19 | peer | MCP maps audit/idempotency/optimistic concurrency onto existing tables; the mandatory one-use confirmation record must persist the signed public `client_id` binding, so this track owns the narrow additive migration unless an existing row shape demonstrably enforces every binding |
 | Future Studio API/handlers plan | outbound | Consumes repositories from this plan |
 | Future agent/materializer plan | outbound | Consumes workflow checkpoint APIs |
 | LMS/TV migrate binaries | reference-only | Pattern mirror; no shared version table |
@@ -234,9 +234,9 @@ Curriculum Studio MCP does **not** introduce a third database. Prefer existing t
 | Validation findings | validation_reports/findings (Phase 6) | Same as REST |
 | Idempotent tool mutations | `idempotency_keys` (Phase 11) | scope e.g. `mcp:<tool>` |
 | Audit | `audit_events` (Phase 12) | tool name, subject_ref, workspace_id, opaque ids |
-| Publish step-up evidence | Prefer audit + idempotency rows | **Additive migration only if required**; label `0000N` ownership = this DB track; platform/MCP must not invent ad-hoc SQL |
+| Publish step-up evidence | Mandatory persisted confirmation record + audit | Bind human subject, signed public `client_id` string, workspace, canonical draft digest, literal confirm tool, issue/consume IDs and five-minute expiry; missing/wrong claim fails closed; never store `azp` or an Identity internal OAuth-client UUID. Label additive `0000N` ownership = this DB track; platform/MCP must not invent ad-hoc SQL |
 
-**Default for MCP delivery:** zero new migrations. If a confirmation-nonce table is proven necessary, open an additive goose file here with Up/Down + Python/Go tests — never from contracts OpenAPI/proto.
+**MCP confirmation rule:** use existing rows only if their schema and transactional CAS demonstrably enforce every binding above. Otherwise open one narrow additive goose file here with Up/Down + Python/Go tests; do not duplicate broader Identity SQL and never create it from contracts OpenAPI/proto.
 
 ---
 

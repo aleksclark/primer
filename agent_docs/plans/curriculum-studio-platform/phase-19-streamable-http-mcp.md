@@ -1,5 +1,7 @@
 # Phase 19: Streamable HTTP MCP endpoint
 
+**IB0 status: STOP — candidate dependency under independent exact-tip review; do not dispatch this surface.**
+
 **File:** `phase-19-streamable-http-mcp.md`
 **Depends on:** Phases 1–8 (shell, authz, workspaces, catalogs, plan, validate, publish); credential-free test Identity/narrow verifier for local transport work; **I6 / IB2 + I8 / IB4** for production delegated writes; **I7 / IB3 + applicable I12 / IB8** where client registration or publish confirmation applies; contracts Phase 12 for tool-schema/conformance harness
 **Duration guess:** 6–10 days
@@ -8,7 +10,7 @@
 
 ## Goal
 
-Mount an authenticated **Streamable HTTP** MCP endpoint on the same Studio deployable at **`/mcp`** so external curriculum-planning agents can plan draft curricula on behalf of an authorized user. Tools call existing application/domain services (never raw repos), enforce per-request Identity JWT + workspace authz on every opaque handle, keep publish human-confirmed, and prove protocol/security negatives with the official Go SDK client and one real external Streamable HTTP client.
+Mount an authenticated **Streamable HTTP** MCP endpoint on the same Studio deployable at **`/mcp`** so external curriculum-planning agents can plan draft curricula on behalf of an authorized user. Tools call existing application/domain services (never raw repos), enforce per-request Identity JWT + workspace authz on every opaque handle, allow service list/read or draft only with explicit scope plus active service membership, and keep propose/confirm human-only. Propose returns no state. An MRTR-capable initial confirm must issue a one-use five-minute MRTR without publishing, bound to subject/public signed `client_id`/workspace/draft digest/literal confirm tool; a new-ID retry of that same confirm method with exact state+responses and the same validated claim atomically consumes it. Missing/wrong `client_id`, `azp`, and internal OAuth-client UUIDs fail closed with sanitized audit. Non-MRTR clients use named Studio UI without MCP state; no scope/role/test/header bypass. Prove protocol/security negatives with the official Go SDK client and one real external Streamable HTTP client.
 
 This phase exists after planning MVP and publish immutability so MCP cannot become a shadow domain. Transport qualification may start after S1/S2 once a handler host exists; full tool wiring waits on S3–S8 domain surfaces.
 
@@ -19,7 +21,7 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
 - Pin and qualify `github.com/modelcontextprotocol/go-sdk` **v1.7.0** (`mcp.NewStreamableHTTPHandler` / stateless mode — **exact API confirmed before mass build**)
 - Target MCP spec revision **`2026-07-28`**: single `/mcp` endpoint; JSON-RPC over POST; JSON or request-scoped SSE response; **no** implicit protocol sessions/resumption
 - MCP adapter package under `curriculum-studio/internal/mcp/` mounted from `cmd/studio-server`
-- Per-request Bearer JWT validation (`aud=curriculum-studio`) reusing Phase 2 middleware/principal extraction
+- Per-request Bearer JWT validation (`aud=curriculum-studio`, required public `client_id`, no `azp`/internal client UUID) reusing Phase 2 middleware/principal extraction
 - Authorization-filtered deterministic `tools/list`
 - Initial tools (see design doc §5): workspace/curriculum discovery; standards/resource search; create draft; get/patch graph; validate; findings; publish propose; publish confirm (step-up)
 - `structuredContent` + text fallback; tools-only capability set
@@ -40,10 +42,10 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
 
 ## BDD Success Criteria
 
-#### Scenario: P19-S1 — Streamable HTTP initialize and tools/list
+#### Scenario: P19-S1 — Stateless Streamable HTTP discovery and tools/list
 
 - **Given** Studio process with `/mcp` mounted and a valid human JWT `aud=curriculum-studio` with workspace membership
-- **When** an MCP client performs initialize + `tools/list` over Streamable HTTP POST
+- **When** an MCP client performs optional `server/discover` then `tools/list` over independent Streamable HTTP POST requests
 - **Then** the server advertises tools-only capabilities for this revision
 - **And** the tool list is non-empty, sorted deterministically, and includes only tools allowed for that principal’s memberships/scopes
 - **And** no MCP protocol session id is required for a subsequent tool call
@@ -75,15 +77,20 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
 
 - **Given** a valid draft that passes validation
 - **When** the client calls `studio.publish.propose`
-- **Then** a proposal/summary is returned without flipping the revision to published
-- **When** the client calls `studio.publish.confirm` without elicitation completion or step-up confirmation
-- **Then** the tool fails closed with elicitation/`InputRequiredResult` **or** an actionable `publish_confirmation_required` error pointing at Studio UI
+- **Then** only a delegated human receives a proposal/summary, never `requestState`; no publication occurs and a service caller is denied
+- **When** a supported client first calls `studio.publish.confirm`
+- **Then** it must receive `InputRequiredResult{resultType:"input_required",inputRequests,requestState}` without publication
+- **And** it retries the same confirm tool/method with exact `requestState` plus `inputResponses` and a new JSON-RPC id
+- **And** the state is persisted only as a digest, expires in five minutes, binds human subject/public signed `client_id` string/workspace/canonical draft digest/literal confirm tool, and is atomically consumed once
+- **And** the retry must carry the same validated public `client_id`; missing/wrong claim, `azp`, or internal OAuth-client UUID is denied and audited without publishing
+- **And** non-MRTR clients receive `publish_confirmation_required` naming Studio UI with no MCP state
+- **And** elicitation is presentation only and no scope/role/header/idempotency/environment/test/service bypass exists
 - **And** `plan_revisions.status` remains non-published until explicit confirmation succeeds
 
 #### Scenario: P19-S6 — Authn/authz negatives
 
 - **Given** Studio `/mcp` is up
-- **When** a client presents wrong-aud JWT, expired JWT, or no Authorization header
+- **When** a client presents wrong-aud JWT, expired JWT, no Authorization header, missing/wrong/overlong/control-bearing `client_id`, `azp`, or an internal OAuth-client UUID as `client_id`
 - **Then** the request is rejected without tool execution
 - **When** a subject holds a draft id from workspace W2 but is only a member of W1
 - **Then** get/patch tools return not-found or forbidden with no W2 payload (IDOR closed)
@@ -102,7 +109,7 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
 #### Scenario: P19-S8 — External client interoperability
 
 - **Given** the same running Studio `/mcp`
-- **When** both the official Go SDK client and one external Streamable HTTP client (Hermes/mcporter or equivalent) perform initialize, tools/list, and one read tool
+- **When** both the official Go SDK client and one external Streamable HTTP client (Hermes/mcporter or equivalent) perform optional discovery, tools/list, and one read tool without an initialize/session handshake
 - **Then** both succeed against the same endpoint and auth
 - **And** neither requires Studio-minted API keys
 
@@ -121,8 +128,8 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
    - Register route on the shared chi (or equivalent) router **outside** `/studio/v1` prefix: `POST /mcp` (and any SDK-required method variants on same path only).
 
 3. **Auth path**
-   - Extract Bearer on every request; validate JWKS; build `AuthContext`.
-   - Optional: OAuth protected-resource metadata route that **only** advertises Identity authorization servers / resource identifiers per design M8 — no token endpoint on Studio.
+   - Extract Bearer on every request; validate JWKS plus the required public `client_id`; reject `azp` and internal OAuth-client UUIDs; build `AuthContext` retaining the validated public ClientID.
+   - Required for production OAuth clients: RFC 9728 protected-resource metadata for exact resource `https://<studio-host>/mcp`, advertising Primer Identity and scopes; 401 responses carry its exact URL in `WWW-Authenticate`. No token endpoint on Studio. Static/pre-registered Identity clients only in IB1–IB8; delegated humans use code+S256 PKCE.
    - Filter `tools/list` by role + scopes; re-check on every `tools/call`.
 
 4. **Tool → domain wiring**
@@ -131,8 +138,9 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
    - Opaque IDs only; always pass `workspace_id` from authorized context, never trust client-supplied tenant alone.
 
 5. **Publish confirmation**
-   - Prefer SDK elicitation when qualified available.
-   - Fallback: tool error with Studio UI deep link + optional confirmation token issued only after UI step-up (token validated server-side; not an MCP session).
+   - `studio.publish.propose` is human-only and returns a proposal only; it never creates, accepts, or returns `requestState`.
+   - An MRTR-capable client's initial `studio.publish.confirm` must return `InputRequiredResult` without publishing and persist only the five-minute state digest bound to the validated public `client_id` string. The client retries the same confirm tool/method with exact state+responses, a new JSON-RPC id, and the same validated claim; current membership/scope/client/bindings are revalidated and consume is atomic with publish. Never store or compare `azp` or Identity's internal OAuth-client UUID.
+   - SDK elicitation presents input only. Non-MRTR clients receive `publish_confirmation_required` naming Studio UI and no MCP state. Services, replay, same-ID retry, any method other than the same confirm method, and every bypass fail closed.
    - Publish domain path must be identical to REST publish (immutability triggers fire).
 
 6. **Idempotency & concurrency**
@@ -160,12 +168,12 @@ This phase exists after planning MVP and publish immutability so MCP cannot beco
 
 | ID | Setup | Action | Assert | Command |
 | --- | --- | --- | --- | --- |
-| P19-E1 | Process+DB+JWKS; official SDK client | initialize + tools/list | deterministic filtered list | `make studio-mcp-e2e` / go test |
+| P19-E1 | Process+DB+JWKS; official SDK client | optional discover + stateless tools/list | deterministic filtered list; no MCP session | `make studio-mcp-e2e` / go test |
 | P19-E2 | Seed catalogs+plan | read tools | structuredContent schema OK | same |
 | P19-E3 | Author JWT | create draft + patch + replay idempotency | single apply | same |
 | P19-E4 | Two concurrent patch clients | stale version | conflict; graph consistent | go test -race |
-| P19-E5 | Valid draft | propose + confirm without step-up | not published | same |
-| P19-E6 | Wrong aud / IDOR handle | tool call | 401/403/not-found; no leak | same |
+| P19-E5 | Human/service + valid draft | proposal-only response; initial confirm `InputRequiredResult`; same-confirm exact state+responses/new canonical string-ID retry; public `client_id` handle binding; expiry terminalization/reissue, concurrent reissue, replay/same-ID/wrong method/wrong binding/missing-or-wrong-client claim; non-MRTR/bypass probes | human-only one-use atomic publish; proposal has no state; live slot cannot strand; bad state/client denied with sanitized audit; Studio UI fallback has no MCP state | same |
+| P19-E6 | Wrong aud / missing-wrong-overlong-control `client_id` / `azp` / internal UUID / IDOR handle | tool call | 401/403/not-found; no leak or publish | same |
 | P19-E7 | Bad Origin + bad protocol version | POST /mcp | rejected | same |
 | P19-E8 | External client (mcporter/Hermes) | list + read | success | documented script |
 | P19-E9 | Disconnect mid SSE tool | cancel | context done; no stuck worker | same |
@@ -185,6 +193,7 @@ Reviewers must verify:
 - Origin checks are not disabled when `STUDIO_ENV=production`
 - Official + external client tests both run (not only unit mocks of the SDK)
 - Idempotency is durable in Postgres (`idempotency_keys`), not process memory
+- Confirmation persistence and audit use the validated public `client_id`; no `azp`, internal OAuth-client UUID, or caller-supplied header substitutes for it
 - No Studio token mint endpoints added under `/mcp`
 - No cross-DSN usage toward LMS/Identity databases
 - Contracts implementation files (OpenAPI/proto) unchanged by this phase unless a separately owned additive enum is required (prefer none)
@@ -205,6 +214,7 @@ Reviewers must verify:
 
 - **Upstream platform:** Phases 1–8 (hard for full tools); Phase 2 authz (hard for any authenticated MCP); Phase 1 (hard for transport spike)
 - **Upstream identity:** credential-free test Identity/narrow verifier is sufficient only for local transport/tests. Production delegated MCP writes and X7 require **I6 / IB2 Primer ES256/JWKS bridge + I8 / IB4 signed webhook/two-plane revocation**; require **I7 / IB3 + applicable I12 / IB8** for Identity client registration, BFF mediation, or publish-confirmation alignment. Raw Stytch bearer/SessionJWTs are never accepted.
+- **IB0 candidate authority (STOP):** [`../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md`](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) records protected-resource metadata, exact resource→audience mapping, no DCR, the human/service authority matrix, and mandatory one-use MRTR; it is not authoritative until a fresh exact-tip review reports zero findings.
 - **Upstream contracts:** Phase 12 tool-schema/conformance (parallelizable after spike; hard before claiming protocol conformance)
 - **Upstream database:** D3–D6, D11–D12 paths as consumed by domain (no MCP-specific schema by default)
 - **Downstream:** delivery X7 MCP conformance gate; S15 remains Primer gRPC (independent); do not block S15 on MCP unless explicitly re-sequenced

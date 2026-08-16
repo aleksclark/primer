@@ -1,11 +1,28 @@
-// Actor and identity-trust relationships (Identity design decided).
+// Candidate IB0 actor/identity-trust topology; STOP pending exact-tip review.
 
 model {
-  stytch_b2b -> identity_service 'Upstream B2B human-session authority; opaque validation only' {
+  stytch_b2b -> identity_service 'Upstream B2B human-session authority and signed lifecycle events' {
     description '
       Primer Identity is the sole Stytch client. This relationship does
       not expose Stytch credentials to products and does not authorize
-      Studio/LMS/TV roles or workspaces. Source: primer-identity-service-design.md §§1–4.
+      Studio/LMS/TV roles or workspaces. Source: stytch-identity-ib0 §§01–04.
+    '
+  }
+
+  stytch_b2b -> identity_service.identity_broker 'Returns one-time auth artifacts and provider session only to Identity' {
+    description '
+      Identity owns exact Stytch callbacks and server-side exchange; no
+      browser/product receives Stytch session token, SessionJWT, intermediate
+      token or provider role. Source: stytch-identity-ib0 §§01–02.
+    '
+  }
+
+  stytch_b2b -> identity_service.stytch_webhook 'Delivers configured, catalog-qualified member/organization webhooks' {
+    description '
+      Svix-signed raw webhook lands only at Identity. Exact event identifiers,
+      schemas, and update eligibility mappings remain IB4 qualification gates.
+      No direct Stytch edge to Studio, LMS, MCP, or any product/Identity database.
+      Source: stytch-identity-ib0/04-stytch-webhook-and-provisioning.md.
     '
   }
 
@@ -35,84 +52,177 @@ model {
       Identity alone validates opaque Stytch sessions and returns only
       Primer broker material. No Studio-local passwords; no dependence
       on live LMS sessions or raw Stytch material.
-      Sources: primer-identity-service-design.md D1–D8;
-      curriculum-studio-foundation-crosswalk.md L3–L4.
+      Sources: primer-identity-service-design.md; stytch-identity-ib0.
     '
   }
 
   homeschool_parent -> identity_service 'Authenticates through the Identity-hosted Stytch broker' {
     description '
-      Same Identity path as teacher when acting as Studio author.
-      Distinct from any later LMS parent product session (separate
-      host-only BFF cookie).
-      Source: primer-identity-service-design.md trust boundaries.
+      Same Identity path as teacher when acting as Studio author. A new
+      broker transaction and distinct product cookie are required for each
+      product. Source: stytch-identity-ib0 §01–§02.
     '
   }
 
   curriculum_author -> identity_service 'Authenticates through the Identity-hosted Stytch broker' {
     description '
-      Same Identity interactive path. Stytch organizations do not
-      provision Studio tenancy; collaborative authorization remains
-      local Studio product authorization.
+      Stytch organizations do not provision Studio tenancy; collaborative
+      authorization remains local Studio product authorization.
+      Source: stytch-identity-ib0 §01.
     '
   }
 
-  curriculum_planning_agent -> identity_service 'Obtains user-delegated or service access JWT (OAuth / client_credentials as required)' {
+  curriculum_planning_agent -> identity_service 'Discovers Primer Identity as the Studio MCP authorization server' {
     description '
-      MCP clients never mint Studio tokens. Identity is the authorization
-      server; audience curriculum-studio; MCP scopes as registered.
-      Studio may advertise protected-resource metadata pointing at Identity.
-      Sources: curriculum-studio-mcp-design.md M7–M8;
-      primer-identity-service-design.md §8.3.1.
+      Studio RFC 9728 metadata names Identity. Static/pre-registered clients
+      only initially; no DCR. Source: stytch-identity-ib0 MCP contract.
     '
   }
 
-  curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter 'Streamable HTTP MCP tools (discover, draft, validate, propose publish)' {
+  curriculum_planning_agent -> identity_service.identity_broker 'Authorization request: delegated OAuth code + S256 PKCE' {
     description '
-      Single /mcp endpoint; Bearer JWT per request; tools call Studio
-      domain services; human confirmation for publish.
-      Source: curriculum-studio-mcp-design.md; product plan Agent MCP surface.
+      Human MCP authorization uses the exact Studio /mcp resource and maps
+      to aud=curriculum-studio. Source: stytch-identity-ib0 §02.
     '
   }
 
-  curriculum_studio.studio_ui -> identity_service 'BFF broker redirect / Primer token acquisition' {
+  identity_service.identity_broker -> curriculum_planning_agent 'Returns one-use authorization code response' {
+    description 'Exact code/state/iss after broker commit only; candidate/STOP; source: stytch-identity-ib0 §02.'
+  }
+
+  curriculum_planning_agent -> identity_service.token_authority 'Token request for the exact one-use code' {
+    description 'Public token exchange is IB2-only candidate scope; source: stytch-identity-ib0 §02.'
+  }
+
+  identity_service.token_authority -> curriculum_planning_agent 'Token response: Primer-only single-audience access token' {
     description '
-      Browser UI uses the Studio BFF. Host-only session cookie on the
-      Studio origin; Identity issues single-audience Primer access JWTs
-      (aud=curriculum-studio). Browser JS does not receive Stytch
-      session material; no parent-domain cookie.
-      Sources: primer-identity-service-design.md BFF pattern;
-      curriculum-studio-foundation-crosswalk.md Auth presentation.
+      Delegated human token for writes; distinct service client_credentials
+      token for bounded service scopes. Services cannot confirm publish.
+      Source: stytch-identity-ib0 §02.
     '
   }
 
-  curriculum_studio.studio.curriculum_api -> identity_service 'Fetches JWKS; validates access JWTs locally' {
+  curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter 'GET protected-resource metadata; POST /mcp unauthenticated then Bearer retry' {
+    description '
+      The client follows the challenged RFC 9728 metadata URL, then authorizes;
+      the later stateless retry carries the Primer JWT on the same /mcp resource.
+      Tools call Studio domain services and human-only MRTR gates publish.
+      Sources: curriculum-studio-mcp-design.md; stytch-identity-ib0 §02.
+    '
+  }
+
+  curriculum_studio.studio.mcp_adapter -> curriculum_planning_agent '401 WWW-Authenticate resource_metadata; later tool result' {
+    description '
+      The unauthenticated request returns the exact protected-resource metadata
+      challenge; an authenticated request returns only the authorized tool result.
+      Candidate/STOP; sources: curriculum-studio-mcp-design.md; stytch-identity-ib0 §02.
+    '
+  }
+
+  curriculum_studio.studio_ui -> curriculum_studio.studio_bff 'Uses host-only product session and CSRF' {
+    description '
+      Browser talks to the product BFF and never exchanges OAuth/Stytch
+      artifacts directly. Source: stytch-identity-ib0 BFF contract.
+    '
+  }
+
+  curriculum_studio.studio_bff -> identity_service.identity_broker 'Authorization request: GET /oauth/authorize with exact registered tuple' {
+    description '
+      Exact registered client/redirect/resource/audience/scopes, state and
+      S256 PKCE. The BFF is the server-side OAuth client.
+      Source: stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md.
+    '
+  }
+
+  identity_service.identity_broker -> curriculum_studio.studio_bff 'Callback response: one-use code, exact state and issuer' {
+    description '
+      Redirect occurs only after the callback transaction commits and targets
+      the exact registered BFF redirect. Candidate/STOP; source: stytch-identity-ib0 §02.
+    '
+  }
+
+  curriculum_studio.studio_bff -> identity_service.token_authority 'Token request: one-use code, verifier and registered client authentication' {
+    description '
+      Server-to-server POST /oauth/token is IB2-only candidate scope; the browser
+      never receives the code verifier or token response. Source: stytch-identity-ib0 §02.
+    '
+  }
+
+  identity_service.token_authority -> curriculum_studio.studio_bff 'Returns Primer access/rotating refresh material server-side' {
+    description '
+      BFF custody only; browser receives a random host-only session handle.
+      Source: stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md.
+    '
+  }
+
+  curriculum_studio.studio_bff -> curriculum_studio.studio.curriculum_api 'Calls Studio API with aud=curriculum-studio Primer access JWT' {
+    description '
+      Studio API still authorizes through local workspace_memberships.
+      Source: stytch-identity-ib0 §02 and foundation crosswalk L3–L4.
+    '
+  }
+
+  curriculum_studio.studio.curriculum_api -> identity_service.token_authority 'Requests ES256 JWKS to validate access JWTs locally' {
     description '
       Studio API does not perform interactive login and does not require
-      token introspection. Validates only Primer JWT signature/exp/aud/
-      scope via Identity JWKS and rejects raw Stytch tokens. Authorizes via local workspace_memberships
-      projections (subject_ref = identity:<uuid>).
-      Sources: primer-identity-service-design.md JWKS;
-      curriculum-studio-foundation-crosswalk.md subject conventions.
+      token introspection. It rejects raw Stytch tokens and authorizes via
+      local workspace_memberships. Sources: identity design; IB0 §02.
     '
   }
 
-  primer_lms.lms_api -> identity_service 'Validates access JWTs via JWKS (migration target)' {
+  identity_service.token_authority -> curriculum_studio.studio.curriculum_api 'Returns ES256 JWKS and AS metadata' {
     description '
-      End-state: LMS validates Identity-issued JWTs (aud=primer-lms)
-      locally via JWKS. Dual-run accepts legacy parent sessions and
-      static X-Service-Token until sunset stage S7.
-      Sources: primer-identity-service-design.md S0–S7;
-      curriculum-studio-foundation-crosswalk.md L4.
+      Studio validates Primer JWTs offline; no login/introspection/Stytch
+      dependency on the API hot path. Source: stytch-identity-ib0 §02.
+    '
+  }
+
+  identity_service.token_authority -> curriculum_studio.studio.mcp_adapter 'JWKS response for aud=curriculum-studio Primer tokens' {
+    description '
+      MCP rejects raw Stytch and wrong-audience tokens; Studio local
+      membership authorizes tools. Source: stytch-identity-ib0 MCP contract.
+    '
+  }
+
+  curriculum_studio.studio.mcp_adapter -> identity_service.token_authority 'JWKS request to validate each MCP bearer token' {
+    description 'Studio validates locally and never calls Stytch; candidate/STOP; source: stytch-identity-ib0 §02.'
+  }
+
+  primer_lms.lms_api -> identity_service 'Fetches JWKS for Primer JWT validation (migration target)' {
+    description '
+      End-state: LMS validates aud=primer-lms locally. Dual-run retains
+      local educator authorization. Source: stytch-identity-ib0 rollout.
+    '
+  }
+
+  identity_service.token_authority -> primer_lms.lms_api 'Serves Primer JWKS / aud=primer-lms token verification' {
+    description '
+      Identity issues; LMS validates then authorizes local educator roles.
+      Source: stytch-identity-ib0 §§02,05.
     '
   }
 
   primer_lms.lms_web -> identity_service 'BFF broker redirect / Primer token acquisition (migration target)' {
     description '
-      LMS SPA migrates from localStorage bearer to host-only BFF
-      cookies with the Identity Stytch broker. Separate browser session
-      from Studio; LMS never receives a Stytch session.
-      Source: primer-identity-service-design.md SPA cookie cutover.
+      LMS migrates to a distinct host-only product BFF cookie and fresh
+      broker transaction. It never receives a Stytch session.
+      Source: stytch-identity-ib0 BFF and rollout contracts.
     '
+  }
+
+  identity_service.identity_broker -> identity_service.identity_postgres 'Persists transactions, provider associations, grants and hashed codes' {
+    description 'Source: stytch-identity-ib0/03-data-state-and-revocation.md.'
+  }
+
+  identity_service.token_authority -> identity_service.identity_postgres 'Persists hashed refresh families, clients, principals and signing custody' {
+    description 'Source: stytch-identity-ib0/03-data-state-and-revocation.md.'
+  }
+
+  identity_service.stytch_webhook -> identity_service.identity_postgres 'Durably receipts event before idempotent revocation effects' {
+    description 'Source: stytch-identity-ib0 §§03–04.'
+  }
+
+  identity_service.identity_audit -> identity_service.identity_postgres 'Appends sanitized audit/revocation evidence' {
+    description 'No raw tokens, signatures, provider payload or PII. Source: stytch-identity-ib0 §03.'
   }
 }

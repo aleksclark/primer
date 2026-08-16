@@ -1,5 +1,7 @@
 # Phase 9: SPA/BFF shell
 
+**IB0 status: STOP — candidate dependency under independent exact-tip review; do not dispatch this Identity-dependent surface.**
+
 **File:** `phase-09-spa-bff-shell.md`
 **Depends on:** Phase 3 (auth + workspaces APIs available; later APIs stubbed as not-found until ready)
 **Duration guess:** 5–7 days
@@ -17,7 +19,7 @@ Stand up the Curriculum Studio authoring SPA and BFF integration boundary using 
 - Install house tokens (`DESIGN.md`, `house-tokens.css`, fonts Archivo/Newsreader/IBM Plex Mono)
 - Accent `#3DE0F0` only
 - openapi-typescript client from Studio OpenAPI (`npm run generate:client`)
-- BFF routes: login entry (test mode), callback stub, logout, csrf, me
+- BFF routes: login entry, exact callback, logout, csrf, me; credential-free mode uses a protocol-compatible fake while production follows the IB0 Primer Identity authorize/code contract
 - Shell layout: nav Explore/Operate/Configure surfaces, workspace switcher names-first
 - Playwright config + first E2E against `studio-server` + web preview
 - `make studio-web`, `make studio-client`, `make studio-e2e`
@@ -73,9 +75,9 @@ Stand up the Curriculum Studio authoring SPA and BFF integration boundary using 
 ## Implementation Instructions
 
 1. Copy house token assets into `curriculum-studio/web/src/styles/`.
-2. Package scripts mirror LMS web: generate:client, build, lint (oxlint).
+2. Package scripts mirror LMS web: generate:client, build, lint (oxlint). Browser API calls use only the generated Studio client; OAuth token/revoke clients are server-side BFF-only.
 3. Vite proxy dev to studio-server; credentialed cookies same-site via shared localhost port strategy or BFF same origin — **prefer same-origin**: studio-server serves SPA static in prod (like LMS embed) OR reverse proxy; document choice. Default decision: **dev** Vite proxy with `credentials`; **prod** embed `web/dist` in studio-server similar to `server/internal/spa`.
-4. Auth provider React context from `/auth/me`.
+4. Auth provider React context from `/auth/me`. `/auth/login` creates state + S256 PKCE; `/auth/callback` verifies state/`iss` and exchanges the one-use Primer code server-to-server. Set only `__Host-studio-session` (`Secure; HttpOnly; SameSite=Lax; Path=/`, no Domain); keep access/rotating refresh material encrypted/server-side. No implicit cross-product SSO.
 5. Workspace switcher lists names; IDs monospace secondary with copy.
 6. Playwright: start stack script `curriculum-studio/web/e2e/global-setup.ts`.
 7. Route placeholders for curricula/plans returning empty states.
@@ -120,6 +122,7 @@ Stand up the Curriculum Studio authoring SPA and BFF integration boundary using 
 ## Anti-Cheating Audit
 
 - SPA must not store JWT in localStorage
+- SPA/browser JS, URLs and browser-readable cookies must contain no Primer access/refresh or Stytch token; exact redirect/resource/audience and CSRF/Origin rules come from [`../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md`](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md)
 - Must not bypass BFF with implicit allow-all mock user in production builds
 - House tokens not left as default shadcn zinc without replacement
 - E2E not screenshot-only without auth assertion
