@@ -56,3 +56,17 @@ explicit authenticated link API exists (later phase).
 
 Argon2id PHC (`$argon2id$v=19$m=65536,t=3,p=4$…`): 64 MiB memory, time=3,
 parallelism=4, 16-byte random salt, 32-byte key. See `internal/password`.
+
+## 00003_stytch_mappings
+
+Exact `(project_id, organization_id, member_id)` tuple mapping. Email and
+profile fields are intentionally absent.
+
+Required indexes only:
+
+- `stytch_mappings_pkey` on `id`
+- `stytch_mappings_tuple_uidx` unique on `(project_id, organization_id, member_id)`
+- `stytch_mappings_account_id_idx` on `account_id`
+
+There is no redundant `stytch_mappings_project_org_idx`; the unique tuple
+constraint already covers that lookup.

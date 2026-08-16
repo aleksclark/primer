@@ -242,6 +242,75 @@ func TestAuthenticateSessionRejectsInvalidUTF8BeforeSnapshotMapping(t *testing.T
 	assert.NotContains(t, err.Error(), "org-")
 }
 
+func TestAuthenticateAndInvalidateRejectOversizedTokensBeforeSDK(t *testing.T) {
+	const maxSessionTokenBytes = 4096
+	oversized := strings.Repeat("x", maxSessionTokenBytes+1)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		t.Errorf("oversized token must not create an outbound request: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client, err := stytch.NewWithHTTPClient(adapterConfig(server.URL), server.Client())
+	require.NoError(t, err)
+
+	_, authErr := client.AuthenticateSession(context.Background(), oversized)
+	require.Error(t, authErr)
+	assert.NotContains(t, authErr.Error(), oversized)
+	assert.NotContains(t, authErr.Error(), "xxxx")
+
+	revokeErr := client.InvalidateSession(context.Background(), oversized)
+	require.Error(t, revokeErr)
+	assert.NotContains(t, revokeErr.Error(), oversized)
+	assert.NotContains(t, revokeErr.Error(), "xxxx")
+	assert.Zero(t, requests)
+}
+
+func TestAuthenticateAndInvalidateKeepEmptyAndWhitespaceBehavior(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		t.Errorf("empty token must not create an outbound request: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client, err := stytch.NewWithHTTPClient(adapterConfig(server.URL), server.Client())
+	require.NoError(t, err)
+
+	emptyTokens := []string{"", "   ", string([]byte{'	', '\n'})}
+	for _, token := range emptyTokens {
+		_, authErr := client.AuthenticateSession(context.Background(), token)
+		require.ErrorIs(t, authErr, stytch.ErrEmptyToken)
+
+		revokeErr := client.InvalidateSession(context.Background(), token)
+		require.ErrorIs(t, revokeErr, stytch.ErrEmptyToken)
+	}
+	assert.Zero(t, requests)
+}
+
+func TestAuthenticateSessionAcceptsBoundaryTokenLength(t *testing.T) {
+	const maxSessionTokenBytes = 4096
+	boundary := strings.Repeat("é", maxSessionTokenBytes/2)
+	require.Equal(t, maxSessionTokenBytes, len(boundary))
+
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"request_id":"req-bound","member_session":{"organization_id":"org-1","member_id":"member-1","expires_at":"2099-01-01T00:00:00Z","roles":[]}}`))
+	}))
+	defer server.Close()
+
+	client, err := stytch.NewWithHTTPClient(adapterConfig(server.URL), server.Client())
+	require.NoError(t, err)
+	_, err = client.AuthenticateSession(context.Background(), boundary)
+	require.NoError(t, err)
+	assert.Equal(t, 1, requests)
+}
+
 func TestInvalidateSessionUsesOpaqueTokenWithoutExtendingIt(t *testing.T) {
 	var gotPath string
 	var gotBody map[string]any

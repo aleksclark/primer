@@ -89,8 +89,8 @@ func (c *StytchConfig) Validate() error {
 
 // Config holds all Identity runtime configuration, populated from the environment.
 type Config struct {
-	// Stytch controls the optional B2B session provider. Disabled is an
-	// intentional mode; callers must not create a provider client in it.
+	// Stytch is mandatory in production. Development and test may remain
+	// explicitly disabled; callers must not create a provider client then.
 	Stytch StytchConfig `envconfig:"STYTCH"`
 
 	// DatabaseURL is the PostgreSQL connection string for the Identity DB only.
@@ -173,6 +173,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("identity config: %w", err)
 	}
 	if serviceEnv == "production" {
+		if !c.Stytch.Enabled {
+			return fmt.Errorf("identity config: production service requires Stytch enabled")
+		}
 		if !strings.EqualFold(strings.TrimSpace(c.Stytch.Env), "live") {
 			return fmt.Errorf("identity config: production service requires Stytch env live")
 		}

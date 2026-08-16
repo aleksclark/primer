@@ -31,12 +31,16 @@ const (
 	maxRoleRunes                 = 128
 	maxRoleBytes                 = 512
 	maxAggregateRoleBytes        = 8192
+	// Opaque session tokens are bounded before any SDK/HTTP work so an
+	// oversized bearer value cannot become an outbound request.
+	maxSessionTokenBytes = 4096
 )
 
 var (
-	ErrDisabled   = errors.New("stytch is disabled")
-	ErrEmptyToken = errors.New("stytch session token is empty")
-	ErrDefinitive = errors.New("stytch session is definitively invalid")
+	ErrDisabled             = errors.New("stytch is disabled")
+	ErrEmptyToken           = errors.New("stytch session token is empty")
+	ErrSessionTokenTooLarge = errors.New("stytch session token exceeds maximum size")
+	ErrDefinitive           = errors.New("stytch session is definitively invalid")
 )
 
 // StytchSessionSnapshot is the only provider data allowed past this package.
@@ -231,11 +235,11 @@ func (b *limitedResponseBody) validateUTF8(chunk []byte) error {
 }
 
 // AuthenticateSession sends only the opaque token and maps the bounded
-// MemberSession fields. SessionDurationMinutes is deliberately omitted so
-// authenticating cannot extend the provider session.
+// MemberSession fields. The authenticate request omits session_duration_minutes
+// so authenticating cannot extend the provider session.
 func (a *Adapter) AuthenticateSession(ctx context.Context, token string) (StytchSessionSnapshot, error) {
-	if strings.TrimSpace(token) == "" {
-		return StytchSessionSnapshot{}, ErrEmptyToken
+	if err := validateSessionToken(token); err != nil {
+		return StytchSessionSnapshot{}, err
 	}
 	response, err := a.api.Sessions.Authenticate(ctx, &sessions.AuthenticateParams{
 		SessionToken: token,
@@ -268,12 +272,22 @@ func (a *Adapter) AuthenticateSession(ctx context.Context, token string) (Stytch
 // InvalidateSession revokes the opaque provider session without exposing the
 // provider response to callers.
 func (a *Adapter) InvalidateSession(ctx context.Context, token string) error {
-	if strings.TrimSpace(token) == "" {
-		return ErrEmptyToken
+	if err := validateSessionToken(token); err != nil {
+		return err
 	}
 	_, err := a.api.Sessions.Revoke(ctx, &sessions.RevokeParams{SessionToken: token})
 	if err != nil {
 		return classifyError(err, "revoke")
+	}
+	return nil
+}
+
+func validateSessionToken(token string) error {
+	if strings.TrimSpace(token) == "" {
+		return ErrEmptyToken
+	}
+	if len(token) > maxSessionTokenBytes {
+		return ErrSessionTokenTooLarge
 	}
 	return nil
 }

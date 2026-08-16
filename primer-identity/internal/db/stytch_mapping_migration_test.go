@@ -82,9 +82,12 @@ func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
 		indexNames = append(indexNames, name)
 	}
 	rows.Close()
-	require.Contains(t, indexNames, "stytch_mappings_tuple_uidx")
-	require.Contains(t, indexNames, "stytch_mappings_account_id_idx")
-	require.Contains(t, indexNames, "stytch_mappings_project_org_idx")
+	require.Equal(t, []string{
+		"stytch_mappings_account_id_idx",
+		"stytch_mappings_pkey",
+		"stytch_mappings_tuple_uidx",
+	}, indexNames)
+	require.NotContains(t, indexNames, "stytch_mappings_project_org_idx")
 
 	_, err = pool.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, accountID)
 	require.NoError(t, err)

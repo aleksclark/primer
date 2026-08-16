@@ -22,8 +22,6 @@ CREATE TABLE stytch_mappings (
 );
 
 CREATE INDEX stytch_mappings_account_id_idx ON stytch_mappings (account_id);
-CREATE INDEX stytch_mappings_project_org_idx
-    ON stytch_mappings (project_id, organization_id, member_id);
 
 -- +goose StatementEnd
 

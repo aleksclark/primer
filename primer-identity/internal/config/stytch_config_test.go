@@ -229,8 +229,10 @@ func TestValidateStytchProductionRequiresCredentialsWhenEnabled(t *testing.T) {
 
 func TestValidateStytchDisabledDoesNotRequireCredentials(t *testing.T) {
 	cfg := validConfig()
+	cfg.Env = "development"
 	cfg.Stytch.Enabled = false
 	cfg.Stytch.ProjectID = ""
 	cfg.Stytch.Secret = ""
+	cfg.Stytch.Env = "test"
 	require.NoError(t, cfg.Validate())
 }
