@@ -150,6 +150,28 @@ func TestReadyzNilPool(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, resp.StatusCode)
 }
 
+func TestReadyzRequiresComposedBrokerWhenConfigured(t *testing.T) {
+	t.Parallel()
+	pool := testutil.DB(t)
+	_, handler := api.New(pool, api.Options{RequireBroker: true})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL + "/readyz")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.NotContains(t, strings.ToLower(string(body)), "broker")
+	assert.NotContains(t, strings.ToLower(string(body)), "provider")
+
+	health, err := http.Get(srv.URL + "/healthz")
+	require.NoError(t, err)
+	defer health.Body.Close()
+	assert.Equal(t, http.StatusOK, health.StatusCode)
+}
+
 // secretPingError is a synthetic Ping failure that embeds a DSN password.
 // It must never appear in the public /readyz body.
 type secretPingError struct{}

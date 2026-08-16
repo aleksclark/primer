@@ -19,6 +19,11 @@ func TestLoadStytchDefaultsAndEnvironment(t *testing.T) {
 	t.Setenv("IDENTITY_STYTCH_PROJECT_ID", "project-test-example")
 	t.Setenv("IDENTITY_STYTCH_SECRET", "secret-value")
 	t.Setenv("IDENTITY_STYTCH_ENV", "test")
+	t.Setenv("IDENTITY_BROKER_ALLOWED_ORIGIN", "https://id.example.test")
+	t.Setenv("IDENTITY_BROKER_DISCOVERY_REDIRECT_URL", "https://id.example.test/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_LOGIN_REDIRECT_URL", "https://id.example.test/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_SIGNUP_REDIRECT_URL", "https://id.example.test/broker/stytch/callback")
+	t.Setenv("IDENTITY_STYTCH_PUBLIC_TOKEN", "public-token-test")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -44,6 +49,11 @@ func validConfig() *config.Config {
 		StateHashPeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", StateHashActiveVersion: 1,
 		BrokerCookiePeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", BrokerCookieActiveVersion: 1,
 		AuthorizationCodePeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", AuthorizationCodeActiveVersion: 1,
+		BrokerAllowedOrigin:        "https://id.example",
+		BrokerDiscoveryRedirectURL: "https://id.example/broker/stytch/callback",
+		BrokerLoginRedirectURL:     "https://id.example/broker/stytch/callback",
+		BrokerSignupRedirectURL:    "https://id.example/broker/stytch/callback",
+		StytchPublicToken:          "public-token-live-example",
 		Stytch: config.StytchConfig{
 			Enabled:               true,
 			ProjectID:             "project-live-example",
@@ -147,6 +157,11 @@ func TestValidateDevelopmentAndTestAllowOnlySafeAbsoluteCustomBaseURIs(t *testin
 				cfg.Stytch.Env = "test"
 				cfg.Stytch.ProjectID = "project-test-example"
 				cfg.Stytch.BaseURI = baseURI
+				cfg.BrokerAllowedOrigin = "http://localhost:8090"
+				cfg.BrokerDiscoveryRedirectURL = "http://localhost:8090/broker/stytch/callback"
+				cfg.BrokerLoginRedirectURL = "http://localhost:8090/broker/stytch/callback"
+				cfg.BrokerSignupRedirectURL = "http://localhost:8090/broker/stytch/callback"
+				cfg.StytchPublicToken = "public-token-dev"
 				require.NoError(t, cfg.Validate(), baseURI)
 			}
 
@@ -211,6 +226,11 @@ func TestValidateAllowsTestProjectWithTestOverride(t *testing.T) {
 	cfg.Stytch.Env = "test"
 	cfg.Stytch.ProjectID = "project-test-example"
 	cfg.Stytch.BaseURI = "https://stytch.test.example/path"
+	cfg.BrokerAllowedOrigin = "http://localhost:8090"
+	cfg.BrokerDiscoveryRedirectURL = "http://localhost:8090/broker/stytch/callback"
+	cfg.BrokerLoginRedirectURL = "http://localhost:8090/broker/stytch/callback"
+	cfg.BrokerSignupRedirectURL = "http://localhost:8090/broker/stytch/callback"
+	cfg.StytchPublicToken = "public-token-dev"
 
 	require.NoError(t, cfg.Validate())
 }

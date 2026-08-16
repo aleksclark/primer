@@ -39,6 +39,12 @@ var prefixedIdentityKeys = []string{
 	"IDENTITY_STYTCH_NEGATIVE_CACHE_TTL",
 	"IDENTITY_STYTCH_POSITIVE_CACHE_CAPACITY",
 	"IDENTITY_STYTCH_NEGATIVE_CACHE_CAPACITY",
+	"IDENTITY_STYTCH_PUBLIC_TOKEN",
+	"IDENTITY_BROKER_ALLOWED_ORIGIN",
+	"IDENTITY_BROKER_DISCOVERY_REDIRECT_URL",
+	"IDENTITY_BROKER_LOGIN_REDIRECT_URL",
+	"IDENTITY_BROKER_SIGNUP_REDIRECT_URL",
+	"IDENTITY_INSECURE_BROKER_COOKIE",
 	"IDENTITY_STATE_SEAL_KEYS",
 	"IDENTITY_STATE_SEAL_ACTIVE_VERSION",
 	"IDENTITY_STATE_HASH_PEPPERS",
@@ -183,6 +189,11 @@ func TestLoadProductionFailsWhenPrefixedSecretMissingDespiteBareSecret(t *testin
 	t.Setenv("IDENTITY_STYTCH_ENABLED", "true")
 	t.Setenv("IDENTITY_STYTCH_ENV", "live")
 	t.Setenv("IDENTITY_STYTCH_PROJECT_ID", "project-live-example")
+	t.Setenv("IDENTITY_BROKER_ALLOWED_ORIGIN", "https://id.example")
+	t.Setenv("IDENTITY_BROKER_DISCOVERY_REDIRECT_URL", "https://id.example/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_LOGIN_REDIRECT_URL", "https://id.example/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_SIGNUP_REDIRECT_URL", "https://id.example/broker/stytch/callback")
+	t.Setenv("IDENTITY_STYTCH_PUBLIC_TOKEN", "public-token-live-example")
 	require.NoError(t, os.Unsetenv("IDENTITY_STYTCH_SECRET"))
 
 	cfg, err := config.Load()
@@ -200,6 +211,11 @@ func TestLoadProductionFailsWhenPrefixedProjectIDMissingDespiteBareProjectID(t *
 	t.Setenv("IDENTITY_STYTCH_ENABLED", "true")
 	t.Setenv("IDENTITY_STYTCH_ENV", "live")
 	t.Setenv("IDENTITY_STYTCH_SECRET", "prefixed-secret-value")
+	t.Setenv("IDENTITY_BROKER_ALLOWED_ORIGIN", "https://id.example")
+	t.Setenv("IDENTITY_BROKER_DISCOVERY_REDIRECT_URL", "https://id.example/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_LOGIN_REDIRECT_URL", "https://id.example/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_SIGNUP_REDIRECT_URL", "https://id.example/broker/stytch/callback")
+	t.Setenv("IDENTITY_STYTCH_PUBLIC_TOKEN", "public-token-live-example")
 	require.NoError(t, os.Unsetenv("IDENTITY_STYTCH_PROJECT_ID"))
 
 	cfg, err := config.Load()
@@ -229,6 +245,11 @@ func TestLoadConsumesOnlyPrefixedIdentityAndStytchNames(t *testing.T) {
 	t.Setenv("IDENTITY_STYTCH_NEGATIVE_CACHE_TTL", "4s")
 	t.Setenv("IDENTITY_STYTCH_POSITIVE_CACHE_CAPACITY", "50")
 	t.Setenv("IDENTITY_STYTCH_NEGATIVE_CACHE_CAPACITY", "25")
+	t.Setenv("IDENTITY_BROKER_ALLOWED_ORIGIN", "https://id.example.test")
+	t.Setenv("IDENTITY_BROKER_DISCOVERY_REDIRECT_URL", "https://id.example.test/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_LOGIN_REDIRECT_URL", "https://id.example.test/broker/stytch/callback")
+	t.Setenv("IDENTITY_BROKER_SIGNUP_REDIRECT_URL", "https://id.example.test/broker/stytch/callback")
+	t.Setenv("IDENTITY_STYTCH_PUBLIC_TOKEN", "public-token-test")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
