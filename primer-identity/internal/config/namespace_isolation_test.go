@@ -39,34 +39,49 @@ var prefixedIdentityKeys = []string{
 	"IDENTITY_STYTCH_NEGATIVE_CACHE_TTL",
 	"IDENTITY_STYTCH_POSITIVE_CACHE_CAPACITY",
 	"IDENTITY_STYTCH_NEGATIVE_CACHE_CAPACITY",
+	"IDENTITY_STATE_SEAL_KEYS",
+	"IDENTITY_STATE_SEAL_ACTIVE_VERSION",
+	"IDENTITY_STATE_HASH_PEPPERS",
+	"IDENTITY_STATE_HASH_ACTIVE_VERSION",
+	"IDENTITY_BROKER_COOKIE_PEPPERS",
+	"IDENTITY_BROKER_COOKIE_ACTIVE_VERSION",
+	"IDENTITY_AUTHORIZATION_CODE_PEPPERS",
+	"IDENTITY_AUTHORIZATION_CODE_ACTIVE_VERSION",
+	"IDENTITY_PROVIDER_PROOF_CACHE_TTL",
 }
 
 var hostileBareEnv = map[string]string{
-	"SECRET":                    hostileBareSecret,
-	"PROJECT_ID":                hostileBareProjectID,
-	"ISSUER":                    hostileBareIssuer,
-	"ENABLED":                   "true",
-	"ENV":                       "test",
-	"BASE_URI":                  "https://hostile-bare.stytch.example",
-	"HOST":                      "10.255.255.1",
-	"PORT":                      "1",
-	"LOG_LEVEL":                 "error",
-	"DATABASE_URL":              "postgres://foreign:***@localhost:5432/primer_identity?sslmode=disable",
-	"REQUEST_TIMEOUT":           "4s",
-	"POSITIVE_CACHE_TTL":        "16s",
-	"NEGATIVE_CACHE_TTL":        "6s",
-	"POSITIVE_CACHE_CAPACITY":   "10001",
-	"NEGATIVE_CACHE_CAPACITY":   "2001",
-	"SHUTDOWN_TIMEOUT":          "1s",
-	"HTTP_READ_HEADER_TIMEOUT":  "1s",
-	"HTTP_MAX_BODY_BYTES":       "1",
-	"STYTCH_SECRET":             hostileBareSecret,
-	"STYTCH_PROJECT_ID":         hostileBareProjectID,
-	"STYTCH_ENABLED":            "true",
-	"STYTCH_ENV":                "live",
-	"STYTCH_BASE_URI":           "https://hostile-stytch.example",
-	"STYTCH_REQUEST_TIMEOUT":    "4s",
-	"STYTCH_POSITIVE_CACHE_TTL": "16s",
+	"SECRET":                     hostileBareSecret,
+	"PROJECT_ID":                 hostileBareProjectID,
+	"ISSUER":                     hostileBareIssuer,
+	"ENABLED":                    "true",
+	"ENV":                        "test",
+	"BASE_URI":                   "https://hostile-bare.stytch.example",
+	"HOST":                       "10.255.255.1",
+	"PORT":                       "1",
+	"LOG_LEVEL":                  "error",
+	"DATABASE_URL":               "postgres://foreign:***@localhost:5432/primer_identity?sslmode=disable",
+	"REQUEST_TIMEOUT":            "4s",
+	"POSITIVE_CACHE_TTL":         "16s",
+	"NEGATIVE_CACHE_TTL":         "6s",
+	"POSITIVE_CACHE_CAPACITY":    "10001",
+	"NEGATIVE_CACHE_CAPACITY":    "2001",
+	"SHUTDOWN_TIMEOUT":           "1s",
+	"HTTP_READ_HEADER_TIMEOUT":   "1s",
+	"HTTP_MAX_BODY_BYTES":        "1",
+	"STYTCH_SECRET":              hostileBareSecret,
+	"STYTCH_PROJECT_ID":          hostileBareProjectID,
+	"STYTCH_ENABLED":             "true",
+	"STYTCH_ENV":                 "live",
+	"STYTCH_BASE_URI":            "https://hostile-stytch.example",
+	"STYTCH_REQUEST_TIMEOUT":     "4s",
+	"STYTCH_POSITIVE_CACHE_TTL":  "16s",
+	"STATE_SEAL_KEYS":            "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	"STATE_SEAL_ACTIVE_VERSION":  "1",
+	"STATE_HASH_PEPPERS":         "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	"BROKER_COOKIE_PEPPERS":      "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	"AUTHORIZATION_CODE_PEPPERS": "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	"PROVIDER_PROOF_CACHE_TTL":   "16s",
 }
 
 func clearPrefixedIdentityEnv(t *testing.T) {
@@ -120,6 +135,9 @@ func TestLoadIgnoresHostileBareVariablesInDevelopment(t *testing.T) {
 	assert.Equal(t, 5*time.Second, cfg.Stytch.NegativeCacheTTL)
 	assert.Equal(t, 10000, cfg.Stytch.PositiveCacheCapacity)
 	assert.Equal(t, 2000, cfg.Stytch.NegativeCacheCapacity)
+	assert.Empty(t, cfg.StateSealKeys)
+	assert.Zero(t, cfg.StateSealActiveVersion)
+	assert.Equal(t, 15*time.Second, cfg.ProviderProofCacheTTL)
 }
 
 func TestLoadIgnoresHostileBareVariablesInTest(t *testing.T) {

@@ -40,6 +40,10 @@ func validConfig() *config.Config {
 		ShutdownTimeout:       time.Second,
 		HTTPReadHeaderTimeout: time.Second,
 		HTTPMaxBodyBytes:      1,
+		StateSealKeys:         "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", StateSealActiveVersion: 1,
+		StateHashPeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", StateHashActiveVersion: 1,
+		BrokerCookiePeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", BrokerCookieActiveVersion: 1,
+		AuthorizationCodePeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", AuthorizationCodeActiveVersion: 1,
 		Stytch: config.StytchConfig{
 			Enabled:               true,
 			ProjectID:             "project-live-example",
@@ -235,4 +239,36 @@ func TestValidateStytchDisabledDoesNotRequireCredentials(t *testing.T) {
 	cfg.Stytch.Secret = ""
 	cfg.Stytch.Env = "test"
 	require.NoError(t, cfg.Validate())
+}
+
+func TestValidateProductionRequiresVersionedSecretsAndRejectsInvalidIB1Bounds(t *testing.T) {
+	cfg := validConfig()
+	cfg.StateSealKeys = ""
+	require.Error(t, cfg.Validate())
+	cfg = validConfig()
+	cfg.StateSealActiveVersion = 9
+	require.Error(t, cfg.Validate())
+	cfg = validConfig()
+	cfg.ProviderProofCacheTTL = 16 * time.Second
+	require.Error(t, cfg.Validate())
+	cfg = validConfig()
+	cfg.ProviderRevalidationDeadline = 3 * time.Second
+	require.Error(t, cfg.Validate())
+}
+
+func TestLoadProductionFailsWithoutPrefixedSealSecretsDespiteBareKeys(t *testing.T) {
+	clearIdentityEnv(t)
+	t.Setenv("IDENTITY_ENV", "production")
+	t.Setenv("IDENTITY_DATABASE_URL", "postgres://identity:***@localhost:5432/primer_identity?sslmode=disable")
+	t.Setenv("IDENTITY_ISSUER", "https://id.example")
+	t.Setenv("IDENTITY_STYTCH_ENABLED", "true")
+	t.Setenv("IDENTITY_STYTCH_ENV", "live")
+	t.Setenv("IDENTITY_STYTCH_PROJECT_ID", "project-live-example")
+	t.Setenv("IDENTITY_STYTCH_SECRET", "secret-value-must-not-leak")
+	t.Setenv("STATE_SEAL_KEYS", "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	t.Setenv("STATE_SEAL_ACTIVE_VERSION", "1")
+	cfg, err := config.Load()
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.NotContains(t, err.Error(), "secret-value-must-not-leak")
 }

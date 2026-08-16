@@ -33,7 +33,9 @@ const (
 	maxAggregateRoleBytes        = 8192
 	// Opaque session tokens are bounded before any SDK/HTTP work so an
 	// oversized bearer value cannot become an outbound request.
-	maxSessionTokenBytes = 4096
+	maxSessionTokenBytes      = 4096
+	maxReturnedMemberSessions = 256
+	revalidationDeadline      = 2 * time.Second
 )
 
 var (
@@ -41,18 +43,22 @@ var (
 	ErrEmptyToken           = errors.New("stytch session token is empty")
 	ErrSessionTokenTooLarge = errors.New("stytch session token exceeds maximum size")
 	ErrDefinitive           = errors.New("stytch session is definitively invalid")
+	// ErrProviderUnavailable is a non-oracular transient, malformed, or
+	// fail-closed provider result and must never be negative-cached.
+	ErrProviderUnavailable = errors.New("stytch provider is unavailable")
 )
 
 // StytchSessionSnapshot is the only provider data allowed past this package.
 // It intentionally excludes email, profile, claims, JWTs, and opaque tokens.
 type StytchSessionSnapshot struct {
-	ProjectID      string    `json:"project_id"`
-	OrganizationID string    `json:"organization_id"`
-	MemberID       string    `json:"member_id"`
-	Active         bool      `json:"active"`
-	Eligible       bool      `json:"eligible"`
-	ExpiresAt      time.Time `json:"expires_at"`
-	Roles          []string  `json:"roles"`
+	ProjectID               string    `json:"project_id"`
+	OrganizationID          string    `json:"organization_id"`
+	MemberID                string    `json:"member_id"`
+	ProviderMemberSessionID string    `json:"provider_member_session_id"`
+	Active                  bool      `json:"active"`
+	Eligible                bool      `json:"eligible"`
+	ExpiresAt               time.Time `json:"expires_at"`
+	Roles                   []string  `json:"roles"`
 }
 
 // SessionSnapshot is the concise name used by callers that do not need the
@@ -63,6 +69,12 @@ type SessionSnapshot = StytchSessionSnapshot
 type StytchClient interface {
 	AuthenticateSession(context.Context, string) (StytchSessionSnapshot, error)
 	InvalidateSession(context.Context, string) error
+}
+
+// MemberSessionRevalidator is the token-free provider proof boundary. It never
+// exposes provider payloads, tokens, or SDK response types.
+type MemberSessionRevalidator interface {
+	RevalidateMemberSession(context.Context, string, string, string, string) (SessionSnapshot, error)
 }
 
 // DefinitiveSessionError identifies only an official provider error that proves
@@ -253,10 +265,11 @@ func (a *Adapter) AuthenticateSession(ctx context.Context, token string) (Stytch
 
 	session := response.MemberSession
 	snapshot := StytchSessionSnapshot{
-		ProjectID:      a.projectID,
-		OrganizationID: session.OrganizationID,
-		MemberID:       session.MemberID,
-		Roles:          append([]string(nil), session.Roles...),
+		ProjectID:               a.projectID,
+		OrganizationID:          session.OrganizationID,
+		MemberID:                session.MemberID,
+		ProviderMemberSessionID: session.MemberSessionID,
+		Roles:                   append([]string(nil), session.Roles...),
 	}
 	if session.ExpiresAt != nil {
 		snapshot.ExpiresAt = session.ExpiresAt.UTC()
@@ -282,6 +295,48 @@ func (a *Adapter) InvalidateSession(ctx context.Context, token string) error {
 	return nil
 }
 
+// RevalidateMemberSession makes exactly one official unpaginated Sessions.Get
+// call. Any malformed result or tuple inconsistency is unavailable rather than
+// a denial, so provider faults cannot become cached negative authority.
+func (a *Adapter) RevalidateMemberSession(ctx context.Context, exactProjectID, exactOrganizationID, exactMemberID, exactMemberSessionID string) (SessionSnapshot, error) {
+	if a == nil || exactProjectID != a.projectID || !validSnapshotText(exactProjectID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) || !validSnapshotText(exactOrganizationID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) || !validSnapshotText(exactMemberID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) || !validSnapshotText(exactMemberSessionID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) {
+		return SessionSnapshot{}, ErrProviderUnavailable
+	}
+	deadlineCtx, cancel := context.WithTimeout(ctx, revalidationDeadline)
+	defer cancel()
+	response, err := a.api.Sessions.Get(deadlineCtx, &sessions.GetParams{OrganizationID: exactOrganizationID, MemberID: exactMemberID})
+	if err != nil || deadlineCtx.Err() != nil || response == nil {
+		return SessionSnapshot{}, ErrProviderUnavailable
+	}
+	if len(response.MemberSessions) > maxReturnedMemberSessions {
+		return SessionSnapshot{}, ErrProviderUnavailable
+	}
+	now := time.Now().UTC()
+	seen := make(map[string]struct{}, len(response.MemberSessions))
+	var matched *sessions.MemberSession
+	for i := range response.MemberSessions {
+		s := &response.MemberSessions[i]
+		if !validSnapshotText(s.MemberSessionID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) || s.ExpiresAt == nil || !validSnapshotText(s.OrganizationID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) || !validSnapshotText(s.MemberID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) {
+			return SessionSnapshot{}, ErrProviderUnavailable
+		}
+		if _, duplicate := seen[s.MemberSessionID]; duplicate {
+			return SessionSnapshot{}, ErrProviderUnavailable
+		}
+		seen[s.MemberSessionID] = struct{}{}
+		if s.OrganizationID != exactOrganizationID || s.MemberID != exactMemberID {
+			return SessionSnapshot{}, ErrProviderUnavailable
+		}
+		if s.MemberSessionID == exactMemberSessionID {
+			copy := *s
+			matched = &copy
+		}
+	}
+	if matched == nil || !matched.ExpiresAt.UTC().After(now) {
+		return SessionSnapshot{}, ErrDefinitive
+	}
+	return SessionSnapshot{ProjectID: exactProjectID, OrganizationID: exactOrganizationID, MemberID: exactMemberID, ProviderMemberSessionID: exactMemberSessionID, Active: true, Eligible: true, ExpiresAt: matched.ExpiresAt.UTC()}, nil
+}
+
 func validateSessionToken(token string) error {
 	if strings.TrimSpace(token) == "" {
 		return ErrEmptyToken
@@ -296,6 +351,7 @@ func validSnapshot(snapshot StytchSessionSnapshot) bool {
 	if !validSnapshotText(snapshot.ProjectID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) ||
 		!validSnapshotText(snapshot.OrganizationID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) ||
 		!validSnapshotText(snapshot.MemberID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) ||
+		!validSnapshotText(snapshot.ProviderMemberSessionID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) ||
 		len(snapshot.Roles) > MaxSessionRoles {
 		return false
 	}

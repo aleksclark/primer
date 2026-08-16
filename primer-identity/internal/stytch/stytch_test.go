@@ -89,7 +89,7 @@ func TestAuthenticateSessionUsesOpaqueTokenAndMapsBoundedSnapshot(t *testing.T) 
 		gotMethod, gotPath = r.Method, r.URL.Path
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"request_id":"req-1","member_session":{"organization_id":"org-1","member_id":"member-1","expires_at":"` + expiresAt.Format(time.RFC3339) + `","roles":["admin","viewer"]}}`))
+		_, _ = w.Write([]byte(`{"request_id":"req-1","member_session":{"member_session_id":"session-1","organization_id":"org-1","member_id":"member-1","expires_at":"` + expiresAt.Format(time.RFC3339) + `","roles":["admin","viewer"]}}`))
 	}))
 	defer server.Close()
 
@@ -105,6 +105,7 @@ func TestAuthenticateSessionUsesOpaqueTokenAndMapsBoundedSnapshot(t *testing.T) 
 	assert.Equal(t, "project-test-example", snapshot.ProjectID)
 	assert.Equal(t, "org-1", snapshot.OrganizationID)
 	assert.Equal(t, "member-1", snapshot.MemberID)
+	assert.Equal(t, "session-1", snapshot.ProviderMemberSessionID)
 	assert.True(t, snapshot.Active)
 	assert.True(t, snapshot.Eligible)
 	assert.Equal(t, expiresAt, snapshot.ExpiresAt)
@@ -300,7 +301,7 @@ func TestAuthenticateSessionAcceptsBoundaryTokenLength(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"request_id":"req-bound","member_session":{"organization_id":"org-1","member_id":"member-1","expires_at":"2099-01-01T00:00:00Z","roles":[]}}`))
+		_, _ = w.Write([]byte(`{"request_id":"req-bound","member_session":{"member_session_id":"session-bound","organization_id":"org-1","member_id":"member-1","expires_at":"2099-01-01T00:00:00Z","roles":[]}}`))
 	}))
 	defer server.Close()
 
