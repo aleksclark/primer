@@ -65,9 +65,28 @@ const (
 	maxIDBytes = 1024
 )
 
+// ArtifactType names the one-time callback artifact the provider may consume.
+// Unrecognized types are a definitive denial and create no outbound call.
+type ArtifactType string
+
+const (
+	ArtifactTypeMagicLink          ArtifactType = "magic_link"
+	ArtifactTypeDiscoveryMagicLink ArtifactType = "discovery_magic_link"
+	ArtifactTypeEmailOTP           ArtifactType = "email_otp"
+	ArtifactTypeDiscoveryEmailOTP  ArtifactType = "discovery_email_otp"
+	ArtifactTypeSSOToken           ArtifactType = "sso_token"
+)
+
 // StartRequest begins one provider authentication attempt.
 type StartRequest struct {
 	Method Method
+	// EmailAddress is required for email magic-link and email OTP start. It is
+	// never persisted, logged, or returned.
+	EmailAddress string
+	// OrganizationID selects an organization-scoped start when already known.
+	OrganizationID string
+	// ConnectionID selects a registered SAML/OIDC connection for SSO start.
+	ConnectionID string
 }
 
 // StartResult is the bounded, token-free result of beginning authentication.
@@ -76,6 +95,21 @@ type StartResult struct {
 	// Handle correlates the attempt for logs/tests. It is not an authority
 	// bearer and is never accepted in place of a callback artifact.
 	Handle string
+	// ContinueURL is an optional browser continuation (SSO public start). It
+	// is never an authority bearer and is never accepted as a callback artifact.
+	ContinueURL string
+}
+
+// CallbackRequest consumes one recognized one-time callback artifact.
+type CallbackRequest struct {
+	Type ArtifactType
+	// Artifact is the server-side one-time token or OTP code. It is consumed
+	// in memory and never returned or stored.
+	Artifact string
+	// EmailAddress is required to verify an email OTP. It is never returned.
+	EmailAddress string
+	// OrganizationID selects organization-scoped OTP or magic-link completion.
+	OrganizationID string
 }
 
 // CallbackResult is the only provider data allowed past this boundary. It
@@ -99,8 +133,16 @@ type Provider interface {
 	// StartLogin begins a provider authentication attempt for one method.
 	StartLogin(ctx context.Context, req StartRequest) (StartResult, error)
 	// CompleteCallback consumes a one-time callback artifact in memory and
-	// returns only a bounded identity tuple snapshot.
+	// returns only a bounded identity tuple snapshot. Production adapters
+	// require a recognized ArtifactType via CompleteTypedCallback.
 	CompleteCallback(ctx context.Context, artifact string) (CallbackResult, error)
+}
+
+// TypedProvider is the production callback boundary. Scripted tests may keep
+// using CompleteCallback; live adapters must reject an unrecognized type.
+type TypedProvider interface {
+	Provider
+	CompleteTypedCallback(ctx context.Context, req CallbackRequest) (CallbackResult, error)
 }
 
 // Fixture scripts one credential-free callback artifact.
@@ -131,7 +173,10 @@ type ScriptedProvider struct {
 	supported map[Method]struct{}
 }
 
-var _ Provider = (*ScriptedProvider)(nil)
+var (
+	_ Provider      = (*ScriptedProvider)(nil)
+	_ TypedProvider = (*ScriptedProvider)(nil)
+)
 
 // NewScripted validates every fixture and fails closed on malformed input.
 func NewScripted(cfg ScriptConfig) (*ScriptedProvider, error) {
@@ -172,6 +217,17 @@ func (p *ScriptedProvider) StartLogin(ctx context.Context, req StartRequest) (St
 		return StartResult{}, ErrUnsupportedMethod
 	}
 	return StartResult{Method: req.Method, Handle: uuid.NewString()}, nil
+}
+
+// CompleteTypedCallback consumes a recognized one-time artifact. An unknown
+// type is a definitive denial and does not consult fixtures.
+func (p *ScriptedProvider) CompleteTypedCallback(ctx context.Context, req CallbackRequest) (CallbackResult, error) {
+	switch req.Type {
+	case ArtifactTypeMagicLink, ArtifactTypeDiscoveryMagicLink, ArtifactTypeEmailOTP, ArtifactTypeDiscoveryEmailOTP, ArtifactTypeSSOToken:
+		return p.CompleteCallback(ctx, req.Artifact)
+	default:
+		return CallbackResult{}, ErrDefinitiveDenial
+	}
 }
 
 // CompleteCallback consumes the artifact exactly once. A transient fault does

@@ -109,7 +109,7 @@ func NewWithHTTPClient(cfg config.StytchConfig, injected *http.Client) (StytchCl
 	return newAdapter(cfg, injected)
 }
 
-func newAdapter(cfg config.StytchConfig, injected *http.Client) (StytchClient, error) {
+func newAdapter(cfg config.StytchConfig, injected *http.Client) (*Adapter, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}

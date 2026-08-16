@@ -358,7 +358,20 @@ func TestScriptedProviderSatisfiesProviderInterface(t *testing.T) {
 	})
 	require.NoError(t, err)
 	var facade brokerprovider.Provider = p
+	var typed brokerprovider.TypedProvider = p
 	assert.NotNil(t, facade)
+	assert.NotNil(t, typed)
+
+	got, err := typed.CompleteTypedCallback(context.Background(), brokerprovider.CallbackRequest{
+		Type: brokerprovider.ArtifactTypeEmailOTP, Artifact: "iface",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, brokerprovider.OutcomeAuthenticated, got.Outcome)
+
+	_, err = typed.CompleteTypedCallback(context.Background(), brokerprovider.CallbackRequest{
+		Type: "password", Artifact: "iface",
+	})
+	assert.ErrorIs(t, err, brokerprovider.ErrDefinitiveDenial)
 }
 
 func TestCompleteCallbackHonorsContextCancellation(t *testing.T) {
