@@ -1,5 +1,7 @@
 # Curriculum Studio Platform — Phased Implementation Plan
 
+**IB0 status: STOP — candidate dependency under independent exact-tip review; MCP/Identity phases are not dispatch-ready.**
+
 **Outcome:** A standalone, independently deployable Curriculum Studio product: one Go modular monolith with its own PostgreSQL and artifact object store; a dark-first browser admin/authoring SPA behind a host-only BFF; deterministic plan/standards/resource/validation/materialization/export modules; a resumable agent workflow runner; durable outbox/webhooks; and a Primer integration adapter — delivering the full standalone authoring loop `plan → validate → materialize → edit → publish → export`, then Primer-adaptive rematerialization.
 
 **Plan directory:** `agent_docs/plans/curriculum-studio-platform/`
@@ -226,7 +228,7 @@ Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 | PLAT-2 | `STUDIO_` config, migrate on boot, health/ready | 1 | P1-S2, P1-S4, P1-S5 | P1-E1, P1-E3 |
 | PLAT-3 | Structured logs + basic metrics/trace hooks | 1 | P1-S6 | P1-E4 |
 | PLAT-4 | Separate Postgres only; refuse LMS DSN misuse in tests | 1 | P1-S7 | P1-E5 |
-| AUTH-1 | Validate Bearer JWT via JWKS (iss/aud/exp/kid) | 2 | P2-S1, P2-S2 | P2-E1 |
+| AUTH-1 | Validate Bearer JWT via JWKS (iss/aud/exp/kid + required public `client_id`; reject `azp`/internal UUID) | 2 | P2-S1, P2-S2 | P2-E1 |
 | AUTH-2 | Test auth mode issues same cookie/JWT shape; prod rejects test mode | 2 | P2-S3, P2-S4 | P2-E2, P2-E3 |
 | AUTH-3 | Workspace role authz on mutations | 2 | P2-S5, P2-S6 | P2-E4 |
 | AUTH-4 | Cross-tenant/workspace isolation | 2 | P2-S7 | P2-E5 |
@@ -298,12 +300,12 @@ Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 | OPS-3 | Live Stytch B2B broker proof | 18 | P18-S3 | P18-E3 |
 | OPS-4 | Live model provider proof | 18 | P18-S4 | P18-E4 |
 | OPS-5 | Production deploy smoke | 18 | P18-S5 | P18-E5 |
-| MCP-1 | Streamable HTTP `/mcp` initialize + deterministic authz-filtered tools/list | 19 | P19-S1 | P19-E1 |
+| MCP-1 | Stateless Streamable HTTP `/mcp`: optional discover + deterministic authz-filtered tools/list; no initialize/session handshake | 19 | P19-S1 | P19-E1 |
 | MCP-2 | Read tools via app services (workspaces/curricula/standards/resources) | 19 | P19-S2 | P19-E2 |
 | MCP-3 | Draft create + optimistic/idempotent graph patch | 19 | P19-S3 | P19-E3, P19-E4 |
 | MCP-4 | Validate + findings + audit | 19 | P19-S4 | P19-E10 |
-| MCP-5 | Publish propose/confirm human-in-loop (never silent) | 19 | P19-S5 | P19-E5 |
-| MCP-6 | JWT aud/IDOR/Origin/protocol negatives + cancel | 19 | P19-S6, P19-S7 | P19-E6, P19-E7, P19-E9 |
+| MCP-5 | Publish propose/confirm human-in-loop, bound to validated public `client_id` (never silent) | 19 | P19-S5 | P19-E5 |
+| MCP-6 | JWT aud/public-client-id/`azp`/internal-UUID/IDOR/Origin/protocol negatives + cancel | 19 | P19-S6, P19-S7 | P19-E6, P19-E7, P19-E9 |
 | MCP-7 | Official SDK + external Streamable HTTP client | 19 | P19-S8 | P19-E1, P19-E8 |
 
 ---

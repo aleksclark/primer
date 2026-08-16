@@ -1,12 +1,12 @@
 # Curriculum Studio foundation crosswalk
 
-**Status:** Authoritative after integration reconciliation
+**Status:** STOP — candidate reconciliation under independent exact-tip review; do not treat IB0-linked statements as dispatch-ready.
 **Branch:** `planning/curriculum-studio-integration`
 **Must-cite for:** any later Studio / Identity / Primer integration plan
 
-This document freezes vocabulary, ownership, and flow decisions across the four
-foundation artifacts. Future planners cite it; do not re-open locked boundaries
-without an explicit decision commit.
+This document records vocabulary, ownership, and flow decisions across the four
+foundation artifacts. L1–L7 remain locked; L8 is candidate/STOP and supersedes no
+runtime authority until its independent exact-tip review passes.
 
 ## Locked product boundaries
 
@@ -19,6 +19,7 @@ without an explicit decision commit.
 | L5 | TV **device** tokens remain TV-owned. Human TV admin **may** migrate to Identity. | identity design |
 | L6 | OpenAPI and protobuf have a **non-overlapping ownership split** (below). | contracts |
 | L7 | **MCP** is a third Studio surface on the **same** deployable (`/mcp`, Streamable HTTP). SoT = pinned official MCP spec + **code-defined tool schemas**. Not OpenAPI, not protobuf; no third DB/service. Identity issues JWTs; Studio authorizes tools. | MCP design, contracts, platform |
+| L8 | **Candidate/STOP:** product/MCP clients are pre-registered; delegated humans use Identity authorization code + S256 PKCE; Studio `/mcp` publishes RFC 9728 metadata; services cannot propose/confirm. Primer JWTs require signed public `client_id` and reject `azp`/internal UUIDs. Propose returns no `requestState`; an MRTR-capable initial confirm must return `InputRequiredResult` without publishing, and only a new-ID retry of that same confirm tool/method with exact state+responses and the same validated public `client_id` may atomically consume it. Non-MRTR Studio UI fallback carries no MCP state; no bypass. Not frozen or dispatch authority pending exact-tip review. | [`stytch-identity-ib0/`](./stytch-identity-ib0/) |
 
 ## Artifact map (canonical paths)
 
@@ -178,9 +179,9 @@ Proto `EventType` maps 1:1 (`EVENT_TYPE_CURRICULUM_CREATED` → `curriculum.crea
 | Sync materialize | LMS → Studio | gRPC (primary) / future machine HTTPS | protobuf | Context in, bundle out |
 | Domain events | Studio → subscribers (LMS optional) | Webhook POST + outbox | protobuf `DomainEvent` | Studio works without subscribers |
 | JWT validate | Studio/LMS → Identity | HTTPS JWKS fetch | Identity | No login hop on API path |
-| Interactive login | Browser → Identity (via BFF) | OIDC auth code + PKCE | Identity | Host-only cookies |
+| Interactive login | Browser → product BFF → Identity AS/broker | Primer OAuth authorization code + S256 PKCE; Identity alone hosts Stytch callback | Identity | Exact registered redirect/resource/audience; host-only product cookie; no implicit cross-product SSO |
 | Service credentials | Caller → Identity token endpoint | client_credentials | Identity | Replaces static secrets |
-| MCP client tokens | MCP client → Identity (AS) | OAuth as required by MCP client + protected-resource metadata | Identity | Studio may advertise resource metadata pointing at Identity; never mints tokens |
+| MCP client tokens | MCP client → Identity (AS) | Static registered client; delegated code+S256 PKCE or distinct service client_credentials; RFC 9728 metadata | Identity | Exact Studio `/mcp` resource→`aud=curriculum-studio`; no DCR initially; service cannot confirm publish |
 | Artifacts | Studio modules → object store | SDK/API | refs in Studio DB | Bytes not in Postgres |
 | LMS import push | Studio → LMS import | **Deferred** | — | Existing LMS import is parent-session; not Phase-3 primary path |
 

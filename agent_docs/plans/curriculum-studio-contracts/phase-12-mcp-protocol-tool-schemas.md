@@ -1,5 +1,7 @@
 # Phase 12: MCP protocol, tool schemas, and conformance
 
+**IB0 status: STOP — candidate dependency under independent exact-tip review; do not dispatch from this reference.**
+
 **File:** `phase-12-mcp-protocol-tool-schemas.md`
 **Depends on:** Phase 8 (auth/errors/idempotency semantics patterns); Phase 10–11 gates patterns; platform MCP transport qualification (platform Phase 19 spike)
 **Duration guess:** 4–6 days
@@ -20,7 +22,7 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 - Conformance harness invoking real `/mcp` (process or platform-provided loopback) via:
   - official Go SDK client
   - at least one external Streamable HTTP client (Hermes/mcporter or equivalent)
-- Negative matrix: protocol/header mismatch, Origin rejection, wrong audience, IDOR handle, idempotent replay, concurrent patch conflict, publish confirmation required, disconnect/cancel
+- Negative matrix: protocol/header mismatch, Origin rejection, wrong audience, missing/wrong public `client_id`, `azp`/internal UUID rejection, IDOR handle, idempotent replay, concurrent patch conflict, publish confirmation required, disconnect/cancel
 - Stable machine-readable coverage output mapping REQ-MCP-* → E2E IDs
 - Guidance for exclusive consumption: agent clients should use MCP session/tool APIs, not ad-hoc JSON-RPC forks
 
@@ -52,14 +54,14 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 #### Scenario: P12-S3 — Official SDK client conformance tour
 
 - **Given** loopback Studio with test JWKS and seeded workspace data
-- **When** the official Go SDK Streamable HTTP client runs initialize → tools/list → read tool → draft patch → validate
+- **When** the official Go SDK Streamable HTTP client runs optional `server/discover` → tools/list → read tool → draft patch → validate as stateless `2026-07-28` requests
 - **Then** all steps succeed with schema-valid `structuredContent`
 - **And** no implicit MCP session resumption is required between calls (opaque ids only)
 
 #### Scenario: P12-S4 — External client conformance
 
 - **Given** the same loopback endpoint and token
-- **When** Hermes/mcporter (or equivalent) performs initialize, tools/list, and one read tool
+- **When** Hermes/mcporter (or equivalent) performs stateless tools/list and one read tool (optionally `server/discover` first)
 - **Then** results agree with the official client on tool names and primary read payload fields
 
 #### Scenario: P12-S5 — Protocol and header negatives
@@ -72,7 +74,7 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 #### Scenario: P12-S6 — Authz and tenancy negatives
 
 - **Given** two workspaces and tokens for subject A (member of W1 only)
-- **When** A calls tools with W2 opaque draft ids or uses a JWT with `aud=primer-lms`
+- **When** A calls tools with W2 opaque draft ids or uses a JWT with `aud=primer-lms`, missing/wrong/overlong/control-bearing `client_id`, `azp`, or an internal OAuth-client UUID as client identity
 - **Then** calls fail closed (401/403/not-found)
 - **And** no W2 graph payload is returned
 
@@ -83,8 +85,10 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 - **Then** domain state matches single-apply
 - **When** two conflicting versions patch concurrently
 - **Then** one conflict is observed and the graph remains valid
-- **When** publish.confirm runs without elicitation/step-up
-- **Then** conformance asserts non-published revision + required confirmation error/elicitation
+- **When** propose runs, then a supported client performs initial confirm and retries that same confirm tool/method with exact state+responses and a new JSON-RPC id
+- **Then** propose has no `requestState`, initial confirm returns `InputRequiredResult`, the confirmation record binds the validated public `client_id` string, retry with that same claim publishes by one-use atomic consume, and same-ID/wrong-method/replay/binding/missing-or-wrong-client mismatches fail closed with sanitized audit
+- **And** neither `azp` nor an internal OAuth-client UUID can satisfy the client binding
+- **And** a non-MRTR client receives named Studio UI fallback without MCP state
 
 #### Scenario: P12-S8 — Disconnect/cancel
 
@@ -131,13 +135,13 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 | ID | Setup | Action | Assert |
 | --- | --- | --- | --- |
 | E12-01 | docs/gates | ownership scan | MCP not in OpenAPI/proto DTO mirror |
-| E12-02 | official SDK | initialize+list | deterministic authz list |
+| E12-02 | official SDK | optional discover + stateless list | deterministic authz list |
 | E12-03 | official SDK | read+draft+validate tour | schema-valid structuredContent |
 | E12-04 | external client | list+read | interoperable |
 | E12-05 | bad version/Origin | POST | reject |
-| E12-06 | wrong aud + IDOR | tools/call | fail closed |
+| E12-06 | wrong aud + missing/wrong/overlong/control `client_id` + `azp`/internal UUID + IDOR | tools/call | fail closed; no payload/publish |
 | E12-07 | idempotent patch + concurrent conflict | tools/call | single-apply + conflict |
-| E12-08 | publish.confirm w/o step-up | tools/call | not published |
+| E12-08 | real HTTP propose + MRTR initial confirm + same-confirm exact state/response new string-ID retry; signed public `client_id` binding; expiry terminalize/reissue, missing/wrong-client, `azp`, internal-UUID, bad/replay/fallback variants | tools/call | proposal has no state; first confirm input-required/no publish; one atomic publish; client mismatch audited/denied; no stranded slot; fallback no MCP state |
 | E12-09 | disconnect | long tool | cancel/timeout safe |
 | E12-10 | coverage emitter | run matrix | all REQ-MCP-* covered |
 
@@ -149,6 +153,7 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 - Must not restate MaterializationContext in MCP schemas
 - Must not weaken OpenAPI/proto parity gates to “make room” for MCP
 - Publish confirmation test must inspect DB revision status, not only tool text
+- Publish confirmation test must inspect the persisted public `client_id` binding and prove `azp`/internal UUID/missing-or-wrong claim denial, not merely compare caller-provided tool input
 
 ## Completion Gate
 
@@ -164,6 +169,7 @@ Establish Curriculum Studio MCP as a **third contract surface** with a clear sou
 
 - **Upstream:** contracts Phases 8–11 patterns; platform Phase 19 handler (SOFT for doc freeze; HARD for runtime conformance)
 - **Sibling:** Identity protected-resource / client registration for MCP OAuth clients
+- **IB0 candidate authority (STOP):** static/pre-registered clients, code+S256 PKCE, RFC 9728 metadata, exact resource/audience, required signed public `client_id`, human/service separation, explicit active service membership/scope for list-read/draft, human-only publish, and MRTR are specified in [`../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md`](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md). Propose has no state; an MRTR-capable initial confirm must issue one-use/5m state without publishing, bound to subject/public `client_id`/workspace/draft digest/literal confirm tool; a new-ID retry of the same confirm tool/method carries exact state+responses and the same validated claim. Missing/wrong claim, `azp`, and internal UUID fail closed. Non-MRTR fallback carries no MCP state. No DCR or scope/role/test/header bypass in IB1–IB8.
 - **Downstream:** delivery X7; platform Phase 19 completion evidence
 
 ## Rollback

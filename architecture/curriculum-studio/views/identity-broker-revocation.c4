@@ -1,18 +1,13 @@
 views {
-  view auth_trust {
-    title 'Candidate Stytch-upstream broker, BFF, JWT and webhook trust'
+  view identity_broker_revocation {
+    title 'Candidate Primer Identity broker, webhook, token and audit topology'
     description '
-      STOP pending independent exact-tip review. Browser UI uses a product BFF; the BFF starts exact Primer OAuth
-      authorization and Identity alone receives Stytch callbacks. Stytch
-      also sends signed lifecycle webhooks only to Identity. Products and
-      MCP validate single-audience Primer JWTs via Identity JWKS, then own
-      authorization locally. No direct Stytch product/MCP/database edge.
-      Source: agent_docs/plans/stytch-identity-ib0/.
+      STOP pending independent exact-tip review. Required IB0 positive topology: product browser→BFF→Identity broker;
+      Stytch→Identity broker and webhook receiver; Identity token/JWKS→BFF,
+      Studio API/MCP and LMS API; durable internal grant/webhook/audit state.
+      Required negative topology: no direct Stytch→product, MCP, Studio/LMS/
+      Identity database edge. Source: agent_docs/plans/stytch-identity-ib0/.
     '
-    include teacher
-    include homeschool_parent
-    include curriculum_author
-    include curriculum_planning_agent
     include stytch_b2b
     include identity_service
     include identity_service.identity_broker
@@ -22,39 +17,29 @@ views {
     include identity_service.identity_postgres
     include curriculum_studio.studio_ui
     include curriculum_studio.studio_bff
-    include curriculum_studio.studio
     include curriculum_studio.studio.curriculum_api
     include curriculum_studio.studio.mcp_adapter
-    include primer_lms.lms_web
+    include curriculum_planning_agent
     include primer_lms.lms_api
     include stytch_b2b -> identity_service.identity_broker
     include stytch_b2b -> identity_service.stytch_webhook
-    include teacher -> identity_service
-    include homeschool_parent -> identity_service
-    include curriculum_author -> identity_service
-    include curriculum_planning_agent -> identity_service.identity_broker
-    include identity_service.identity_broker -> curriculum_planning_agent
-    include curriculum_planning_agent -> identity_service.token_authority
-    include identity_service.token_authority -> curriculum_planning_agent
-    include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
-    include curriculum_studio.studio.mcp_adapter -> curriculum_planning_agent
     include curriculum_studio.studio_ui -> curriculum_studio.studio_bff
     include curriculum_studio.studio_bff -> identity_service.identity_broker
     include identity_service.identity_broker -> curriculum_studio.studio_bff
     include curriculum_studio.studio_bff -> identity_service.token_authority
     include identity_service.token_authority -> curriculum_studio.studio_bff
-    include curriculum_studio.studio_bff -> curriculum_studio.studio.curriculum_api
     include curriculum_studio.studio.curriculum_api -> identity_service.token_authority
     include identity_service.token_authority -> curriculum_studio.studio.curriculum_api
-    include curriculum_studio.studio.mcp_adapter -> identity_service.token_authority
     include identity_service.token_authority -> curriculum_studio.studio.mcp_adapter
-    include primer_lms.lms_api -> identity_service
+    include curriculum_studio.studio.mcp_adapter -> identity_service.token_authority
+    include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
+    include curriculum_studio.studio.mcp_adapter -> curriculum_planning_agent
+    include identity_service.token_authority -> curriculum_planning_agent
     include identity_service.token_authority -> primer_lms.lms_api
-    include primer_lms.lms_web -> identity_service
     include identity_service.identity_broker -> identity_service.identity_postgres
     include identity_service.token_authority -> identity_service.identity_postgres
     include identity_service.stytch_webhook -> identity_service.identity_postgres
     include identity_service.identity_audit -> identity_service.identity_postgres
-    autoLayout TopBottom
+    autoLayout LeftRight
   }
 }

@@ -1,10 +1,12 @@
 # Primer Identity service design — Stytch-backed human-auth broker
 
+**IB0 status: STOP — candidate remediation under independent exact-tip review; no broker/token implementation is authorized by this reference.**
+
 ## 1. Decision and scope
 
 The selected production architecture is **Stytch B2B upstream of Primer Identity**. Stytch is the authoritative ordinary-human authentication and session-validity service. Primer Identity is the only Stytch SDK/API client and is Primer’s downstream OAuth/token broker and authorization server for product BFFs and MCP.
 
-Identity accepts an opaque Stytch session only at its server-side broker boundary, validates it with Stytch, resolves exact immutable `(project_id, organization_id, member_id)` to `accounts.id`, creates/retrieves a Primer grant, and mints a short-lived ES256 Primer JWT for exactly one audience. Its JWKS is the only token-verification dependency exposed to products. Stytch SessionJWTs/session tokens never reach browser JS, Studio, LMS, TV, MCP, or product APIs.
+Identity accepts an opaque Stytch session only at its server-side broker boundary, validates it with Stytch, resolves exact immutable `(project_id, organization_id, member_id)` to `accounts.id`, creates/retrieves a Primer grant, and mints a short-lived ES256 Primer JWT for exactly one audience with the required signed public OAuth `client_id`. Its JWKS is the only token-verification dependency exposed to products. Stytch SessionJWTs/session tokens never reach browser JS, Studio, LMS, TV, MCP, or product APIs.
 
 No alternate production human RP is selected, and this design does not create a parallel self-hosted password authority. Local password is disabled by default and is allowed only as explicitly gated break-glass/legacy migration. Stytch M2M is deferred; Identity owns local service principals and `client_credentials`.
 
@@ -23,16 +25,18 @@ Stytch roles are bounded eligibility hints only. A Stytch organization never aut
 
 ## 3. Broker and BFF protocol boundary
 
-1. A product BFF begins the **Identity-hosted Stytch broker/callback** flow. Redirect URI, state, PKCE and CSRF/cookie binders are frozen in IB0.
-2. Identity alone exchanges/validates the opaque Stytch session, invokes bounded cache/adapter behavior, and maps the tuple locally.
-3. Identity returns only Primer authorization-code/session/JWT material to the BFF. Product-owned host-only cookies and CSRF remain on the product host. No product API or browser script receives a Stytch credential.
-4. The BFF supplies a single-audience Primer JWT to its API. Studio/LMS/TV/MCP validate Primer signature, issuer, expiry, audience and scope through Primer JWKS, then independently authorize local memberships/roles.
+1. A product BFF begins `GET /oauth/authorize` at Primer Identity with an exact registered client/redirect/resource/audience/scope tuple, state, and S256 PKCE. The candidate contract is [`stytch-identity-ib0/`](./stytch-identity-ib0/) and becomes implementation authority only after its zero-finding exact-tip review.
+2. Identity alone exchanges/validates the opaque Stytch session, then revalidates the exact member session with exactly one unpaginated Stytch Go v18.1.0 `Sessions.Get(OrganizationID, MemberID)` call. The adapter caps the body at 1 MiB and returned sessions at 256, requires exactly one byte-equal active/unexpired stored session ID, denies missing/inactive/expired, and treats duplicate/overflow/malformed/tuple mismatch or transient provider failure as unavailable/fail-closed.
+3. Identity creates a durable Primer grant and one-use 60-second Primer authorization code. The BFF exchanges it server-to-server and receives only Primer access/rotating refresh material. Product-owned host-only cookies and CSRF remain on the product host. No product API or browser script receives a Stytch credential.
+4. The BFF supplies a single-audience Primer JWT to its API. Studio/LMS/TV/MCP validate Primer signature, issuer, expiry, audience, scope, and required public `client_id` through Primer JWKS, reject `azp` and internal-UUID client identifiers, then independently authorize local memberships/roles.
 
-A Primer human JWT contains local subject identity (for example `identity:<account-uuid>` at product boundaries), issuer/audience/expiry and approved scopes; it contains no raw Stytch token, SessionJWT, tuple, provider role, or workspace role. The default access-token expiry is **≤15 minutes** and cannot exceed validated provider-session constraints.
+A Primer human JWT uses the canonical string form of `accounts.id` as `sub`; products map that UUID to their local opaque `subject_ref` convention (for example `identity:<uuid>`). It contains issuer/audience/expiry, approved scopes, and required signed `client_id=oauth_clients.client_id`; `azp` is absent and the internal OAuth-client UUID is never public. It contains no raw Stytch token, SessionJWT, tuple, provider role, or workspace role. The default access-token expiry is **≤15 minutes** and cannot exceed validated provider-session constraints.
+
+Each product authorization starts a new broker transaction; implicit Identity/cross-product SSO is deferred. IB1 adds bounded provider `member_session_id` to the internal snapshot and persists it with tuple/expiry solely for grant and webhook correlation, never the raw provider token. Exact endpoint, data, state, webhook, MCP, and rollback contracts live in the IB0 package.
 
 ## 4. Revocation, outage and audit
 
-Revocation is two-plane. Plane one is Stytch-session validity plus bounded cache behavior: transient 5xx/429/timeout/transport errors are **unavailable** and are not negative cached. Plane two is local Primer grant plus BFF refresh/access-JWT lifecycle. IB4 adds a signed Stytch webhook receiver with signature and timestamp validation, replay protection, idempotency and out-of-order behavior. It stores a durable provider-session/grant association **without a raw Stytch token**, invalidates validation cache and revokes related Primer grants.
+Revocation is two-plane. Plane one is Stytch-session validity plus bounded cache behavior: transient 5xx/429/timeout/transport errors are **unavailable** and are not negative cached. Plane two is local Primer grant plus BFF refresh/access-JWT lifecycle. IB4 adds a signed Stytch webhook receiver with signature and timestamp validation, replay protection, idempotency and out-of-order behavior. Exact duplicate means both provider-event and Svix IDs resolve to one receipt with the same body hash; event-ID re-pair, Svix-ID re-pair, cross-row ID collision, and body mismatch are separate reason-bound fingerprint classes that produce one immutable security event/observation/alert and no authority effect. It stores a durable provider-session/grant association **without a raw Stytch token**, constrained by composite association/account FKs, invalidates validation cache and revokes related Primer grants.
 
 Webhooks cannot grant or change Studio/LMS membership. The guaranteed offline bound is the ≤15-minute access-token expiry; immediate revocation shorter than that is explicitly deferred until a tested local/replicated `sid`/`jti` mechanism exists. Logs and audit may contain sanitized correlation and decision metadata, never raw tokens or provider payloads.
 
@@ -47,10 +51,10 @@ Before IB work, IA-R must explicitly enforce Stytch enabled + live environment +
 | Wave | Outcome | Production gate |
 |---|---|---|
 | IA / IA-R | foundation then residual closure/review | not production auth |
-| IB0–IB1 | frozen broker contract and composed validated exchange | no product token yet |
+| IB0–IB1 | candidate broker contract review and later composed validated exchange | no product token yet |
 | IB2–IB3 | Primer ES256/JWKS bridge and BFF contract | no production until webhook |
 | IB4 | signed webhook/revocation | hard dependency for production BFF/MCP |
 | IB5–IB7 | service principals, lifecycle, hardening | bounded machine and security proof |
 | IB8 | Studio/LMS/TV cutover, admin/audit/live proof | all local authorization E2Es green |
 
-Required E2Es: valid mapped tuple reaches local membership; valid token with no membership is denied; cross-org same-email personas remain distinct; Stytch admin-like role cannot authorize locally; human/service classes are separate; Studio/MCP reject raw Stytch token; transient outage fails closed/no negative cache; webhook forgery/replay/dedupe/out-of-order is safe; LMS dual-run still enforces local roles; audit/log output contains no token/provider payload.
+Required E2Es: exact unpaginated Stytch session revalidation obeys 1 MiB/256 and duplicate/exact-ID semantics; wrong-account association/grant writes fail; valid mapped tuple reaches local membership; valid token with no membership is denied; JWTs require public `client_id` and reject `azp`/internal UUIDs; cross-org same-email personas remain distinct; Stytch admin-like role cannot authorize locally; human/service classes are separate; Studio/MCP reject raw Stytch token and bind MRTR confirmation to the validated public `client_id`; transient outage fails closed/no negative cache; all four webhook collision classes are fingerprinted/alerted without authority effect; signing keys allow at most one active and one next and erase private ciphertext on destruction; LMS dual-run still enforces local roles; audit/log output contains no token/provider payload.

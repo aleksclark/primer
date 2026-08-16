@@ -1,6 +1,6 @@
 # Curriculum Studio MCP endpoint — design decisions
 
-**Status:** Decision-complete plan (docs only; no production MCP code in this commit)
+**Status:** STOP — candidate plan under independent exact-tip review (docs only; no production MCP code in this commit)
 **Audience:** Platform, contracts, identity, database, and delivery orchestrators
 **Must-cite with:** [foundation crosswalk](./curriculum-studio-foundation-crosswalk.md),
 [product plan](./primer-curriculum-studio-product-plan.md),
@@ -21,7 +21,7 @@ duplicating REST/gRPC business logic or bypassing Studio tenancy/authz.
 
 ---
 
-## 2. Authoritative protocol decisions
+## 2. Candidate protocol decisions (STOP)
 
 | ID | Decision |
 | --- | --- |
@@ -31,10 +31,10 @@ duplicating REST/gRPC business logic or bypassing Studio tenancy/authz.
 | M4 | **Deployable boundary:** same Studio binary/process. Dedicated route **`/mcp`** (not under REST `/studio/v1`). No third service, no third database. HTTPS in production; loopback HTTP allowed for local/E2E only. |
 | M5 | **Capabilities (initial server):** **tools only**. No roots, sampling, or logging capability advertisement (deprecated / out of initial scope for the 2026 revision posture). Long operations may emit **request-scoped progress** over SSE when the SDK/spec supports it on the same request. |
 | M6 | **Tool results:** every tool returns `structuredContent` matching a code-defined output schema **plus** a short text fallback for clients that only render text. |
-| M7 | **Auth:** per-request `Authorization: Bearer <JWT>` issued by **Primer Identity**. Audience **`curriculum-studio`**. Subject is human (`identity:<uuid>`) or service (`identity:svc:<id>`). Workspace-scoped permissions enforced in Studio on **every** tool call and **every** opaque draft/resource handle. MCP is **never** a token issuer, OP, or refresh endpoint. |
-| M8 | **OAuth client flow:** MCP clients that require OAuth protected-resource metadata / authorization-server discovery obtain tokens **through Primer Identity** (resource = Studio MCP URL; `aud=curriculum-studio`). Studio may publish protected-resource metadata that **points at Identity**; Studio does not host authorize/token. |
+| M7 | **Auth:** every request carries Bearer authorization issued by **Primer Identity**. Audience **`curriculum-studio`**. JWT `sub` is the canonical human `accounts.id` UUID or service `identity:svc:<id>` and required signed `client_id` is the stable public OAuth client identifier; Studio maps the human UUID to local `subject_ref=identity:<uuid>`. Missing/wrong/overlong/control-bearing `client_id`, internal Identity OAuth-client UUIDs, and `azp` are denied. Workspace-scoped permissions are enforced on **every** tool call and **every** opaque draft/resource handle. MCP is **never** a token issuer, OP, or refresh endpoint. |
+| M8 | **OAuth client flow:** MCP clients use a static/pre-registered Primer Identity client (no DCR in IB1–IB8), authorization code + S256 PKCE for delegated humans, and the exact RFC 8707 resource = Studio MCP URL (`aud=curriculum-studio`). Studio publishes RFC 9728 protected-resource metadata pointing at Identity and returns its URL in `WWW-Authenticate`; Studio does not host authorize/token. Service actors use a distinct IB5 `client_credentials` registration. |
 | M9 | **Tool inventory ownership:** tool names, input/output JSON Schemas, and authorization filters are **code-defined** next to the MCP adapter (contracts Phase 12 + platform Phase 19). They are a **third surface SoT** separate from OpenAPI and protobuf — **no DTO duplication** of domain structs; adapters map tool I/O ↔ existing application services. |
-| M10 | **Human-in-the-loop:** draft planning mutations may proceed within granted workspace role/scope. **Publish, share, export-of-published, and destructive** actions require MCP elicitation / `InputRequiredResult` when the pinned SDK+spec support it; otherwise tools return an **actionable error** directing the user to Studio UI confirmation/step-up. **Never silently publish.** |
+| M10 | **Human-in-the-loop:** list/read allows a delegated human or explicitly granted service, each with active membership. Draft create/patch/validate allows a human author or a service with explicit `studio:draft` scope **and** active service membership. `studio.publish.propose` and `studio.publish.confirm` are human-only; service actors always fail closed. Propose returns proposal id/summary only and never `requestState`. An MRTR-capable client's initial `studio.publish.confirm` must return `InputRequiredResult{resultType:"input_required",inputRequests,requestState}` without publishing; it retries the **same confirm tool/method** with exact state+responses and a new JSON-RPC id. Confirmation records bind the signed public `client_id` string from the validated JWT, never `azp` or an internal OAuth-client UUID. Confirm revalidates current authority, the same public `client_id`, and all bindings before atomically consuming the five-minute state once; missing/wrong claim is denial with sanitized audit. Elicitation is presentation, not authority. Non-MRTR clients receive `publish_confirmation_required` naming **Studio UI**, with no MCP state. No scope, role, header, idempotency, service, environment, or test bypass exists. |
 | M11 | **Security transport controls:** strict Origin allowlist (reject missing/disallowed); body/header protocol-version parity; honor current `_meta` / `MCP-Protocol-Version` (and any required `Mcp-Method` / `Mcp-Name` validation per pin); forbid sensitive custom `x-mcp-header` secret channels; bounded body size, concurrency, timeouts, and rate limits; cancel in-flight work on client disconnect; disable proxy buffering for SSE; generic public errors; redacted audit logs. |
 | M12 | **Domain path:** tools call the **same application/domain services** as REST/gRPC. Never raw repositories from the MCP adapter, never cross-DB access, never duplicated business rules. |
 | M13 | **Test clients:** official Go SDK client **and** at least one real external Streamable HTTP client (Hermes/mcporter or equivalent). |
@@ -66,11 +66,11 @@ curriculum-studio/
 ### 4.1 Token validation (every request)
 
 1. Require `Authorization: Bearer`.
-2. Validate JWT locally via Identity JWKS: `iss`, `aud=curriculum-studio`, `exp`/`nbf`, `kid`, signature.
-3. Map `sub` → `subject_ref` (`identity:<uuid>` or `identity:svc:<id>`).
+2. Validate JWT locally via Identity JWKS: `iss`, `aud=curriculum-studio`, `exp`/`nbf`, `kid`, signature, and required signed public `client_id`.
+3. Reject missing/wrong/overlong/control-bearing `client_id`, any `azp`, and any internal Identity OAuth-client UUID presented as `client_id`; map validated `sub` → `subject_ref` (`identity:<uuid>` or `identity:svc:<id>`) and retain the public ClientID in auth context.
 4. **Do not** trust role/workspace claims inside the JWT as authorization SoT.
 5. Load Studio `workspace_memberships` (and service scope map) for subsequent tool calls.
-6. Reject wrong audience, expired, unknown kid, missing membership, and cross-workspace opaque IDs (IDOR → not-found/forbidden with no leak).
+6. Reject wrong audience, expired, unknown kid, invalid client identity, missing membership, and cross-workspace opaque IDs (IDOR → not-found/forbidden with no leak).
 
 ### 4.2 Identity responsibilities (not Studio)
 
@@ -115,8 +115,8 @@ Authorization-filtered but **deterministic** `tools/list` (stable sort; same pri
 | `studio.drafts.patch_graph` | mutate (draft) | plan | Optimistic concurrency + idempotency key |
 | `studio.drafts.validate` | mutate/read | validation | Persist report via existing path |
 | `studio.drafts.get_findings` | read | validation | Coverage/findings |
-| `studio.publish.propose` | mutate (gated) | plan/publish | Creates proposal / dry-run; does not publish |
-| `studio.publish.confirm` | mutate (step-up) | plan/publish | Requires elicitation or prior UI step-up token; never silent |
+| `studio.publish.propose` | mutate (gated) | plan/publish | Creates proposal / dry-run only; never returns `requestState`; does not publish |
+| `studio.publish.confirm` | mutate (step-up) | plan/publish | Human-only; MRTR-capable initial call must return `InputRequiredResult` without publishing; same-tool retry consumes exact one-use `requestState`; never silent |
 
 **Out of initial inventory:** materialize-for-Primer, webhook admin, destructive workspace delete, cross-tenant admin, roots/sampling.
 
@@ -124,10 +124,10 @@ Authorization-filtered but **deterministic** `tools/list` (stable sort; same pri
 
 | Action | MCP behavior |
 | --- | --- |
-| List/search/read | Proceed if authorized |
-| Draft create / graph patch / validate | Proceed if `author+` (or equivalent) and scopes allow |
-| Publish proposal | Allowed; returns proposal id + summary; no immutability flip |
-| Publish confirm | Elicitation / `InputRequiredResult` **or** error `publish_confirmation_required` with Studio UI deep link |
+| List/read | Delegated human with active membership, or service with explicitly granted read scope and active service membership |
+| Draft create / graph patch / validate | Human author with active membership, or service only with explicit draft scope and active service membership |
+| Publish proposal | Delegated human only; returns proposal id + summary and never `requestState`; no immutability flip |
+| Publish confirm | Delegated human only: MRTR-capable initial call must return `InputRequiredResult` without publishing; retry the same tool/method with exact `requestState` + `inputResponses` and new JSON-RPC id for one-use consume. Non-MRTR clients get `publish_confirmation_required` with named Studio UI deep link and no MCP state; service always fails closed |
 | Share / export published / destructive | Same step-up class as publish |
 
 ---
@@ -156,9 +156,9 @@ Authorization-filtered but **deterministic** `tools/list` (stable sort; same pri
 | Idempotent tool mutations | `idempotency_keys` (D11) with scope e.g. `mcp:<tool>` |
 | Optimistic concurrency | existing revision/graph version columns/ETags (D5 / S6) |
 | Audit | `audit_events` (D12) — record tool name, subject_ref, workspace_id, opaque ids, outcome |
-| Publish step-up evidence | Prefer existing publish audit + optional short-lived confirmation record **only if** UI/MCP cannot share idempotency row; if additive table needed, **database track** owns `0000N` migration (label ownership explicitly) |
+| Publish confirmation evidence | Mandatory persisted one-use `requestState` digest issued only by initial `studio.publish.confirm`, five-minute expiry, bindings for human subject/public signed `client_id` string/workspace/canonical draft digest/literal confirm tool, distinct issuance/consume JSON-RPC IDs, atomic consume, and sanitized audit. The record stores and compares the validated public client identifier, never `azp` or an internal OAuth-client UUID; missing/wrong claims fail closed. The Studio database track owns the additive migration; `idempotency_keys` alone is insufficient unless its schema and CAS enforce every binding. |
 
-**Default:** no new migration for MCP. Additive migration only if confirmation/nonce storage cannot fit `idempotency_keys` + `audit_events`.
+The MRTR confirmation record is mandatory. No in-memory token, generic elicitation response, UI flag, or ordinary idempotency replay substitutes for persisted bound one-use state.
 
 ---
 
@@ -179,8 +179,8 @@ Platform Phase 19 owns: handler mount, authz filter, tool → app service wiring
 
 | ID | Case |
 | --- | --- |
-| MCP-T1 | Official Go SDK client: initialize + tools/list + read tool |
-| MCP-T2 | External Streamable HTTP client (Hermes/mcporter): same |
+| MCP-T1 | Official Go SDK client: `server/discover` (optional) + tools/list + read tool; no initialize/session handshake in `2026-07-28` |
+| MCP-T2 | External Streamable HTTP client (Hermes/mcporter): same stateless request sequence |
 | MCP-T3 | Disconnect/cancel mid long tool (progress/SSE) |
 | MCP-T4 | Protocol version / header mismatch → safe error |
 | MCP-T5 | Origin attack (disallowed Origin) rejected |
@@ -188,7 +188,7 @@ Platform Phase 19 owns: handler mount, authz filter, tool → app service wiring
 | MCP-T7 | Wrong `aud` JWT rejected |
 | MCP-T8 | Idempotent replay of patch_graph |
 | MCP-T9 | Concurrent patch → conflict (optimistic concurrency) |
-| MCP-T10 | Publish confirm without elicitation/step-up fails closed |
+| MCP-T10 | Propose returns proposal only/no state; MRTR initial confirm returns `InputRequiredResult` without publishing and binds the validated public `client_id`; same confirm with exact state+responses/new canonical string JSON-RPC id and the same claim consumes once. Same-id, wrong-method, missing/expired/replayed/wrong binding/response, missing/wrong `client_id`, `azp`, or internal-UUID client identity fails closed with sanitized audit; expired state terminalizes and can be reissued without stranding the live slot; non-MRTR fallback names Studio UI and carries no MCP state; no bypass works |
 | MCP-T11 | tools/list deterministic + authz-filtered |
 | MCP-T12 | Audit row present; secrets absent from logs |
 
@@ -229,6 +229,8 @@ Platform Phase 19 owns: handler mount, authz filter, tool → app service wiring
 | LikeC4 | Agent actor, `mcp_adapter` component, `studio_mcp` view |
 
 **Identity dependency rule:** credential-free test Identity/JWKS may prove local transport only. Delegated MCP writes and delivery X7 require **I6 / IB2 + I8 / IB4**; require **I7 / IB3 + applicable I12 / IB8** when Identity client registration, BFF mediation, or publish confirmation is in scope. MCP accepts Primer JWTs only and re-authorizes every request against local Studio membership; it rejects raw Stytch bearer/SessionJWT material.
+
+**IB0 OAuth authority (candidate / STOP):** [`stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md`](./stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) specifies metadata, static registration, resource/audience, required signed public `client_id`, human/service subject classes, raw-token rejection, and no service publish-confirmation authority. Propose returns no state. MRTR-capable initial confirm must issue one-use five-minute `requestState` without publishing and bind the validated public client identifier; a new-ID retry of that same confirm tool/method with exact state+responses and the same claim atomically consumes it. Missing/wrong claim, `azp`, and internal UUID fail closed. Non-MRTR clients use named Studio UI without receiving MCP state; scope/role/test/header bypass is forbidden. This design remains candidate/STOP and is not runtime or dispatch authority until exact-tip review passes. The MCP 2026-07-28 release removes `initialize`/`Mcp-Session-Id` and deprecates DCR toward CIMD; Primer intentionally starts with controlled static registrations. Official release: https://blog.modelcontextprotocol.io/posts/2026-07-28.
 
 
 ## Stytch-backed identity reconciliation (authoritative)

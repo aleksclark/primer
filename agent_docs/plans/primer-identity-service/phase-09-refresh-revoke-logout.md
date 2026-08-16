@@ -1,37 +1,38 @@
 # 09: IB5 / Primer-owned service principals
 
+**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+
 ## Goal
 
-Add bounded local machine credentials. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
+Implement distinct Primer machine identities and `client_credentials` without Stytch M2M or human impersonation, following [`../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md`](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md).
 
 ## BDD Success Criteria
 
-### Scenario: IB5 / Primer-owned service principals
+#### Scenario: IB5-S1 — Separate service subject
+- **Given** an enabled confidential service client
+- **When** it requests an allowed resource/scope
+- **Then** `/oauth/token` issues a ≤15m single-audience ES256 JWT with `sub=identity:svc:<id>` and no refresh/provider association.
 
-- **Given** the preceding phase gates and a bounded, sanitized test environment
-- **When** explicitly granted `identity:svc:<id>` may read/draft MCP work but cannot confirm publish by default; it never represents a Stytch human.
-- **Then** the behavior is observable through the named public boundary and durable local evidence
-- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
+#### Scenario: IB5-S2 — No human/publish authority
+- **Given** a service token
+- **When** it requests human scopes or calls Studio human-write/publish-confirm tools
+- **Then** it fails closed
+- **And** no Stytch call or human account impersonation occurs.
 
 ## Implementation Instructions
 
-- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
-- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
-- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
-- **Dependency gate:** IB2.
+Add service principal/credential tables and hashed/rotatable credentials or `private_key_jwt`. Enforce exact registered resource/audience/scope and subject class. MCP services may receive explicitly granted read/draft authority, but never initial publish-confirmation authority. Stytch M2M remains deferred.
 
 ## End-to-End Test Plan
 
-Client-credentials/JWKS E2E proves human/service class separation and audience/scope enforcement. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
+Run IB5-E01/E02 through public token and Studio/MCP validation boundaries, including disabled/rotated client, scope escalation, wrong resource/audience, human impersonation and publish-confirm denial.
 
 ## Anti-Cheating Audit
 
-No assumed Stytch M2M or inherited human workspace role. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
+No shared human/service row type that permits impersonation, static unrotated plaintext secret, refresh token, provider role/session, wildcard scope/resource, or test bypass of publish confirmation.
 
 ## Completion Gate
 
-- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
-- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
-- [ ] No Stytch material or provider authorization leaks to products.
-- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
-- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.
+- [ ] IB5-S* and IB5-E01/E02 green.
+- [ ] Credential rotation/redaction and OpenAPI/generated-client parity pass.
+- [ ] Fresh exact-tip security review approves.

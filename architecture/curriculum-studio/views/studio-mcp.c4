@@ -1,31 +1,42 @@
 views {
   view studio_mcp {
-    title 'Curriculum Studio MCP (Streamable HTTP)'
+    title 'Candidate Studio MCP protected resource and Primer OAuth'
     description '
-      External curriculum-planning agents obtain JWTs from Primer Identity
-      and call Studio MCP adapter at /mcp. Tools invoke plan, standards,
-      resources, and validation modules; audit/idempotency land in Studio
-      Postgres only. No LMS DB edge. No MCP token issuer on Studio.
-      Sources: curriculum-studio-mcp-design.md; foundation crosswalk L7;
-      platform phase-19; identity design §8.3.1.
+      STOP pending independent exact-tip review. The client sends an
+      unauthenticated request to Studio /mcp and receives the RFC 9728 401
+      resource-metadata challenge, then authorizes at Identity, receives a
+      one-use code, exchanges it at token authority, and calls MCP with a
+      Primer token. MCP requests and receives JWKS, uses plan/audit boundaries,
+      and never has a direct PostgreSQL, Stytch, or Identity-DB edge.
+      Sources: curriculum-studio-mcp-design.md; stytch-identity-ib0 §02.
     '
     include curriculum_planning_agent
     include identity_service
+    include identity_service.identity_broker
+    include identity_service.token_authority
     include curriculum_studio.studio
     include curriculum_studio.studio.mcp_adapter
+    include curriculum_studio.studio.audit_idempotency
     include curriculum_studio.studio.plan_domain
     include curriculum_studio.studio.standards_catalog
     include curriculum_studio.studio.resource_catalog
     include curriculum_studio.studio.validation_engine
     include curriculum_studio.postgres
     include curriculum_planning_agent -> identity_service
+    include curriculum_planning_agent -> identity_service.identity_broker
+    include identity_service.identity_broker -> curriculum_planning_agent
+    include curriculum_planning_agent -> identity_service.token_authority
+    include identity_service.token_authority -> curriculum_planning_agent
     include curriculum_planning_agent -> curriculum_studio.studio.mcp_adapter
-    include curriculum_studio.studio.mcp_adapter -> identity_service
+    include curriculum_studio.studio.mcp_adapter -> curriculum_planning_agent
+    include curriculum_studio.studio.mcp_adapter -> identity_service.token_authority
+    include identity_service.token_authority -> curriculum_studio.studio.mcp_adapter
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.plan_domain
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.standards_catalog
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.resource_catalog
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.validation_engine
-    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.postgres
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.audit_idempotency
+    include curriculum_studio.studio.audit_idempotency -> curriculum_studio.postgres
     include curriculum_studio.studio.plan_domain -> curriculum_studio.postgres
     autoLayout TopBottom
   }

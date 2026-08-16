@@ -7,11 +7,25 @@ model {
       description '
         Browser-executed authoring UI owned by Curriculum Studio.
         Runs in the teacher/parent browser, not inside the Studio
-        service process. Talks only to the Curriculum API. Not a
+        service process. Uses the product-owned Studio BFF for auth/session
+        handling and the Curriculum API for authoring operations. Not a
         second deployable backend and not a peer product.
         Source: primer-curriculum-studio-product-plan.md Service
         architecture (UI → Curriculum API) and Standalone product
         workflow (review, approve, lock, rematerialize).
+      '
+    }
+
+    studio_bff = component 'Curriculum Studio BFF' {
+      #public
+      description '
+        Product-owned server-side OAuth client. Starts Identity
+        /oauth/authorize with exact registration/state/S256 PKCE, validates
+        callback state/issuer, exchanges the one-use Primer code, and keeps
+        access/rotating refresh material server-side. Browser receives only
+        __Host-studio-session plus a separate CSRF token; no Domain cookie,
+        implicit cross-product SSO, browser token, or Stytch material.
+        Source: agent_docs/plans/stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md.
       '
     }
 
@@ -140,6 +154,18 @@ model {
           token issuer. Publish requires human confirmation/step-up.
           Sources: curriculum-studio-mcp-design.md; platform phase-19;
           contracts phase-12; foundation crosswalk L7.
+        '
+      }
+
+      audit_idempotency = component 'MCP audit and idempotency boundary' {
+        #private
+        #durable
+        description '
+          Owns MCP idempotency, redacted audit receipts, and MRTR-consumption
+          coordination. The adapter reaches durable state only through Plan
+          domain or this boundary; it has no direct PostgreSQL relationship.
+          Candidate/STOP pending independent exact-tip review.
+          Source: stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md.
         '
       }
     }

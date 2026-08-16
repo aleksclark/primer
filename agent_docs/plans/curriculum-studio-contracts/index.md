@@ -108,7 +108,7 @@ deterministic from a clean checkout.
 | D6 | **No tracked generated outputs:** `curriculum-studio/contracts/gen/**`, `.tmp/**`, client `generated/**`, emitted OpenAPI IR are gitignored; CI fails if tracked. | contracts `.gitignore` + skill I4 |
 | D7 | **Separate client packages:** at minimum (1) TS authoring REST client, (2) Go authoring REST client, (3) Go gRPC integration client; optional TS gRPC only if a TS machine caller appears. Façades may inject auth/tracing; may not redefine models. | skill I2 |
 | D8 | **Exclusive consumption:** Studio UI, LMS integration adapter, and tests call Studio only via generated clients; raw `fetch`/http/grpc to Studio paths banned except allowlisted harnesses. | skill I3 |
-| D9 | **Auth end-state:** `Authorization: Bearer <JWT>` with `aud=curriculum-studio`; gRPC metadata `authorization: Bearer <JWT>`; `X-Service-Token` migration-only alias. Scopes e.g. `materialize:write`, authoring role scopes as metadata — product authz still local to workspace memberships. | Identity design D4–D7; crosswalk auth table |
+| D9 | **Auth end-state:** `Authorization: Bearer <JWT>` with `aud=curriculum-studio` and required signed public `client_id`; reject `azp` and internal OAuth-client UUIDs. gRPC metadata `authorization: Bearer <JWT>`; `X-Service-Token` migration-only alias. Scopes e.g. `materialize:write`, authoring role scopes as metadata — product authz still local to workspace memberships. | Identity design D4–D7; crosswalk auth table |
 | D10 | **Errors:** machine `ErrorCode` wire strings shared; HTTP `application/problem+json` + Huma status; gRPC `google.rpc.Status` + `ErrorDetail`. | common.proto + OpenAPI ErrorModel |
 | D11 | **Idempotency:** `Idempotency-Key` header (REST) / `idempotency_key` field (Materialize RPC) required for Materialize, PublishRevision, Export; conflict → `idempotency_key_conflict`. | OpenAPI + integration.proto |
 | D12 | **Pagination:** REST `limit`/`offset` + `PageMeta`; gRPC `PageRequest`/`PageResponse` tokens — transport-specific, not domain types. | common.proto comment |
@@ -185,7 +185,7 @@ Identity/JWKS may use **loopback/fixture JWKS** (credential-free). Live Primer I
 | --- | --- | --- | --- |
 | **Platform / Studio service** | Package layout, handler registration hooks, openapi-gen builder slot, gRPC service register API | Process binary, config, observability wiring | Business agents, deploy topology |
 | **DB** | Enum wire strings + parity fixture expectations; opaque ID mapping at edge | Stable CHECK sets; migrations for any new closed value | Schema redesign, goose runners beyond fixtures |
-| **Identity** | Exact JWT claims consumed (`iss`,`aud=curriculum-studio`,`sub`,`scope`,`kid`), JWKS fetch interface, migration header alias | JWKS document + client_credentials tokens in end-state | Stytch broker/session, account DB |
+| **Identity** | Exact JWT claims consumed (`iss`,`aud=curriculum-studio`,`sub`,`scope`,`kid`,`client_id`), absent `azp`, JWKS fetch interface, migration header alias | JWKS document + client_credentials tokens in end-state | Stytch broker/session, account DB, internal OAuth-client UUID |
 | **LMS** | gRPC client package + Materialize/GetBundle/PullEvents contracts; event type strings | LMS adapter using generated client only; learner snapshots as opaque context | Mastery truth, session execution, LMS OpenAPI |
 | **Studio UI** | TS REST client package façade | UI imports only client package | Visual design, BFF cookie implementation details (Identity+platform) |
 
@@ -222,7 +222,7 @@ Every requirement ID appears in ≥1 phase BDD scenario and ≥1 E2E ID.
 | REQ-OPEN-3 | TS + Go REST clients generated, exclusive use | P7-S2, P7-S3, P7-S4 | E7-02, E7-05 |
 | REQ-OPEN-4 | Boundary DTOs explicit; emission vs baseline gap tracked | P6-S3, P6-S5 | E6-04, E6-05 |
 | REQ-OPEN-5 | Generated clients call real handlers success and typed errors | P7-S5 | E7-03, E7-06 |
-| REQ-AUTH-1 | Bearer JWT aud + gRPC metadata | P8-S1, P8-S2 | E8-01, E8-02 |
+| REQ-AUTH-1 | Bearer JWT aud + required public `client_id`/absent `azp` + gRPC metadata | P8-S1, P8-S2 | E8-01, E8-02 |
 | REQ-AUTH-2 | Scope metadata + migration X-Service-Token alias | P8-S3, P8-S4 | E8-03, E8-04, E8-05 |
 | REQ-ERR-1 | Shared ErrorCode + problem+json / rpc Status | P8-S5 | E8-06 |
 | REQ-IDEM-1 | Idempotency key semantics Materialize/Publish/Export | P8-S6 | E8-07 |
@@ -245,8 +245,8 @@ Every requirement ID appears in ≥1 phase BDD scenario and ≥1 E2E ID.
 | REQ-MCP-3 | Official Go SDK Streamable HTTP conformance tour | P12-S3 | E12-03 |
 | REQ-MCP-4 | External Streamable HTTP client interoperability | P12-S4 | E12-04 |
 | REQ-MCP-5 | Protocol version / Origin / header negatives | P12-S5 | E12-05 |
-| REQ-MCP-6 | Wrong audience + IDOR handle fail-closed | P12-S6 | E12-06 |
-| REQ-MCP-7 | Idempotent patch, concurrent conflict, publish confirmation | P12-S7 | E12-07, E12-08 |
+| REQ-MCP-6 | Wrong audience, invalid/missing public `client_id`, `azp`/internal UUID, and IDOR handle fail closed | P12-S6 | E12-06 |
+| REQ-MCP-7 | Idempotent patch, concurrent conflict, and publish confirmation bound to signed public `client_id` | P12-S7 | E12-07, E12-08 |
 | REQ-MCP-8 | Disconnect/cancel semantics | P12-S8 | E12-09 |
 | REQ-MCP-9 | REQ-MCP coverage matrix complete | P12-S9 | E12-10 |
 

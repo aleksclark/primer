@@ -1,6 +1,6 @@
 views {
   view studio_containers {
-    title 'Curriculum Studio containers and modules'
+    title 'Candidate Curriculum Studio containers and modules'
     description '
       One independently deployable Studio service, product-owned
       browser UI, internal modules, separate PostgreSQL, artifact
@@ -20,6 +20,7 @@ views {
     include curriculum_studio.studio.export_service
     include curriculum_studio.studio.integration_gateway
     include curriculum_studio.studio.mcp_adapter
+    include curriculum_studio.studio.audit_idempotency
     include curriculum_studio.postgres
     include curriculum_studio.artifact_store
     include model_providers
@@ -35,10 +36,12 @@ views {
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.standards_catalog
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.resource_catalog
     include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.validation_engine
+    include curriculum_studio.studio.mcp_adapter -> curriculum_studio.studio.audit_idempotency
     include curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.agent_workflow_runner
     include curriculum_studio.studio.plan_domain -> curriculum_studio.studio.validation_engine
     include curriculum_studio.studio.materialization_domain -> curriculum_studio.studio.validation_engine
     include curriculum_studio.studio.plan_domain -> curriculum_studio.postgres
+    include curriculum_studio.studio.audit_idempotency -> curriculum_studio.postgres
     include curriculum_studio.studio.standards_catalog -> curriculum_studio.postgres
     include curriculum_studio.studio.resource_catalog -> curriculum_studio.postgres
     include curriculum_studio.studio.materialization_domain -> curriculum_studio.postgres
