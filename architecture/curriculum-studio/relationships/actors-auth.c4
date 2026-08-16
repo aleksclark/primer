@@ -1,6 +1,14 @@
 // Actor and identity-trust relationships (Identity design decided).
 
 model {
+  stytch_b2b -> identity_service 'Upstream B2B human-session authority; opaque validation only' {
+    description '
+      Primer Identity is the sole Stytch client. This relationship does
+      not expose Stytch credentials to products and does not authorize
+      Studio/LMS/TV roles or workspaces. Source: primer-identity-service-design.md §§1–4.
+    '
+  }
+
   teacher -> curriculum_studio.studio_ui 'Authors plans, reviews generated work, materializes windows, exports packets' {
     description '
       Source: primer-curriculum-studio-product-plan.md Product value
@@ -22,17 +30,17 @@ model {
     '
   }
 
-  teacher -> identity_service 'Authenticates via Google OIDC through Primer Identity' {
+  teacher -> identity_service 'Authenticates through the Identity-hosted Stytch broker' {
     description '
-      Interactive login: OAuth 2.1 authorization code + PKCE against
-      Primer Identity (Google as upstream IdP). No Studio-local
-      passwords; no dependence on live LMS sessions.
+      Identity alone validates opaque Stytch sessions and returns only
+      Primer broker material. No Studio-local passwords; no dependence
+      on live LMS sessions or raw Stytch material.
       Sources: primer-identity-service-design.md D1–D8;
       curriculum-studio-foundation-crosswalk.md L3–L4.
     '
   }
 
-  homeschool_parent -> identity_service 'Authenticates via Google OIDC through Primer Identity' {
+  homeschool_parent -> identity_service 'Authenticates through the Identity-hosted Stytch broker' {
     description '
       Same Identity path as teacher when acting as Studio author.
       Distinct from any later LMS parent product session (separate
@@ -41,10 +49,11 @@ model {
     '
   }
 
-  curriculum_author -> identity_service 'Authenticates via Google OIDC through Primer Identity' {
+  curriculum_author -> identity_service 'Authenticates through the Identity-hosted Stytch broker' {
     description '
-      Same Identity interactive path. Collaborative tenancy is Phase 5
-      product authz inside Studio, not Identity ownership.
+      Same Identity interactive path. Stytch organizations do not
+      provision Studio tenancy; collaborative authorization remains
+      local Studio product authorization.
     '
   }
 
@@ -66,12 +75,12 @@ model {
     '
   }
 
-  curriculum_studio.studio_ui -> identity_service 'OIDC authorize / BFF token acquisition' {
+  curriculum_studio.studio_ui -> identity_service 'BFF broker redirect / Primer token acquisition' {
     description '
-      Browser UI uses the Studio BFF as confidential client. Host-only
-      session cookie on the Studio origin; Identity issues single-
-      audience access JWTs (aud=curriculum-studio). No parent-domain
-      cookie.
+      Browser UI uses the Studio BFF. Host-only session cookie on the
+      Studio origin; Identity issues single-audience Primer access JWTs
+      (aud=curriculum-studio). Browser JS does not receive Stytch
+      session material; no parent-domain cookie.
       Sources: primer-identity-service-design.md BFF pattern;
       curriculum-studio-foundation-crosswalk.md Auth presentation.
     '
@@ -80,8 +89,8 @@ model {
   curriculum_studio.studio.curriculum_api -> identity_service 'Fetches JWKS; validates access JWTs locally' {
     description '
       Studio API does not perform interactive login and does not require
-      token introspection. Validates Bearer JWT signature/exp/aud/scope
-      via Identity JWKS. Authorizes via local workspace_memberships
+      token introspection. Validates only Primer JWT signature/exp/aud/
+      scope via Identity JWKS and rejects raw Stytch tokens. Authorizes via local workspace_memberships
       projections (subject_ref = identity:<uuid>).
       Sources: primer-identity-service-design.md JWKS;
       curriculum-studio-foundation-crosswalk.md subject conventions.
@@ -98,10 +107,11 @@ model {
     '
   }
 
-  primer_lms.lms_web -> identity_service 'OIDC authorize / BFF token acquisition (migration target)' {
+  primer_lms.lms_web -> identity_service 'BFF broker redirect / Primer token acquisition (migration target)' {
     description '
       LMS SPA migrates from localStorage bearer to host-only BFF
-      cookies with Identity as OP. Separate browser session from Studio.
+      cookies with the Identity Stytch broker. Separate browser session
+      from Studio; LMS never receives a Stytch session.
       Source: primer-identity-service-design.md SPA cookie cutover.
     '
   }

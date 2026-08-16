@@ -1,133 +1,37 @@
-# Phase 9: Refresh, revoke, and logout
-
-**File:** `phase-09-refresh-revoke-logout.md`
-**Depends on:** Phases 5, 7
-**Duration guess:** 4–6 days
-**Migration stage:** S1–S2
-**Handoff wave:** W5
+# 09: IB5 / Primer-owned service principals
 
 ## Goal
 
-Complete session lifecycle: refresh token **rotation** (server-side / BFF-held only), RFC 7009 revocation, logout fail-closed, denylist of jti/sid on security events, and proof that re-login does not globally logout other devices. Close theft/replay windows for refresh handles.
-
-## Scope
-
-### In scope
-
-- `refresh_sessions` or session-bound refresh handles: hashed token, family id, rotated_from, expires, revoked
-- `POST /oauth/token` grant_type=refresh_token with rotation (new refresh, invalidate old); reuse of old → revoke family (theft detection)
-- `POST /oauth/revoke` RFC 7009 — access jti and/or refresh; auth client; idempotent
-- `POST /v1/logout` and BFF logout path: revoke session server-side; clear cookies only after successful revoke **or** already-gone; hard store errors → 5xx without false ok
-- `jti_denylist` / sid revoke checks in verifier optional path + required on account lock
-- Unrelated sessions survive login (narrow rotation from Phase 5 remains)
-- Idle sliding capped by absolute expiry
-
-### Out of scope
-
-- Google RP-initiated logout (deferred)
-- Product SPA UI polish
+Add bounded local machine credentials. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
 
 ## BDD Success Criteria
 
-#### Scenario: P9-S1 — Refresh rotation success
+### Scenario: IB5 / Primer-owned service principals
 
-- **Given** valid refresh handle at BFF/Identity
-- **When** refresh grant called
-- **Then** new access token issued
-- **And** new refresh issued; old refresh rejected thereafter
-
-#### Scenario: P9-S2 — Refresh theft / reuse detection
-
-- **Given** rotated-away refresh reused
-- **When** token endpoint sees reuse
-- **Then** refresh family revoked
-- **And** subsequent refreshes fail
-
-#### Scenario: P9-S3 — Revoke access/refresh
-
-- **Given** active tokens
-- **When** POST `/oauth/revoke`
-- **Then** refresh unusable
-- **And** access jti denylisted or session revoked so verifier fails where implemented
-
-#### Scenario: P9-S4 — Revoke fail-closed on store error
-
-- **Given** revoke path with injected store failure
-- **When** client calls revoke/logout
-- **Then** 5xx
-- **And** client not told success while token still valid (except already-gone)
-
-#### Scenario: P9-S5 — Logout fail-closed
-
-- **Given** authenticated session
-- **When** logout hits real revoke error (inject hook; do not Close entire DB)
-- **Then** not `ok:true` with cleared cookies while row live
-- **And** 503-class error
-
-#### Scenario: P9-S6 — Unrelated sessions survive login
-
-- **Given** user has session S2 on device B
-- **When** device A re-logins (narrow rotate A)
-- **Then** S2 still resolves
-- **And** only A’s prior session revoked
-
-#### Scenario: P9-S7 — Logout idempotent when already gone
-
-- **Given** session already revoked
-- **When** logout again
-- **Then** success clear cookies allowed
-- **And** no 5xx solely due to ErrNoRows
-
-#### Scenario: P9-S8 — Account lock denylists sessions
-
-- **Given** active sessions and access JWT
-- **When** account locked
-- **Then** all sessions revoked
-- **And** verifier rejects sid/jti as designed
-
-#### Scenario: P9-S9 — No tokens in logout logs
-
-- **Given** logout/revoke
-- **When** logs captured
-- **Then** raw tokens absent (jti/sid ok)
+- **Given** the preceding phase gates and a bounded, sanitized test environment
+- **When** explicitly granted `identity:svc:<id>` may read/draft MCP work but cannot confirm publish by default; it never represents a Stytch human.
+- **Then** the behavior is observable through the named public boundary and durable local evidence
+- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
 
 ## Implementation Instructions
 
-1. Hash refresh tokens at rest; return raw once.
-2. Rotation in one transaction: insert new, revoke old, detect reuse race.
-3. Logout BFF: CSRF+Origin; call Identity revoke; clear local session.
-4. Test hook `RevokeSessionFunc` for fail-closed without store.Close.
-5. Extend verifier with denylist lookup bounded TTL cache.
-6. Metrics: refresh, revoke, logout failures.
+- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
+- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
+- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
+- **Dependency gate:** IB2.
 
 ## End-to-End Test Plan
 
-| ID | Setup | Action | Assert | Command |
-| --- | --- | --- | --- | --- |
-| P9-E1 | login+refresh | rotate twice | old invalid; new valid | `go test ./internal/session -run RefreshRotate -race` |
-| P9-E2 | reuse old refresh | token | family dead | `go test ./internal/session -run RefreshTheft` |
-| P9-E3 | logout inject err + happy + already-gone | POST logout | fail-closed matrix | `go test ./internal/api -run Logout -race` |
-| P9-E4 | two sessions re-login one | login A | B alive | `go test ./internal/api -run UnrelatedSessions` |
+Client-credentials/JWKS E2E proves human/service class separation and audience/scope enforcement. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
 
 ## Anti-Cheating Audit
 
-- No `_ = RevokeSession` then always ok.
-- Refresh not returned to browser JS in bffref.
-- Theft detection not disabled in test builds used for gate.
-- Cookie clear encoding Max-Age=0 accepted as clear.
+No assumed Stytch M2M or inherited human workspace role. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
 
 ## Completion Gate
 
-- [ ] P9-S*/E* green
-- [ ] Fail-closed logout/revoke proven
-- [ ] Unrelated session proof green
-- [ ] Anti-cheat clean
-
-## Dependencies
-
-- Upstream: 5, 7
-- Downstream: 11–14
-
-## Rollback
-
-- Feature flag disable refresh; force short access re-login.
+- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
+- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
+- [ ] No Stytch material or provider authorization leaks to products.
+- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
+- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.

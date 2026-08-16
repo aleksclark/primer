@@ -62,7 +62,7 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 4. **Host-only BFF cookies.** Never `Domain=.example.com`. SPA uses generated clients only; no hand-rolled DTO transport.
 5. **Deterministic invariants in code + DB triggers.** Agents never bypass publish immutability, lock protection, acyclic prerequisites, assessment rubric/key rules, or snapshot completeness.
 6. **Real boundaries in E2E.** Postgres testcontainers (or equivalent real Postgres), real HTTP/gRPC process boundaries, real object-store backend (MinIO/S3-compatible or filesystem store behind the same interface). No in-memory stand-ins for claimed durability.
-7. **Credential-free vs live.** Scripted LanguageModel / loopback JWKS / fake OIDC are valid for local gates. Live Google OIDC, live model providers, and production deploy proof stay **BLOCKED** until their named phase/items.
+7. **Credential-free vs live.** Scripted LanguageModel / loopback JWKS / credential-free Identity fixture are valid for local gates. Live Stytch B2B broker, live model providers, and production deploy proof stay **BLOCKED** until their named phase/items.
 8. **Frontend house system.** Editorial Instrument: dark-first, one accent (`#3DE0F0` cyan — technical instrument), Archivo/Newsreader/IBM Plex Mono, names over IDs, server-owned collection ops, axe-backed a11y in browser E2E.
 9. **No LMS-specific concepts in curriculum domain.** Adapters live in export/integration gateway only.
 10. **Fail closed.** Missing JWKS/aud/membership → 401/403. Empty service secrets must not silently open machine routes in `ENV=production`.
@@ -108,7 +108,7 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 | Splitting modules into microservices | Premature | Future decision only |
 | Uploaded source-file content service | Deferred | Future content service |
 | Studio→LMS import push as Phase-3 primary | Deferred uncertainty | Crosswalk deferred list |
-| Student Google accounts / passkeys / DPoP / mTLS | Deferred identity | Identity design deferred |
+| Student upstream-IdP accounts / passkeys / DPoP / mTLS | Deferred identity | Identity design deferred |
 | Production AI quality claims from doubles | Forbidden | Live model phase only |
 
 ---
@@ -134,10 +134,10 @@ See **Drop table** below. Notably: detailed schema/repository design, canonical 
 | [Phase 15: Primer integration](./phase-15-primer-integration.md) | gRPC materialize API, context/bundle, service auth, failure/replay | Phases 12–14 |
 | [Phase 16: Projects integrated](./phase-16-projects-integrated.md) | Multi-subject projects, phases, off-screen activities, tool requirements | Phases 12–13 |
 | [Phase 17: Collaborative authoring](./phase-17-collaborative-authoring.md) | Comments/approvals, revision diff, templates, sharing policies | Phases 10, 16 |
-| [Phase 18: Deploy ops live gates](./phase-18-deploy-ops-live-gates.md) | Nomad/Docker packaging, runbooks; **BLOCKED** live Google/model/deploy proof | Phases 15–17 |
-| [Phase 19: Streamable HTTP MCP endpoint](./phase-19-streamable-http-mcp.md) | Authenticated `/mcp` tools for curriculum-planning agents; same domain services; human publish confirmation | Phases 1–8 (full tools); authz Phase 2; Identity JWKS/BFF/service for prod-auth; contracts Phase 12 for conformance |
+| [Phase 18: Deploy ops live gates](./phase-18-deploy-ops-live-gates.md) | Nomad/Docker packaging, runbooks; **BLOCKED** live Stytch/model/deploy proof | Phases 15–17 |
+| [Phase 19: Streamable HTTP MCP endpoint](./phase-19-streamable-http-mcp.md) | Authenticated `/mcp` tools for curriculum-planning agents; same domain services; human publish confirmation | Phases 1–8 (full tools); Phase 2; credential-free test Identity for local transport; I6+I8 for production delegated writes; I7+applicable I12 for client registration/publish confirmation; contracts Phase 12 for conformance |
 
-**Parallelism notes:** Phases 4 and 5 may proceed in parallel after Phase 3. Phase 9 may start after Phase 3 and track API growth. Phase 14 may begin after Phase 8 for plan events and extend when materialization events exist. Phase 19 transport qualification may start after Phases 1–2; read tools after 3–5/7; mutation tools after 6–8; publish confirmation after Identity/BFF milestones; final MCP conformance before claiming agent GA (delivery X7), and should complete before treating S15 as the sole agent/machine surface narrative.
+**Parallelism notes:** Phases 4 and 5 may proceed in parallel after Phase 3. Phase 9 may start after Phase 3 and track API growth. Phase 14 may begin after Phase 8 for plan events and extend when materialization events exist. Phase 19 transport qualification may start after Phases 1–2 with credential-free test Identity; read tools after 3–5/7; delegated production mutations require I6+I8; client registration/publish confirmation additionally requires I7+applicable I12; final MCP conformance before claiming agent GA (delivery X7), and should complete before treating S15 as the sole agent/machine surface narrative.
 
 ---
 
@@ -193,7 +193,7 @@ The plan is complete only when:
 | --- | --- | --- |
 | Schema migrations + invariant tests | **curriculum-studio-plan-db** | Stable goose migrations; additive migrations via that track |
 | OpenAPI/proto parity + codegen validate | **curriculum-studio-plan-contracts** | Wire enums; buf generate path; breaking-change policy |
-| Identity OP, JWKS, Google login, service clients | **primer-identity-service** plan (`primer-identity/` module) | Real JWKS URL + client registrations for non-test auth; Studio production-auth blocks on Identity JWKS/BFF/service-principal milestones |
+| Primer Identity token broker, JWKS, Stytch broker login, service clients | **primer-identity-service** plan (`primer-identity/` module) | Credential-free test verifier is local-only. Production Studio validator/cutover requires I6/IB2 + I8/IB4 and applicable I12/IB8; live BFF requires I7/IB3 + I8/IB4; S15 machine JWT requires I9/IB5; delegated MCP writes/X7 require I6+I8 plus I7/applicable I12 for registration/publish confirmation |
 | Foundation freeze | crosswalk (done) | L1–L6 vocabulary |
 
 Open blockers filed in phase gates when sibling outputs are absent.
@@ -295,7 +295,7 @@ Each wave = one or more reviewed PRs; merge only with that wave's gates green.
 | COL-4 | Selective curriculum sharing across workspaces | 17 | P17-S4 | P17-E4 |
 | OPS-1 | Docker image + Nomad job template + migrate job | 18 | P18-S1 | P18-E1 |
 | OPS-2 | Runbooks for backup/restore Studio DB + artifacts | 18 | P18-S2 | P18-E2 |
-| OPS-3 | Live Google OIDC proof | 18 | P18-S3 | P18-E3 |
+| OPS-3 | Live Stytch B2B broker proof | 18 | P18-S3 | P18-E3 |
 | OPS-4 | Live model provider proof | 18 | P18-S4 | P18-E4 |
 | OPS-5 | Production deploy smoke | 18 | P18-S5 | P18-E5 |
 | MCP-1 | Streamable HTTP `/mcp` initialize + deterministic authz-filtered tools/list | 19 | P19-S1 | P19-E1 |
@@ -325,3 +325,14 @@ MCP design decisions: [`../curriculum-studio-mcp-design.md`](../curriculum-studi
 - [Studio README](../../../curriculum-studio/README.md)
 - [Contracts README](../../../curriculum-studio/contracts/README.md)
 - [DB SCHEMA](../../../curriculum-studio/db/SCHEMA.md)
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+**Identity milestone labels for this plan (historical filenames are link-stability only and are non-authoritative):** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**. Do not infer a dependency from the old filename slugs.
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

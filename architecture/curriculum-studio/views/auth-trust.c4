@@ -1,18 +1,20 @@
 views {
   view auth_trust {
-    title 'Auth and trust boundaries'
+    title 'Stytch-upstream authentication and local authorization'
     description '
-      Primer Identity is the decided external authn system. Studio and
-      LMS validate single-audience JWTs via JWKS and own product
-      authorization locally. Host-only BFF cookies; no shared identity
-      or product database. X-Service-Token is migration-only.
-      Sources: primer-identity-service-design.md;
+      Stytch B2B is upstream only of Primer Identity. Studio and LMS
+      validate only single-audience Primer JWTs via Identity JWKS and
+      own product authorization locally. Host-only BFF cookies; no
+      shared identity/product database and no direct Stytch product or
+      database edge. X-Service-Token is migration-only.
+      Sources: primer-identity-service-design.md §§1–4;
       curriculum-studio-foundation-crosswalk.md L3–L4.
     '
     include teacher
     include homeschool_parent
     include curriculum_author
     include curriculum_planning_agent
+    include stytch_b2b
     include identity_service
     include curriculum_studio.studio_ui
     include curriculum_studio.studio
@@ -20,6 +22,7 @@ views {
     include curriculum_studio.studio.mcp_adapter
     include primer_lms.lms_web
     include primer_lms.lms_api
+    include stytch_b2b -> identity_service
     include teacher -> identity_service
     include homeschool_parent -> identity_service
     include curriculum_author -> identity_service

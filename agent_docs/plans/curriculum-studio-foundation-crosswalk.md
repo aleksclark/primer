@@ -14,8 +14,8 @@ without an explicit decision commit.
 | --- | --- | --- |
 | L1 | Curriculum Studio is **one modular independently deployable service** with its **own completely separate PostgreSQL**. No cross-DB FKs, views, FDW, or dblink in either direction. | product plan, architecture, DB |
 | L2 | Primer LMS integrates **only through API/events**. LMS owns learner/mastery/session execution. Studio owns plans, materializations, exports. | product plan, architecture, contracts |
-| L3 | **Primer Identity** is a separate service with its **own DB**. It owns authentication, provider identities, sessions/clients/keys — **not** product workspace authorization. | identity design |
-| L4 | Auth end-state: Google OIDC → Identity OP; stable `provider+sub`; **no email auto-link**; **host-only BFF cookies**; short-lived **single-audience** JWTs + JWKS; service JWT end-state. `X-Service-Token` is **migration-only**. | identity design, contracts |
+| L3 | **Primer Identity** is a separate service with its **own DB**. It is the sole Stytch client, owns exact tuple→account mapping, Primer grants/JWKS and local service principals — **not** upstream human sessions or product workspace authorization. | identity design |
+| L4 | Auth end-state: Stytch B2B → Primer Identity broker; exact `(project_id, organization_id, member_id)` mapping; **no email auto-link**; **host-only BFF cookies**; short-lived **single-audience** JWTs + JWKS; service JWT end-state. `X-Service-Token` is **migration-only**. | identity design, contracts |
 | L5 | TV **device** tokens remain TV-owned. Human TV admin **may** migrate to Identity. | identity design |
 | L6 | OpenAPI and protobuf have a **non-overlapping ownership split** (below). | contracts |
 | L7 | **MCP** is a third Studio surface on the **same** deployable (`/mcp`, Streamable HTTP). SoT = pinned official MCP spec + **code-defined tool schemas**. Not OpenAPI, not protobuf; no third DB/service. Identity issues JWTs; Studio authorizes tools. | MCP design, contracts, platform |
@@ -263,3 +263,12 @@ BDD/E2E source of truth.
 5. LikeC4 (topology)
 6. `curriculum-studio/contracts` + `curriculum-studio/db` (wire + storage)
 7. Delivery roadmap (wave order / ownership / gates)
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

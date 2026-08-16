@@ -1,75 +1,53 @@
-# Primer Stytch Integration - Wave A (Foundation)
+# Primer Stytch Integration — reconciled implementation record
 
-**Status:** Wave A implemented; quality/security approved. Specification re-review was requested after the documentation corrections below. No JWT, JWKS, webhooks, BFF exchange, or live-provider proof is claimed.
+**Status:** **IA library foundation implemented at `87d5c215134825edb410266a62c15534e1e9ecea`; pending blocking remediation and fresh specification/quality review. It is not composed into an application and is not approved for production authentication.**
 
-**Base commit:** ae5e4c6890c29a0a97095816e8d217d00471d72b (worktree impl/stytch-identity-core)
-**Date:** 2026-08-15
-**Scope (Wave A only):** primer-identity sole Stytch client. Fail-closed Stytch config. Vendor-neutral B2B client iface + v18.1.0 production adapter returning bounded internal session snapshot (project/org/member IDs, active/eligible state, expiry, coarse roles). Concurrency-safe bounded validation cache (HMAC key, 15s positive TTL capped, 5s negative TTL, bounded deduplicating load registry, bounded eviction, no raw token log, no negative caching on transient errors). Additive normalized mapping for (project_id, organization_id, member_id) -> account UUID (transaction/concurrency safe first-login; same email across orgs = separate accounts). TDD vertical slices with RED/GREEN evidence. No email as identity key. Products never see Stytch tokens.
+## Selected production architecture
 
-**Explicitly deferred (Wave B+ after review):** ES256/JWKS, Primer access JWT minting, BFF exchange endpoints, Stytch webhook handling/invalidation, full OAuth facade, persistent key material, live credential tests.
+**Stytch B2B is the upstream authority for human authentication and session validity.** Primer Identity is the sole Stytch SDK/API client and the downstream Primer OAuth/token broker and authorization server for product BFFs and MCP. Identity validates an opaque Stytch session server-side, resolves the exact immutable `(project_id, organization_id, member_id)` tuple to `accounts.id`, and mints short-lived, single-audience Primer ES256 JWTs discoverable through Primer JWKS.
 
-## Official Stytch Go SDK Contract (v18.1.0, authoritative)
-- Module: `github.com/stytchauth/stytch-go/v18`
-- B2B client: `github.com/stytchauth/stytch-go/v18/stytch/b2b/b2bstytchapi`
-  - `b2bstytchapi.NewClient(projectID, secret, opts...)` → `*b2bstytchapi.API`
-  - Supports `WithBaseURI`, `WithHTTPClient` (for fake boundaries in tests), `WithClient`.
-- Sessions: `api.Sessions.Authenticate(ctx, &sessions.AuthenticateParams{SessionToken: tok, SessionDurationMinutes: 0})`
-  - Returns `*sessions.AuthenticateResponse` containing:
-    - `MemberSession`: `OrganizationID`, `MemberID`, `ExpiresAt`, `Roles []string`, `MemberSessionID`, ...
-    - `Member`, `Organization`
-    - `SessionToken`, `SessionJWT` (we use opaque token only; never rely on local JWT for authority)
-  - Errors: `stytcherror.Error` with `ErrorType` for definitive cases (e.g. session revoked/invalid/not_found).
-- Project ID is configuration; not returned in every session response — captured from client config for snapshot.
-- No raw tokens or PII in our logs/metrics. RequestID used for correlation only.
-- Evidence from: SDK source (types.go, b2bstytchapi.go, stytcherror.go), Stytch B2B docs (Sessions.Authenticate, data model, session object).
+Stytch session tokens and SessionJWTs never reach Studio, LMS, TV, MCP, product APIs, or browser JavaScript. Products validate only Primer JWTs/JWKS. Product host-only cookies and CSRF remain product-owned; a product BFF uses the Identity-hosted Stytch broker/callback and receives only Primer authorization-code/session/JWT material.
 
-See architecture review for full contract (cache keys, mapping tuple, fail-closed, boundaries).
+- Stytch provides ordinary human auth. Local password is disabled by default and permitted only as explicit break-glass or legacy-migration policy; it is not a parallel human identity authority.
+- Stytch organization/member roles are bounded eligibility hints only. They never become product authorization, JWT workspace roles, or automatic Studio tenancy. Studio workspace membership, LMS educator roles, and TV device authentication remain their respective local systems of record.
+- Provisioning is explicit invite/admin only. A Stytch organization is not a Studio workspace. Distinct Stytch tuples remain distinct Primer accounts/personas: no email merge or automatic cross-organization linking.
+- Primer Identity owns service principals, `client_credentials`, and JWKS. `identity:svc:<primer-service-principal-id>` is local service identity; Stytch M2M is deferred and must not be assumed.
 
-## Decisions (Wave A)
-- **Fail-closed config:** `IDENTITY_STYTCH_PROJECT_ID`, `IDENTITY_STYTCH_SECRET` (required when Stytch enabled). `IDENTITY_STYTCH_ENV=test|live` (default test), optional development/test-only `IDENTITY_STYTCH_BASE_URI`. Production requires the live environment and rejects every endpoint override. Cache TTLs/capacities are hard-capped at 15s/5s and 10,000/2,000. Health/OpenAPI tests use explicit disabled/fake config.
-- **Vendor-neutral iface:** `type StytchClient interface { AuthenticateSession(ctx context.Context, sessionToken string) (StytchSessionSnapshot, error); InvalidateSession(ctx context.Context, token string) error }`. Prod adapter wraps official v18 B2B client. Fake for tests.
-- **Snapshot (bounded, no email):**
-  ```go
-  type StytchSessionSnapshot struct {
-      ProjectID      string
-      OrganizationID string
-      MemberID       string
-      Active         bool
-      Eligible       bool
-      ExpiresAt      time.Time
-      Roles          []string // coarse from MemberSession only
-  }
-  ```
-- **Cache:** Key = HMAC-SHA256(per-process-secret, projectID + "\x00" + token). Positive TTL min(15s, provider expiry). Negative TTL 5s for definitive invalid/revoked provider errors and for successful snapshots that fail project, active, eligible, identity, or expiry checks. Never negative-cache 5xx/429/timeout/transport failures. Separate bounded LRUs use O(1) requested-key expiry checks and a 16 MiB aggregate positive payload budget. A generation-fenced, deduplicating registry admits at most 128 unique provider loads by default before spawning work; each uses an independent 3s context. Opaque tokens are capped at 4096 bytes. Invalidation barriers prevent stale insert/return. Bounded counters only (no high-card labels). Never log token/hash/ID/email.
-- **Mapping:** New additive migration for normalized table (preferred over ambiguous concat in provider_subject):
-  - stytch_mappings (project_id, organization_id, member_id) UNIQUE → account_id.
-  - Repo: `FindAccountIDByStytchTuple` performs exact lookup; `CreateStytchMapping` is a strict insert; `ResolveOrCreateStytchMapping` owns serializable creation, bounded retry, and conflict re-read.
-  - Same email across orgs → distinct accounts (existing ListByEmail behavior + no auto-link).
-  - The generic `external_identities` provider model remains unchanged; Stytch uses only the normalized mapping table.
-- **TDD:** RED tests first (config fail, adapter fake HTTP, cache behaviors, definitive vs transient, non-leak, same-email mapping, concurrent first-login, migration constraints). Then GREEN. Use testcontainers + real patterns.
-- **Gates:** `cd primer-identity && go test ./... -race -count=1`, `go build ./...`, focused cover, `git diff --check`, and credential-shaped scan (no values printed). Commit/push remain separately authorized delivery actions.
+## IA implementation evidence and residuals
 
-## Wave A implementation
-- Added the direct current `stytch-go/v18 v18.1.0` dependency; the base had no Stytch SDK dependency.
-- Added fail-closed optional Stytch configuration and the bounded v18 session adapter under `internal/stytch`.
-- Added the HMAC-keyed, bounded positive/negative validation cache and deduplicating load registry under `internal/stytchcache`.
-- Added normalized domain/repository mapping and migration `00003_stytch_mappings.sql`; the existing generic external-identity provider model was not overloaded.
-- Added config, adapter, cache, mapping, concurrency, and migration behavior tests.
-- Updated migration rollback coverage so one down removes only the additive Stytch table and a second down reaches the account-free foundation.
-- Remediated review findings with live/test project-environment binding, production/live endpoint pinning, a 1 MiB provider-response limit, bounded/validated snapshot strings and roles, bounded unique-load admission, O(1) cache lookup maintenance, generation barriers and cancellation isolation, and serializable mapping transactions with bounded SQLSTATE retry.
-- No JWT, exchange, webhook, app/API wiring, browser BFF, or live Stytch call was added.
+Implemented foundation: fail-closed optional configuration, the official Stytch B2B SDK adapter, bounded HMAC-keyed validation cache, normalized `stytch_mappings` tuple mapping, and focused tests. It has **no** application/API wiring, exchange, Primer JWT/JWKS issuance, BFF, webhook, or live-provider proof.
 
-## Remaining after Wave A review
-- Wave B: JWT mint (ES256), JWKS, Primer token profile per contract.
-- Wave C: BFF-facing exchange, webhooks + invalidation, full flows.
-- Live Stytch integration tests (credential-free only here).
-- OpenAPI surface, metrics, etc.
+The official SDK authenticate request must **omit** `session_duration_minutes`; it must not claim an explicit zero value as the selected contract.
 
-## Wave A verification
+### Required IA-R remediation before IB work
 
-- `GOWORK=off go test -race ./... -count=1` — PASS
-- `GOWORK=off go build ./...` — PASS
-- Changed-package aggregate coverage — 81.6%; config 98.6%, adapter 81.7%, cache 90.2%, domain 89.1%, repository 69.4%, database 78.9%
-- `git diff --check` — PASS
+1. **Production config policy:** selected policy is Stytch mandatory in production. Code must explicitly require `Enabled=true`, live environment, configured credentials, and no override, with tests. Indirect rejection of disabled Stytch is insufficient.
+2. **Cancellation isolation:** per-token `Invalidate(token)` must not globally fence unrelated in-flight validations. Implement isolated per-token cancellation/epoch; reserve global fencing for `InvalidateAll`, with a concurrency regression test.
+3. **Cleanup:** correct SDK documentation to state `session_duration_minutes` is omitted; remove the duplicate project/org tuple index before deploy; make the `golang.org/x/sync` direct/indirect tidy classification correct.
+4. **Boundary gates:** use cache-only invocation or cap direct adapter tokens; use a CSPRNG per-process HMAC key with defined lifecycle; classify transient provider failure as unavailable and do not cache it; retain live-provider testing as an explicit blocked gate.
 
-The live Stytch project remains a later explicit gate. Credential-free tests exercise the official SDK through a bounded fake HTTP boundary.
+## Two-plane revocation and non-goals
+
+Revocation has two planes: (1) Stytch session validity and bounded validation cache; (2) Primer grants plus product BFF refresh/access-JWT lifecycle. IB4 must accept signed provider webhooks with signature, timestamp, replay and idempotency checks; retain a durable provider-session/grant association without storing a raw Stytch token; invalidate cache and revoke Primer grants. Access JWT expiry defaults to **≤15 minutes**. Webhooks do not grant or change Studio/LMS membership. Immediate revocation shorter than JWT TTL is deferred until a tested local/replicated `sid`/`jti` mechanism exists.
+
+Not in this work: direct product-Stytch integration, roles as product authorization, automatic organization-to-workspace provisioning, Stytch M2M, raw token persistence/logging, or generated API/schema changes.
+
+## Reconciled roadmap
+
+| Wave | Status | Required outcome / dependency |
+|---|---|---|
+| IA | implemented, not approved | I1/I2 Stytch config, adapter/cache and exact tuple mapping foundation |
+| IA-R | required | close config, invalidation, dependency/index residuals; fresh spec + quality review |
+| IB0 | design freeze | exact Identity-hosted interactive broker/redirect, webhook event contract, durable grant association, local break-glass policy, organization provisioning policy, Primer OAuth AS |
+| IB1 | planned | compose Stytch client/cache/mapping into Identity broker/exchange; Primer-only grant association |
+| IB2 | planned | ES256/JWKS single-audience Primer token bridge bound to validated mapped Stytch session |
+| IB3 | planned | product BFF contract, host-only cookie/CSRF/PKCE, Primer-only material |
+| IB4 | planned hard gate | signed webhook, cache/grant revoke, replay/idempotency; production BFF/MCP dependency |
+| IB5 | planned | Primer-owned service principals and `client_credentials` |
+| IB6 | planned | refresh/logout/provider-plus-local lifecycle |
+| IB7 | planned | Primer signing-key rotation and hardening |
+| IB8 | planned | admin/audit/recovery, LMS/TV and live Stytch cutover |
+
+## Required evidence gates
+
+The plan may claim production human auth only after: IA-R review is green; live Stytch credentials/project validation succeeds without overrides; IB1–IB4 public-path E2Es pass; signed webhook revocation evidence exists; and Studio/MCP accept only Primer tokens. Required anti-cheat cases include raw Stytch token rejection, provider outage fail-closed without negative caching, token/payload-free audit logs, and no direct Stytch-to-product/database topology.

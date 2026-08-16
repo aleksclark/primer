@@ -61,7 +61,7 @@ with requirement traceability evidence complete.
 - **When** `make contracts-conformance` and `make contracts-ci` run on clean
   checkout
 - **Then** evidence bundle path is written (logs + REPORT links)
-- **And** residual blockers list only live Identity OP and real materialization
+- **And** residual blockers list only live Primer Identity token broker and real materialization
   agents (explicitly out of scope)
 
 ## Implementation Instructions
@@ -138,7 +138,7 @@ with requirement traceability evidence complete.
 
 ## Residual blockers (expected open)
 
-1. Live Primer Identity OP / real JWKS hosting and client_credentials issuance
+1. Live Primer Primer Identity token broker / real JWKS hosting and client_credentials issuance
 2. Full materialization agent workflows and artifact object store production wiring
 3. Studio UI BFF cookie implementation (Identity + platform)
 4. LMS production cutover off static secrets (Identity S1–S7)

@@ -1,94 +1,37 @@
-# Phase 10: Key rotation and hardened token path
-
-**File:** `phase-10-key-rotation-and-hardening.md`
-**Depends on:** Phases 3, 8–9
-**Duration guess:** 3–5 days
-**Migration stage:** S1+
-**Handoff wave:** W5
+# 10: IB6 / refresh, logout, and lifecycle
 
 ## Goal
 
-Operationalize JWKS key overlap rotation, unknown-kid refetch behavior for product verifiers, signer/JWKS consistency health, and remaining token-path hardening (body caps, alg pin regression). Ensure rotation cannot outage validators or leave retired keys trusted forever.
-
-## Scope
-
-### In scope
-
-- Rotation procedure implementation: insert next key → publish both on JWKS → switch signer → wait max_token_ttl+skew → retire
-- Admin/ops endpoint or CLI `identity-key-rotate` (break-glass auth)
-- Product verifier guidance + shared test proving unknown kid triggers refetch then success when new key published
-- ready fails if active signer not in JWKS
-- Never delete last verification key while unexpired tokens may exist (guard)
-- Body size caps on token/authorize; header limits
-- Regression: alg confusion, kid swap
-
-### Out of scope
-
-- HSM vendor integration beyond interface (Phase 14 ops may wire KMS)
-- Live multi-replica deploy proof (Phase 14)
+Complete Provider-plus-Primer lifecycle with no parallel human authority. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
 
 ## BDD Success Criteria
 
-#### Scenario: P10-S1 — Dual-key JWKS during rotation
+### Scenario: IB6 / refresh, logout, and lifecycle
 
-- **Given** active kid A and next kid B
-- **When** GET JWKS
-- **Then** both public keys present
-- **And** new tokens may still be A until switch
-
-#### Scenario: P10-S2 — Switch signer to next kid
-
-- **Given** dual publish complete
-- **When** ops switches active to B
-- **Then** new mints use kid B
-- **And** tokens with kid A still verify until retire
-
-#### Scenario: P10-S3 — Unknown kid refetch
-
-- **Given** verifier cache has only A; token signed B after JWKS updated
-- **When** verify runs
-- **Then** refetch JWKS
-- **And** verify succeeds without restart
-
-#### Scenario: P10-S4 — Ready fails if signer missing from JWKS
-
-- **Given** active signer kid removed from publish set (fault inject)
-- **When** readyz
-- **Then** non-200
-- **And** alertable log reason without private key
+- **Given** the preceding phase gates and a bounded, sanitized test environment
+- **When** logout/revoke clears product material, invalidates local cache/grant as applicable, and cannot extend beyond Stytch validity.
+- **Then** the behavior is observable through the named public boundary and durable local evidence
+- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
 
 ## Implementation Instructions
 
-1. State machine on signing_keys.status.
-2. Clock helper for retire_after.
-3. Export `token.Verifier` RefreshOnUnknownKID option used by LMS/Studio.
-4. Integration test spins mint A → rotate → mint B → verify both → retire A → A fails after exp simulated.
-5. Document runbook snippet in phase completion notes.
+- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
+- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
+- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
+- **Dependency gate:** IB3–IB4.
 
 ## End-to-End Test Plan
 
-| ID | Setup | Action | Assert | Command |
-| --- | --- | --- | --- | --- |
-| P10-E1 | two keys rotation | mint/verify timeline | overlap works; retire fails old | `go test ./internal/keys -run Rotation -race` |
-| P10-E2 | ready inconsistency | remove kid | ready fail | `go test ./internal/api -run ReadySigner` |
+Lifecycle E2E covers provider unavailable, expiry, logout, grant refresh and audit without secrets. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
 
 ## Anti-Cheating Audit
 
-- Rotation not “delete all keys and make one new” without overlap window.
-- Verifier refetch must be real HTTP JWKS get in E2E, not only function swap.
-- Retired key must not remain in JWKS after window without test justification.
+No local human refresh/session becomes a new source of human authority. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
 
 ## Completion Gate
 
-- [ ] P10-S*/E* green
-- [ ] Runbook steps verified in test comments
-- [ ] Anti-cheat clean
-
-## Dependencies
-
-- Upstream: 3, 8–9
-- Downstream: 12–14 product verifiers
-
-## Rollback
-
-- Keep previous kid active; postpone retire.
+- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
+- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
+- [ ] No Stytch material or provider authorization leaks to products.
+- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
+- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.

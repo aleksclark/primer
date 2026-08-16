@@ -84,7 +84,7 @@ deterministic from a clean checkout.
 | --- | --- | --- |
 | Full plan/materialization business agents | Contract plan only | Future Studio domain/platform plan |
 | DB schema redesign / new migrations beyond enum-parity fixtures | DB ownership frozen | `curriculum-studio/db/` + DB plan |
-| Identity OP implementation, JWKS hosting, OIDC login | Identity owns authn | `primer-identity-service-design.md` + Identity plan |
+| Primer Identity token broker implementation, JWKS hosting, OIDC login | Identity owns authn | `primer-identity-service-design.md` + Identity plan |
 | LMS mastery/runtime, student sessions, BFF cookie cutover | LMS owns learner runtime | LMS / Identity migration plans (S1–S7) |
 | Studio UI product features | UI consumes generated client only | Studio UI plan |
 | Studio→LMS import push adapter | Crosswalk `#uncertainty` / deferred | Deferred adapter decision |
@@ -175,7 +175,7 @@ Phases 4 and 6 may proceed in parallel after Phase 3 PROCEED. Phase 5 needs Phas
 | T9 Policy | tracked-gen scan; raw fetch/grpc ban lint; planted red mutations | CI |
 | T10 Clean checkout | fresh worktree/clone: generate → test → clean git status | full toolchain |
 
-Identity/JWKS may use **loopback/fixture JWKS** (credential-free). Live Identity OP is **BLOCKED** to the Identity plan — do not mark live auth complete on fixture JWKS alone.
+Identity/JWKS may use **loopback/fixture JWKS** (credential-free). Live Primer Identity token broker is **BLOCKED** to the Identity plan — do not mark live auth complete on fixture JWKS alone.
 
 ---
 
@@ -185,7 +185,7 @@ Identity/JWKS may use **loopback/fixture JWKS** (credential-free). Live Identity
 | --- | --- | --- | --- |
 | **Platform / Studio service** | Package layout, handler registration hooks, openapi-gen builder slot, gRPC service register API | Process binary, config, observability wiring | Business agents, deploy topology |
 | **DB** | Enum wire strings + parity fixture expectations; opaque ID mapping at edge | Stable CHECK sets; migrations for any new closed value | Schema redesign, goose runners beyond fixtures |
-| **Identity** | Exact JWT claims consumed (`iss`,`aud=curriculum-studio`,`sub`,`scope`,`kid`), JWKS fetch interface, migration header alias | JWKS document + client_credentials tokens in end-state | OP, sessions, Google link, account DB |
+| **Identity** | Exact JWT claims consumed (`iss`,`aud=curriculum-studio`,`sub`,`scope`,`kid`), JWKS fetch interface, migration header alias | JWKS document + client_credentials tokens in end-state | Stytch broker/session, account DB |
 | **LMS** | gRPC client package + Materialize/GetBundle/PullEvents contracts; event type strings | LMS adapter using generated client only; learner snapshots as opaque context | Mastery truth, session execution, LMS OpenAPI |
 | **Studio UI** | TS REST client package façade | UI imports only client package | Visual design, BFF cookie implementation details (Identity+platform) |
 
@@ -263,7 +263,7 @@ The plan is complete only when:
 5. Compatibility baselines exist as immutable artifacts with breaking gates red on planted breaks.
 6. Hand OpenAPI is not a live second source (handoff complete or explicitly still baseline-only with Huma emission matching it within tolerance and consumers on generated clients).
 7. Cross-plan interface appendix is published and no ownership bleed into DB/Identity/LMS business plans.
-8. Live Identity OP and full materialization agents remain explicitly **not claimed**.
+8. Live Primer Identity token broker and full materialization agents remain explicitly **not claimed**.
 9. MCP surface does not duplicate OpenAPI/proto DTOs; official + external client proofs exist or are explicitly BLOCKED with named dependency.
 
 ---
@@ -281,3 +281,12 @@ MCP design: [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-desi
 - If Huma emission diverges from baseline incompatibly, **stop handoff** (Phase 7), keep baseline authoritative, open a spike fix — do not dual-write fields in both forever.
 - Compatibility baseline corruption → restore from last green CI artifact; never silently skip breaking checks.
 - MCP conformance failures must not be “fixed” by weakening REST/gRPC gates.
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.

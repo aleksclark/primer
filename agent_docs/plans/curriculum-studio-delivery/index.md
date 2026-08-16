@@ -50,7 +50,7 @@ dependencies, acceptance commands, review protocol, and stop gates.
 
 ### Out of scope
 
-- Production code, live deploy, live Google credentials
+- Production code, live deploy, live Stytch credentials
 - Opening PRs / pushing / merging master without user authorization
 - Re-opening crosswalk L1–L6 without a decision commit
 - Studio→LMS import push (deferred)
@@ -67,14 +67,14 @@ dependencies, acceptance commands, review protocol, and stop gates.
 | R3 | Studio is **one deployable modular monolith** with its **own completely separate DB**. Identity is another deployable with its **own DB**. No cross-DB FKs/views/FDW. |
 | R4 | Studio Go coverage gate is **≥85%** from the first `studio-cover` (repo `COVER_MIN := 85`). **Never lower.** Identity may start at ≥80% with mandatory adversarial OAuth suite, then raise toward 85% before production-ready — without lowering Studio. |
 | R5 | Credential-free Studio auth consumes a **protocol-compatible loopback/test Identity** (preferred) or a narrow test-only verifier on the **same** principal/JWT middleware. Studio is **never** an auth/session issuer. Production fails closed on test providers / `AUTH_MODE=test`. |
-| R6 | Ownership (no duplication): enum parity+codegen → **contracts**; repositories/migrations → **database**; Huma handlers + process/BFF/UI/workflow/artifacts/outbox worker → **platform**; gRPC server harness → **contracts** then production wiring → **platform**; Primer client → **platform** using generated gRPC client; Identity OP + LMS/TV migration → **identity**. |
+| R6 | Ownership (no duplication): enum parity+codegen → **contracts**; repositories/migrations → **database**; Huma handlers + process/BFF/UI/workflow/artifacts/outbox worker → **platform**; gRPC server harness → **contracts** then production wiring → **platform**; Primer client → **platform** using generated gRPC client; Primer Identity token broker + LMS/TV migration → **identity**. |
 | R7 | Interleave order: module foundation → migration freeze/persistence + contract spikes/parity → authz/workspaces → catalogs/plan/publish → Huma emission/generated clients/UI → materialization/workflows/items/artifacts/outbox → Primer integration. Only genuinely disjoint work runs in parallel. |
-| R8 | Identity foundational waves may parallel Studio foundations. Studio **production-auth** phases block on Identity JWKS / BFF / service-principal milestones (I3, I7, I8, I12). Live Google remains **BLOCKED** until explicit credentials/approval. Loopback OIDC is credential-free evidence only. |
+| R8 | Identity foundational waves may parallel Studio foundations. Credential-free test Identity/narrow verifier work is separate from production auth. Studio **production validator/cutover** requires I6/IB2 + I8/IB4 and the applicable I12/IB8 integration chain; live BFF requires I7/IB3 + I8/IB4; S15 machine JWT requires I9/IB5. Live Stytch remains **BLOCKED** until explicit Identity-owned credentials/configuration/approval. |
 | R9 | `X-Service-Token` is **migration-only**; final state Bearer JWT. Existing fail-open empty-secret guards must be closed **before S7**. TV device tokens remain TV-owned. |
 | R10 | Studio→LMS import push stays deferred. Primer integration primary path = **generated gRPC client** + webhooks/events. |
 | R11 | Plans are local-only. Implementation may commit locally; **no push/PR/master merge** without explicit user authorization. |
 | R12 | Foundation crosswalk auth table backticks fixed; detailed plans point here for orchestration. |
-| R13 | **MCP** is same Studio deployable, route `/mcp`, Streamable HTTP, spec `2026-07-28`, Go SDK `v1.7.0` (qualify API before mass build). Identity issues JWTs; Studio authorizes tools. No third service/DB. Waves **S19**, **C12**, **X7**. Do not renumber historical F0/PG1/PG2. Sequence: transport qual after S1/I3; read tools after S4–S8/D4–D6; mutations after S6–S8/D5/C8; publish confirmation after Identity/BFF milestones; final conformance before treating agent surface GA (and before over-claiming S15 as only machine path). |
+| R13 | **MCP** is same Studio deployable, route `/mcp`, Streamable HTTP, spec `2026-07-28`, Go SDK `v1.7.0` (qualify API before mass build). Identity issues Primer JWTs; Studio authorizes tools. No third service/DB. Waves **S19**, **C12**, **X7**. Do not renumber historical F0/PG1/PG2. Credential-free transport qualification follows S1/S2; read tools follow S4–S8/D4–D6; mutations follow S6–S8/D5/C8; delegated production writes/X7 require I6/IB2+I8/IB4, with I7/IB3+applicable I12/IB8 for registration/publish confirmation; final conformance precedes MCP GA and does not over-claim S15 as the only machine path. |
 
 ---
 
@@ -88,12 +88,12 @@ dependencies, acceptance commands, review protocol, and stop gates.
 | Workspaces HTTP API | Platform | `S3` | Persistence schema design |
 | Standards/resource HTTP | Platform | `S4`–`S5` | DB catalog SQL design |
 | Plan/validate/publish HTTP + domain | Platform | `S6`–`S8` | Contract IDL authorship |
-| SPA + BFF shell + planning MVP UI | Platform | `S9`–`S10` | Identity OP |
+| SPA + BFF shell + planning MVP UI | Platform | `S9`–`S10` | Primer Identity token broker |
 | Materialization/workflow/export/outbox/Primer adapter | Platform | `S11`–`S15` | Identity DB |
-| Projects/collab/ops live | Platform | `S16`–`S18` | Live Google without approval |
+| Projects/collab/ops live | Platform | `S16`–`S18` | Live Stytch without approval |
 | Enum parity, buf gen, spikes, gRPC harness, Huma emission, clients, policy gates, MCP tool-schema/conformance | Contracts | `C1`–`C12` | Business repos, SPA product features |
 | Goose freeze, pgx repos, UoW, leases, outbox tables, audit/ops DB | Database | `D1`–`D12` | Huma routes, Identity, MCP transport |
-| Identity OP, JWKS, Google RP, BFF contract, service principals, LMS/TV migration S0–S7, MCP client/resource registration support | Identity | `I1`–`I14` | Studio product authz roles |
+| Primer Identity token broker, JWKS, Stytch B2B validation, BFF contract, service principals, LMS/TV migration S0–S7, MCP client/resource registration support | Identity | `I1`–`I14` | Studio product authz roles |
 | Streamable HTTP MCP `/mcp` adapter + tools | Platform | `S19` | Token mint; OpenAPI/proto authorship |
 
 Detailed BDD/E2E remain in the four plan directories. This roadmap only sequences and assigns.
@@ -147,7 +147,7 @@ Delivery is complete only when:
 1. Every non-BLOCKED master wave Completion Gate is green with real command evidence.
 2. Traceability matrix in `execution-index.md` has no missing/orphan detailed phases.
 3. Standalone Studio loop works without LMS; Primer path is gRPC+events only.
-4. Identity S0–S6 credential-free proofs pass; S7 + live Google explicitly gated/BLOCKED as required.
+4. Identity S0–S6 credential-free proofs pass; S7 + live Stytch explicitly gated/BLOCKED as required.
 5. No production claim rests solely on loopback IdP or test auth.
 6. Local integration branch is coherent; remote actions still require user auth.
 
@@ -165,3 +165,12 @@ Delivery is complete only when:
 - [Identity plan](../primer-identity-service/)
 - [LikeC4](../../../architecture/curriculum-studio/)
 - [Execution index](./execution-index.md)
+
+
+## Stytch delivery supersession
+
+**Human-facing Identity phase labels:** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**. Historical phase filenames remain for link stability only and are non-authoritative.
+
+Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. IA is implemented foundation at `87d5c215134825edb410266a62c15534e1e9ecea` but is not composed or approved. The authoritative ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning freeze → **IB1** composed Stytch exchange → **IB2** Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
+
+S2 production validator/cutover waits for IB2+IB4 and applicable IB8 integration, and rejects raw Stytch tokens/roles/tuples. S9 live BFF waits for IB3+IB4; S15 uses only IB5-issued local service-principal machine JWTs; S19/X7 accept only Primer JWTs and need IB2+IB4 for delegated human writes, plus IB3+applicable IB8 for registration/publish confirmation. X2 is credential-free downstream Primer-token evidence; X3 is IB2+IB3+IB4 plus applicable IB8/S2/S9; X7 is IB2+IB4 plus S19/C12. `G-identity-stytch-broker` covers tuple mapping, Primer-only bridge, provider-outage fail-closed/no-negative-cache, and signed webhook replay/forgery/dedupe/out-of-order proof.

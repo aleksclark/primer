@@ -22,7 +22,7 @@ impl/<wave-id>-<short-slug>          # preferred per-wave worktree branch
 impl/cs-local                        # optional local integration tip (no push)
 ```
 
-Examples: `impl/F0-root-modules`, `impl/D1-migration-freeze`, `impl/I3-jwks`,
+Examples: `impl/F0-root-modules`, `impl/D1-migration-freeze`, `impl/I3-ia-r-residual`,
 `impl/S2-authz-boundary`.
 
 ---
@@ -65,7 +65,7 @@ Every wave:
 | G-studio-mcp | `make studio-mcp-e2e` (official SDK + negatives) | S19 / C12 / X7 |
 | G-studio-mcp-ext | `make studio-mcp-external-e2e` (Hermes/mcporter or equiv.) | S19 / C12 / X7 |
 | G-identity-test | `make identity-test` | I* after shell |
-| G-identity-oauth | `make identity-test-oauth` | I4–I10 adversarial |
+| G-identity-stytch-broker | `make identity-test-oauth` | I4–I10 adversarial |
 | G-identity-e2e | `make identity-e2e` | I* process |
 | G-identity-cover | `make identity-cover` (≥80% → raise toward 85%) | I* cover |
 | G-lms-test | `make test` / focused LMS packages | I13–I14 product migration |
@@ -87,20 +87,20 @@ Focused package commands from detailed phases are **required in addition** when 
 
 | Wave | Goal | Owner | Detailed refs | Depends on | PG | Branch | Acceptance | Stop |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **I1** | Identity service shell + isolated DB | Identity | [phase-01](../primer-identity-service/phase-01-service-shell-and-db.md) P1-S*, P1-E* | F0 | **PG1** | `impl/I1-shell-db` | G-identity-test; separate goose table | stop if LMS DSN accepted |
-| **I2** | Accounts + external identities + password store | Identity | [phase-02](../primer-identity-service/phase-02-accounts-and-external-identities.md) | I1 | PG2 | `impl/I2-accounts` | G-identity-test | no email auto-link |
-| **I3** | Keys, JWKS, access JWT mint/verify | Identity | [phase-03](../primer-identity-service/phase-03-keys-jwks-access-tokens.md) | I2 | PG3 | `impl/I3-jwks` | G-identity-test; JWKS public | **milestone:** Studio production-auth unblocks partially |
-| **I4** | OAuth clients + OP code+PKCE | Identity | [phase-04](../primer-identity-service/phase-04-oauth-clients-and-op.md) | I3 | PG4 | `impl/I4-oauth-op` | G-identity-oauth | — |
-| **I5** | Sessions, host-only cookies, login CSRF | Identity | [phase-05](../primer-identity-service/phase-05-sessions-cookies-login-csrf.md) | I4 | PG5 | `impl/I5-sessions` | G-identity-oauth; concurrent callback | — |
-| **I6** | Google RP via loopback crypto | Identity | [phase-06](../primer-identity-service/phase-06-google-rp-loopback.md) | I5 | PG5b | `impl/I6-google-loopback` | G-identity-oauth; prod rejects test IdP | Live Google **BLOCKED** |
-| **I7** | Product BFF confidential client contract | Identity | [phase-07](../primer-identity-service/phase-07-product-bff-contract.md) | I5, I6 | PG6 | `impl/I7-bff-contract` | G-identity-e2e | **milestone:** Studio BFF OIDC |
-| **I8** | Service principals + client_credentials | Identity | [phase-08](../primer-identity-service/phase-08-service-principals.md) | I3, I4 | PG6 | `impl/I8-service-principals` | G-identity-test | **milestone:** machine JWT |
-| **I9** | Refresh, revoke, logout fail-closed | Identity | [phase-09](../primer-identity-service/phase-09-refresh-revoke-logout.md) | I5, I7 | PG7 | `impl/I9-revoke` | G-identity-oauth | — |
-| **I10** | Key rotation + hardened token path | Identity | [phase-10](../primer-identity-service/phase-10-key-rotation-and-hardening.md) | I3, I8, I9 | PG8 | `impl/I10-key-rotation` | G-identity-test | — |
-| **I11** | Admin, audit, recovery, privacy | Identity | [phase-11](../primer-identity-service/phase-11-admin-audit-recovery.md) | I2, I9 | PG8 | `impl/I11-admin-audit` | G-identity-test | — |
-| **I12** | Studio integration (JWKS consumer contract) | Identity (+ Platform consumer) | [phase-12](../primer-identity-service/phase-12-studio-integration.md); Platform S2 | I3, I7, I8, S2 | PG9 | `impl/I12-studio-integration` | G-identity-e2e + G-studio-test joint | **milestone:** S2 production-auth |
-| **I13** | LMS dual-login + service dual-accept (S3–S5) | Identity | [phase-13](../primer-identity-service/phase-13-lms-dual-login-and-service-cutover.md) | I7–I9, I11 | PG10 | `impl/I13-lms-dual` | G-lms-test; empty secret fail-closed | close fail-open **before S7** |
-| **I14** | TV admin SSO, S7, ops; live Google BLOCKED | Identity | [phase-14](../primer-identity-service/phase-14-tv-admin-s7-ops-live.md) | I13 | PG11 | `impl/I14-s7-ops` | G-lms-test; device tokens still local | Live Google **BLOCKED** without approval |
+| **I1** | IA foundation / Stytch service shell | Identity | [phase-01](../primer-identity-service/phase-01-service-shell-and-db.md) P1-S*, P1-E* | F0 | **PG1** | `impl/I1-shell-db` | G-identity-test; separate goose table | stop if LMS DSN accepted |
+| **I2** | IA foundation / exact tuple mapping | Identity | [phase-02](../primer-identity-service/phase-02-accounts-and-external-identities.md) | I1 | PG2 | `impl/I2-accounts` | G-identity-test | no email auto-link |
+| **I3** | IA-R / residual remediation and review | Identity | [phase-03](../primer-identity-service/phase-03-keys-jwks-access-tokens.md) | I2 | PG3 | `impl/I3-ia-r-residual` | G-identity-test; fresh quality/spec review | residual closure only; **not** JWT/JWKS or production auth |
+| **I4** | IB0 / broker, webhook, provisioning design freeze | Identity | [phase-04](../primer-identity-service/phase-04-oauth-clients-and-op.md) | I3 | PG4 | `impl/I4-oauth-op` | G-identity-stytch-broker | — |
+| **I5** | IB1 / composed Stytch broker exchange | Identity | [phase-05](../primer-identity-service/phase-05-sessions-cookies-login-csrf.md) | I4 | PG5 | `impl/I5-sessions` | G-identity-stytch-broker; concurrent callback | — |
+| **I6** | IB2 / Primer ES256 JWT and JWKS bridge | Identity | [phase-06](../primer-identity-service/phase-06-google-rp-loopback.md) | I5 | PG5b | `impl/IB2-primer-jwks` | G-identity-stytch-broker; prod rejects test IdP | Live Stytch **BLOCKED** |
+| **I7** | IB3 / BFF cookie, CSRF and PKCE contract | Identity | [phase-07](../primer-identity-service/phase-07-product-bff-contract.md) | I5, I6 | PG6 | `impl/I7-bff-contract` | G-identity-e2e | **milestone:** Studio BFF OIDC |
+| **I8** | IB4 / signed webhook and two-plane revocation | Identity | [phase-08](../primer-identity-service/phase-08-service-principals.md) | I5, I6 | PG6 | `impl/I8-webhook-revocation` | G-identity-stytch-broker; signed webhook replay/forgery/dedupe/out-of-order E2E | **milestone:** hard production BFF/MCP revocation gate |
+| **I9** | IB5 / Primer-owned service principals and client_credentials | Identity | [phase-09](../primer-identity-service/phase-09-refresh-revoke-logout.md) | I6 | PG7 | `impl/I9-service-principals` | G-identity-e2e; client_credentials class/scope/audience proof | **milestone:** S15 machine JWT |
+| **I10** | IB6 / provider-plus-Primer lifecycle | Identity | [phase-10](../primer-identity-service/phase-10-key-rotation-and-hardening.md) | I7, I8 | PG8 | `impl/I10-lifecycle` | G-identity-test | — |
+| **I11** | IB7 / key rotation and hardening | Identity | [phase-11](../primer-identity-service/phase-11-admin-audit-recovery.md) | I6, I8 | PG8 | `impl/I11-hardening` | G-identity-test | — |
+| **I12** | IB8 / Studio local-authorization proof | Identity (+ Platform consumer) | [phase-12](../primer-identity-service/phase-12-studio-integration.md); Platform S2 | I6, I8, S2 | PG9 | `impl/I12-studio-integration` | G-identity-e2e + G-studio-test joint | **milestone:** applicable production validator/cutover chain |
+| **I13** | IB8 / LMS dual-run local-role cutover | Identity | [phase-13](../primer-identity-service/phase-13-lms-dual-login-and-service-cutover.md) | I7–I9, I11 | PG10 | `impl/I13-lms-dual` | G-lms-test; empty secret fail-closed | close fail-open **before S7** |
+| **I14** | IB8 / TV admin, operations and live Stytch cutover | Identity | [phase-14](../primer-identity-service/phase-14-tv-admin-s7-ops-live.md) | I13 | PG11 | `impl/I14-s7-ops` | G-lms-test; device tokens still local | Live Stytch **BLOCKED** without approval |
 
 ### 3.3 Database track (`D*`)
 
@@ -141,36 +141,36 @@ Focused package commands from detailed phases are **required in addition** when 
 | Wave | Goal | Owner | Detailed refs | Depends on | PG | Branch | Acceptance | Stop |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **S1** | Studio service shell | Platform | [phase-01](../curriculum-studio-platform/phase-01-service-shell.md) | F0; consumes D1 migrations | PG2 | `impl/S1-service-shell` | G-studio-build; G-studio-test | separate DB only |
-| **S2** | Authz boundary (validator-only) | Platform | [phase-02](../curriculum-studio-platform/phase-02-authz-boundary.md) | S1, D3; credential-free via test Identity **or** narrow verifier; **prod-auth** needs I3 | PG3 / soft on I3 | `impl/S2-authz` | G-studio-test; prod rejects test mode | never mint tokens |
+| **S2** | Authz boundary (validator-only) | Platform | [phase-02](../curriculum-studio-platform/phase-02-authz-boundary.md) | S1, D3; credential-free via test Identity **or** narrow verifier; **prod validator/cutover** needs I6+I8 and applicable I12 | PG3 / credential-free independent | `impl/S2-authz` | G-studio-test; prod rejects test mode | never mint tokens |
 | **S3** | Workspaces API | Platform | [phase-03](../curriculum-studio-platform/phase-03-workspaces-api.md) | S2, D3 | PG4c | `impl/S3-workspaces` | G-studio-test | — |
 | **S4** | Standards catalog API | Platform | [phase-04](../curriculum-studio-platform/phase-04-standards-catalog.md) | S3, D4, C2 | PG5e | `impl/S4-standards` | G-studio-test | parallel S5 |
 | **S5** | Resource catalog API | Platform | [phase-05](../curriculum-studio-platform/phase-05-resource-catalog.md) | S3, D4 | PG5e | `impl/S5-resources` | G-studio-test | parallel S4 |
 | **S6** | Plan domain drafts | Platform | [phase-06](../curriculum-studio-platform/phase-06-plan-domain-drafts.md) | S4–S5, D5 | PG6d | `impl/S6-plan-drafts` | G-studio-test | — |
 | **S7** | Validation engine | Platform | [phase-07](../curriculum-studio-platform/phase-07-validation-engine.md) | S6, D6 | PG7d | `impl/S7-validation` | G-studio-test | — |
 | **S8** | Publish immutability + plan outbox enqueue | Platform | [phase-08](../curriculum-studio-platform/phase-08-publish-immutability.md) | S7, D5, D11 core | PG7d | `impl/S8-publish` | G-studio-test | — |
-| **S9** | SPA/BFF shell (house system) | Platform | [phase-09](../curriculum-studio-platform/phase-09-spa-bff-shell.md) | S3; BFF OIDC prefers I7 | PG5e soft / PG9 hard for Identity login | `impl/S9-spa-bff` | G-studio-e2e shell | generated client only |
+| **S9** | SPA/BFF shell (house system) | Platform | [phase-09](../curriculum-studio-platform/phase-09-spa-bff-shell.md) | S3; credential-free shell may use test Identity; **live BFF** requires I7+I8 | PG5e soft / live BFF hard after I7+I8 | `impl/S9-spa-bff` | G-studio-e2e shell | generated client only |
 | **S10** | Planning MVP UI + MD/PDF export | Platform | [phase-10](../curriculum-studio-platform/phase-10-planning-mvp-ui.md) | S8–S9, S5 | PG8d | `impl/S10-planning-mvp` | G-studio-e2e | — |
 | **S11** | Materialization domain | Platform | [phase-11](../curriculum-studio-platform/phase-11-materialization-domain.md) | S8, D7, D9 | PG9d | `impl/S11-materialization` | G-studio-test | — |
 | **S12** | Agent workflow runner (scripted model) | Platform | [phase-12](../curriculum-studio-platform/phase-12-agent-workflow-runner.md) | S11, D8 | PG10d | `impl/S12-workflow` | G-studio-test resume/kill | live models BLOCKED |
 | **S13** | Exports + artifact bytes store | Platform | [phase-13](../curriculum-studio-platform/phase-13-exports-artifacts.md) | S11–S12, D10 | PG10d | `impl/S13-exports` | G-studio-test; object store real | bytes not in PG |
 | **S14** | Outbox worker + signed webhooks | Platform | [phase-14](../curriculum-studio-platform/phase-14-outbox-webhooks.md) | S8, S11, D11, C9 | PG11d | `impl/S14-outbox-webhooks` | G-studio-test delivery | — |
-| **S15** | Primer integration (gRPC client + service auth) | Platform | [phase-15](../curriculum-studio-platform/phase-15-primer-integration.md) | S12–S14, C5/C11, I8, I12 | PG12 | `impl/S15-primer-integration` | G-studio-test gRPC; no LMS DB | import-push deferred |
+| **S15** | Primer integration (gRPC client + service auth) | Platform | [phase-15](../curriculum-studio-platform/phase-15-primer-integration.md) | S12–S14, C5/C11, **I9** machine JWT, I12 applicable service integration | PG12 | `impl/S15-primer-integration` | G-studio-test gRPC; no LMS DB | import-push deferred |
 | **S16** | Projects integrated | Platform | [phase-16](../curriculum-studio-platform/phase-16-projects-integrated.md) | S12–S13 | PG13 | `impl/S16-projects` | G-studio-test | — |
 | **S17** | Collaborative authoring | Platform | [phase-17](../curriculum-studio-platform/phase-17-collaborative-authoring.md) | S10, S16 | PG14 | `impl/S17-collab` | G-studio-e2e | — |
-| **S18** | Deploy/ops; live Google/model/deploy BLOCKED | Platform | [phase-18](../curriculum-studio-platform/phase-18-deploy-ops-live-gates.md) | S15–S17 | PG15 | `impl/S18-ops-live` | packaging gates; live **BLOCKED** | needs user approval |
-| **S19** | Streamable HTTP MCP `/mcp` tools (authz-filtered; human publish confirm) | Platform | [phase-19](../curriculum-studio-platform/phase-19-streamable-http-mcp.md); [MCP design](../curriculum-studio-mcp-design.md) | S1+S2 for transport qual; S3–S8 + D4–D6/D5/D11 for full tools; I3 (and I7/I8/I12 for prod-auth + MCP client/resource); C12 for conformance claim | PG-MCP | `impl/S19-mcp-endpoint` | G-studio-test; `make studio-mcp-e2e`; Origin/aud/IDOR/idempotency/publish negatives | never mint tokens; never silent publish |
+| **S18** | Deploy/ops; live Stytch/model/deploy BLOCKED | Platform | [phase-18](../curriculum-studio-platform/phase-18-deploy-ops-live-gates.md) | S15–S17 | PG15 | `impl/S18-ops-live` | packaging gates; live **BLOCKED** | needs user approval |
+| **S19** | Streamable HTTP MCP `/mcp` tools (authz-filtered; human publish confirm) | Platform | [phase-19](../curriculum-studio-platform/phase-19-streamable-http-mcp.md); [MCP design](../curriculum-studio-mcp-design.md) | S1+S2 + credential-free test Identity for transport qual; S3–S8 + D4–D6/D5/D11 for full tools; **I6+I8** for production delegated writes; **I7+applicable I12** for client registration/publish confirmation; C12 for conformance claim | PG-MCP | `impl/S19-mcp-endpoint` | G-studio-test; `make studio-mcp-e2e`; Origin/aud/IDOR/idempotency/publish negatives | never mint tokens; never silent publish |
 
 ### 3.6 Cross-cutting integration gates (`X*`)
 
 | Wave | Goal | Depends on | Acceptance |
 | --- | --- | --- | --- |
 | **X1** | First Studio cover ≥85% established | S1 (+ enough pkgs) | G-studio-cover |
-| **X2** | Credential-free Studio↔loopback Identity joint auth | S2, I3–I6 (or narrow verifier interim) | joint e2e; same middleware |
-| **X3** | Production-auth Studio (JWKS + BFF against Identity) | I7, I8, I12, S2, S9 | G-studio-e2e + G-identity-e2e |
+| **X2** | Credential-free Studio↔loopback Identity joint auth | S2 + loopback/test Identity (or narrow verifier) | joint e2e; same middleware; not production auth |
+| **X3** | Production-auth Studio (Primer JWT/JWKS + BFF against Identity) | I6, I7, I8, applicable I12, S2, S9 | G-studio-e2e + G-identity-e2e |
 | **X4** | Contract conformance + platform handlers aligned | C11, S8+, S15 | C11 matrix + platform E2E |
 | **X5** | Fail-open secrets closed pre-S7 | I13 | SharedSecretGuard empty secret fails closed |
 | **X6** | Local integration tip green (no remote) | all non-BLOCKED through S15 + I12 | local `impl/cs-local` build/test matrix |
-| **X7** | MCP agent surface GA gate (transport + tools + conformance) | S19, C12, I3; publish-confirm path needs I7/I12 as applicable; prefer before over-claiming S15-only machine narrative | official + external clients; MCP-T1–T12 design matrix; no third DB |
+| **X7** | MCP agent surface GA gate (transport + tools + conformance) | S19, C12, I6+I8; client-registration/publish-confirm path needs I7+applicable I12 | official + external clients; MCP-T1–T12 design matrix; no third DB |
 
 ---
 
@@ -180,25 +180,25 @@ Focused package commands from detailed phases are **required in addition** when 
 F0
 ├── PG1 parallel:
 │   ├── I1 → I2 → I3 → I4 → I5 → I6 → I7
-│   │                      ↘ I8 (from I3/I4)
-│   │                      → I9 → I10
-│   │                      → I11
-│   │                      → I12 (needs S2 + I3/I7/I8)
+│   │                                ↘ I8 (from I5/I6; webhook/revocation)
+│   │                                → I9 (service principals) → I10
+│   │                                → I11
+│   │                                → I12 (needs S2 + I6/I8)
 │   │                      → I13 → I14
 │   ├── D1 → D2 → D3 → D4 → D5 → (D6 ∥ D7) → D8 → D9 → D10
 │   │                         ↘ D11 ─────────────↗     → D12
 │   └── C1 → (C2 ∥ C3) → (C4 ∥ C6*) → C5 → C7 → C8 → C9 → C10 → C11
 │
 └── S1 (after F0; migrations from D1)
-    → S2 (D3; soft I3; hard prod-auth I3/I7/I8/I12)
+    → S2 (D3; credential-free test path independent; hard prod validator/cutover I6+I8+applicable I12)
     → S3 → (S4 ∥ S5) → S6 → S7 → S8
-    → S9 (after S3; Identity login hard on I7)
+    → S9 (after S3; live BFF hard on I7+I8)
     → S10 (S8+S9)
     → S11 → S12 → S13
     → S14 (S8+S11+D11+C9)
-    → S15 (S12–S14+C5/C11+I8+I12)
+    → S15 (S12–S14+C5/C11+I9 machine JWT+applicable I12)
     → S16 → S17 → S18
-    → S19 MCP (after S1/S2+I3 transport; S3–S8/D4–D6 tools; I7/I12 publish-confirm; C12 conformance ∥)
+    → S19 MCP (credential-free after S1/S2; S3–S8/D4–D6 tools; I6+I8 delegated writes; I7+applicable I12 registration/publish-confirm; C12 conformance ∥)
        ↘ X7 (S19+C12)
 
 C12 documents SoT anytime after C8; runtime conformance hard on S19.
@@ -208,10 +208,10 @@ C12 documents SoT anytime after C8; runtime conformance hard on S19.
 
 **MCP sequencing (stable; do not renumber F0/PG1/PG2 history):**
 
-1. Transport qualification: after **S1** + **I3** (JWKS) — spike SDK `v1.7.0` Streamable HTTP stateless handler.
+1. Transport qualification: after **S1/S2** with credential-free test Identity/narrow verifier — spike SDK `v1.7.0` Streamable HTTP stateless handler; this does not prove production auth.
 2. Read tools: after **S4–S8** domain readiness and **D4–D6** persistence (workspaces/catalogs/plan/validate as needed).
 3. Mutation tools: after **S6–S8**, **D5**, **C8** (idempotency/error semantics).
-4. Publish confirmation: after Identity/BFF milestones (**I7**, **I12**) + **S8** publish path.
+4. Production delegated writes: after **I6/IB2 + I8/IB4**. Client registration/BFF mediation/publish confirmation additionally require **I7/IB3 + applicable I12/IB8** and the **S8** publish path.
 5. Final conformance (**C12**/**X7**): before claiming MCP GA; coordinate relative to **S15** so Primer gRPC is not described as the only machine/agent path once MCP is in scope.
 
 ---
@@ -223,15 +223,15 @@ C12 documents SoT anytime after C8; runtime conformance hard on S19.
 | **PG0** | F0 | Solo — root owner |
 | **PG1** | I1, D1→D2, C1→C2→C3 | **First parallel dispatch after F0** |
 | **PG2** | I2, D3, S1 | After PG1 foundations |
-| **PG3** | I3, C4, S2(soft), D4 prep | JWKS milestone |
+| **PG3** | I3, C4, S2(credential-free), D4 prep | IA-R residual remediation; no JWKS milestone |
 | **PG4** | I4, C5, S3 | — |
 | **PG5** | I5–I6, S4∥S5, C7 path, D5 | catalogs parallel |
-| **PG6** | I7∥I8, S6, D6∥D7, C8 | BFF + service principals |
-| **PG7** | I9, S7–S8, D8, C9 | publish + revoke |
+| **PG6** | I7∥I8, S6, D6∥D7, C8 | BFF + signed webhook/two-plane revocation |
+| **PG7** | I9, S7–S8, D8, C9 | publish + service principals |
 | **PG8** | I10–I11, S9–S10, D9–D11, C10 | MVP UI + persistence depth |
 | **PG9** | I12, X3, D12, C11, S11 | Studio↔Identity joint |
 | **PG10+** | S12–S18, I13–I14, X4–X6 | materialize → Primer → migrations |
-| **PG-MCP** | S19, C12, X7 | After S1/I3 for spike; full tools after S8/D5; publish-confirm after I7/I12; do not reorder PG0–PG2 history |
+| **PG-MCP** | S19, C12, X7 | Credential-free spike after S1/S2; full tools after S8/D5; delegated writes after I6+I8; registration/publish-confirm after I7+applicable I12; do not reorder PG0–PG2 history |
 
 ---
 
@@ -301,13 +301,13 @@ C12 documents SoT anytime after C8; runtime conformance hard on S19.
 | --- | --- |
 | 1 Shell/DB | I1 |
 | 2 Accounts | I2 |
-| 3 Keys/JWKS | I3, X2 |
-| 4 OAuth OP | I4 |
-| 5 Sessions/CSRF | I5 |
-| 6 Google loopback | I6 |
-| 7 BFF contract | I7, X3 |
-| 8 Service principals | I8 |
-| 9 Refresh/revoke | I9 |
+| 3 IA-R residual remediation and review | I3 |
+| 4 IB0 broker/webhook/provisioning freeze | I4 |
+| 5 IB1 composed Stytch broker exchange | I5 |
+| 6 IB2 Primer ES256 JWT/JWKS bridge | I6, X3 |
+| 7 IB3 BFF cookie/CSRF/PKCE contract | I7, X3 |
+| 8 IB4 signed webhook/two-plane revocation | I8, X3 |
+| 9 IB5 Primer-owned service principals | I9 |
 | 10 Key rotation | I10 |
 | 11 Admin/audit | I11 |
 | 12 Studio integration | I12, X3 |
@@ -339,7 +339,7 @@ C12 documents SoT anytime after C8; runtime conformance hard on S19.
 | Generated gRPC/REST clients | **C4, C7** |
 | MCP tool schemas + MCP conformance harness | **C12** |
 | MCP `/mcp` adapter + tool wiring | **S19** |
-| Identity OP / JWKS / Google / LMS cutover / MCP client+resource registration | **I*** |
+| Primer Identity token broker / JWKS / Stytch B2B broker / LMS cutover / MCP client+resource registration | **I*** |
 
 ---
 
@@ -391,7 +391,7 @@ Deliver: code + tests for this wave's BDD/E2E IDs only; update nothing outside o
 | Database | D1 then D2 (same agent sequential) | `impl/D1-migration-freeze` → `impl/D2-persistence-foundation` |
 | Contracts | C1 then C2 then C3 | `impl/C1-ownership` → `impl/C2-enum-parity` → `impl/C3-spikes` |
 
-Do not start S2 production-auth, I13, or S15 until their hard dependencies clear.
+Do not start S2 production validator/cutover, I13, or S15 until their hard dependencies clear; S2 credential-free verifier work remains separate. S15 needs I9 machine JWT, not I8.
 
 ---
 
@@ -404,7 +404,7 @@ Do not start S2 production-auth, I13, or S15 until their hard dependencies clear
 | Studio mints tokens / OP endpoints | REJECT; move to Identity |
 | C3 spike STOP | Block C4+ and dependent S15 |
 | Empty service secret still fail-open | Block I14/S7 cutover (X5) |
-| Live Google claimed without approval | BLOCKED — loopback only |
+| Live Stytch claimed without approval | BLOCKED — loopback only |
 | Push/PR without user auth | STOP remote actions |
 | Contract dual SoT after handoff | STOP C7; keep baseline |
 
@@ -424,3 +424,12 @@ Do not start S2 production-auth, I13, or S15 until their hard dependencies clear
 - [x] Full phase→wave traceability (no orphans)
 - [x] Orchestrator prompt contract
 - [x] First dispatch set identified
+
+
+## Stytch delivery supersession
+
+**Human-facing Identity phase labels:** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**. Historical phase filenames remain for link stability only and are non-authoritative.
+
+Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. IA is implemented foundation at `87d5c215134825edb410266a62c15534e1e9ecea` but is not composed or approved. The authoritative ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning freeze → **IB1** composed Stytch exchange → **IB2** Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
+
+S2 production validator/cutover waits for IB2+IB4 and applicable IB8 integration, and rejects raw Stytch tokens/roles/tuples. S9 live BFF waits for IB3+IB4; S15 uses only IB5-issued local service-principal machine JWTs; S19/X7 accept only Primer JWTs and need IB2+IB4 for delegated human writes, plus IB3+applicable IB8 for registration/publish confirmation. X2 is credential-free downstream Primer-token evidence; X3 is IB2+IB3+IB4 plus applicable IB8/S2/S9; X7 is IB2+IB4 plus S19/C12. `G-identity-stytch-broker` covers tuple mapping, Primer-only bridge, provider-outage fail-closed/no-negative-cache, and signed webhook replay/forgery/dedupe/out-of-order proof.

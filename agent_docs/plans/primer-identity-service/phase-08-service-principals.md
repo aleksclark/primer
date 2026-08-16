@@ -1,104 +1,37 @@
-# Phase 8: Service principals and client_credentials
-
-**File:** `phase-08-service-principals.md`
-**Depends on:** Phases 3–4
-**Duration guess:** 4–6 days
-**Migration stage:** S1 (issuance); product dual-accept Phase 13 (S4)
-**Handoff wave:** W4
+# 08: IB4 / signed webhook and two-plane revocation
 
 ## Goal
 
-Replace long-term static shared secrets with OAuth2 **client_credentials** service principals: hashed client secrets, audience+scope grants, short-lived service JWTs, and rotation with dual-valid grace. Emit metrics-friendly client_id claims for LMS/Studio validators.
-
-## Scope
-
-### In scope
-
-- Tables: `service_principals`, `service_credentials` (secret_hash, label, expires_at, revoked_at), `service_grants` (audience, scopes[])
-- `POST /oauth/token` grant_type=client_credentials
-- Mint JWT: sub=service principal UUID, client_id claim, aud single, scope, amr=`client_secret`, jti, exp≤10m
-- Admin mint/rotate/revoke credential (Phase 11 hardens authz; Phase 8 may use break-glass env bootstrap + tests)
-- Secret shown once; argon2id/bcrypt hash at rest
-- Rotation: new secret valid immediately; old valid until grace ≤7d or revoke
-- Negative: wrong secret, revoked, expired, scope not granted, wrong aud grant
-
-### Out of scope
-
-- LMS SharedSecretGuard dual-accept (Phase 13)
-- Human auth code changes
+Make provider invalidation and local grants durable and replay safe. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
 
 ## BDD Success Criteria
 
-#### Scenario: P8-S1 — client_credentials success
+### Scenario: IB4 / signed webhook and two-plane revocation
 
-- **Given** principal with grant aud=primer-lms scope `ingest:instruction_logs`
-- **When** POST token with client_id/secret
-- **Then** access_token JWT verifies
-- **And** aud and scope exact
-
-#### Scenario: P8-S2 — Confidential auth required
-
-- **Given** principal
-- **When** token request without secret
-- **Then** 401 invalid_client
-- **And** no token
-
-#### Scenario: P8-S3 — Secret hashed at rest
-
-- **Given** newly minted secret
-- **When** inspect DB
-- **Then** plaintext secret absent
-- **And** hash verifies only via check API
-
-#### Scenario: P8-S4 — Rotation dual-valid grace
-
-- **Given** rotated credential
-- **When** old secret used within grace
-- **Then** token still issued
-- **And** after revoke/grace end old secret fails while new works
-
-#### Scenario: P8-S5 — Scope and audience enforcement
-
-- **Given** grant only primer-lms ingest scope
-- **When** request scope studio:materialize or mint would imply other aud
-- **Then** reject or issue only granted subset per policy (**decided: reject unknown requested scope**)
-- **And** verifier side documented for products
+- **Given** the preceding phase gates and a bounded, sanitized test environment
+- **When** authentic signed webhook deduplicates; replay/forgery/out-of-order events fail safely; cache invalidates and associated Primer grant revokes without raw token persistence.
+- **Then** the behavior is observable through the named public boundary and durable local evidence
+- **And** no raw Stytch session, SessionJWT, provider payload, or provider-derived product role crosses the Identity boundary
 
 ## Implementation Instructions
 
-1. Reuse token minter from Phase 3 with service claim profile.
-2. Constant-time secret verify.
-3. Do not put service roles in JWT beyond scopes.
-4. Bootstrap: `IDENTITY_BOOTSTRAP_SERVICE_CLIENTS` JSON for dev only; prod uses admin API.
-5. Metrics: token issues by client_id (not secret).
-6. Document mapping to Studio `identity:svc:<id>` subject_ref.
+- Preserve exact tuple mapping and no-email-merge semantics; never use Stytch organization/member roles as product authorization.
+- Keep product authorization and host-only cookie/CSRF ownership in the product BFF; Identity is neither a product membership store nor an independent human session authority.
+- Record the durable source of truth, failure semantics, migration/rollout constraints, audit fields, and focused test command before implementation.
+- **Dependency gate:** IB1–IB2; hard gate for production BFF/MCP.
 
 ## End-to-End Test Plan
 
-| ID | Setup | Action | Assert | Command |
-| --- | --- | --- | --- | --- |
-| P8-E1 | seed principal | client_credentials | JWT verify aud/scope | `go test ./internal/serviceauth -run Happy` |
-| P8-E2 | mint secret | DB inspect | hashed only | `go test ./internal/serviceauth -run Hash` |
-| P8-E3 | rotate + grace + revoke | token | matrix allow/deny | `go test ./internal/serviceauth -run Rotation` |
+Provider-event E2E covers dedupe/replay/forgery/out-of-order and explicit ≤15m access-token bound. Use public endpoints/processes and a real local durable store where applicable; permitted provider fakes prove only the bounded Identity adapter boundary and cannot substitute for the explicit live-provider gate.
 
 ## Anti-Cheating Audit
 
-- Secrets not logged on mint beyond one-time response test capture.
-- client_credentials must not issue human amr or sid.
-- No static SERVICE_TOKEN equivalence inside Identity.
+Webhook does not add/change Studio/LMS membership; immediate sub-TTL revoke remains deferred without tested sid/jti. Review handlers, caches, persistence and audit logs for hard-coded success, test-only bypasses, raw-token persistence, swallowed provider errors, role/tenant derivation, or direct product-to-Stytch paths.
 
 ## Completion Gate
 
-- [ ] P8-S*/E* green
-- [ ] Grant model documented for LMS/Studio
-- [ ] Anti-cheat clean
-
-## Dependencies
-
-- Upstream: 3–4
-- Downstream: 10, 12–14
-- Parallel with 5–7 OK
-
-## Rollback
-
-- Revert PR; products still on static secrets until 13.
+- [ ] The scenario and its negative/cross-boundary cases pass at a public boundary.
+- [ ] Durable state, replay/retry behavior, and sanitized audit evidence are verified where applicable.
+- [ ] No Stytch material or provider authorization leaks to products.
+- [ ] `git diff --check`, documentation links/headings, and applicable build/test gates pass.
+- [ ] The next dependency is not unblocked merely by a library-only or mocked proof.

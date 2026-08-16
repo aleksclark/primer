@@ -284,3 +284,12 @@ This plan owns repositories/migrations only — not Huma handlers, SPA, or Ident
 - [phase-10-exports-and-object-refs.md](./phase-10-exports-and-object-refs.md)
 - [phase-11-outbox-webhooks-idempotency.md](./phase-11-outbox-webhooks-idempotency.md)
 - [phase-12-audit-retention-backup-observability.md](./phase-12-audit-retention-backup-observability.md)
+
+
+## Stytch-backed identity reconciliation (authoritative)
+
+Stytch B2B is upstream human authentication/session authority. Primer Identity is its sole SDK/API client and downstream Primer token broker: it validates opaque Stytch sessions, maps exact `(project_id, organization_id, member_id)` to a local account, and issues only short-lived single-audience Primer JWTs/JWKS. Studio, LMS, TV, MCP, product APIs, and browser JS never receive, store, forward, log, or validate a Stytch session token, SessionJWT, tuple, or role.
+
+Stytch organization/member roles are eligibility hints only. Studio workspace membership, LMS educator roles, and TV device authentication remain local systems of record; a Stytch organization does not create a Studio tenant/workspace. Provisioning is explicit invite/admin only, and distinct cross-org tuples stay distinct personas without email merge/linking. IA is library-only and unapproved; production auth waits for IA-R and IB1–IB4, with signed webhook/cache+grant revocation as a hard BFF/MCP gate.
+
+Required E2Es: mapped tuple to local membership; valid no-membership token denied; same-email cross-org isolation; Stytch admin-like role denied without local role; raw Stytch bearer rejected; outage fails closed/no negative cache; signed webhook forgery/replay/dedupe/out-of-order; explicit revocation bound; LMS local-role dual run; and no token/provider payload in audit logs.
