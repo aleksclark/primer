@@ -1,6 +1,6 @@
-# 05 — Candidate verification, rollout, rollback, and traceability
+# 05 — Reviewed verification, rollout, rollback, and traceability
 
-**Status: STOP — candidate review evidence, not a completion report.** A fresh independent exact-tip review must find zero findings before this material is used to start a wave.
+**Status: PASS — independent IB0 design review at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Review evidence covers 40 docs/architecture files, links, 58 planned E2Es, 24 requirements, and passing LikeC4 topology. This is a design freeze, not runtime or live-provider completion. Credential-free IB1 may PROCEED only after this review-status commit is merged to `master`; live Stytch remains **BLOCKED**.
 
 ## BDD success criteria
 
@@ -188,7 +188,7 @@ Reviewers must inspect that:
 
 ## Rollout waves
 
-1. **IB0 candidate docs remediation:** this commit only. Keep live provider/deploy blocked pending independent exact-tip review.
+1. **IB0 reviewed design freeze:** independently PASS at the reviewed design tip above; no runtime or live-provider completion. Keep live provider/deploy blocked.
 2. **IB1 credential-free callback/code issuance:** real Postgres + scripted local provider boundary; broker disabled in production. Add migrations, snapshot member-session ID, recoverable-state callback, provider revalidation qualification, and one-use code issuance. Public token endpoint/code consumption/replay/JWT are explicitly out of IB1.
 3. **IB2 public token bridge:** selective donor reimplementation/intake after IB1, public code consume/replay, private-key client auth, initial signing-key and refresh-family/current-token schema, 400-day copied issuance evidence, sign-before-commit ES256 JWT/JWKS, and validator conformance. Signing-key retirement/destruction waits for IB7; refresh rotation/reuse waits for IB6.
 4. **IB3 one product canary:** Studio BFF test/staging; separate cookies; no production traffic before IB4.
@@ -211,14 +211,16 @@ Reviewers must inspect that:
 
 Rollback never deletes tuple mappings/webhook/audit evidence, never broadens redirect/scope/audience, and never extends token expiry.
 
-## IB0 STOP / review gate
+## IB0 reviewed PROCEED gate
 
-**Review criteria for a later PROCEED decision (not checked or claimed here):**
+**Independent design-review criteria completed at the reviewed design tip:**
 
-- exact endpoints, tables, states, lifetimes, failure codes and ownership are reviewable in this package;
-- `provider_member_session_id` addition is explicitly scoped to IB1, while public token/code-consume/replay/JWT is scoped to IB2;
-- official facts/Primer assumptions have exact URLs and MCP/delivery references carry the same STOP status;
-- LikeC4 required positive edges render and forbidden direct Stytch pairs are absent;
-- mechanical link/heading/traceability/allowlist/diff checks are supplied to reviewers.
+- [x] exact endpoints, tables, states, lifetimes, failure codes and ownership are reviewable in this package;
+- [x] `provider_member_session_id` addition is explicitly scoped to IB1, while public token/code-consume/replay/JWT is scoped to IB2;
+- [x] official facts/Primer assumptions have exact URLs and MCP/delivery references agree with the reviewed design freeze;
+- [x] LikeC4 required positive edges render and forbidden direct Stytch pairs are absent;
+- [x] mechanical link/heading/traceability/allowlist/diff checks passed.
+
+**PROCEED applies only to credential-free IB1 after this review-status commit is merged to `master`.** It does not mark any IB1–IB8 runtime E2E complete and does not unblock live Stytch.
 
 **STOP** if any value remains “TBD,” live credentials/provider calls are required, event spellings are invented beyond verified catalog evidence, generated/code/SQL artifacts appear, donor intake would overwrite IA-R, or runtime completion is claimed from docs/fakes.

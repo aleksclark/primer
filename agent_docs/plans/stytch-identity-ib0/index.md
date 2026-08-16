@@ -1,10 +1,10 @@
-# Stytch Identity IB0 — candidate IB1–IB8 contract remediation
+# Stytch Identity IB0 — reviewed IB1–IB8 contract freeze
 
-**Status: STOP — candidate docs/architecture remediation under independent exact-tip review.** It is not frozen or dispatch-ready; do not check completion boxes or begin IB1 until a fresh zero-finding exact-tip review. Live Stytch remains **BLOCKED**.
+**Status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical, 0 Important, and 0 Minor findings.** The review covered 40 docs/architecture files; links, all 58 planned E2Es, all 24 requirements, and LikeC4 topology passed. The post-merge cursor is **PROCEED to credential-free IB1 only after this review-status commit is merged to `master`**. Live Stytch remains **BLOCKED**.
 
 ## Outcome
 
-This package is the candidate implementation contract for the Stytch-backed Primer Identity broker. It can become implementation authority for IB1–IB8 only after a fresh independent review of the exact amended tip reports zero findings. Stytch B2B authenticates ordinary humans. Primer Identity is the sole Stytch client and the Primer OAuth authorization server (AS). Products and MCP receive only Primer authorization codes, refresh tokens, access JWTs, and JWKS; they never receive or validate a Stytch session token, SessionJWT, callback token, intermediate-session token, provider role, or provider payload.
+This package is the reviewed design authority for the Stytch-backed Primer Identity broker. Its credential-free IB1 implementation authority takes effect only after this review-status commit is merged to `master`; it does not authorize later waves or live-provider work. Stytch B2B authenticates ordinary humans. Primer Identity is the sole Stytch client and the Primer OAuth authorization server (AS). Products and MCP receive only Primer authorization codes, refresh tokens, access JWTs, and JWKS; they never receive or validate a Stytch session token, SessionJWT, callback token, intermediate-session token, provider role, or provider payload.
 
 ## Authority and scope
 
@@ -23,7 +23,7 @@ In scope: interactive broker, callback ownership, durable OAuth/grant/session mo
 
 Out of scope: Go/SQL implementation, generated OpenAPI/client artifacts, credentials, live Stytch calls, production deployment, automatic product provisioning, email account merge, Stytch M2M, and sub-15-minute distributed JWT revocation.
 
-## Candidate decisions awaiting exact-tip review
+## Reviewed design decisions
 
 | ID | Decision |
 |---|---|
@@ -66,4 +66,4 @@ Out of scope: Go/SQL implementation, generated OpenAPI/client artifacts, credent
 
 ## Completion rule
 
-The candidate is reviewable only when linked files are internally consistent, `REQ-IB0-*` mappings and LikeC4 mechanical checks are present, and the docs/architecture diff is clean. This is evidence for a fresh review, not an independent PASS and does **not** claim IB1–IB8 or live Stytch complete.
+The independent design review confirmed that linked files are internally consistent, `REQ-IB0-*` mappings and LikeC4 mechanical checks are present, and the 40-file docs/architecture diff is clean. This PASS freezes design only and does **not** claim IB1–IB8 implemented or live Stytch verified.

@@ -1,13 +1,13 @@
 # Curriculum Studio — Authoritative Delivery Roadmap
 
-**IB0 status: STOP — candidate remediation under independent exact-tip review; no referenced Identity wave is dispatch-ready.**
+**IB0 status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Credential-free IB1/I5 may PROCEED only after this review-status commit is merged to `master`.
 
 **Outcome:** A single cursor that implementation orchestrators must follow to deliver
 Curriculum Studio + Primer Identity as two separate deployables, with no duplicated
 ownership, no lowered gates, and realistic interleaving of platform / contracts /
 database / identity work.
 
-**Status:** IA-R’s historical credential-free foundation record remains separate; **IB0/I4 is a candidate remediation under independent exact-tip review** in [`../stytch-identity-ib0/`](../stytch-identity-ib0/). IB1/I5 remains blocked; live Stytch remains **BLOCKED**.
+**Status:** IA-R’s historical credential-free foundation record remains separate; **IB0/I4 is an independently reviewed design freeze** in [`../stytch-identity-ib0/`](../stytch-identity-ib0/). The post-merge cursor is credential-free IB1/I5 only; IB1–IB8 runtime remains unimplemented and live Stytch remains **BLOCKED**.
 **Plan directory:** `agent_docs/plans/curriculum-studio-delivery/`
 **Branch:** `planning/curriculum-studio-integration`
 **Plans are local-only.** Implementation agents may create branches/commits and
@@ -30,7 +30,7 @@ or merge `master` without explicit user authorization.
 | Contracts phased plan | Present (12 phases) | [`../curriculum-studio-contracts/`](../curriculum-studio-contracts/) |
 | Database phased plan | Present (12 phases) | [`../curriculum-studio-database/`](../curriculum-studio-database/) |
 | Identity phased plan | Present (14 phases) | [`../primer-identity-service/`](../primer-identity-service/) |
-| Identity IB0 contract | **Candidate under independent exact-tip review; STOP; runtime unimplemented** | [`../stytch-identity-ib0/`](../stytch-identity-ib0/) |
+| Identity IB0 contract | **Independently reviewed design PASS; runtime unimplemented** | [`../stytch-identity-ib0/`](../stytch-identity-ib0/) |
 | MCP design | **Candidate/STOP; not runtime or dispatch authority until exact-tip review passes** | [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-design.md) |
 | Studio Go runtime / SPA | Partial / missing product surfaces | `curriculum-studio/` foundation present; MCP not implemented |
 | Identity Go runtime | Missing / partial per tip | — |
@@ -174,6 +174,6 @@ Delivery is complete only when:
 
 **Human-facing Identity phase labels:** Phase 3 = **IA-R residual remediation and review**; Phase 6 = **IB2 Primer ES256 JWT/JWKS bridge**; Phase 8 = **IB4 signed webhook and two-plane revocation**; Phase 9 = **IB5 Primer-owned service principals**; Phase 10 = **IB6 provider-plus-Primer lifecycle**; Phase 11 = **IB7 key rotation and hardening**. Historical phase filenames remain for link stability only and are non-authoritative.
 
-Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`; IA-R is reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` with specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. **IB0 is a candidate under independent exact-tip review and remains STOP; IB1+ remain blocked until a fresh zero-finding review.** The candidate ordering is **IA-R** remediation/review → **IB0** broker/webhook/provisioning contract review → **IB1** composed Stytch callback/code issuance → **IB2** public code consumption and Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover.
+Historical F0/PG1/PG2 are complete history; do not redispatch I1/I2. The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`; IA-R is reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` with specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. **IB0 independently passed design review at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical/Important/Minor; the post-merge cursor is credential-free IB1 only after this review-status commit reaches `master`.** The reviewed ordering remains **IA-R** remediation/review → **IB0** broker/webhook/provisioning contract freeze → **IB1** composed Stytch callback/code issuance → **IB2** public code consumption and Primer ES256/JWKS → **IB3** BFF cookies/CSRF/PKCE → **IB4** signed webhook/cache+grant revocation → **IB5** local service principals → **IB6** lifecycle → **IB7** hardening → **IB8** Studio/LMS/TV/live cutover; no IB1–IB8 implementation or live proof is claimed.
 
 S2 production validator/cutover waits for IB2+IB4 and applicable IB8 integration, and rejects raw Stytch tokens/roles/tuples. S9 live BFF waits for IB3+IB4; S15 uses only IB5-issued local service-principal machine JWTs; S19/X7 accept only Primer JWTs and need IB2+IB4 for delegated human writes, plus IB3+applicable IB8 for registration/publish confirmation. X2 is credential-free downstream Primer-token evidence; X3 is IB2+IB3+IB4 plus applicable IB8/S2/S9; X7 is IB2+IB4 plus S19/C12. `G-identity-stytch-broker` covers tuple mapping, Primer-only bridge, provider-outage fail-closed/no-negative-cache, and signed webhook replay/forgery/dedupe/out-of-order proof.

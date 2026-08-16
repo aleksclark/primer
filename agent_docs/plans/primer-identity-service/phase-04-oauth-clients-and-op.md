@@ -1,10 +1,10 @@
-# 04: IB0 / candidate broker, webhook, and provisioning remediation
+# 04: IB0 / reviewed broker, webhook, and provisioning design freeze
 
-**Status: STOP — under independent exact-tip review; not frozen or dispatch-ready.**
+**Status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Credential-free IB1 may PROCEED only after this review-status commit is merged to `master`; live Stytch remains **BLOCKED**.
 
 ## Goal
 
-Produce one candidate implementation authority for IB1–IB8 before any endpoint/schema work. The package is [`../stytch-identity-ib0/`](../stytch-identity-ib0/), remains **STOP**, and becomes authoritative only after a fresh independent zero-finding exact-tip review. It owns exact OAuth/BFF/MCP endpoints, tables, state machines, Stytch callback/webhook rules, failure semantics, rollout, traceability, and JWKS donor intake. IA-R at this branch base remains credential-free foundation only; live Stytch remains **BLOCKED**.
+Produce one reviewed design authority for IB1–IB8 before any endpoint/schema work. The package is [`../stytch-identity-ib0/`](../stytch-identity-ib0/) and is frozen by the independent zero-finding review recorded above. Its post-merge PROCEED applies only to credential-free IB1; later waves retain their own gates. It owns exact OAuth/BFF/MCP endpoints, tables, state machines, Stytch callback/webhook rules, failure semantics, rollout, traceability, and JWKS donor intake. IA-R at this branch base remains credential-free foundation only; live Stytch remains **BLOCKED**.
 
 ## BDD Success Criteria
 
@@ -53,9 +53,9 @@ Reject TBDs, invented Stytch session-event names, direct product→Stytch edges,
 
 ## Completion Gate
 
-- [ ] All files in the IB0 package resolve and distinguish verified facts from Primer policy.
-- [ ] `REQ-IB0-*` → `IB0-S*` → future `IB*-E*` traceability is complete.
-- [ ] Phase 05–09 and Studio/MCP/delivery/crosswalk dependencies agree.
-- [ ] LikeC4 required positive edges render and prohibited Stytch edges are absent.
-- [ ] Docs/architecture-only allowlist and `git diff --check` pass.
-- [ ] IB1 remains blocked unless the IB0 STOP/PROCEED checklist passes.
+- [x] All files in the IB0 package resolve and distinguish verified facts from Primer policy.
+- [x] `REQ-IB0-*` → `IB0-S*` → future `IB*-E*` traceability is complete.
+- [x] Phase 05–09 and Studio/MCP/delivery/crosswalk dependencies agree.
+- [x] LikeC4 required positive edges render and prohibited Stytch edges are absent.
+- [x] Docs/architecture-only allowlist and `git diff --check` pass.
+- [x] Credential-free IB1 remains blocked until this reviewed status is merged to `master`; later/live gates remain blocked.
