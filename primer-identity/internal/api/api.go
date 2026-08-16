@@ -16,12 +16,30 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aleksclark/primer/identity/internal/broker"
 )
 
 // Options configures Identity API construction.
 type Options struct {
 	// Now overrides the clock for tests.
 	Now func() time.Time
+	// Broker, when set, registers the IB1 OAuth/broker HTTP routes.
+	Broker *broker.Service
+	// BrokerHTTP configures cookie and CSRF origin policy for broker routes.
+	BrokerHTTP BrokerHTTPOptions
+}
+
+// BrokerHTTPOptions is the HTTP-only broker security policy. It never carries
+// provider secrets.
+type BrokerHTTPOptions struct {
+	// AllowedOrigin is the exact Origin accepted by mutating broker POSTs.
+	AllowedOrigin string
+	// InsecureTestCookie disables the Secure cookie flag. It is rejected when
+	// Production is true.
+	InsecureTestCookie bool
+	// Production enables fail-closed cookie policy (__Host- + Secure).
+	Production bool
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -31,9 +49,11 @@ type Pinger interface {
 
 // Server holds shared handler dependencies.
 type Server struct {
-	pool    Pinger
-	now     func() time.Time
-	reqTotal atomic.Int64
+	pool       Pinger
+	now        func() time.Time
+	reqTotal   atomic.Int64
+	broker     *broker.Service
+	brokerHTTP BrokerHTTPOptions
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -47,7 +67,10 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, now: now}
+	if opts.BrokerHTTP.Production && opts.BrokerHTTP.InsecureTestCookie {
+		panic("api: InsecureTestCookie is rejected when Production is true")
+	}
+	s := &Server{pool: pool, now: now, broker: opts.Broker, brokerHTTP: opts.BrokerHTTP}
 
 	router := chi.NewMux()
 	router.Use(middleware.Recoverer)
@@ -118,6 +141,8 @@ func (s *Server) RegisterRoutes(api huma.API) {
 		out.Body.Status = "ready"
 		return out, nil
 	})
+
+	s.registerBrokerRoutes(api)
 }
 
 // RequestIDMiddleware ensures every response carries X-Request-ID.
