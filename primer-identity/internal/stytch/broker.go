@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -40,6 +41,17 @@ type BrokerConfig struct {
 	LoginRedirectURL     string
 	SignupRedirectURL    string
 	PublicToken          string
+	// Proofs is the optional positive-only Sessions.Get proof cache. App
+	// composition supplies a process-scoped HMAC cache; scripted paths omit it.
+	Proofs SessionProofs
+}
+
+// SessionProofs is the positive-only revalidation cache used around official
+// Sessions.Get. Transient and negative results must never be stored.
+type SessionProofs interface {
+	Get(project, org, member, session string) (SessionSnapshot, bool)
+	Put(snapshot SessionSnapshot) bool
+	Invalidate(project, org, member, session string)
 }
 
 // Broker is the official v18.1.0-backed brokerprovider.Provider. It never
@@ -47,6 +59,7 @@ type BrokerConfig struct {
 type Broker struct {
 	adapter *Adapter
 	cfg     BrokerConfig
+	proofs  SessionProofs
 }
 
 var (
@@ -72,7 +85,7 @@ func NewBrokerWithHTTPClient(cfg BrokerConfig, injected *http.Client) (*Broker, 
 	if adapter == nil {
 		return nil, errors.New("stytch broker requires an enabled provider")
 	}
-	return &Broker{adapter: adapter, cfg: cfg}, nil
+	return &Broker{adapter: adapter, cfg: cfg, proofs: cfg.Proofs}, nil
 }
 
 func (c BrokerConfig) validate() error {
@@ -375,10 +388,52 @@ func (b *Broker) proveSession(ctx context.Context, method brokerprovider.Method,
 	if err != nil {
 		return brokerprovider.CallbackResult{}, mapSessionError(err)
 	}
-	proved, err := b.adapter.RevalidateMemberSession(ctx, snapshot.ProjectID, snapshot.OrganizationID, snapshot.MemberID, snapshot.ProviderMemberSessionID)
-	if err != nil {
-		return brokerprovider.CallbackResult{}, mapSessionError(err)
+	project, org, member, session := snapshot.ProjectID, snapshot.OrganizationID, snapshot.MemberID, snapshot.ProviderMemberSessionID
+	if snapshot.Active && snapshot.Eligible {
+		if cached, ok := b.lookupProof(project, org, member, session); ok {
+			return callbackFromProof(method, cached), nil
+		}
 	}
+	proved, err := b.adapter.RevalidateMemberSession(ctx, project, org, member, session)
+	if err != nil {
+		mapped := mapSessionError(err)
+		if errors.Is(mapped, brokerprovider.ErrDefinitiveDenial) {
+			b.invalidateProof(project, org, member, session)
+		}
+		return brokerprovider.CallbackResult{}, mapped
+	}
+	if proved.Active && proved.Eligible {
+		b.storeProof(proved)
+	}
+	return callbackFromProof(method, proved), nil
+}
+
+func (b *Broker) lookupProof(project, org, member, session string) (SessionSnapshot, bool) {
+	if b == nil || b.proofs == nil {
+		return SessionSnapshot{}, false
+	}
+	got, ok := b.proofs.Get(project, org, member, session)
+	if !ok || !got.Active || !got.Eligible || !got.ExpiresAt.After(time.Now().UTC()) {
+		return SessionSnapshot{}, false
+	}
+	return got, true
+}
+
+func (b *Broker) storeProof(snapshot SessionSnapshot) {
+	if b == nil || b.proofs == nil {
+		return
+	}
+	_ = b.proofs.Put(snapshot)
+}
+
+func (b *Broker) invalidateProof(project, org, member, session string) {
+	if b == nil || b.proofs == nil {
+		return
+	}
+	b.proofs.Invalidate(project, org, member, session)
+}
+
+func callbackFromProof(method brokerprovider.Method, proved SessionSnapshot) brokerprovider.CallbackResult {
 	return brokerprovider.CallbackResult{
 		Method:                 method,
 		Outcome:                brokerprovider.OutcomeAuthenticated,
@@ -387,7 +442,7 @@ func (b *Broker) proveSession(ctx context.Context, method brokerprovider.Method,
 		MemberID:               proved.MemberID,
 		MemberSessionID:        proved.ProviderMemberSessionID,
 		MemberSessionExpiresAt: proved.ExpiresAt,
-	}, nil
+	}
 }
 
 func selectDiscoveredMembership(orgs []discovery.DiscoveredOrganization, wantOrg string) (orgID, memberID string, ok bool) {

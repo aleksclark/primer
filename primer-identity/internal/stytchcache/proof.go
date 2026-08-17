@@ -11,6 +11,13 @@ import (
 	"github.com/aleksclark/primer/identity/internal/stytch"
 )
 
+const (
+	// DefaultProofCacheCapacity is the process-scoped official proof budget.
+	DefaultProofCacheCapacity = 256
+	// MaxProofCacheCapacity is the hard maximum accepted by NewProofCache.
+	MaxProofCacheCapacity = 1024
+)
+
 // ProofConfig configures the small, non-authoritative positive provider proof
 // cache. Keys are HMAC digests of the exact tuple/session ID, never tokens.
 type ProofConfig struct {
@@ -41,7 +48,7 @@ type ProofCache struct {
 }
 
 func NewProofCache(cfg ProofConfig) (*ProofCache, error) {
-	if len(cfg.HMACKey) < 32 || cfg.TTL <= 0 || cfg.TTL > 15*time.Second || cfg.Capacity <= 0 {
+	if len(cfg.HMACKey) < 32 || cfg.TTL <= 0 || cfg.TTL > 15*time.Second || cfg.Capacity <= 0 || cfg.Capacity > MaxProofCacheCapacity {
 		return nil, errors.New("invalid provider proof cache configuration")
 	}
 	if cfg.Now == nil {
@@ -49,6 +56,8 @@ func NewProofCache(cfg ProofConfig) (*ProofCache, error) {
 	}
 	return &ProofCache{key: append([]byte(nil), cfg.HMACKey...), ttl: cfg.TTL, capacity: cfg.Capacity, now: cfg.Now, entries: make(map[string]*list.Element), order: list.New()}, nil
 }
+
+var _ stytch.SessionProofs = (*ProofCache)(nil)
 
 func (c *ProofCache) digest(project, org, member, session string) string {
 	mac := hmac.New(sha256.New, c.key)

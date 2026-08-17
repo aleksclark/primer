@@ -2,6 +2,7 @@ package broker_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -1025,4 +1026,195 @@ func TestHighCountConcurrentCallbacksIssueExactlyOneCode(t *testing.T) {
 	require.NoError(t, pool.QueryRow(context.Background(),
 		`SELECT status FROM broker_transactions WHERE id=$1`, started.TransactionID).Scan(&status))
 	assert.Equal(t, domain.BrokerStatusAuthorized, status)
+}
+
+type recordingTypedProvider struct {
+	inner        *brokerprovider.ScriptedProvider
+	mu           sync.Mutex
+	typed        []brokerprovider.CallbackRequest
+	untyped      int
+	startReqs    []brokerprovider.StartRequest
+}
+
+func (p *recordingTypedProvider) StartLogin(ctx context.Context, req brokerprovider.StartRequest) (brokerprovider.StartResult, error) {
+	p.mu.Lock()
+	p.startReqs = append(p.startReqs, req)
+	p.mu.Unlock()
+	return p.inner.StartLogin(ctx, req)
+}
+
+func (p *recordingTypedProvider) CompleteCallback(ctx context.Context, artifact string) (brokerprovider.CallbackResult, error) {
+	p.mu.Lock()
+	p.untyped++
+	p.mu.Unlock()
+	return p.inner.CompleteCallback(ctx, artifact)
+}
+
+func (p *recordingTypedProvider) CompleteTypedCallback(ctx context.Context, req brokerprovider.CallbackRequest) (brokerprovider.CallbackResult, error) {
+	p.mu.Lock()
+	p.typed = append(p.typed, req)
+	p.mu.Unlock()
+	return p.inner.CompleteTypedCallback(ctx, req)
+}
+
+func TestCompleteCallbackUsesTypedProviderPath(t *testing.T) {
+	artifact := uniqueID("artifact-typed")
+	inner, artifact := scriptedSuccessNamed(t, artifact)
+	rec := &recordingTypedProvider{inner: inner}
+	svc := newService(t, rec)
+	clientID := uniqueID("typed")
+	redirect, resource, audience := registerClient(t, clientID)
+
+	started, err := svc.Authorize(context.Background(), authorizeReq(clientID, redirect, resource, audience, uniqueState("typed")))
+	require.NoError(t, err)
+
+	result, err := svc.CompleteCallback(context.Background(), broker.CallbackInput{
+		CookieValue: started.CookieValue,
+		Artifact:    artifact,
+		Type:        brokerprovider.ArtifactTypeDiscoveryMagicLink,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.Code)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	require.Len(t, rec.typed, 1, "service must call CompleteTypedCallback")
+	assert.Zero(t, rec.untyped, "service must not call untyped CompleteCallback on a TypedProvider")
+	assert.Equal(t, brokerprovider.ArtifactTypeDiscoveryMagicLink, rec.typed[0].Type)
+	assert.Equal(t, artifact, rec.typed[0].Artifact)
+}
+
+func TestStartMethodForwardsBoundedEmailAndSSOSelectors(t *testing.T) {
+	inner := scriptedSuccess(t, "artifact-start")
+	rec := &recordingTypedProvider{inner: inner}
+	svc := newService(t, rec)
+	clientID := uniqueID("start")
+	redirect, resource, audience := registerClient(t, clientID)
+
+	started, err := svc.Authorize(context.Background(), authorizeReq(clientID, redirect, resource, audience, uniqueState("start")))
+	require.NoError(t, err)
+
+	emailStart, err := svc.Start(context.Background(), started.CookieValue, broker.StartInput{
+		Method:       brokerprovider.MethodEmailMagicLink,
+		EmailAddress: "member@school.example",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, brokerprovider.MethodEmailMagicLink, emailStart.Method)
+	assert.Empty(t, emailStart.ContinueURL)
+
+	ssoStart, err := svc.Start(context.Background(), started.CookieValue, broker.StartInput{
+		Method:       brokerprovider.MethodSSOSAML,
+		ConnectionID: "saml-connection-test-example",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, brokerprovider.MethodSSOSAML, ssoStart.Method)
+
+	orgStart, err := svc.Start(context.Background(), started.CookieValue, broker.StartInput{
+		Method:         brokerprovider.MethodSSOOIDC,
+		OrganizationID: "organization-test-example",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, brokerprovider.MethodSSOOIDC, orgStart.Method)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	require.Len(t, rec.startReqs, 3)
+	assert.Equal(t, "member@school.example", rec.startReqs[0].EmailAddress)
+	assert.Equal(t, brokerprovider.MethodEmailMagicLink, rec.startReqs[0].Method)
+	assert.Equal(t, "saml-connection-test-example", rec.startReqs[1].ConnectionID)
+	assert.Equal(t, "organization-test-example", rec.startReqs[2].OrganizationID)
+	for _, req := range rec.startReqs {
+		encoded, err := json.Marshal(req)
+		require.NoError(t, err)
+		assert.NotContains(t, string(encoded), "secret")
+	}
+}
+
+func TestCompleteCallbackCapsGrantAndCodeByProviderExpiry(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	artifact := uniqueID("artifact-cap")
+	project, org, member, session := uniqueFixture()
+	providerExpires := now.Add(30 * time.Second)
+	provider, err := brokerprovider.NewScripted(brokerprovider.ScriptConfig{
+		Now: func() time.Time { return now },
+		Fixtures: []brokerprovider.Fixture{{
+			Artifact: artifact, Method: brokerprovider.MethodEmailMagicLink,
+			Outcome: brokerprovider.OutcomeAuthenticated, ProjectID: project,
+			OrganizationID: org, MemberID: member, MemberSessionID: session,
+			ExpiresAt: providerExpires,
+		}},
+	})
+	require.NoError(t, err)
+
+	pool := testutil.DB(t)
+	svc, err := broker.NewService(broker.ServiceConfig{
+		Pool: pool, Secrets: testSecrets(t), Provider: provider,
+		Issuer: "https://id.example", Now: func() time.Time { return now },
+	})
+	require.NoError(t, err)
+	clientID := uniqueID("cap")
+	redirect, resource, audience := registerClient(t, clientID)
+	started, err := svc.Authorize(context.Background(), authorizeReq(clientID, redirect, resource, audience, uniqueState("cap")))
+	require.NoError(t, err)
+
+	result, err := svc.CompleteCallback(context.Background(), broker.CallbackInput{
+		CookieValue: started.CookieValue, Artifact: artifact,
+		Type: brokerprovider.ArtifactTypeDiscoveryMagicLink,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.Code)
+
+	var grantNotAfter, grantedAt, codeExpires, codeIssued time.Time
+	require.NoError(t, pool.QueryRow(context.Background(), `
+SELECT g.not_after, g.granted_at, c.expires_at, c.issued_at
+FROM oauth_authorization_codes c
+JOIN oauth_grants g ON g.id = c.grant_id
+WHERE c.broker_transaction_id=$1`, started.TransactionID).Scan(&grantNotAfter, &grantedAt, &codeExpires, &codeIssued))
+	assert.WithinDuration(t, now, grantedAt.UTC(), time.Second)
+	assert.WithinDuration(t, providerExpires, grantNotAfter.UTC(), time.Second, "grant not_after must be min(issuedAt+24h, provider expiry)")
+	assert.WithinDuration(t, providerExpires, codeExpires.UTC(), time.Second, "code must not outlive the provider session")
+	assert.True(t, codeExpires.After(codeIssued))
+}
+
+func TestCompleteCallbackRejectsAlreadyExpiredProviderSession(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	artifact := uniqueID("artifact-expired-grant")
+	project, org, member, session := uniqueFixture()
+	provider, err := brokerprovider.NewScripted(brokerprovider.ScriptConfig{
+		Now: func() time.Time { return now.Add(-time.Second) },
+		Fixtures: []brokerprovider.Fixture{{
+			Artifact: artifact, Method: brokerprovider.MethodEmailMagicLink,
+			Outcome: brokerprovider.OutcomeAuthenticated, ProjectID: project,
+			OrganizationID: org, MemberID: member, MemberSessionID: session,
+			ExpiresAt: now,
+		}},
+	})
+	require.NoError(t, err)
+	pool := testutil.DB(t)
+	svc, err := broker.NewService(broker.ServiceConfig{
+		Pool: pool, Secrets: testSecrets(t), Provider: provider,
+		Issuer: "https://id.example", Now: func() time.Time { return now },
+	})
+	require.NoError(t, err)
+	clientID := uniqueID("expired")
+	redirect, resource, audience := registerClient(t, clientID)
+	started, err := svc.Authorize(context.Background(), authorizeReq(clientID, redirect, resource, audience, uniqueState("expired")))
+	require.NoError(t, err)
+
+	_, err = svc.CompleteCallback(context.Background(), broker.CallbackInput{
+		CookieValue: started.CookieValue, Artifact: artifact,
+		Type: brokerprovider.ArtifactTypeDiscoveryMagicLink,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, broker.ErrProviderDenied)
+
+	var codes, grants int
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM oauth_authorization_codes WHERE broker_transaction_id=$1`,
+		started.TransactionID).Scan(&codes))
+	assert.Zero(t, codes)
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM oauth_grants WHERE oauth_client_id=(SELECT oauth_client_id FROM broker_transactions WHERE id=$1)`,
+		started.TransactionID).Scan(&grants))
+	assert.Zero(t, grants)
 }

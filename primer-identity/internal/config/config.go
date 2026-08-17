@@ -193,6 +193,7 @@ type Config struct {
 	ProviderResponseMaxBytes       int           `split_words:"true" default:"1048576"`
 	ProviderMemberSessionsMax      int           `split_words:"true" default:"256"`
 	ProviderProofCacheTTL          time.Duration `split_words:"true" default:"15s"`
+	ProviderProofCacheCapacity     int           `split_words:"true" default:"256"`
 
 	StateSealKeySet            VersionedSecretSet `ignored:"true"`
 	StateHashPepperSet         VersionedSecretSet `ignored:"true"`
@@ -261,7 +262,7 @@ func (c *Config) Validate() error {
 	if err := db.ValidateDatabaseURL(c.DatabaseURL); err != nil {
 		return fmt.Errorf("identity config: %w", err)
 	}
-	if (c.BrokerTransactionTTL != 0 && c.BrokerTransactionTTL != 10*time.Minute) || (c.BrokerCookieTTL != 0 && c.BrokerCookieTTL != 10*time.Minute) || (c.AuthorizationCodeTTL != 0 && c.AuthorizationCodeTTL != time.Minute) || (c.AuthorizeTargetMaxBytes != 0 && c.AuthorizeTargetMaxBytes != 8192) || (c.ProviderRevalidationDeadline != 0 && c.ProviderRevalidationDeadline != 2*time.Second) || (c.ProviderResponseMaxBytes != 0 && c.ProviderResponseMaxBytes != 1<<20) || (c.ProviderMemberSessionsMax != 0 && c.ProviderMemberSessionsMax != 256) || (c.ProviderProofCacheTTL != 0 && (c.ProviderProofCacheTTL <= 0 || c.ProviderProofCacheTTL > 15*time.Second)) {
+	if (c.BrokerTransactionTTL != 0 && c.BrokerTransactionTTL != 10*time.Minute) || (c.BrokerCookieTTL != 0 && c.BrokerCookieTTL != 10*time.Minute) || (c.AuthorizationCodeTTL != 0 && c.AuthorizationCodeTTL != time.Minute) || (c.AuthorizeTargetMaxBytes != 0 && c.AuthorizeTargetMaxBytes != 8192) || (c.ProviderRevalidationDeadline != 0 && c.ProviderRevalidationDeadline != 2*time.Second) || (c.ProviderResponseMaxBytes != 0 && c.ProviderResponseMaxBytes != 1<<20) || (c.ProviderMemberSessionsMax != 0 && c.ProviderMemberSessionsMax != 256) || (c.ProviderProofCacheTTL != 0 && (c.ProviderProofCacheTTL <= 0 || c.ProviderProofCacheTTL > 15*time.Second)) || (c.ProviderProofCacheCapacity != 0 && (c.ProviderProofCacheCapacity <= 0 || c.ProviderProofCacheCapacity > 1024)) {
 		return fmt.Errorf("identity config: invalid IB1 bounded lifetime or provider limit")
 	}
 	if serviceEnv == "production" {

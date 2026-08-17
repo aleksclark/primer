@@ -64,6 +64,8 @@ func TestProofCacheRejectsTTLOverFifteenSecondsAndShortKey(t *testing.T) {
 	require.Error(t, err)
 	_, err = NewProofCache(ProofConfig{HMACKey: bytes.Repeat([]byte{1}, 32), TTL: 0, Capacity: 1})
 	require.Error(t, err)
+	_, err = NewProofCache(ProofConfig{HMACKey: bytes.Repeat([]byte{1}, 32), TTL: time.Second, Capacity: MaxProofCacheCapacity + 1})
+	require.Error(t, err)
 }
 
 func TestProofCacheDoesNotCacheInactiveOrExpiredAndInvalidatesOneKey(t *testing.T) {

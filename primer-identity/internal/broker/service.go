@@ -255,6 +255,13 @@ type CallbackInput struct {
 	// Artifact is the one-time provider callback artifact. It is consumed
 	// server-side in memory and never persisted or reflected.
 	Artifact string
+	// Type is the recognized callback artifact class (token vs sso_token plus
+	// the allowed Stytch authenticate surface). Production adapters require it.
+	Type brokerprovider.ArtifactType
+	// EmailAddress is required to verify an email OTP. It is never persisted.
+	EmailAddress string
+	// OrganizationID selects organization-scoped OTP or magic-link completion.
+	OrganizationID string
 }
 
 // CallbackResult is returned only after the issuance transaction commits.
@@ -301,7 +308,7 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		return CallbackResult{}, err
 	}
 
-	result, providerErr := s.provider.CompleteCallback(ctx, in.Artifact)
+	result, providerErr := s.completeProviderCallback(ctx, in)
 	if providerErr != nil {
 		switch {
 		case errors.Is(providerErr, brokerprovider.ErrProviderUnavailable):
@@ -363,6 +370,11 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 	}
 
 	issuedAt := s.now().UTC()
+	grantNotAfter, codeExpiresAt, err := capGrantAndCode(issuedAt, result.MemberSessionExpiresAt)
+	if err != nil {
+		s.terminalize(ctx, binding, domain.BrokerStatusDenied)
+		return CallbackResult{}, ErrProviderDenied
+	}
 	_, err = repo.IssueCallbackArtifacts(ctx, s.pool, repo.IssueCallbackArtifactsInput{
 		BrokerID: binding.transactionID, ExpectedVersion: binding.version,
 		AccountID: account.ID, MappingID: mappingID,
@@ -374,8 +386,8 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		Scopes: binding.scopes, PKCEChallenge: binding.pkceChallenge,
 		PKCEMethod: binding.pkceMethod, CodeHash: codeHash,
 		PepperVersion: int16(s.secrets.AuthorizationCodeActiveVersion),
-		IssuedAt:      issuedAt, ExpiresAt: issuedAt.Add(AuthorizationCodeTTL),
-		GrantNotAfter: issuedAt.Add(GrantLifetime),
+		IssuedAt:      issuedAt, ExpiresAt: codeExpiresAt,
+		GrantNotAfter: grantNotAfter,
 	})
 	if err != nil {
 		if errors.Is(err, repo.ErrStaleCAS) {
@@ -402,6 +414,36 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		RedirectURI: binding.redirectURI, Code: code, State: recovered,
 		Issuer: s.issuer, AccountID: account.ID, TransactionID: binding.transactionID,
 	}, nil
+}
+
+func (s *Service) completeProviderCallback(ctx context.Context, in CallbackInput) (brokerprovider.CallbackResult, error) {
+	if typed, ok := s.provider.(brokerprovider.TypedProvider); ok {
+		return typed.CompleteTypedCallback(ctx, brokerprovider.CallbackRequest{
+			Type:           in.Type,
+			Artifact:       in.Artifact,
+			EmailAddress:   in.EmailAddress,
+			OrganizationID: in.OrganizationID,
+		})
+	}
+	return s.provider.CompleteCallback(ctx, in.Artifact)
+}
+
+func capGrantAndCode(issuedAt, providerExpiresAt time.Time) (grantNotAfter, codeExpiresAt time.Time, err error) {
+	if !providerExpiresAt.After(issuedAt) {
+		return time.Time{}, time.Time{}, ErrProviderDenied
+	}
+	grantNotAfter = issuedAt.Add(GrantLifetime)
+	if providerExpiresAt.Before(grantNotAfter) {
+		grantNotAfter = providerExpiresAt
+	}
+	codeExpiresAt = issuedAt.Add(AuthorizationCodeTTL)
+	if providerExpiresAt.Before(codeExpiresAt) {
+		codeExpiresAt = providerExpiresAt
+	}
+	if !codeExpiresAt.After(issuedAt) || !grantNotAfter.After(issuedAt) {
+		return time.Time{}, time.Time{}, ErrProviderDenied
+	}
+	return grantNotAfter, codeExpiresAt, nil
 }
 
 type liveBinding struct {

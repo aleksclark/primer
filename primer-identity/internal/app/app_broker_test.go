@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -188,6 +189,7 @@ func TestRunRejectsProductionTestSeamsBeforeListen(t *testing.T) {
 		{"provider", app.Options{Provider: provider}},
 		{"enable", app.Options{EnableBrokerForTest: true}},
 		{"insecure cookie", app.Options{InsecureBrokerCookieForTest: true}},
+		{"proof key source", app.Options{ProofKeySource: func([]byte) (int, error) { return 32, nil }}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -335,6 +337,57 @@ func TestRunInjectedBrokerComposesAuthorizeLoginCallback(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(combined), "session_jwt")
 	assert.NotContains(t, strings.ToLower(combined), "session_token")
 	assert.NotContains(t, combined, artifact)
+}
+
+func TestRunFailsBeforeListenWhenOfficialProofCacheCSPRNGFails(t *testing.T) {
+	cfg := brokerTestConfig(t, "test")
+	cfg.Stytch = config.StytchConfig{
+		Enabled: true, ProjectID: "project-test-example", Secret: "secret-must-not-leak",
+		Env: "test", RequestTimeout: 3 * time.Second,
+		PositiveCacheTTL: 15 * time.Second, NegativeCacheTTL: 5 * time.Second,
+		PositiveCacheCapacity: 10000, NegativeCacheCapacity: 2000,
+	}
+	cfg.ProviderProofCacheTTL = 15 * time.Second
+	cfg.ProviderProofCacheCapacity = 256
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	err = app.Run(context.Background(), app.Options{
+		Config: cfg, SkipMigrate: true,
+		ProofKeySource: func([]byte) (int, error) { return 0, io.ErrUnexpectedEOF },
+	})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret-must-not-leak")
+	assert.NotContains(t, strings.ToLower(err.Error()), "listening")
+	conn, dialErr := net.DialTimeout("tcp", addr, 150*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		t.Fatal("process listened despite official proof-cache CSPRNG failure")
+	}
+}
+
+func TestRunInjectedProviderDoesNotComposeOfficialProofCache(t *testing.T) {
+	var reads atomic.Int64
+	cfg := brokerTestConfig(t, "test")
+	baseURL, logs, _ := startApp(t, cfg, app.Options{
+		Provider:                    scriptedOK(t, "scripted-no-proof-cache"),
+		EnableBrokerForTest:         true,
+		InsecureBrokerCookieForTest: true,
+		ProofKeySource: func(b []byte) (int, error) {
+			reads.Add(1)
+			return copy(b, bytes.Repeat([]byte{7}, len(b))), nil
+		},
+	})
+	assert.Zero(t, reads.Load(), "scripted injected provider must not mint an official proof-cache key")
+	assert.NotContains(t, strings.ToLower(logs.String()), "proof cache")
+	assert.NotContains(t, strings.ToLower(logs.String()), "hmac")
+	client := noFollow()
+	ready, err := client.Get(baseURL + "/readyz")
+	require.NoError(t, err)
+	_ = ready.Body.Close()
+	assert.Equal(t, http.StatusOK, ready.StatusCode)
 }
 
 func brokerCookie(resp *http.Response) string {

@@ -272,6 +272,9 @@ func TestValidateProductionRequiresVersionedSecretsAndRejectsInvalidIB1Bounds(t 
 	cfg.ProviderProofCacheTTL = 16 * time.Second
 	require.Error(t, cfg.Validate())
 	cfg = validConfig()
+	cfg.ProviderProofCacheCapacity = 2048
+	require.Error(t, cfg.Validate())
+	cfg = validConfig()
 	cfg.ProviderRevalidationDeadline = 3 * time.Second
 	require.Error(t, cfg.Validate())
 }

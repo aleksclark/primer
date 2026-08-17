@@ -220,10 +220,11 @@ func (p *ScriptedProvider) StartLogin(ctx context.Context, req StartRequest) (St
 }
 
 // CompleteTypedCallback consumes a recognized one-time artifact. An unknown
-// type is a definitive denial and does not consult fixtures.
+// type is a definitive denial and does not consult fixtures. An empty type
+// remains compatible with credential-free scripted fixtures.
 func (p *ScriptedProvider) CompleteTypedCallback(ctx context.Context, req CallbackRequest) (CallbackResult, error) {
 	switch req.Type {
-	case ArtifactTypeMagicLink, ArtifactTypeDiscoveryMagicLink, ArtifactTypeEmailOTP, ArtifactTypeDiscoveryEmailOTP, ArtifactTypeSSOToken:
+	case "", ArtifactTypeMagicLink, ArtifactTypeDiscoveryMagicLink, ArtifactTypeEmailOTP, ArtifactTypeDiscoveryEmailOTP, ArtifactTypeSSOToken:
 		return p.CompleteCallback(ctx, req.Artifact)
 	default:
 		return CallbackResult{}, ErrDefinitiveDenial

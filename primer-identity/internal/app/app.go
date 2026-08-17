@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/aleksclark/primer/identity/internal/db"
 	"github.com/aleksclark/primer/identity/internal/logging"
 	"github.com/aleksclark/primer/identity/internal/stytch"
+	"github.com/aleksclark/primer/identity/internal/stytchcache"
 )
 
 // Options customizes process bootstrap for tests.
@@ -46,6 +48,9 @@ type Options struct {
 	// InsecureBrokerCookieForTest disables the Secure cookie flag. Rejected
 	// in production. The production binary has no environment test-provider mode.
 	InsecureBrokerCookieForTest bool
+	// ProofKeySource overrides the CSPRNG used to mint the official proof-cache
+	// HMAC key. Tests only; production always uses crypto/rand.
+	ProofKeySource func([]byte) (int, error)
 }
 
 // Result is returned after a successful Run that has shut down.
@@ -78,7 +83,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	if cfg.Env == "production" && (opts.Provider != nil || opts.EnableBrokerForTest || opts.InsecureBrokerCookieForTest) {
+	if cfg.Env == "production" && (opts.Provider != nil || opts.EnableBrokerForTest || opts.InsecureBrokerCookieForTest || opts.ProofKeySource != nil) {
 		return errProductionTestSeam
 	}
 
@@ -98,12 +103,17 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		provider = opts.Provider
 		if provider == nil {
+			proofs, err := newOfficialProofCache(cfg, opts.ProofKeySource)
+			if err != nil {
+				return errBrokerUnavailable
+			}
 			official, err := stytch.NewBroker(stytch.BrokerConfig{
 				Stytch:               cfg.Stytch,
 				DiscoveryRedirectURL: cfg.BrokerDiscoveryRedirectURL,
 				LoginRedirectURL:     cfg.BrokerLoginRedirectURL,
 				SignupRedirectURL:    cfg.BrokerSignupRedirectURL,
 				PublicToken:          cfg.StytchPublicToken,
+				Proofs:               proofs,
 			})
 			if err != nil {
 				return errBrokerUnavailable
@@ -192,6 +202,39 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	logger.Info("shutdown complete", "addr", addr)
 	return nil
+}
+
+func newOfficialProofCache(cfg *config.Config, source func([]byte) (int, error)) (*stytchcache.ProofCache, error) {
+	if cfg == nil {
+		return nil, errBrokerUnavailable
+	}
+	ttl := cfg.ProviderProofCacheTTL
+	if ttl == 0 {
+		ttl = 15 * time.Second
+	}
+	capacity := cfg.ProviderProofCacheCapacity
+	if capacity == 0 {
+		capacity = stytchcache.DefaultProofCacheCapacity
+	}
+	if source == nil {
+		source = rand.Read
+	}
+	key := make([]byte, 32)
+	n, err := source(key)
+	if err != nil || n != len(key) {
+		clear(key)
+		return nil, errBrokerUnavailable
+	}
+	cache, err := stytchcache.NewProofCache(stytchcache.ProofConfig{
+		HMACKey:  key,
+		TTL:      ttl,
+		Capacity: capacity,
+	})
+	clear(key)
+	if err != nil {
+		return nil, errBrokerUnavailable
+	}
+	return cache, nil
 }
 
 // WaitReady polls addr until /readyz returns 200 or timeout.

@@ -14,13 +14,33 @@ func (s *Service) BoundCookie(ctx context.Context, cookieValue string) error {
 	return err
 }
 
-// StartMethod begins a provider authentication attempt after confirming the
-// broker cookie is bound. It does not persist provider handles or artifacts.
-func (s *Service) StartMethod(ctx context.Context, cookieValue string, method brokerprovider.Method) (brokerprovider.StartResult, error) {
+// StartInput is the bounded application start request. HTTP later consumes it
+// without persisting email, connection, or organization selectors.
+type StartInput struct {
+	Method         brokerprovider.Method
+	EmailAddress   string
+	OrganizationID string
+	ConnectionID   string
+}
+
+// Start begins a provider authentication attempt after confirming the broker
+// cookie is bound. It does not persist provider handles or artifacts.
+func (s *Service) Start(ctx context.Context, cookieValue string, in StartInput) (brokerprovider.StartResult, error) {
 	if err := s.BoundCookie(ctx, cookieValue); err != nil {
 		return brokerprovider.StartResult{}, err
 	}
-	return s.provider.StartLogin(ctx, brokerprovider.StartRequest{Method: method})
+	return s.provider.StartLogin(ctx, brokerprovider.StartRequest{
+		Method:         in.Method,
+		EmailAddress:   in.EmailAddress,
+		OrganizationID: in.OrganizationID,
+		ConnectionID:   in.ConnectionID,
+	})
+}
+
+// StartMethod begins a provider authentication attempt after confirming the
+// broker cookie is bound. It does not persist provider handles or artifacts.
+func (s *Service) StartMethod(ctx context.Context, cookieValue string, method brokerprovider.Method) (brokerprovider.StartResult, error) {
+	return s.Start(ctx, cookieValue, StartInput{Method: method})
 }
 
 func (s *Service) liveBindingForCookie(ctx context.Context, cookieValue string) (liveBinding, error) {

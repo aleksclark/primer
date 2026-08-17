@@ -908,4 +908,268 @@ func assertNoRawFields(t *testing.T, got brokerprovider.CallbackResult) {
 	assert.LessOrEqual(t, utf8.RuneCountInString(got.MemberSessionID), 255)
 }
 
+func TestCompleteTypedCallbackProofCacheHitSkipsSessionsGet(t *testing.T) {
+	t.Parallel()
+	var gets atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/b2b/magic_links/authenticate":
+			writeJSON(w, http.StatusOK, authenticatedMemberBody("sess-token-must-not-leak"))
+		case "/v1/b2b/sessions/authenticate":
+			writeJSON(w, http.StatusOK, sessionAuthenticateBody())
+		case "/v1/b2b/sessions":
+			gets.Add(1)
+			writeJSON(w, http.StatusOK, sessionGetBody())
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	proofs := &countingProofs{now: time.Now}
+	cfg := brokerCfg(server.URL)
+	cfg.Proofs = proofs
+	p, err := stytch.NewBrokerWithHTTPClient(cfg, server.Client())
+	require.NoError(t, err)
+
+	req := brokerprovider.CallbackRequest{Type: brokerprovider.ArtifactTypeMagicLink, Artifact: brokerToken}
+	first, err := p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), gets.Load())
+	assert.Equal(t, brokerSession, first.MemberSessionID)
+
+	second, err := p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), gets.Load(), "positive proof cache must skip Sessions.Get")
+	assert.Equal(t, first.MemberSessionID, second.MemberSessionID)
+	assertNoRawFields(t, second)
+}
+
+func TestCompleteTypedCallbackProofCacheExpiryAndInvalidationRefetch(t *testing.T) {
+	t.Parallel()
+	var gets atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/b2b/magic_links/authenticate":
+			writeJSON(w, http.StatusOK, authenticatedMemberBody("sess-token-must-not-leak"))
+		case "/v1/b2b/sessions/authenticate":
+			writeJSON(w, http.StatusOK, sessionAuthenticateBody())
+		case "/v1/b2b/sessions":
+			gets.Add(1)
+			writeJSON(w, http.StatusOK, sessionGetBody())
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	now := time.Now().UTC()
+	proofs := &countingProofs{now: func() time.Time { return now }}
+	cfg := brokerCfg(server.URL)
+	cfg.Proofs = proofs
+	p, err := stytch.NewBrokerWithHTTPClient(cfg, server.Client())
+	require.NoError(t, err)
+	req := brokerprovider.CallbackRequest{Type: brokerprovider.ArtifactTypeMagicLink, Artifact: brokerToken}
+	_, err = p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), gets.Load())
+
+	now = now.Add(16 * time.Second)
+	_, err = p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), gets.Load(), "expired proof must refetch Sessions.Get")
+
+	proofs.Invalidate("project-test-example", brokerOrg, brokerMember, brokerSession)
+	_, err = p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), gets.Load(), "invalidated proof must refetch")
+}
+
+func TestCompleteTypedCallbackTransientDoesNotCache(t *testing.T) {
+	t.Parallel()
+	var gets atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/b2b/magic_links/authenticate":
+			writeJSON(w, http.StatusOK, authenticatedMemberBody("sess-token-must-not-leak"))
+		case "/v1/b2b/sessions/authenticate":
+			writeJSON(w, http.StatusOK, sessionAuthenticateBody())
+		case "/v1/b2b/sessions":
+			n := gets.Add(1)
+			if n == 1 {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"status_code": 502, "error_type": "internal_server_error"})
+				return
+			}
+			writeJSON(w, http.StatusOK, sessionGetBody())
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	proofs := &countingProofs{now: time.Now}
+	cfg := brokerCfg(server.URL)
+	cfg.Proofs = proofs
+	p, err := stytch.NewBrokerWithHTTPClient(cfg, server.Client())
+	require.NoError(t, err)
+	req := brokerprovider.CallbackRequest{Type: brokerprovider.ArtifactTypeMagicLink, Artifact: brokerToken}
+	_, err = p.CompleteTypedCallback(context.Background(), req)
+	require.ErrorIs(t, err, brokerprovider.ErrProviderUnavailable)
+	assert.Zero(t, proofs.puts.Load(), "transient Sessions.Get must not cache")
+
+	got, err := p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, brokerSession, got.MemberSessionID)
+	assert.Equal(t, int64(2), gets.Load())
+}
+
+func TestCompleteTypedCallbackDefinitiveDoesNotCacheAndInvalidates(t *testing.T) {
+	t.Parallel()
+	var gets atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/b2b/magic_links/authenticate":
+			writeJSON(w, http.StatusOK, authenticatedMemberBody("sess-token-must-not-leak"))
+		case "/v1/b2b/sessions/authenticate":
+			writeJSON(w, http.StatusOK, sessionAuthenticateBody())
+		case "/v1/b2b/sessions":
+			n := gets.Add(1)
+			if n == 2 {
+				writeJSON(w, http.StatusOK, map[string]any{"member_sessions": []map[string]any{}})
+				return
+			}
+			writeJSON(w, http.StatusOK, sessionGetBody())
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	proofs := &countingProofs{now: time.Now}
+	cfg := brokerCfg(server.URL)
+	cfg.Proofs = proofs
+	p, err := stytch.NewBrokerWithHTTPClient(cfg, server.Client())
+	require.NoError(t, err)
+	req := brokerprovider.CallbackRequest{Type: brokerprovider.ArtifactTypeMagicLink, Artifact: brokerToken}
+	first, err := p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, brokerSession, first.MemberSessionID)
+	assert.Equal(t, int64(1), proofs.puts.Load())
+
+	proofs.Invalidate("project-test-example", brokerOrg, brokerMember, brokerSession)
+	before := proofs.invalidates.Load()
+	_, err = p.CompleteTypedCallback(context.Background(), req)
+	require.ErrorIs(t, err, brokerprovider.ErrDefinitiveDenial)
+	assert.Equal(t, int64(1), proofs.puts.Load(), "definitive Sessions.Get must not cache")
+	assert.Equal(t, before+1, proofs.invalidates.Load())
+
+	_, err = p.CompleteTypedCallback(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), gets.Load())
+	assert.Equal(t, int64(2), proofs.puts.Load())
+}
+
+func TestCompleteTypedCallbackProofCacheRaceDoesNotOvercallGet(t *testing.T) {
+	t.Parallel()
+	var gets atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/b2b/magic_links/authenticate":
+			writeJSON(w, http.StatusOK, authenticatedMemberBody("sess-token-must-not-leak"))
+		case "/v1/b2b/sessions/authenticate":
+			writeJSON(w, http.StatusOK, sessionAuthenticateBody())
+		case "/v1/b2b/sessions":
+			gets.Add(1)
+			writeJSON(w, http.StatusOK, sessionGetBody())
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	proofs := &countingProofs{now: time.Now}
+	cfg := brokerCfg(server.URL)
+	cfg.Proofs = proofs
+	p, err := stytch.NewBrokerWithHTTPClient(cfg, server.Client())
+	require.NoError(t, err)
+	first, err := p.CompleteTypedCallback(context.Background(), brokerprovider.CallbackRequest{
+		Type: brokerprovider.ArtifactTypeMagicLink, Artifact: brokerToken,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), gets.Load())
+
+	const workers = 32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	var failures atomic.Int64
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, callErr := p.CompleteTypedCallback(context.Background(), brokerprovider.CallbackRequest{
+				Type: brokerprovider.ArtifactTypeMagicLink, Artifact: brokerToken,
+			})
+			if callErr != nil || got.MemberSessionID != first.MemberSessionID {
+				failures.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	assert.Zero(t, failures.Load())
+	assert.Equal(t, int64(1), gets.Load(), "cached race must skip Sessions.Get")
+	assertNoRawFields(t, first)
+}
+
+type countingProofs struct {
+	now         func() time.Time
+	mu          sync.Mutex
+	item        *stytch.SessionSnapshot
+	exp         time.Time
+	puts        atomic.Int64
+	invalidates atomic.Int64
+}
+
+func (c *countingProofs) Get(project, org, member, session string) (stytch.SessionSnapshot, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.item == nil || c.item.ProjectID != project || c.item.OrganizationID != org || c.item.MemberID != member || c.item.ProviderMemberSessionID != session {
+		return stytch.SessionSnapshot{}, false
+	}
+	now := c.now()
+	if !c.exp.After(now) || !c.item.ExpiresAt.After(now) {
+		c.item = nil
+		return stytch.SessionSnapshot{}, false
+	}
+	return *c.item, true
+}
+
+func (c *countingProofs) Put(snapshot stytch.SessionSnapshot) bool {
+	c.puts.Add(1)
+	if !snapshot.Active || !snapshot.Eligible || !snapshot.ExpiresAt.After(c.now()) {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	copy := snapshot
+	c.item = &copy
+	exp := c.now().Add(15 * time.Second)
+	if snapshot.ExpiresAt.Before(exp) {
+		exp = snapshot.ExpiresAt
+	}
+	c.exp = exp
+	return true
+}
+
+func (c *countingProofs) Invalidate(project, org, member, session string) {
+	c.invalidates.Add(1)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.item != nil && c.item.ProjectID == project && c.item.OrganizationID == org && c.item.MemberID == member && c.item.ProviderMemberSessionID == session {
+		c.item = nil
+	}
+}
+
 var _ = errors.New

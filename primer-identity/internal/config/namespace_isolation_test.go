@@ -54,6 +54,7 @@ var prefixedIdentityKeys = []string{
 	"IDENTITY_AUTHORIZATION_CODE_PEPPERS",
 	"IDENTITY_AUTHORIZATION_CODE_ACTIVE_VERSION",
 	"IDENTITY_PROVIDER_PROOF_CACHE_TTL",
+	"IDENTITY_PROVIDER_PROOF_CACHE_CAPACITY",
 }
 
 var hostileBareEnv = map[string]string{
@@ -87,7 +88,8 @@ var hostileBareEnv = map[string]string{
 	"STATE_HASH_PEPPERS":         "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	"BROKER_COOKIE_PEPPERS":      "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	"AUTHORIZATION_CODE_PEPPERS": "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-	"PROVIDER_PROOF_CACHE_TTL":   "16s",
+	"PROVIDER_PROOF_CACHE_TTL":      "16s",
+	"PROVIDER_PROOF_CACHE_CAPACITY": "2048",
 }
 
 func clearPrefixedIdentityEnv(t *testing.T) {
@@ -144,6 +146,7 @@ func TestLoadIgnoresHostileBareVariablesInDevelopment(t *testing.T) {
 	assert.Empty(t, cfg.StateSealKeys)
 	assert.Zero(t, cfg.StateSealActiveVersion)
 	assert.Equal(t, 15*time.Second, cfg.ProviderProofCacheTTL)
+	assert.Equal(t, 256, cfg.ProviderProofCacheCapacity)
 }
 
 func TestLoadIgnoresHostileBareVariablesInTest(t *testing.T) {
