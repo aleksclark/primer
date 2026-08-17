@@ -78,6 +78,12 @@ func TestInsertSigningKeyRoundTrip(t *testing.T) {
 	assert.Equal(t, rec.PublicJWK, shared.PublicJWK)
 	assert.Equal(t, rec.SealedPrivateKey, shared.SealedPrivateKey)
 
+	listed, err := repo.ListSigningKeysByStatusForShare(ctx, tx, domain.SigningKeyStatusActive)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, got.ID, listed[0].ID)
+	assert.Equal(t, rec.SealedPrivateKey, listed[0].SealedPrivateKey)
+
 	blob, err := json.Marshal(loaded)
 	require.NoError(t, err)
 	assert.NotContains(t, string(blob), `"d"`)

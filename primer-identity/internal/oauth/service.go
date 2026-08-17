@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aleksclark/primer/identity/internal/domain"
@@ -148,6 +149,12 @@ type Dependencies struct {
 	Config  Config
 	// afterSign is a test-only hook invoked after signing and before commit.
 	afterSign func(tx pgx.Tx, issued token.IssuedToken) error
+}
+
+// TxSignerSource yields a transaction-scoped signer on the caller's existing
+// transaction. Implementations must not open an additional database connection.
+type TxSignerSource interface {
+	CurrentForTx(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error)
 }
 
 // Service exchanges one authorization code for an access JWT and opaque refresh.
@@ -327,10 +334,21 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 			return mapUnavailable(famErr)
 		}
 
+		txSigner, txMeta, signerErr := s.txSigner(ctx, tx)
+		if signerErr != nil {
+			if isRetryableSerialization(signerErr) {
+				return signerErr
+			}
+			return oauthErr(ErrorTemporarilyUnavail, "signer is unavailable")
+		}
+		if closer, ok := txSigner.(io.Closer); ok {
+			defer func() { _ = closer.Close() }()
+		}
+
 		subject := grant.AccountID.String()
 		scope := domain.FormatScopes(code.Scopes)
 		var persistErr error
-		issuedJWT, persistErr = s.minter.IssueHuman(ctx, token.HumanInput{
+		issuedJWT, persistErr = s.minter.IssueHumanWithSigner(ctx, token.HumanInput{
 			Subject:           subject,
 			Audience:          code.Audience,
 			ClientID:          client.ClientID,
@@ -338,7 +356,7 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 			TTL:               s.cfg.AccessTTL,
 			GrantNotAfter:     grant.NotAfter,
 			ProviderExpiresAt: assoc.ProviderExpiresAt,
-		}, func(_ context.Context, issued token.IssuedToken) error {
+		}, txSigner, txMeta, func(_ context.Context, issued token.IssuedToken) error {
 			jtiHash, hashErr := secrethash.Hash(secrethash.Peppers(s.secrets.AssertionPeppers), s.secrets.AssertionActiveVersion, accessJTIHashContext, []byte(issued.JTI))
 			if hashErr != nil {
 				sum := sha256.Sum256([]byte(issued.JTI))
@@ -644,8 +662,14 @@ func isRetryableSerialization(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "SQLSTATE 40001") || strings.Contains(msg, "SQLSTATE 40P01")
+	if errors.Is(err, domain.ErrRetryableSerialization) {
+		return true
+	}
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		return pe.Code == "40001" || pe.Code == "40P01"
+	}
+	return false
 }
 
 func mapUnavailable(err error) error {
@@ -656,6 +680,13 @@ func mapUnavailable(err error) error {
 		return oauthErr(ErrorInvalidGrant, "authorization code is invalid")
 	}
 	return oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
+}
+
+func (s *Service) txSigner(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error) {
+	if source, ok := s.signer.(TxSignerSource); ok {
+		return source.CurrentForTx(ctx, tx)
+	}
+	return s.signer.Current(ctx)
 }
 
 func zeroBytes(b []byte) {

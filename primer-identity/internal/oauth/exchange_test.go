@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -43,6 +44,10 @@ func (s keyServiceSignerSource) Current(ctx context.Context) (token.Signer, *dom
 		return nil, nil, err
 	}
 	return signer, meta, nil
+}
+
+func (s keyServiceSignerSource) CurrentForTx(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error) {
+	return s.svc.ActiveSignerForTx(ctx, tx)
 }
 
 func TestPublicClientAuthorizationCodeExchangeIssuesJWTAndRefresh(t *testing.T) {

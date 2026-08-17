@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aleksclark/primer/identity/internal/api"
 	"github.com/aleksclark/primer/identity/internal/broker"
 	"github.com/aleksclark/primer/identity/internal/brokerprovider"
@@ -214,7 +216,7 @@ func Run(ctx context.Context, opts Options) error {
 			_ = keySvc.Close()
 			return errTokenUnavailable
 		}
-		_ = oauthSvc
+		apiOpts.OAuth = oauthSvc
 		apiOpts.JWKS = jwks
 		defer func() { _ = keySvc.Close() }()
 	}
@@ -315,6 +317,13 @@ func (s keyServiceSigner) Current(ctx context.Context) (token.Signer, *domain.Si
 		return nil, nil, errTokenUnavailable
 	}
 	return s.svc.ActiveSigner(ctx)
+}
+
+func (s keyServiceSigner) CurrentForTx(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error) {
+	if s.svc == nil {
+		return nil, nil, errTokenUnavailable
+	}
+	return s.svc.ActiveSignerForTx(ctx, tx)
 }
 
 // WaitReady polls addr until /readyz returns 200 or timeout.

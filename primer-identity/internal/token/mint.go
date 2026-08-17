@@ -6,8 +6,10 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,15 +72,29 @@ func NewMinter(source SignerSource, issuer string, clock Clock) (*Minter, error)
 
 // IssueHuman signs a human access token, then invokes persist before returning it.
 func (m *Minter) IssueHuman(ctx context.Context, in HumanInput, persist PersistFunc) (IssuedToken, error) {
+	return m.finishIssue(ctx, in, persist, nil, nil)
+}
+
+// IssueHumanWithSigner signs with an already-prepared signer and metadata.
+// Callers that already hold a transaction-bound signer must use this so mint
+// does not check out another database connection.
+func (m *Minter) IssueHumanWithSigner(ctx context.Context, in HumanInput, signer Signer, meta *domain.SigningKey, persist PersistFunc) (IssuedToken, error) {
+	if signer == nil || meta == nil {
+		return IssuedToken{}, denyUnavailable()
+	}
+	return m.finishIssue(ctx, in, persist, signer, meta)
+}
+
+func (m *Minter) finishIssue(ctx context.Context, in HumanInput, persist PersistFunc, signer Signer, meta *domain.SigningKey) (IssuedToken, error) {
 	if persist == nil {
 		return IssuedToken{}, denyUnavailable()
 	}
-	issued, err := m.issueHuman(ctx, in)
+	issued, err := m.issueHuman(ctx, in, signer, meta)
 	if err != nil {
 		return IssuedToken{}, err
 	}
 	if err := persist(ctx, issued); err != nil {
-		return IssuedToken{}, denyUnavailable()
+		return IssuedToken{}, persistFailure(err)
 	}
 	if ctx != nil && ctx.Err() != nil {
 		return IssuedToken{}, denyUnavailable()
@@ -86,7 +102,7 @@ func (m *Minter) IssueHuman(ctx context.Context, in HumanInput, persist PersistF
 	return issued, nil
 }
 
-func (m *Minter) issueHuman(ctx context.Context, in HumanInput) (IssuedToken, error) {
+func (m *Minter) issueHuman(ctx context.Context, in HumanInput, prepared Signer, preparedMeta *domain.SigningKey) (IssuedToken, error) {
 	if m == nil || m.source == nil {
 		return IssuedToken{}, denyUnavailable()
 	}
@@ -139,7 +155,19 @@ func (m *Minter) issueHuman(ctx context.Context, in HumanInput) (IssuedToken, er
 		return IssuedToken{}, err
 	}
 
-	signer, meta, err := m.source.Current(operationCtx)
+	var (
+		signer Signer
+		meta   *domain.SigningKey
+	)
+	if prepared != nil {
+		signer, meta = prepared, preparedMeta
+	} else {
+		var sourceErr error
+		signer, meta, sourceErr = m.source.Current(operationCtx)
+		if sourceErr != nil {
+			err = sourceErr
+		}
+	}
 	if _, freshnessErr := freshness.sample(0, false); freshnessErr != nil {
 		return IssuedToken{}, freshnessErr
 	}
@@ -272,6 +300,24 @@ func (f *mintFreshness) sample(exp int64, enforceExpiry bool) (time.Time, error)
 		return time.Time{}, denyUnavailable()
 	}
 	return now, nil
+}
+
+func persistFailure(err error) error {
+	if isRetryableSerialization(err) {
+		return domain.ErrRetryableSerialization
+	}
+	return denyUnavailable()
+}
+
+func isRetryableSerialization(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, domain.ErrRetryableSerialization) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLSTATE 40001") || strings.Contains(msg, "SQLSTATE 40P01")
 }
 
 func newRandomJTI(ctx context.Context) (uuid.UUID, error) {

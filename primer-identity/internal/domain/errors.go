@@ -21,4 +21,8 @@ var (
 
 	// ErrCorruptSigner is returned when stored key material cannot be used.
 	ErrCorruptSigner = errors.New("corrupt signer")
+
+	// ErrRetryableSerialization is a cause-free signal that a serializable
+	// transaction should be retried. It never wraps SQL or persist text.
+	ErrRetryableSerialization = errors.New("retryable serialization")
 )

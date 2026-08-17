@@ -10,13 +10,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"math/big"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -340,7 +345,7 @@ func TestAssertionReplayPurgeIsBounded(t *testing.T) {
 
 func TestHighCountPublicExchanges(t *testing.T) {
 	base := time.Date(2026, 8, 17, 17, 5, 0, 0, time.UTC)
-	const n = 12
+	const n = 64
 	fxs := make([]issuedFixture, n)
 	for i := 0; i < n; i++ {
 		fxs[i] = issuedPublicCode(t, base.Add(time.Duration(i)*time.Minute))
@@ -353,12 +358,31 @@ func TestHighCountPublicExchanges(t *testing.T) {
 			defer wg.Done()
 			now := base.Add(time.Duration(i) * time.Minute)
 			fx := fxs[i]
-			svc := newTestService(t, fx.secrets, frozenClock{now: now})
-			_, err := svc.Exchange(context.Background(), oauth.ExchangeRequest{
+			tracer := newTracingSignerSource(fx.keys)
+			svc, err := oauth.NewService(oauth.Dependencies{
+				Pool:    testutil.DB(t),
+				Signer:  tracer,
+				Secrets: fx.secrets,
+				Clock:   frozenClock{now: now},
+				Config: oauth.Config{
+					Issuer:        testIssuer,
+					TokenEndpoint: testTokenEndpoint,
+					AccessTTL:     15 * time.Minute,
+				},
+			})
+			if err != nil {
+				errCh <- fmt.Errorf("new service: %w", err)
+				return
+			}
+			_, err = svc.Exchange(context.Background(), oauth.ExchangeRequest{
 				GrantType: oauth.GrantAuthorizationCode, Code: fx.rawCode, ClientID: fx.client.ClientID,
 				RedirectURI: fx.redirect.RedirectURI, Resource: fx.redirect.ResourceURI, CodeVerifier: testVerifier,
 			}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
-			errCh <- err
+			if err != nil {
+				errCh <- fmt.Errorf("exchange: %w [root=%v]", err, tracer.root())
+				return
+			}
+			errCh <- nil
 		}(i)
 	}
 	wg.Wait()
@@ -366,6 +390,92 @@ func TestHighCountPublicExchanges(t *testing.T) {
 	for err := range errCh {
 		require.NoError(t, err)
 	}
+}
+
+func TestBoundedPoolHighCountPublicExchanges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	base := time.Date(2026, 8, 17, 17, 40, 0, 0, time.UTC)
+	for _, maxConns := range []int32{8, 16, 32} {
+		t.Run(fmt.Sprintf("maxconns-%d", maxConns), func(t *testing.T) {
+			runBoundedPublicExchanges(t, base, maxConns, 64)
+			runBoundedPublicExchanges(t, base.Add(time.Hour), maxConns, 128)
+		})
+	}
+}
+
+func runBoundedPublicExchanges(t *testing.T, base time.Time, maxConns int32, n int) {
+	t.Helper()
+	pool := limitedTestPool(t, maxConns)
+	fxs := make([]issuedFixture, n)
+	for i := 0; i < n; i++ {
+		fxs[i] = issuedPublicCode(t, base.Add(time.Duration(i)*time.Second))
+	}
+	var wg sync.WaitGroup
+	errCh := make(chan error, n)
+	var current, currentTx atomic.Int64
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			now := base.Add(time.Duration(i) * time.Second)
+			fx := fxs[i]
+			tracer := newTracingSignerSource(fx.keys)
+			svc, err := oauth.NewService(oauth.Dependencies{
+				Pool:    pool,
+				Signer:  tracer,
+				Secrets: fx.secrets,
+				Clock:   frozenClock{now: now},
+				Config: oauth.Config{
+					Issuer:        testIssuer,
+					TokenEndpoint: testTokenEndpoint,
+					AccessTTL:     15 * time.Minute,
+				},
+			})
+			if err != nil {
+				errCh <- fmt.Errorf("new service: %w", err)
+				return
+			}
+			_, err = svc.Exchange(context.Background(), oauth.ExchangeRequest{
+				GrantType: oauth.GrantAuthorizationCode, Code: fx.rawCode, ClientID: fx.client.ClientID,
+				RedirectURI: fx.redirect.RedirectURI, Resource: fx.redirect.ResourceURI, CodeVerifier: testVerifier,
+			}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+			current.Add(tracer.current.Load())
+			currentTx.Add(tracer.currentTx.Load())
+			errCh <- err
+		}(i)
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(errCh)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(45 * time.Second):
+		t.Fatal("bounded public exchanges did not complete")
+	}
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int64(0), current.Load(), "issuance must not check out a nested ActiveSigner")
+	assert.GreaterOrEqual(t, currentTx.Load(), int64(n), "each successful exchange prepares a transaction-bound signer")
+	assert.LessOrEqual(t, currentTx.Load(), int64(n)*8, "signer checkouts stay within serializable retry bounds")
+	assert.LessOrEqual(t, pool.Stat().MaxConns(), maxConns)
+}
+
+func limitedTestPool(t *testing.T, maxConns int32) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(testutil.DatabaseURL(t))
+	require.NoError(t, err)
+	cfg.MaxConns = maxConns
+	cfg.MinConns = 0
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 func TestServiceHasNoHTTPOrRefreshRedemption(t *testing.T) {
@@ -558,4 +668,53 @@ type failingSignerSource struct{}
 
 func (failingSignerSource) Current(context.Context) (token.Signer, *domain.SigningKey, error) {
 	return nil, nil, errors.New("signer down")
+}
+
+type tracingSignerSource struct {
+	svc       *keys.Service
+	last      atomic.Value
+	current   atomic.Int64
+	currentTx atomic.Int64
+}
+
+func newTracingSignerSource(svc *keys.Service) *tracingSignerSource {
+	return &tracingSignerSource{svc: svc}
+}
+
+func (s *tracingSignerSource) Current(ctx context.Context) (token.Signer, *domain.SigningKey, error) {
+	s.current.Add(1)
+	signer, meta, err := s.svc.ActiveSigner(ctx)
+	if err != nil {
+		s.last.Store(err)
+		return nil, nil, err
+	}
+	return tracingSigner{Signer: signer, last: &s.last}, meta, nil
+}
+
+func (s *tracingSignerSource) CurrentForTx(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error) {
+	s.currentTx.Add(1)
+	signer, meta, err := s.svc.ActiveSignerForTx(ctx, tx)
+	if err != nil {
+		s.last.Store(err)
+		return nil, nil, err
+	}
+	return tracingSigner{Signer: signer, last: &s.last}, meta, nil
+}
+
+func (s *tracingSignerSource) root() error {
+	got, _ := s.last.Load().(error)
+	return got
+}
+
+type tracingSigner struct {
+	token.Signer
+	last *atomic.Value
+}
+
+func (s tracingSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	sig, err := s.Signer.Sign(rand, digest, opts)
+	if err != nil && s.last != nil {
+		s.last.Store(err)
+	}
+	return sig, err
 }

@@ -3,6 +3,7 @@ package token_test
 import (
 	"context"
 	"crypto"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -123,6 +124,89 @@ func TestHighCountIssueVerify(t *testing.T) {
 	for err := range errCh {
 		require.NoError(t, err)
 	}
+}
+
+func TestHighCountIssueVerifyWithKeyService(t *testing.T) {
+	pool := testutil.DB(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t), "test")
+	t.Cleanup(func() { _ = svc.Close() })
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	clock := frozenClock{now: time.Date(2026, 8, 16, 16, 30, 0, 0, time.UTC)}
+	tracer := &tokenTracingSignerSource{svc: svc}
+	minter, err := token.NewMinter(tracer, testIssuer, clock)
+	require.NoError(t, err)
+	keyset, err := token.NewKeySet(func(ctx context.Context) ([]domain.PublicJWK, error) {
+		return svc.PublicJWKS(ctx)
+	})
+	require.NoError(t, err)
+	require.NoError(t, keyset.Refresh(ctx))
+	verifier, err := token.NewVerifier(keyset, testIssuer, testAudience, clock, nil)
+	require.NoError(t, err)
+
+	const n = 64
+	start := make(chan struct{})
+	errCh := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			issued, err := minter.IssueHuman(ctx, humanInput(t), commitOK)
+			if err != nil {
+				errCh <- fmt.Errorf("issue: %w [root=%v]", err, tracer.root())
+				return
+			}
+			if issued.Kid != created.Kid {
+				errCh <- fmt.Errorf("kid mismatch got=%s want=%s", issued.Kid, created.Kid)
+				return
+			}
+			if _, err := verifier.Verify(ctx, issued.Compact); err != nil {
+				errCh <- fmt.Errorf("verify: %w", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+}
+
+type tokenTracingSignerSource struct {
+	svc  *keys.Service
+	last atomic.Value
+}
+
+func (s *tokenTracingSignerSource) Current(ctx context.Context) (token.Signer, *domain.SigningKey, error) {
+	signer, meta, err := s.svc.ActiveSigner(ctx)
+	if err != nil {
+		s.last.Store(err)
+		return nil, nil, err
+	}
+	return tokenTracingSigner{Signer: signer, last: &s.last}, meta, nil
+}
+
+func (s *tokenTracingSignerSource) root() error {
+	got, _ := s.last.Load().(error)
+	return got
+}
+
+type tokenTracingSigner struct {
+	token.Signer
+	last *atomic.Value
+}
+
+func (s tokenTracingSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	sig, err := s.Signer.Sign(rand, digest, opts)
+	if err != nil && s.last != nil {
+		s.last.Store(err)
+	}
+	return sig, err
 }
 
 func TestUnknownKidRefreshFailureIsUnavailable(t *testing.T) {

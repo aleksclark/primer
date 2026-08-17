@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"testing"
 	"time"
 
@@ -40,6 +41,10 @@ func (s keyServiceSignerSource) Current(ctx context.Context) (token.Signer, *dom
 		return nil, nil, err
 	}
 	return signer, meta, nil
+}
+
+func (s keyServiceSignerSource) CurrentForTx(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error) {
+	return s.svc.ActiveSignerForTx(ctx, tx)
 }
 
 func TestCommitFailureDiscardsSignedJWT(t *testing.T) {
@@ -100,6 +105,23 @@ CREATE TEMP TABLE oauth_commit_fail_probe (
 	require.NoError(t, err)
 	require.NotEmpty(t, retry.AccessToken)
 	require.NotEqual(t, signed, retry.AccessToken)
+}
+
+func TestOAuthErrorExposesFixedClassOnly(t *testing.T) {
+	fixed := oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
+	var oe *Error
+	require.True(t, errors.As(fixed, &oe))
+	assert.Equal(t, ErrorTemporarilyUnavail+": token issuance is unavailable", oe.Error())
+	assert.Nil(t, errors.Unwrap(oe))
+
+	mapped := mapUnavailable(errors.New("create token issuance audit: ERROR: could not serialize access (SQLSTATE 40001)"))
+	require.Equal(t, ErrorTemporarilyUnavail, ErrorCodeOf(mapped))
+	assert.Equal(t, ErrorTemporarilyUnavail+": token issuance is unavailable", mapped.Error())
+	assert.NotContains(t, mapped.Error(), "SQLSTATE")
+	assert.NotContains(t, mapped.Error(), "audit")
+	var mappedOE *Error
+	require.True(t, errors.As(mapped, &mappedOE))
+	assert.Nil(t, errors.Unwrap(mappedOE))
 }
 
 type issuedInternalFixture struct {

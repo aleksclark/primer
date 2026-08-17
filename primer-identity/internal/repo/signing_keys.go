@@ -173,6 +173,37 @@ func ListSigningKeysByStatus(ctx context.Context, q Querier, status string, forU
 	return out, nil
 }
 
+// ListSigningKeysByStatusForShare returns every row with the given status while
+// holding PostgreSQL's row-level FOR SHARE lock until the caller commits or
+// rolls back. Use this from an existing transaction so issuance does not open
+// a nested pool checkout.
+func ListSigningKeysByStatusForShare(ctx context.Context, tx pgx.Tx, status string) ([]SigningKeyRecord, error) {
+	if err := domain.ValidateSigningKeyStatus(status); err != nil {
+		return nil, wrapf("list signing keys for share", err)
+	}
+	const sqlStr = `SELECT ` + signingKeyColumns + ` FROM signing_keys WHERE status = $1 ORDER BY created_at ASC, kid ASC FOR SHARE`
+	rows, err := tx.Query(ctx, sqlStr, status)
+	if err != nil {
+		return nil, wrapf("list signing keys for share", err)
+	}
+	defer rows.Close()
+	var out []SigningKeyRecord
+	for rows.Next() {
+		got, err := scanSigningKey(rows)
+		if err != nil {
+			return nil, wrapf("list signing keys for share", err)
+		}
+		out = append(out, *got)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapf("list signing keys for share", err)
+	}
+	if out == nil {
+		out = []SigningKeyRecord{}
+	}
+	return out, nil
+}
+
 // CountSigningKeysByStatus counts rows in one lifecycle state.
 func CountSigningKeysByStatus(ctx context.Context, q Querier, status string) (int, error) {
 	if err := domain.ValidateSigningKeyStatus(status); err != nil {

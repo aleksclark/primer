@@ -1002,6 +1002,260 @@ func TestReadyFailsClosedWithoutUsableActive(t *testing.T) {
 	require.NoError(t, svc.Ready(ctx))
 }
 
+func TestHighCountConcurrentActiveSignerAndSign(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	const callers = 64
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			signer, meta, err := svc.ActiveSigner(ctx)
+			if err != nil {
+				errs <- fmt.Errorf("active signer: %w", err)
+				return
+			}
+			if meta == nil || meta.Kid != created.Kid {
+				errs <- fmt.Errorf("active signer kid mismatch")
+				return
+			}
+			digest := sha256.Sum256([]byte("bounded-parallel-sign"))
+			if _, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256); err != nil {
+				errs <- fmt.Errorf("sign: %w", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	recovered, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+	digest := sha256.Sum256([]byte("post-parallel-sign"))
+	_, err = recovered.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+}
+
+func TestManagedSignerDoesNotRevokeOnTransientPoolExhaustion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	base, url := dedicatedPoolURL(t)
+	created, err := keys.NewService(base, custodyConfig(t, "test", false), "test").CreateInitialActive(context.Background())
+	require.NoError(t, err)
+	_ = created
+
+	cfg, err := pgxpool.ParseConfig(url)
+	require.NoError(t, err)
+	cfg.MaxConns = 1
+	cfg.MinConns = 0
+	limited, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(limited.Close)
+
+	svc := keys.NewService(limited, custodyConfig(t, "test", false), "test")
+	signer, meta, err := svc.ActiveSigner(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+
+	held, err := limited.Acquire(context.Background())
+	require.NoError(t, err)
+
+	digest := sha256.Sum256([]byte("pool-exhaustion"))
+	started := time.Now()
+	sig, signErr := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	assert.LessOrEqual(t, time.Since(started), 2500*time.Millisecond)
+	require.Error(t, signErr)
+	assert.Nil(t, sig)
+	assert.NotContains(t, strings.ToLower(signErr.Error()), "private")
+	assert.False(t, errors.Is(signErr, keys.ErrSignerRevoked), "transient pool exhaustion must not permanently revoke the live signer: %v", signErr)
+
+	held.Release()
+	recovered, againMeta, err := svc.ActiveSigner(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, signer, recovered)
+	assert.Equal(t, created.Kid, againMeta.Kid)
+	_, err = recovered.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+}
+
+func TestManagedSignerRejectsStaleKeyAfterSwapWithoutPoisoningReplacement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	first, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	oldSigner, _, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+UPDATE signing_keys
+SET status='retired', retired_at=now()
+WHERE kid=$1`, first.Kid)
+	require.NoError(t, err)
+
+	replacement, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, first.Kid, replacement.Kid)
+
+	digest := sha256.Sum256([]byte("stale-after-swap"))
+	sig, err := oldSigner.Sign(rand.Reader, digest[:], crypto.SHA256)
+	requireGenericSignerFailure(t, err, sig)
+
+	fresh, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, replacement.Kid, meta.Kid)
+	assert.NotSame(t, oldSigner, fresh)
+	_, err = fresh.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+}
+
+func TestActiveSignerForTxSignsWithoutNestedPoolCheckout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	signer, meta, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+	t.Cleanup(func() { _ = signer.Close() })
+
+	held := holdRemainingConns(t, pool)
+	digest := sha256.Sum256([]byte("tx-bound-no-checkout"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err, "tx-bound signer must not open a nested pool connection")
+	releaseHeld(held)
+
+	require.NoError(t, tx.Commit(ctx))
+	require.NoError(t, signer.Close())
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.Error(t, err)
+	assert.Nil(t, sig)
+}
+
+func TestActiveSignerForTxBlocksCrossProcessStatusChangeUntilCommit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	poolA, url := dedicatedPoolURL(t)
+	poolB := connectPool(t, url)
+	ctx := context.Background()
+	svc := keys.NewService(poolA, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	tx, err := poolA.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	signer, _, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = signer.Close() })
+
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		_, updateErr := poolB.Exec(context.Background(), `
+UPDATE signing_keys SET status='retired', retired_at=now() WHERE kid=$1`, created.Kid)
+		done <- updateErr
+	}()
+	<-started
+	select {
+	case err := <-done:
+		t.Fatalf("status replacement must block on the SHARE lock, finished early: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	digest := sha256.Sum256([]byte("tx-bound-share"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+	require.NoError(t, signer.Close())
+	require.NoError(t, tx.Commit(ctx))
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("status replacement stayed blocked after commit")
+	}
+
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.Error(t, err)
+	assert.Nil(t, sig)
+}
+
+func TestActiveSignerForTxFailsClosedOnCancelAndCorruptRow(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	_, _, err = svc.ActiveSignerForTx(canceled, tx)
+	require.Error(t, err)
+
+	_, err = tx.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid=$1`, created.Kid)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSignerForTx(ctx, tx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+}
+
+func holdRemainingConns(t *testing.T, pool *pgxpool.Pool) []*pgxpool.Conn {
+	t.Helper()
+	stat := pool.Stat()
+	want := int(stat.MaxConns() - stat.AcquiredConns())
+	if want < 0 {
+		want = 0
+	}
+	held := make([]*pgxpool.Conn, 0, want)
+	for i := 0; i < want; i++ {
+		conn, err := pool.Acquire(context.Background())
+		if err != nil {
+			break
+		}
+		held = append(held, conn)
+	}
+	return held
+}
+
+func releaseHeld(held []*pgxpool.Conn) {
+	for _, conn := range held {
+		conn.Release()
+	}
+}
+
 type blockingReader struct {
 	started chan struct{}
 	release chan struct{}

@@ -322,6 +322,21 @@ func TestIssueHumanDiscardsTokenWhenPersistFails(t *testing.T) {
 	assert.NotContains(t, err.Error(), "eyJ")
 }
 
+func TestIssueHumanSurfacesRetryablePersistFailureForCallerRetry(t *testing.T) {
+	clock := frozenClock{now: time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)}
+	minter, err := token.NewMinter(staticSignerSource{signer: newTestSigner(t)}, testIssuer, clock)
+	require.NoError(t, err)
+	issued, err := minter.IssueHuman(context.Background(), humanInput(t), func(context.Context, token.IssuedToken) error {
+		return errors.New("create token issuance audit: ERROR: could not serialize access due to read/write dependencies among transactions (SQLSTATE 40001)")
+	})
+	require.ErrorIs(t, err, domain.ErrRetryableSerialization)
+	assert.Equal(t, domain.ErrRetryableSerialization.Error(), err.Error())
+	assert.Empty(t, issued.Compact)
+	assert.NotContains(t, err.Error(), "SQLSTATE")
+	assert.NotContains(t, err.Error(), "audit")
+	assert.NotContains(t, err.Error(), "eyJ")
+}
+
 func TestIssueHumanHasNoServiceMintPath(t *testing.T) {
 	_, ok := any((*token.Minter)(nil)).(interface {
 		MintService(context.Context, any) (string, error)
@@ -331,4 +346,23 @@ func TestIssueHumanHasNoServiceMintPath(t *testing.T) {
 		IssueService(context.Context, any, func(context.Context, token.IssuedToken) error) (token.IssuedToken, error)
 	})
 	assert.False(t, ok)
+}
+
+func TestIssueHumanWithSignerUsesPreparedSignerAndRejectsCanceledContext(t *testing.T) {
+	clock := frozenClock{now: time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)}
+	minter, err := token.NewMinter(staticSignerSource{signer: newTestSigner(t)}, testIssuer, clock)
+	require.NoError(t, err)
+
+	prepared := newTestSigner(t)
+	jwk := mustJWK(t, prepared)
+	meta := &domain.SigningKey{Kid: jwk.Kid, Alg: domain.SigningAlgES256, Status: domain.SigningKeyStatusActive, PublicJWK: jwk}
+	issued, err := minter.IssueHumanWithSigner(context.Background(), humanInput(t), prepared, meta, commitOK)
+	require.NoError(t, err)
+	require.Equal(t, jwk.Kid, issued.Kid)
+	require.NotEmpty(t, issued.Compact)
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = minter.IssueHumanWithSigner(canceled, humanInput(t), prepared, meta, commitOK)
+	require.ErrorIs(t, err, token.ErrUnavailable)
 }

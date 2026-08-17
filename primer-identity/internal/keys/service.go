@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -452,6 +453,152 @@ func (s *Service) ActiveSigner(ctx context.Context) (*ManagedSigner, *domain.Sig
 	return holder, &pub, nil
 }
 
+// TransactionSigner is a one-transaction signing authority. It never opens a
+// database connection. Close permanently disables it; the value must not be
+// reused after the owning transaction ends.
+type TransactionSigner struct {
+	mat    *Material
+	public domain.PublicJWK
+	closed atomic.Bool
+}
+
+var (
+	_ crypto.Signer = (*TransactionSigner)(nil)
+	_ io.Closer     = (*TransactionSigner)(nil)
+)
+
+// ActiveSignerForTx authenticates the single active key on the caller's
+// existing transaction, holds FOR SHARE until that transaction completes, and
+// returns an unsealed signer that performs no additional pool checkout.
+func (s *Service) ActiveSignerForTx(ctx context.Context, tx pgx.Tx) (*TransactionSigner, *domain.SigningKey, error) {
+	if err := s.requireReady(); err != nil {
+		return nil, nil, err
+	}
+	if ctx == nil || ctx.Err() != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		return nil, nil, fmt.Errorf("%w: request canceled", domain.ErrSignerUnavailable)
+	}
+	if tx == nil {
+		return nil, nil, fmt.Errorf("%w: transaction is required", domain.ErrInvalid)
+	}
+	if s.closed.Load() {
+		return nil, nil, fmt.Errorf("%w: key service is closed", domain.ErrSignerUnavailable)
+	}
+
+	active, err := repo.ListSigningKeysByStatusForShare(ctx, tx, domain.SigningKeyStatusActive)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(active) == 0 {
+		return nil, nil, domain.ErrSignerUnavailable
+	}
+	if len(active) != 1 {
+		return nil, nil, domain.ErrCorruptSigner
+	}
+	rec := active[0]
+	if err := temporalUsable(rec, time.Now().UTC()); err != nil {
+		return nil, nil, err
+	}
+
+	next, err := repo.ListSigningKeysByStatusForShare(ctx, tx, domain.SigningKeyStatusNext)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(next) > 1 {
+		return nil, nil, domain.ErrCorruptSigner
+	}
+	pubs := make([]domain.PublicJWK, 0, 1+len(next))
+	if err := s.authenticateRecord(rec); err != nil {
+		return nil, nil, err
+	}
+	pubs = append(pubs, rec.PublicJWK)
+	for _, nextRec := range next {
+		if err := temporalUsable(nextRec, time.Now().UTC()); err != nil {
+			return nil, nil, err
+		}
+		if err := s.authenticateRecord(nextRec); err != nil {
+			return nil, nil, err
+		}
+		pubs = append(pubs, nextRec.PublicJWK)
+	}
+	if !SignerInPublicSet(rec.PublicJWK, pubs) {
+		return nil, nil, fmt.Errorf("%w: active signer is not in the public set", domain.ErrCorruptSigner)
+	}
+
+	mat, err := Unseal(rec.SealedPrivateKey, rec.PublicJWK, s.cfg.SealKey())
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %v", domain.ErrCorruptSigner, ErrUnsealFailed)
+	}
+	holder := &TransactionSigner{mat: mat, public: rec.PublicJWK}
+	pub := rec.Public()
+	return holder, &pub, nil
+}
+
+func (t *TransactionSigner) acquire() error {
+	if t == nil || t.mat == nil || t.closed.Load() {
+		return ErrSignerRevoked
+	}
+	return nil
+}
+
+// Close permanently disables the transaction-scoped signer and destroys material.
+func (t *TransactionSigner) Close() error {
+	if t == nil {
+		return nil
+	}
+	t.closed.Store(true)
+	if t.mat != nil {
+		_ = t.mat.Destroy()
+		t.mat = nil
+	}
+	return nil
+}
+
+func (t *TransactionSigner) Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if err := t.acquire(); err != nil {
+		return nil, err
+	}
+	signature, err := t.mat.Sign(random, digest, opts)
+	if err != nil {
+		_ = t.Close()
+		return nil, ErrSignerRevoked
+	}
+	return signature, nil
+}
+
+func (t *TransactionSigner) Public() crypto.PublicKey {
+	if err := t.acquire(); err != nil {
+		return nil
+	}
+	return t.mat.Public()
+}
+
+func (t *TransactionSigner) PublicJWK() (domain.PublicJWK, error) {
+	if err := t.acquire(); err != nil {
+		return domain.PublicJWK{}, err
+	}
+	return t.mat.PublicJWK()
+}
+
+func (t *TransactionSigner) String() string {
+	if t == nil {
+		return "transaction-signer <nil>"
+	}
+	return fmt.Sprintf("transaction-signer kid=%s", t.public.Kid)
+}
+
+func (t *TransactionSigner) GoString() string { return t.String() }
+
+func (t *TransactionSigner) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, t.String())
+}
+
+func (*TransactionSigner) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("transaction signer JSON serialization refused; use PublicJWK")
+}
+
 func (s *Service) registerActiveLocked(rec repo.SigningKeyRecord) (*ManagedSigner, error) {
 	fingerprint, err := signingKeyFingerprint(rec)
 	if err != nil {
@@ -679,19 +826,45 @@ func (m *ManagedSigner) revokeWhileRead() {
 }
 
 func (m *ManagedSigner) validationFailure(tx pgx.Tx) {
-	closeCtx, cancel := context.WithTimeout(context.Background(), managedSignerDBTimeout)
-	_ = tx.Rollback(closeCtx)
-	cancel()
-	if m.svc.testBeforeSignerValidationFailure != nil {
+	if tx != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), managedSignerDBTimeout)
+		_ = tx.Rollback(closeCtx)
+		cancel()
+	}
+	if m.svc != nil && m.svc.testBeforeSignerValidationFailure != nil {
 		m.svc.testBeforeSignerValidationFailure()
 	}
 	m.revokeWhileRead()
 }
 
+func transientValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", "40P01", "55P03", "57014":
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "pool") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "deadline") ||
+		strings.Contains(msg, "canceled") ||
+		strings.Contains(msg, "conn busy") ||
+		strings.Contains(msg, "too many")
+}
+
 // Sign computes a candidate signature before opening the bounded durable
 // validation transaction. The signature is returned only after the complete
 // current row is revalidated under FOR SHARE and the read transaction closes
-// successfully.
+// successfully. Transient pool/timeout errors fail the call without permanently
+// revoking a still-valid active holder.
 func (m *ManagedSigner) Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	if err := m.acquireRead(); err != nil {
 		return nil, err
@@ -708,6 +881,9 @@ func (m *ManagedSigner) Sign(random io.Reader, digest []byte, opts crypto.Signer
 	defer cancel()
 	tx, err := m.svc.pool.BeginTx(dbCtx, pgx.TxOptions{})
 	if err != nil {
+		if transientValidationError(err) {
+			return nil, fmt.Errorf("%w: %v", domain.ErrSignerUnavailable, err)
+		}
 		m.revokeWhileRead()
 		return nil, ErrSignerRevoked
 	}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/aleksclark/primer/identity/internal/broker"
 	"github.com/aleksclark/primer/identity/internal/domain"
+	"github.com/aleksclark/primer/identity/internal/oauth"
 )
 
 // Options configures Identity API construction.
@@ -36,6 +37,8 @@ type Options struct {
 	Issuer string
 	// JWKS, when set, registers public JWKS and authorization-server metadata.
 	JWKS JWKSProvider
+	// OAuth, when set, registers the IB2 authorization-code token endpoint.
+	OAuth *oauth.Service
 	// BrokerHTTP configures cookie and CSRF origin policy for broker routes.
 	BrokerHTTP BrokerHTTPOptions
 }
@@ -91,9 +94,11 @@ type Server struct {
 	requireSigner           bool
 	issuer                  string
 	jwks                    JWKSProvider
+	oauth                   *oauth.Service
 	brokerHTTP              BrokerHTTPOptions
 	registerBrokerInventory bool
 	registerMetadata        bool
+	registerTokenInventory  bool
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -119,6 +124,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 		requireSigner: opts.RequireSigner,
 		issuer:        opts.Issuer,
 		jwks:          opts.JWKS,
+		oauth:         opts.OAuth,
 		brokerHTTP:    opts.BrokerHTTP,
 	}
 	return s.build()
@@ -225,6 +231,7 @@ func (s *Server) RegisterRoutes(api huma.API) {
 
 	s.registerBrokerRoutes(api)
 	s.registerMetadataRoutes(api)
+	s.registerTokenRoutes(api)
 }
 
 // RequestIDMiddleware ensures every response carries X-Request-ID.
