@@ -360,6 +360,14 @@ func (c *Config) BrokerEnabled() bool {
 	return c.Stytch.Enabled
 }
 
+// TokenAuthorityEnabled reports whether this process must compose signing-key
+// custody and token peppers. Production always enables token authority after
+// Validate. Development and test stay health-only unless key custody is
+// explicitly enabled.
+func (c *Config) TokenAuthorityEnabled() bool {
+	return c.Key.Enabled
+}
+
 // Validate enforces fail-fast rules for Identity configuration.
 func (c *Config) Validate() error {
 	defer c.Key.SealSecret.clear()
@@ -455,6 +463,37 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Key.Validate(serviceEnv); err != nil {
 		return err
+	}
+	if serviceEnv == "production" {
+		c.Key.Enabled = true
+	}
+	if c.TokenAuthorityEnabled() {
+		if err := c.requireTokenAuthority(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Config) requireTokenAuthority() error {
+	var err error
+	if c.ClientSecretPepperSet, err = parseVersionedSecrets(c.ClientSecretPeppers); err != nil {
+		return fmt.Errorf("identity config: token secret material is invalid")
+	}
+	if err = requireActive(c.ClientSecretPepperSet, c.ClientSecretActiveVersion); err != nil {
+		return fmt.Errorf("identity config: token secret material is invalid")
+	}
+	if c.RefreshTokenPepperSet, err = parseVersionedSecrets(c.RefreshTokenPeppers); err != nil {
+		return fmt.Errorf("identity config: token secret material is invalid")
+	}
+	if err = requireActive(c.RefreshTokenPepperSet, c.RefreshTokenActiveVersion); err != nil {
+		return fmt.Errorf("identity config: token secret material is invalid")
+	}
+	if c.ClientAssertionPepperSet, err = parseVersionedSecrets(c.ClientAssertionPeppers); err != nil {
+		return fmt.Errorf("identity config: token secret material is invalid")
+	}
+	if err = requireActive(c.ClientAssertionPepperSet, c.ClientAssertionActiveVersion); err != nil {
+		return fmt.Errorf("identity config: token secret material is invalid")
 	}
 	return nil
 }

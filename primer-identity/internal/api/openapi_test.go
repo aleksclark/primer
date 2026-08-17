@@ -34,6 +34,8 @@ func TestNewOpenAPIRegistersIB1InventoryWithoutBrokerOrDatabase(t *testing.T) {
 	assert.Contains(t, paths, "/broker/stytch/email/verify")
 	assert.Contains(t, paths, "/broker/stytch/sso/start")
 	assert.Contains(t, paths, "/broker/stytch/callback")
+	assert.Contains(t, paths, "/.well-known/jwks.json")
+	assert.Contains(t, paths, "/.well-known/oauth-authorization-server")
 	assert.NotContains(t, paths, "/oauth/token")
 
 	assert.Contains(t, pathMethods(t, paths["/healthz"]), http.MethodGet)
@@ -54,10 +56,25 @@ func TestNewOpenAPIHandlersFailClosedWithoutBroker(t *testing.T) {
 	assert.Less(t, rr.Code, 500)
 }
 
+func TestNewOpenAPIWellKnownHandlersFailClosedWithoutProvider(t *testing.T) {
+	t.Parallel()
+
+	_, handler := api.NewOpenAPI()
+	for _, path := range []string{"/.well-known/jwks.json", "/.well-known/oauth-authorization-server"} {
+		rr := httptest.NewRecorder()
+		require.NotPanics(t, func() {
+			handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		})
+		assert.Equal(t, http.StatusNotFound, rr.Code, path)
+		assert.NotContains(t, strings.ToLower(rr.Body.String()), "panic")
+		assert.NotContains(t, strings.ToLower(rr.Body.String()), "nil")
+	}
+}
+
 func TestNewWithoutBrokerDoesNotRegisterIB1Routes(t *testing.T) {
 	t.Parallel()
 
-	humaAPI, _ := api.New(nil, api.Options{})
+	humaAPI, handler := api.New(nil, api.Options{})
 	spec, err := humaAPI.OpenAPI().YAML()
 	require.NoError(t, err)
 	doc := parseOpenAPI(t, spec)
@@ -66,6 +83,14 @@ func TestNewWithoutBrokerDoesNotRegisterIB1Routes(t *testing.T) {
 	assert.Contains(t, paths, "/readyz")
 	assert.NotContains(t, paths, "/oauth/authorize")
 	assert.NotContains(t, paths, "/broker/stytch/callback")
+	assert.NotContains(t, paths, "/.well-known/jwks.json")
+	assert.NotContains(t, paths, "/.well-known/oauth-authorization-server")
+
+	rr := httptest.NewRecorder()
+	require.NotPanics(t, func() {
+		handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+	})
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestGenerateOpenAPIYAMLIsDeterministicAndPolicyClean(t *testing.T) {

@@ -186,6 +186,16 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// Jwks JSON Web Key Set
+	//
+	// Corresponds with GET /.well-known/jwks.json (the `Jwks` operationId).
+	Jwks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OauthAuthorizationServer OAuth authorization server metadata
+	//
+	// Corresponds with GET /.well-known/oauth-authorization-server (the `OauthAuthorizationServer` operationId).
+	OauthAuthorizationServer(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// BrokerCallback Complete a broker callback
 	//
 	// Corresponds with GET /broker/stytch/callback (the `BrokerCallback` operationId).
@@ -225,6 +235,36 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /readyz (the `Readyz` operationId).
 	Readyz(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// Jwks JSON Web Key Set
+//
+// Corresponds with GET /.well-known/jwks.json (the `Jwks` operationId).
+func (c *Client) Jwks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewJwksRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OauthAuthorizationServer OAuth authorization server metadata
+//
+// Corresponds with GET /.well-known/oauth-authorization-server (the `OauthAuthorizationServer` operationId).
+func (c *Client) OauthAuthorizationServer(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOauthAuthorizationServerRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // BrokerCallback Complete a broker callback
@@ -345,6 +385,60 @@ func (c *Client) Readyz(ctx context.Context, reqEditors ...RequestEditorFn) (*ht
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewJwksRequest constructs an http.Request for the Jwks method
+func NewJwksRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/.well-known/jwks.json")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewOauthAuthorizationServerRequest constructs an http.Request for the OauthAuthorizationServer method
+func NewOauthAuthorizationServerRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/.well-known/oauth-authorization-server")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewBrokerCallbackRequest constructs an http.Request for the BrokerCallback method
@@ -690,6 +784,20 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// JwksWithResponse JSON Web Key Set
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /.well-known/jwks.json (the `Jwks` operationId).
+	JwksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*JwksResponse, error)
+
+	// OauthAuthorizationServerWithResponse OAuth authorization server metadata
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /.well-known/oauth-authorization-server (the `OauthAuthorizationServer` operationId).
+	OauthAuthorizationServerWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*OauthAuthorizationServerResponse, error)
+
 	// BrokerCallbackWithResponse Complete a broker callback
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -745,6 +853,102 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /readyz (the `Readyz` operationId).
 	ReadyzWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReadyzResponse, error)
+}
+
+type JwksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *ErrorModel
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r JwksResponse) GetApplicationproblemJSON500() *ErrorModel {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r JwksResponse) GetApplicationproblemJSON503() *ErrorModel {
+	return r.ApplicationproblemJSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r JwksResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r JwksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r JwksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r JwksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OauthAuthorizationServerResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *ErrorModel
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *ErrorModel
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r OauthAuthorizationServerResponse) GetApplicationproblemJSON500() *ErrorModel {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r OauthAuthorizationServerResponse) GetApplicationproblemJSON503() *ErrorModel {
+	return r.ApplicationproblemJSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r OauthAuthorizationServerResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OauthAuthorizationServerResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OauthAuthorizationServerResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OauthAuthorizationServerResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 // BrokerCallbackResponse303Headers the declared response headers of an HTTP 303 response for BrokerCallback
@@ -1263,6 +1467,32 @@ func (r ReadyzResponse) ContentType() string {
 	return ""
 }
 
+// JwksWithResponse JSON Web Key Set
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /.well-known/jwks.json (the `Jwks` operationId).
+func (c *ClientWithResponses) JwksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*JwksResponse, error) {
+	rsp, err := c.Jwks(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseJwksResponse(rsp)
+}
+
+// OauthAuthorizationServerWithResponse OAuth authorization server metadata
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /.well-known/oauth-authorization-server (the `OauthAuthorizationServer` operationId).
+func (c *ClientWithResponses) OauthAuthorizationServerWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*OauthAuthorizationServerResponse, error) {
+	rsp, err := c.OauthAuthorizationServer(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOauthAuthorizationServerResponse(rsp)
+}
+
 // BrokerCallbackWithResponse Complete a broker callback
 //
 // Returns a wrapper object for the known response body format(s).
@@ -1365,6 +1595,78 @@ func (c *ClientWithResponses) ReadyzWithResponse(ctx context.Context, reqEditors
 		return nil, err
 	}
 	return ParseReadyzResponse(rsp)
+}
+
+// ParseJwksResponse parses an HTTP response from a JwksWithResponse call
+func ParseJwksResponse(rsp *http.Response) (*JwksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &JwksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOauthAuthorizationServerResponse parses an HTTP response from a OauthAuthorizationServerWithResponse call
+func ParseOauthAuthorizationServerResponse(rsp *http.Response) (*OauthAuthorizationServerResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OauthAuthorizationServerResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseBrokerCallbackResponse parses an HTTP response from a BrokerCallbackWithResponse call

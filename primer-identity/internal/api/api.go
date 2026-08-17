@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aleksclark/primer/identity/internal/broker"
+	"github.com/aleksclark/primer/identity/internal/domain"
 )
 
 // Options configures Identity API construction.
@@ -28,8 +29,22 @@ type Options struct {
 	Broker *broker.Service
 	// RequireBroker makes readiness fail closed unless the broker was composed.
 	RequireBroker bool
+	// RequireSigner makes readiness fail closed unless a usable JWKS provider
+	// can publish the current public set.
+	RequireSigner bool
+	// Issuer is the configured OAuth issuer used for RFC 8414 metadata.
+	Issuer string
+	// JWKS, when set, registers public JWKS and authorization-server metadata.
+	JWKS JWKSProvider
 	// BrokerHTTP configures cookie and CSRF origin policy for broker routes.
 	BrokerHTTP BrokerHTTPOptions
+}
+
+// JWKSProvider is the public-only signing-key view used by well-known routes
+// and signer-aware readiness.
+type JWKSProvider interface {
+	PublicJWKS(ctx context.Context) ([]domain.PublicJWK, error)
+	PublicSetETag(ctx context.Context) (string, error)
 }
 
 const (
@@ -73,8 +88,12 @@ type Server struct {
 	reqTotal                atomic.Int64
 	broker                  *broker.Service
 	requireBroker           bool
+	requireSigner           bool
+	issuer                  string
+	jwks                    JWKSProvider
 	brokerHTTP              BrokerHTTPOptions
 	registerBrokerInventory bool
+	registerMetadata        bool
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -92,7 +111,16 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 		panic("api: InsecureTestCookie is rejected when Production is true")
 	}
 	opts.BrokerHTTP.MaxRequestTargetBytes = validatedRequestTargetMax(opts.BrokerHTTP.MaxRequestTargetBytes)
-	s := &Server{pool: pool, now: now, broker: opts.Broker, requireBroker: opts.RequireBroker, brokerHTTP: opts.BrokerHTTP}
+	s := &Server{
+		pool:          pool,
+		now:           now,
+		broker:        opts.Broker,
+		requireBroker: opts.RequireBroker,
+		requireSigner: opts.RequireSigner,
+		issuer:        opts.Issuer,
+		jwks:          opts.JWKS,
+		brokerHTTP:    opts.BrokerHTTP,
+	}
 	return s.build()
 }
 
@@ -115,6 +143,7 @@ func (s *Server) build() (huma.API, http.Handler) {
 	router.Use(RequestIDMiddleware)
 	router.Use(AccessLogMiddleware)
 	router.Use(s.metricsMiddleware)
+	router.Use(s.wellKnownRuntimePolicy)
 
 	cfg := huma.DefaultConfig("Primer Identity API", "0.1.0")
 	cfg.Info.Description = "Primer Identity service: health, readiness, and (later) OIDC/OAuth."
@@ -167,6 +196,17 @@ func (s *Server) RegisterRoutes(api huma.API) {
 		if s.requireBroker && s.broker == nil {
 			return nil, huma.Error503ServiceUnavailable("unavailable")
 		}
+		if s.requireSigner {
+			if s.jwks == nil {
+				return nil, huma.Error503ServiceUnavailable("unavailable")
+			}
+			readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err := s.jwks.PublicJWKS(readyCtx)
+			readyCancel()
+			if err != nil {
+				return nil, huma.Error503ServiceUnavailable("unavailable")
+			}
+		}
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		if err := s.pool.Ping(pingCtx); err != nil {
@@ -184,6 +224,7 @@ func (s *Server) RegisterRoutes(api huma.API) {
 	})
 
 	s.registerBrokerRoutes(api)
+	s.registerMetadataRoutes(api)
 }
 
 // RequestIDMiddleware ensures every response carries X-Request-ID.

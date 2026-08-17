@@ -19,11 +19,12 @@ var requiredIB1Paths = []string{
 	"/broker/stytch/email/verify",
 	"/broker/stytch/sso/start",
 	"/broker/stytch/callback",
+	"/.well-known/jwks.json",
+	"/.well-known/oauth-authorization-server",
 }
 
 var forbiddenIB1Paths = []string{
 	"/oauth/token",
-	"/.well-known/jwks.json",
 	"/jwks",
 	"/oauth/jwks",
 }
@@ -41,7 +42,7 @@ var forbiddenIB1SchemaNeedles = []string{
 // inventory registered from handler signatures. It does not construct a
 // broker.Service, open a database, or contact a provider.
 func NewOpenAPI() (huma.API, http.Handler) {
-	s := &Server{registerBrokerInventory: true}
+	s := &Server{registerBrokerInventory: true, registerMetadata: true, issuer: "https://identity.example.test"}
 	return s.build()
 }
 

@@ -48,6 +48,12 @@ func productionKeyEnv(t *testing.T) {
 	t.Setenv("IDENTITY_BROKER_COOKIE_ACTIVE_VERSION", "1")
 	t.Setenv("IDENTITY_AUTHORIZATION_CODE_PEPPERS", "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	t.Setenv("IDENTITY_AUTHORIZATION_CODE_ACTIVE_VERSION", "1")
+	t.Setenv("IDENTITY_CLIENT_SECRET_PEPPERS", "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	t.Setenv("IDENTITY_CLIENT_SECRET_ACTIVE_VERSION", "1")
+	t.Setenv("IDENTITY_REFRESH_TOKEN_PEPPERS", "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	t.Setenv("IDENTITY_REFRESH_TOKEN_ACTIVE_VERSION", "1")
+	t.Setenv("IDENTITY_CLIENT_ASSERTION_PEPPERS", "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	t.Setenv("IDENTITY_CLIENT_ASSERTION_ACTIVE_VERSION", "1")
 }
 
 func TestLoadRequiresCanonicalSealSecretInProduction(t *testing.T) {
@@ -88,6 +94,7 @@ func TestLoadAcceptsCanonicalSealSecretWhenKeyCustodyEnabled(t *testing.T) {
 	t.Setenv("IDENTITY_ISSUER", "https://id.example.test")
 	t.Setenv("IDENTITY_KEY_ENABLED", "true")
 	t.Setenv("IDENTITY_KEY_SEAL_SECRET", encoded)
+	tokenEnv(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -177,6 +184,7 @@ func TestAutoBootstrapAllowedOnlyInDevelopmentAndTest(t *testing.T) {
 			t.Setenv("IDENTITY_KEY_ENABLED", "true")
 			t.Setenv("IDENTITY_KEY_SEAL_SECRET", encoded)
 			t.Setenv("IDENTITY_KEY_AUTO_BOOTSTRAP", "true")
+			tokenEnv(t)
 			if env == "test" {
 				t.Setenv("IDENTITY_ISSUER", "https://id.example.test")
 			}
