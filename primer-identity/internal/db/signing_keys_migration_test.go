@@ -72,7 +72,7 @@ func TestIB2SigningKeysMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	assertNoTable(t, pool, "signing_keys")
 	assertNoTable(t, pool, "token_issuance_audit")
 
-	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to IB2 signing-key tip")
+	require.NoError(t, db.MigrateTo(ctx, url, 6), "fresh/upgrade to IB2 signing-key tip")
 	assertTable(t, pool, "signing_keys")
 	assertNoTable(t, pool, "token_issuance_audit")
 	assertNoTable(t, pool, "oauth_refresh_families")
@@ -103,14 +103,14 @@ func TestIB2SigningKeysMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	assertTable(t, pool, "oauth_authorization_codes")
 	assertTable(t, pool, "broker_transactions")
 
-	require.NoError(t, db.Migrate(ctx, url))
+	require.NoError(t, db.MigrateTo(ctx, url, 6))
 	assertTable(t, pool, "signing_keys")
 	assertNamedCheck(t, pool, "signing_keys", "signing_keys_status_material_ck")
 
 	// Repeat the real PG fresh/upgrade/down + constraint cycle a second time.
 	require.NoError(t, db.MigrateDown(ctx, url))
 	assertNoTable(t, pool, "signing_keys")
-	require.NoError(t, db.Migrate(ctx, url))
+	require.NoError(t, db.MigrateTo(ctx, url, 6))
 	assertTable(t, pool, "signing_keys")
 	assertNamedCheck(t, pool, "signing_keys", "signing_keys_profile_ck")
 	assertNamedCheck(t, pool, "signing_keys", "signing_keys_lifetime_ck")

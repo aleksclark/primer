@@ -38,7 +38,7 @@ func TestIB2TokenGrantsMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	url, err := container.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
 
-	require.NoError(t, db.MigrateTo(ctx, url, 5), "upgrade path starts from IB1 tip")
+	require.NoError(t, db.MigrateTo(ctx, url, 6), "upgrade path starts from IB1 plus signing-key tip")
 	pool, err := db.Connect(ctx, url)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -48,16 +48,17 @@ func TestIB2TokenGrantsMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	} {
 		assertNoTable(t, pool, later)
 	}
+	assertTable(t, pool, "signing_keys")
 
 	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to IB2 token-grants tip")
 	for _, table := range []string{
 		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
-		"oauth_client_assertion_replays", "token_issuance_audit",
+		"oauth_client_assertion_replays", "token_issuance_audit", "signing_keys",
 	} {
 		assertTable(t, pool, table)
 	}
 	for _, later := range []string{
-		"signing_keys", "webhook_events", "webhook_security_events",
+		"webhook_events", "webhook_security_events",
 		"oauth_revocations", "identity_audit_events", "oauth_service_principals",
 	} {
 		assertNoTable(t, pool, later)
@@ -116,6 +117,7 @@ WHERE tgname='oauth_refresh_family_lifecycle_ck'`).Scan(&trigger))
 	} {
 		assertNoTable(t, pool, table)
 	}
+	assertTable(t, pool, "signing_keys")
 	assertTable(t, pool, "oauth_authorization_codes")
 	assertTable(t, pool, "oauth_clients")
 
@@ -142,8 +144,9 @@ func TestIB2TokenGrantsMigrationSQLHasNoRawTokensOrLaterTables(t *testing.T) {
 		"00003_stytch_mappings.sql",
 		"00004_ib1_oauth_clients.sql",
 		"00005_ib1_broker_exchange.sql",
+		"00006_ib2_signing_keys.sql",
 		"00007_ib2_token_grants.sql",
-	}, names, "old migrations inventory may grow only by the expected IB2 version")
+	}, names, "old migrations inventory may grow only by the expected IB2 versions")
 	body, err := os.ReadFile(filepath.Join("migrations", "00007_ib2_token_grants.sql"))
 	require.NoError(t, err)
 	lower := strings.ToLower(string(body))
