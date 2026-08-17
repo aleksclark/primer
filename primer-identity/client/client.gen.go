@@ -112,6 +112,24 @@ type BrokerLoginParams struct {
 	UnderscoreUnderscoreHostPrimerBroker *string `form:"__Host-primer-broker,omitempty" json:"__Host-primer-broker,omitempty"`
 }
 
+// OauthTokenFormdataBody defines parameters for OauthToken.
+type OauthTokenFormdataBody struct {
+	ClientAssertion     *string `form:"client_assertion,omitempty" json:"client_assertion,omitempty"`
+	ClientAssertionType *string `form:"client_assertion_type,omitempty" json:"client_assertion_type,omitempty"`
+	ClientId            *string `form:"client_id,omitempty" json:"client_id,omitempty"`
+	ClientSecret        *string `form:"client_secret,omitempty" json:"client_secret,omitempty"`
+	Code                *string `form:"code,omitempty" json:"code,omitempty"`
+	CodeVerifier        *string `form:"code_verifier,omitempty" json:"code_verifier,omitempty"`
+	GrantType           *string `form:"grant_type,omitempty" json:"grant_type,omitempty"`
+	RedirectUri         *string `form:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
+	RefreshToken        *string `form:"refresh_token,omitempty" json:"refresh_token,omitempty"`
+	Resource            *string `form:"resource,omitempty" json:"resource,omitempty"`
+	Scope               *string `form:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// OauthTokenFormdataRequestBody defines body for OauthToken for application/x-www-form-urlencoded ContentType.
+type OauthTokenFormdataRequestBody OauthTokenFormdataBody
+
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
 
@@ -230,6 +248,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /oauth/authorize (the `OauthAuthorize` operationId).
 	OauthAuthorize(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OauthTokenWithBody Exchange an authorization code for Primer tokens
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+	OauthTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OauthTokenWithFormdataBody Exchange an authorization code for Primer tokens
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+	OauthTokenWithFormdataBody(ctx context.Context, body OauthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// Readyz Readiness probe (database ping)
 	//
@@ -362,6 +394,40 @@ func (c *Client) Healthz(ctx context.Context, reqEditors ...RequestEditorFn) (*h
 // Corresponds with GET /oauth/authorize (the `OauthAuthorize` operationId).
 func (c *Client) OauthAuthorize(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewOauthAuthorizeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OauthTokenWithBody Exchange an authorization code for Primer tokens
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+func (c *Client) OauthTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOauthTokenRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OauthTokenWithFormdataBody Exchange an authorization code for Primer tokens
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+func (c *Client) OauthTokenWithFormdataBody(ctx context.Context, body OauthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOauthTokenRequestWithFormdataBody(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -713,6 +779,46 @@ func NewOauthAuthorizeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewOauthTokenRequestWithFormdataBody calls the generic OauthToken builder with application/x-www-form-urlencoded body
+func NewOauthTokenRequestWithFormdataBody(server string, body OauthTokenFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewOauthTokenRequestWithBody(server, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewOauthTokenRequestWithBody constructs an http.Request for the OauthToken method, with any body, and a specified content type
+func NewOauthTokenRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/oauth/token")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewReadyzRequest constructs an http.Request for the Readyz method
 func NewReadyzRequest(server string) (*http.Request, error) {
 	var err error
@@ -846,6 +952,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /oauth/authorize (the `OauthAuthorize` operationId).
 	OauthAuthorizeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*OauthAuthorizeResponse, error)
+
+	// OauthTokenWithBodyWithResponse Exchange an authorization code for Primer tokens
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+	OauthTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OauthTokenResponse, error)
+
+	// OauthTokenWithFormdataBodyWithResponse Exchange an authorization code for Primer tokens
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+	OauthTokenWithFormdataBodyWithResponse(ctx context.Context, body OauthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*OauthTokenResponse, error)
 
 	// ReadyzWithResponse Readiness probe (database ping)
 	//
@@ -1419,6 +1539,158 @@ func (r OauthAuthorizeResponse) ContentType() string {
 	return ""
 }
 
+// OauthTokenResponse200Headers the declared response headers of an HTTP 200 response for OauthToken
+type OauthTokenResponse200Headers struct {
+	CacheControl        *string
+	Pragma              *string
+	WWWAuthenticate     *string
+	XContentTypeOptions *string
+}
+
+// OauthTokenResponse400Headers the declared response headers of an HTTP 400 response for OauthToken
+type OauthTokenResponse400Headers struct {
+	CacheControl        *string
+	Pragma              *string
+	WWWAuthenticate     *string
+	XContentTypeOptions *string
+}
+
+// OauthTokenResponse401Headers the declared response headers of an HTTP 401 response for OauthToken
+type OauthTokenResponse401Headers struct {
+	CacheControl        *string
+	Pragma              *string
+	WWWAuthenticate     *string
+	XContentTypeOptions *string
+}
+
+// OauthTokenResponse413Headers the declared response headers of an HTTP 413 response for OauthToken
+type OauthTokenResponse413Headers struct {
+	CacheControl        *string
+	Pragma              *string
+	WWWAuthenticate     *string
+	XContentTypeOptions *string
+}
+
+// OauthTokenResponse415Headers the declared response headers of an HTTP 415 response for OauthToken
+type OauthTokenResponse415Headers struct {
+	CacheControl        *string
+	Pragma              *string
+	WWWAuthenticate     *string
+	XContentTypeOptions *string
+}
+
+// OauthTokenResponse503Headers the declared response headers of an HTTP 503 response for OauthToken
+type OauthTokenResponse503Headers struct {
+	CacheControl        *string
+	Pragma              *string
+	WWWAuthenticate     *string
+	XContentTypeOptions *string
+}
+
+type OauthTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationjsonCharsetUtf8200 the response for an HTTP 200 `application/json; charset=utf-8` response
+	ApplicationjsonCharsetUtf8200 *struct {
+		AccessToken  string `json:"access_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		RefreshToken string `json:"refresh_token"`
+		Scope        string `json:"scope"`
+		TokenType    string `json:"token_type"`
+	}
+	// ApplicationjsonCharsetUtf8400 the response for an HTTP 400 `application/json; charset=utf-8` response
+	ApplicationjsonCharsetUtf8400 *struct {
+		Error            string  `json:"error"`
+		ErrorDescription *string `json:"error_description,omitempty"`
+	}
+	// ApplicationjsonCharsetUtf8401 the response for an HTTP 401 `application/json; charset=utf-8` response
+	ApplicationjsonCharsetUtf8401 *struct {
+		Error            string  `json:"error"`
+		ErrorDescription *string `json:"error_description,omitempty"`
+	}
+	// ApplicationjsonCharsetUtf8503 the response for an HTTP 503 `application/json; charset=utf-8` response
+	ApplicationjsonCharsetUtf8503 *struct {
+		Error            string  `json:"error"`
+		ErrorDescription *string `json:"error_description,omitempty"`
+	}
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *OauthTokenResponse200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *OauthTokenResponse400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *OauthTokenResponse401Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *OauthTokenResponse413Headers
+	// Headers415 the parsed response headers for an HTTP 415 response
+	Headers415 *OauthTokenResponse415Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *OauthTokenResponse503Headers
+}
+
+// GetApplicationjsonCharsetUtf8200 returns the response for an HTTP 200 `application/json; charset=utf-8` response
+func (r OauthTokenResponse) GetApplicationjsonCharsetUtf8200() *struct {
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+	TokenType    string `json:"token_type"`
+} {
+	return r.ApplicationjsonCharsetUtf8200
+}
+
+// GetApplicationjsonCharsetUtf8400 returns the response for an HTTP 400 `application/json; charset=utf-8` response
+func (r OauthTokenResponse) GetApplicationjsonCharsetUtf8400() *struct {
+	Error            string  `json:"error"`
+	ErrorDescription *string `json:"error_description,omitempty"`
+} {
+	return r.ApplicationjsonCharsetUtf8400
+}
+
+// GetApplicationjsonCharsetUtf8401 returns the response for an HTTP 401 `application/json; charset=utf-8` response
+func (r OauthTokenResponse) GetApplicationjsonCharsetUtf8401() *struct {
+	Error            string  `json:"error"`
+	ErrorDescription *string `json:"error_description,omitempty"`
+} {
+	return r.ApplicationjsonCharsetUtf8401
+}
+
+// GetApplicationjsonCharsetUtf8503 returns the response for an HTTP 503 `application/json; charset=utf-8` response
+func (r OauthTokenResponse) GetApplicationjsonCharsetUtf8503() *struct {
+	Error            string  `json:"error"`
+	ErrorDescription *string `json:"error_description,omitempty"`
+} {
+	return r.ApplicationjsonCharsetUtf8503
+}
+
+// GetBody returns the raw response body bytes
+func (r OauthTokenResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OauthTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OauthTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OauthTokenResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ReadyzResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1582,6 +1854,32 @@ func (c *ClientWithResponses) OauthAuthorizeWithResponse(ctx context.Context, re
 		return nil, err
 	}
 	return ParseOauthAuthorizeResponse(rsp)
+}
+
+// OauthTokenWithBodyWithResponse Exchange an authorization code for Primer tokens
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+func (c *ClientWithResponses) OauthTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OauthTokenResponse, error) {
+	rsp, err := c.OauthTokenWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOauthTokenResponse(rsp)
+}
+
+// OauthTokenWithFormdataBodyWithResponse Exchange an authorization code for Primer tokens
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /oauth/token (the `OauthToken` operationId).
+func (c *ClientWithResponses) OauthTokenWithFormdataBodyWithResponse(ctx context.Context, body OauthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*OauthTokenResponse, error) {
+	rsp, err := c.OauthTokenWithFormdataBody(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOauthTokenResponse(rsp)
 }
 
 // ReadyzWithResponse Readiness probe (database ping)
@@ -2228,6 +2526,263 @@ func ParseOauthAuthorizeResponse(rsp *http.Response) (*OauthAuthorizeResponse, e
 			headers.XContentTypeOptions = &value
 		}
 		response.Headers303 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseOauthTokenResponse parses an HTTP response from a OauthTokenWithResponse call
+func ParseOauthTokenResponse(rsp *http.Response) (*OauthTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OauthTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			AccessToken  string `json:"access_token"`
+			ExpiresIn    int    `json:"expires_in"`
+			RefreshToken string `json:"refresh_token"`
+			Scope        string `json:"scope"`
+			TokenType    string `json:"token_type"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationjsonCharsetUtf8200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Error            string  `json:"error"`
+			ErrorDescription *string `json:"error_description,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationjsonCharsetUtf8400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Error            string  `json:"error"`
+			ErrorDescription *string `json:"error_description,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationjsonCharsetUtf8401 = &dest
+
+	case rsp.StatusCode == 413:
+		break // No content-type
+
+	case rsp.StatusCode == 415:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest struct {
+			Error            string  `json:"error"`
+			ErrorDescription *string `json:"error_description,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationjsonCharsetUtf8503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers OauthTokenResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("Pragma"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Pragma", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Pragma = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		if values := rsp.Header.Values("X-Content-Type-Options"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Content-Type-Options", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XContentTypeOptions = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers OauthTokenResponse400Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("Pragma"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Pragma", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Pragma = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		if values := rsp.Header.Values("X-Content-Type-Options"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Content-Type-Options", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XContentTypeOptions = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers OauthTokenResponse401Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("Pragma"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Pragma", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Pragma = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		if values := rsp.Header.Values("X-Content-Type-Options"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Content-Type-Options", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XContentTypeOptions = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 413:
+		var headers OauthTokenResponse413Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("Pragma"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Pragma", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Pragma = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		if values := rsp.Header.Values("X-Content-Type-Options"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Content-Type-Options", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XContentTypeOptions = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 415:
+		var headers OauthTokenResponse415Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("Pragma"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Pragma", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Pragma = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		if values := rsp.Header.Values("X-Content-Type-Options"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Content-Type-Options", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XContentTypeOptions = &value
+		}
+		response.Headers415 = &headers
+	case rsp.StatusCode == 503:
+		var headers OauthTokenResponse503Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("Pragma"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Pragma", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Pragma = &value
+		}
+		if values := rsp.Header.Values("WWW-Authenticate"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "WWW-Authenticate", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.WWWAuthenticate = &value
+		}
+		if values := rsp.Header.Values("X-Content-Type-Options"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Content-Type-Options", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XContentTypeOptions = &value
+		}
+		response.Headers503 = &headers
 	}
 
 	return response, nil

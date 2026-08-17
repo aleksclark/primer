@@ -30,21 +30,18 @@ var requiredIB1ClientOps = []string{
 	"BrokerSSOStart",
 	"Healthz",
 	"OauthAuthorize",
+	"OauthTokenWithBody",
+	"OauthTokenWithFormdataBody",
 	"Readyz",
 }
 
 var forbiddenGeneratedTypeNeedles = []string{
-	"AccessToken",
-	"RefreshToken",
 	"SessionJWT",
 	"SessionJwt",
 	"SessionToken",
 	"IDToken",
 	"IdToken",
 	"ProviderPayload",
-	"OauthToken",
-	"OAuthToken",
-	"TokenResponse",
 }
 
 func TestGeneratedMarkerPresent(t *testing.T) {
@@ -61,6 +58,26 @@ func TestGeneratedClientHasExactIB1Operations(t *testing.T) {
 
 	got := clientInterfaceMethods(t, parseGeneratedFile(t))
 	assert.Equal(t, requiredIB1ClientOps, got)
+}
+
+func TestGeneratedClientHasExactlyOneOauthTokenOperation(t *testing.T) {
+	t.Parallel()
+
+	got := clientInterfaceMethods(t, parseGeneratedFile(t))
+	var tokenOps []string
+	for _, name := range got {
+		if strings.HasPrefix(name, "OauthToken") {
+			tokenOps = append(tokenOps, name)
+		}
+	}
+	require.NotEmpty(t, tokenOps)
+
+	src := readGeneratedClient(t)
+	assert.GreaterOrEqual(t, strings.Count(src, "(the `OauthToken` operationId)"), 1)
+	assert.NotContains(t, src, "application/octet-stream")
+	assert.NotContains(t, src, "OauthTokenWithOctetStream")
+	assert.NotContains(t, src, "contentMediaType: application/octet-stream")
+	assert.ElementsMatch(t, []string{"OauthTokenWithBody", "OauthTokenWithFormdataBody"}, tokenOps)
 }
 
 func TestGeneratedClientCompiles(t *testing.T) {
@@ -98,14 +115,17 @@ func TestGeneratedClientHasNoTokenJWKSOrProviderResponseTypes(t *testing.T) {
 	require.NotEmpty(t, names)
 
 	src := strings.ToLower(readGeneratedClient(t))
+	assert.Contains(t, src, "/oauth/token")
+	assert.Contains(t, src, "access_token")
+	assert.Contains(t, src, "refresh_token")
+	assert.NotContains(t, src, "application/octet-stream")
 	for _, needle := range []string{
-		"/oauth/token",
-		"access_token",
-		"refresh_token",
 		"session_jwt",
 		"session_token",
 		"id_token",
 		"provider_payload",
+		"/oauth/revoke",
+		"client_credentials",
 	} {
 		assert.NotContains(t, src, needle)
 	}
@@ -183,6 +203,16 @@ func clientInterfaceMethods(t *testing.T, file *ast.File) []string {
 	}
 	require.NotEmpty(t, names, "ClientInterface methods")
 	return names
+}
+
+func countExact(names []string, want string) int {
+	n := 0
+	for _, name := range names {
+		if name == want {
+			n++
+		}
+	}
+	return n
 }
 
 func generateClient(t *testing.T, out string) []byte {

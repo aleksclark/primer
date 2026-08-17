@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/aleksclark/primer/identity/internal/oauth"
 )
@@ -34,20 +34,6 @@ const (
 	descUnauthorizedClient = "the client is not authorized for this grant"
 )
 
-type oauthTokenForm struct {
-	GrantType           string `form:"grant_type" json:"grant_type"`
-	Code                string `form:"code" json:"code" writeOnly:"true"`
-	RedirectURI         string `form:"redirect_uri" json:"redirect_uri"`
-	Resource            string `form:"resource" json:"resource"`
-	CodeVerifier        string `form:"code_verifier" json:"code_verifier" writeOnly:"true"`
-	ClientID            string `form:"client_id" json:"client_id"`
-	ClientAssertionType string `form:"client_assertion_type" json:"client_assertion_type"`
-	ClientAssertion     string `form:"client_assertion" json:"client_assertion" writeOnly:"true"`
-	ClientSecret        string `form:"client_secret" json:"client_secret" writeOnly:"true"`
-	RefreshToken        string `form:"refresh_token" json:"refresh_token" writeOnly:"true"`
-	Scope               string `form:"scope" json:"scope"`
-}
-
 type oauthTokenSuccess struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type"`
@@ -61,57 +47,66 @@ type oauthTokenError struct {
 	ErrorDescription string `json:"error_description,omitempty"`
 }
 
-func (s *Server) registerTokenRoutes(api huma.API) {
+func (s *Server) registerTokenRoutes(api huma.API, router chi.Router) {
 	if s.oauth == nil && !s.registerTokenInventory {
 		return
 	}
+	if api != nil {
+		api.OpenAPI().AddOperation(tokenOpenAPIOperation())
+	}
+	if router != nil {
+		router.Post(tokenPath, s.handleToken)
+	}
+}
 
-	attach := huma.Middlewares{s.attachRequest}
-	huma.Register(api, huma.Operation{
-		OperationID:      "oauthToken",
-		Method:           http.MethodPost,
-		Path:             tokenPath,
-		Summary:          "Exchange an authorization code for Primer tokens",
-		Tags:             []string{"OAuth"},
-		DefaultStatus:    http.StatusOK,
-		SkipValidateBody: true,
-		MaxBodyBytes:     tokenFormMaxBytes,
-		Errors: []int{
-			http.StatusBadRequest,
-			http.StatusUnauthorized,
-			http.StatusRequestEntityTooLarge,
-			http.StatusUnsupportedMediaType,
-			http.StatusServiceUnavailable,
+func tokenOpenAPIOperation() *huma.Operation {
+	return &huma.Operation{
+		OperationID:   "oauthToken",
+		Method:        http.MethodPost,
+		Path:          tokenPath,
+		Summary:       "Exchange an authorization code for Primer tokens",
+		Tags:          []string{"OAuth"},
+		DefaultStatus: http.StatusOK,
+		RequestBody:   tokenRequestBody(),
+		Responses:     tokenOpenAPIResponses(),
+		Security: []map[string][]string{
+			{"oauthTokenBasic": {}},
+			{},
 		},
-		Middlewares: attach,
-		Metadata: map[string]any{
-			"oauthTokenForm": oauthTokenForm{},
-		},
-	}, func(ctx context.Context, _ *struct{}) (*huma.StreamResponse, error) {
-		r := requestOf(ctx)
-		if r == nil {
-			return s.tokenFail(oauth.ErrorTemporarilyUnavail, descTemporarilyUnavail, false), nil
+	}
+}
+
+func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
+	if r == nil {
+		s.writeTokenFail(w, oauth.ErrorTemporarilyUnavail, descTemporarilyUnavail, false)
+		return
+	}
+	req, auth, challenge, err := s.parseTokenRequest(r)
+	if err != nil {
+		var we *tokenWireError
+		if errors.As(err, &we) {
+			s.writeTokenFail(w, we.code, we.desc, we.challenge)
+			return
 		}
-		req, auth, challenge, err := s.parseTokenRequest(r)
-		if err != nil {
-			var we *tokenWireError
-			if errors.As(err, &we) {
-				return s.tokenFail(we.code, we.desc, we.challenge), nil
-			}
-			return nil, err
+		var se *brokerStatusError
+		if errors.As(err, &se) {
+			writeBrokerStatusError(w, se)
+			return
 		}
-		if s.oauth == nil {
-			return s.tokenFail(oauth.ErrorTemporarilyUnavail, descTemporarilyUnavail, false), nil
-		}
-		resp, err := s.oauth.Exchange(ctx, req, auth)
-		if err != nil {
-			we := mapTokenServiceError(err, challenge)
-			return s.tokenFail(we.code, we.desc, we.challenge), nil
-		}
-		return &huma.StreamResponse{Body: func(hctx huma.Context) {
-			s.writeTokenSuccess(hctx, resp)
-		}}, nil
-	})
+		s.writeTokenFail(w, oauth.ErrorTemporarilyUnavail, descTemporarilyUnavail, false)
+		return
+	}
+	if s.oauth == nil {
+		s.writeTokenFail(w, oauth.ErrorTemporarilyUnavail, descTemporarilyUnavail, false)
+		return
+	}
+	resp, err := s.oauth.Exchange(r.Context(), req, auth)
+	if err != nil {
+		we := mapTokenServiceError(err, challenge)
+		s.writeTokenFail(w, we.code, we.desc, we.challenge)
+		return
+	}
+	s.writeTokenSuccess(w, resp)
 }
 
 func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oauth.ClientAuth, bool, error) {
@@ -306,10 +301,10 @@ func tokenDescription(code string) string {
 	}
 }
 
-func (s *Server) writeTokenSuccess(hctx huma.Context, resp oauth.TokenResponse) {
-	setTokenHeaders(hctx, s.productionHSTS(), false)
-	hctx.SetHeader("Content-Type", tokenJSONContentType)
-	hctx.SetStatus(http.StatusOK)
+func (s *Server) writeTokenSuccess(w http.ResponseWriter, resp oauth.TokenResponse) {
+	setTokenHeaders(w, s.productionHSTS(), false)
+	w.Header().Set("Content-Type", tokenJSONContentType)
+	w.WriteHeader(http.StatusOK)
 	body, err := json.Marshal(oauthTokenSuccess{
 		AccessToken:  resp.AccessToken,
 		TokenType:    resp.TokenType,
@@ -320,13 +315,11 @@ func (s *Server) writeTokenSuccess(hctx huma.Context, resp oauth.TokenResponse) 
 	if err != nil {
 		return
 	}
-	_, _ = hctx.BodyWriter().Write(body)
+	_, _ = w.Write(body)
 }
 
-func (s *Server) tokenFail(code, description string, basicChallenge bool) *huma.StreamResponse {
-	return &huma.StreamResponse{Body: func(hctx huma.Context) {
-		writeTokenOAuthError(hctx, s.productionHSTS(), code, description, basicChallenge)
-	}}
+func (s *Server) writeTokenFail(w http.ResponseWriter, code, description string, basicChallenge bool) {
+	writeTokenOAuthError(w, s.productionHSTS(), code, description, basicChallenge)
 }
 
 type tokenWireError struct {
@@ -346,7 +339,7 @@ func tokenWire(code, description string, challenge bool) *tokenWireError {
 	return &tokenWireError{code: code, desc: description, challenge: challenge}
 }
 
-func writeTokenOAuthError(hctx huma.Context, hsts, code, description string, basicChallenge bool) {
+func writeTokenOAuthError(w http.ResponseWriter, hsts, code, description string, basicChallenge bool) {
 	status := http.StatusBadRequest
 	switch code {
 	case oauth.ErrorInvalidClient:
@@ -354,14 +347,46 @@ func writeTokenOAuthError(hctx huma.Context, hsts, code, description string, bas
 	case oauth.ErrorTemporarilyUnavail:
 		status = http.StatusServiceUnavailable
 	}
-	setTokenHeaders(hctx, hsts, basicChallenge)
-	hctx.SetHeader("Content-Type", tokenJSONContentType)
-	hctx.SetStatus(status)
+	setTokenHeaders(w, hsts, basicChallenge)
+	w.Header().Set("Content-Type", tokenJSONContentType)
+	w.WriteHeader(status)
 	body, err := json.Marshal(oauthTokenError{Code: code, ErrorDescription: description})
 	if err != nil {
 		return
 	}
-	_, _ = hctx.BodyWriter().Write(body)
+	_, _ = w.Write(body)
+}
+
+func writeBrokerStatusError(w http.ResponseWriter, err *brokerStatusError) {
+	if err == nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	for name, values := range err.GetHeaders() {
+		for _, value := range values {
+			w.Header().Add(name, value)
+		}
+	}
+	status := err.GetStatus()
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", tokenJSONContentType)
+	}
+	w.WriteHeader(status)
+	var se huma.StatusError
+	if errors.As(err.statusErr, &se) {
+		body, marshalErr := json.Marshal(map[string]any{
+			"status": status,
+			"title":  http.StatusText(status),
+			"detail": se.Error(),
+		})
+		if marshalErr == nil {
+			_, _ = w.Write(body)
+			return
+		}
+	}
+	if err.statusErr != nil {
+		_, _ = io.WriteString(w, err.statusErr.Error())
+	}
 }
 
 func (s *Server) tokenMediaError() error {
@@ -386,6 +411,111 @@ func (s *Server) tokenTooLargeError() error {
 	}
 }
 
+func tokenRequestBody() *huma.RequestBody {
+	writeOnly := func() *huma.Schema {
+		return &huma.Schema{Type: huma.TypeString, WriteOnly: true}
+	}
+	plain := func() *huma.Schema {
+		return &huma.Schema{Type: huma.TypeString}
+	}
+	return &huma.RequestBody{
+		Required:    true,
+		Description: "OAuth token form",
+		Content: map[string]*huma.MediaType{
+			tokenFormContentType: {
+				Schema: &huma.Schema{
+					Type: huma.TypeObject,
+					Properties: map[string]*huma.Schema{
+						"grant_type":            plain(),
+						"code":                  writeOnly(),
+						"redirect_uri":          plain(),
+						"resource":              plain(),
+						"code_verifier":         writeOnly(),
+						"client_id":             plain(),
+						"client_assertion_type": plain(),
+						"client_assertion":      writeOnly(),
+						"client_secret":         writeOnly(),
+						"refresh_token":         writeOnly(),
+						"scope":                 plain(),
+					},
+				},
+			},
+		},
+	}
+}
+
+func tokenOpenAPIResponses() map[string]*huma.Response {
+	header := func(desc string) *huma.Header {
+		return &huma.Header{Description: desc, Schema: &huma.Schema{Type: huma.TypeString}}
+	}
+	security := map[string]*huma.Header{
+		"Cache-Control":          header("Must be no-store"),
+		"Pragma":                 header("Must be no-cache"),
+		"X-Content-Type-Options": header("Must be nosniff"),
+		"WWW-Authenticate":       header("Exact Basic challenge on failed client_secret_basic"),
+	}
+	jsonMedia := func(schema *huma.Schema) map[string]*huma.MediaType {
+		return map[string]*huma.MediaType{
+			tokenJSONContentType: {Schema: schema},
+		}
+	}
+	return map[string]*huma.Response{
+		"200": {
+			Description: "Authorization-code token response",
+			Headers:     security,
+			Content: jsonMedia(&huma.Schema{
+				Type: huma.TypeObject,
+				Properties: map[string]*huma.Schema{
+					"access_token":  {Type: huma.TypeString},
+					"token_type":    {Type: huma.TypeString},
+					"expires_in":    {Type: huma.TypeInteger},
+					"scope":         {Type: huma.TypeString},
+					"refresh_token": {Type: huma.TypeString},
+				},
+				Required: []string{"access_token", "token_type", "expires_in", "scope", "refresh_token"},
+			}),
+		},
+		"400": {
+			Description: "OAuth invalid_request, invalid_grant, or unsupported_grant_type",
+			Headers:     security,
+			Content: jsonMedia(&huma.Schema{
+				Type: huma.TypeObject,
+				Properties: map[string]*huma.Schema{
+					"error":             {Type: huma.TypeString},
+					"error_description": {Type: huma.TypeString},
+				},
+				Required: []string{"error"},
+			}),
+		},
+		"401": {
+			Description: "OAuth invalid_client",
+			Headers:     security,
+			Content: jsonMedia(&huma.Schema{
+				Type: huma.TypeObject,
+				Properties: map[string]*huma.Schema{
+					"error":             {Type: huma.TypeString},
+					"error_description": {Type: huma.TypeString},
+				},
+				Required: []string{"error"},
+			}),
+		},
+		"413": {Description: "Request too large", Headers: security},
+		"415": {Description: "Unsupported media type", Headers: security},
+		"503": {
+			Description: "temporarily_unavailable",
+			Headers:     security,
+			Content: jsonMedia(&huma.Schema{
+				Type: huma.TypeObject,
+				Properties: map[string]*huma.Schema{
+					"error":             {Type: huma.TypeString},
+					"error_description": {Type: huma.TypeString},
+				},
+				Required: []string{"error"},
+			}),
+		},
+	}
+}
+
 func tokenSecurityHeaders(withHSTS bool) http.Header {
 	h := make(http.Header)
 	h.Set("Cache-Control", "no-store")
@@ -398,14 +528,14 @@ func tokenSecurityHeaders(withHSTS bool) http.Header {
 	return h
 }
 
-func setTokenHeaders(ctx huma.Context, hsts string, basicChallenge bool) {
-	ctx.SetHeader("Cache-Control", "no-store")
-	ctx.SetHeader("Pragma", "no-cache")
-	ctx.SetHeader("X-Content-Type-Options", "nosniff")
+func setTokenHeaders(w http.ResponseWriter, hsts string, basicChallenge bool) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if hsts != "" {
-		ctx.SetHeader("Strict-Transport-Security", hsts)
+		w.Header().Set("Strict-Transport-Security", hsts)
 	}
 	if basicChallenge {
-		ctx.SetHeader("WWW-Authenticate", tokenBasicChallenge)
+		w.Header().Set("WWW-Authenticate", tokenBasicChallenge)
 	}
 }

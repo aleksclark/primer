@@ -154,9 +154,22 @@ func (s *Server) build() (huma.API, http.Handler) {
 	cfg := huma.DefaultConfig("Primer Identity API", "0.1.0")
 	cfg.Info.Description = "Primer Identity service: health, readiness, and (later) OIDC/OAuth."
 	cfg.Servers = []*huma.Server{{URL: "/"}}
+	if s.oauth != nil || s.registerTokenInventory {
+		if cfg.Components == nil {
+			cfg.Components = &huma.Components{}
+		}
+		if cfg.Components.SecuritySchemes == nil {
+			cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
+		}
+		cfg.Components.SecuritySchemes["oauthTokenBasic"] = &huma.SecurityScheme{
+			Type:   "http",
+			Scheme: "basic",
+		}
+	}
 
 	humaAPI := humachi.New(router, cfg)
 	s.RegisterRoutes(humaAPI)
+	s.registerTokenRoutes(humaAPI, router)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
@@ -231,7 +244,6 @@ func (s *Server) RegisterRoutes(api huma.API) {
 
 	s.registerBrokerRoutes(api)
 	s.registerMetadataRoutes(api)
-	s.registerTokenRoutes(api)
 }
 
 // RequestIDMiddleware ensures every response carries X-Request-ID.

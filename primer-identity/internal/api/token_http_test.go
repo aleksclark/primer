@@ -115,6 +115,40 @@ func TestPublicClientTokenExchangeReturnsExactJSONAndValidatesJWKS(t *testing.T)
 	assert.Equal(t, 1, audits)
 }
 
+func TestPublicBasicAndPrivateTokenHandlersReadOriginalRequestBody(t *testing.T) {
+	now := time.Date(2026, 8, 17, 19, 0, 0, 0, time.UTC)
+
+	publicFX := issuedHTTPPublicCode(t, now)
+	publicHandler := newTokenAPI(t, publicFX)
+	publicForm := publicCodeForm(publicFX)
+	publicOK := postTokenOn(publicHandler, publicForm, nil)
+	require.Equal(t, http.StatusOK, publicOK.Code, publicOK.Body.String())
+	assertExactTokenSuccess(t, publicOK)
+
+	secret := "basic-secret-" + uuid.NewString()
+	basicFX := issuedHTTPConfidentialBasicCode(t, now, secret)
+	basicHandler := newTokenAPI(t, basicFX)
+	basicOK := postTokenOn(basicHandler, publicCodeForm(basicFX), map[string]string{
+		"Authorization": basicAuth(basicFX.client.ClientID, secret),
+	})
+	require.Equal(t, http.StatusOK, basicOK.Code, basicOK.Body.String())
+	assertExactTokenSuccess(t, basicOK)
+
+	mat, err := keys.Generate()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mat.Destroy() })
+	jwtFX := issuedHTTPPrivateKeyJWTCode(t, now, mat)
+	jwtHandler := newTokenAPI(t, jwtFX)
+	assertion := mintHTTPClientAssertion(t, mat, jwtFX.client.ClientID, tokenHTTPEndpoint, now, 2*time.Minute)
+	jwtForm := publicCodeForm(jwtFX)
+	jwtForm.Set("client_assertion_type", tokenAssertionType)
+	jwtForm.Set("client_assertion", assertion)
+	jwtOK := postTokenOn(jwtHandler, jwtForm, nil)
+	require.Equal(t, http.StatusOK, jwtOK.Code, jwtOK.Body.String())
+	assertExactTokenSuccess(t, jwtOK)
+	assert.NotContains(t, jwtOK.Body.String(), assertion)
+}
+
 type httpTokenFixture struct {
 	client   *domain.OAuthClient
 	redirect *domain.OAuthClientRedirect
