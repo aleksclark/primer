@@ -1267,3 +1267,124 @@ func (r *blockingReader) Read(p []byte) (int, error) {
 	<-r.release
 	return io.ReadFull(rand.Reader, p)
 }
+
+type frozenCustodyClock struct{ now time.Time }
+
+func (c frozenCustodyClock) Now() time.Time { return c.now }
+
+func TestInjectedClockRejectsFutureAndExpiredKeysIndependentOfHost(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	frozen := time.Date(2026, 8, 17, 18, 0, 0, 0, time.UTC)
+	svc := keys.NewService(pool, cfg, "test", keys.WithClock(frozenCustodyClock{now: frozen}))
+
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	require.True(t, created.NotBefore.Equal(frozen), "not_before=%s want injected=%s", created.NotBefore, frozen)
+	require.NotNil(t, created.ActivatedAt)
+	require.True(t, created.ActivatedAt.Equal(frozen), "activated_at=%s want injected=%s", created.ActivatedAt, frozen)
+
+	var storedBefore, storedActivated time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT not_before, activated_at FROM signing_keys WHERE kid=$1`, created.Kid).Scan(&storedBefore, &storedActivated))
+	require.True(t, storedBefore.UTC().Equal(frozen))
+	require.True(t, storedActivated.UTC().Equal(frozen))
+
+	signer, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+	digest := sha256.Sum256([]byte("injected-clock-ok"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 1)
+	require.NoError(t, svc.Close())
+	svc = keys.NewService(pool, cfg, "test", keys.WithClock(frozenCustodyClock{now: frozen}))
+
+	future := frozen.Add(2 * time.Hour)
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=NULL WHERE kid=$1`, created.Kid, future)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrSignerUnavailable)
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrSignerUnavailable)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=$3 WHERE kid=$1`, created.Kid, frozen.Add(-time.Hour), frozen)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrSignerUnavailable)
+
+	justAfter := frozen.Add(time.Second)
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=$3 WHERE kid=$1`, created.Kid, frozen.Add(-time.Hour), justAfter)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	txSigner, txMeta, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, txMeta.Kid)
+	_, err = txSigner.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+	require.NoError(t, txSigner.Close())
+	require.NoError(t, tx.Rollback(context.Background()))
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=NULL WHERE kid=$1`, created.Kid, frozen.Add(-time.Hour))
+	require.NoError(t, err)
+	hostSkewed := keys.NewService(pool, cfg, "test")
+	_, _, err = hostSkewed.ActiveSigner(ctx)
+	require.NoError(t, err, "host clock must still accept a currently-valid SQL window")
+}
+
+func TestInjectedClockGovernsKeySwapAndActivateNext(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	frozen := time.Date(2031, 1, 2, 3, 4, 5, 0, time.UTC)
+	svc := keys.NewService(pool, cfg, "test", keys.WithClock(frozenCustodyClock{now: frozen}))
+
+	first, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	next, err := svc.CreateNext(ctx)
+	require.NoError(t, err)
+	require.True(t, next.NotBefore.Equal(frozen))
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET status='retired', retired_at=$2 WHERE kid=$1`, first.Kid, frozen)
+	require.NoError(t, err)
+	activated, err := svc.ActivateNext(ctx)
+	require.NoError(t, err)
+	require.Equal(t, next.Kid, activated.Kid)
+	require.NotNil(t, activated.ActivatedAt)
+	require.True(t, activated.ActivatedAt.Equal(frozen), "activated_at=%s want injected=%s", activated.ActivatedAt, frozen)
+
+	var storedActivated time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT activated_at FROM signing_keys WHERE kid=$1`, next.Kid).Scan(&storedActivated))
+	require.True(t, storedActivated.UTC().Equal(frozen))
+
+	signer, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, next.Kid, meta.Kid)
+	digest := sha256.Sum256([]byte("injected-activate"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	txSigner, txMeta, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, next.Kid, txMeta.Kid)
+	t.Cleanup(func() { _ = txSigner.Close() })
+	_, err = txSigner.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 1)
+	require.Equal(t, next.Kid, pubs[0].Kid)
+}

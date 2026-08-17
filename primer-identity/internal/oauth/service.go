@@ -6,7 +6,6 @@ package oauth
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -250,34 +249,6 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 	}
 
 	now := s.clock.Now().UTC()
-	client, err := s.authenticateClient(ctx, clientPresentation{
-		ClientID:            req.ClientID,
-		ClientAssertionType: req.ClientAssertionType,
-		CodeVerifier:        req.CodeVerifier,
-		RequirePKCE:         true,
-	}, auth, now, s.cfg.TokenEndpoint, domain.AssertionEndpointToken)
-	if err != nil {
-		return TokenResponse{}, err
-	}
-	if err := requireAuthorizationCodeGrant(client); err != nil {
-		return TokenResponse{}, err
-	}
-	if err := domain.ValidatePublicClientID(client.ClientID); err != nil {
-		return TokenResponse{}, oauthErr(ErrorInvalidClient, "client_id is invalid")
-	}
-	if client.ClientID == client.ID.String() {
-		return TokenResponse{}, oauthErr(ErrorInvalidClient, "client_id is invalid")
-	}
-
-	registration, err := repo.GetEnabledOAuthClientRedirect(ctx, s.pool, client.ID, req.RedirectURI, req.Resource)
-	if err != nil {
-		return TokenResponse{}, oauthErr(ErrorInvalidGrant, "authorization code is invalid")
-	}
-
-	codeHashes, err := hashAcrossPeppers(s.secrets.AuthorizationCodePeppers, s.secrets.AuthorizationCodeActiveVersion, CodeHashContext, []byte(req.Code))
-	if err != nil {
-		return TokenResponse{}, oauthErr(ErrorInvalidGrant, "authorization code is invalid")
-	}
 
 	refreshSecret, err := randomBytes(s.rand, refreshSecretBytes)
 	if err != nil {
@@ -295,6 +266,34 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 		response  TokenResponse
 	)
 	err = repo.WithSerializableRetry(ctx, s.pool, func(tx pgx.Tx) error {
+		client, err := s.authenticateClient(ctx, tx, clientPresentation{
+			ClientID:            req.ClientID,
+			ClientAssertionType: req.ClientAssertionType,
+			CodeVerifier:        req.CodeVerifier,
+			RequirePKCE:         true,
+		}, auth, now, s.cfg.TokenEndpoint, domain.AssertionEndpointToken)
+		if err != nil {
+			return err
+		}
+		if err := requireAuthorizationCodeGrant(client); err != nil {
+			return err
+		}
+		if err := domain.ValidatePublicClientID(client.ClientID); err != nil {
+			return oauthErr(ErrorInvalidClient, "client_id is invalid")
+		}
+		if client.ClientID == client.ID.String() {
+			return oauthErr(ErrorInvalidClient, "client_id is invalid")
+		}
+
+		registration, err := repo.GetEnabledOAuthClientRedirect(ctx, tx, client.ID, req.RedirectURI, req.Resource)
+		if err != nil {
+			return oauthErr(ErrorInvalidGrant, "authorization code is invalid")
+		}
+
+		codeHashes, err := hashAcrossPeppers(s.secrets.AuthorizationCodePeppers, s.secrets.AuthorizationCodeActiveVersion, CodeHashContext, []byte(req.Code))
+		if err != nil {
+			return oauthErr(ErrorInvalidGrant, "authorization code is invalid")
+		}
 		var (
 			code     *domain.OAuthAuthorizationCode
 			claimErr error
@@ -376,8 +375,7 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 		}, txSigner, txMeta, func(_ context.Context, issued token.IssuedToken) error {
 			jtiHash, hashErr := secrethash.Hash(secrethash.Peppers(s.secrets.AssertionPeppers), s.secrets.AssertionActiveVersion, accessJTIHashContext, []byte(issued.JTI))
 			if hashErr != nil {
-				sum := sha256.Sum256([]byte(issued.JTI))
-				jtiHash = append([]byte(nil), sum[:]...)
+				return oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
 			}
 			_, auditErr := repo.CreateTokenIssuanceAudit(ctx, tx, domain.TokenIssuanceAudit{
 				GrantID: code.GrantID, AuthorizationCodeID: &code.ID, AuthorizationCodeHash: append([]byte(nil), code.CodeHash...),
@@ -466,22 +464,22 @@ func (s *Service) Revoke(ctx context.Context, req RevokeRequest, auth ClientAuth
 		return oauthErr(ErrorInvalidRequest, "token is required")
 	}
 	now := s.clock.Now().UTC()
-	client, err := s.authenticateClient(ctx, clientPresentation{
-		ClientID:            req.ClientID,
-		ClientAssertionType: req.ClientAssertionType,
-		RequirePKCE:         false,
-	}, auth, now, s.cfg.RevocationEndpoint, domain.AssertionEndpointRevocation)
-	if err != nil {
-		return err
-	}
 	hashes, ok, err := refreshHashesFromPresented(s.secrets.RefreshTokenPeppers, s.secrets.RefreshTokenActiveVersion, req.Token)
 	if err != nil {
 		return oauthErr(ErrorTemporarilyUnavail, "token material is unavailable")
 	}
-	if !ok {
-		return nil
-	}
 	err = repo.WithSerializableRetry(ctx, s.pool, func(tx pgx.Tx) error {
+		client, authErr := s.authenticateClient(ctx, tx, clientPresentation{
+			ClientID:            req.ClientID,
+			ClientAssertionType: req.ClientAssertionType,
+			RequirePKCE:         false,
+		}, auth, now, s.cfg.RevocationEndpoint, domain.AssertionEndpointRevocation)
+		if authErr != nil {
+			return authErr
+		}
+		if !ok {
+			return nil
+		}
 		return repo.RevokeOwnedInitialRefresh(ctx, tx, hashes, client.ID, "client_revoked", now)
 	})
 	if err != nil {
@@ -506,7 +504,10 @@ type clientPresentation struct {
 	RequirePKCE         bool
 }
 
-func (s *Service) authenticateClient(ctx context.Context, req clientPresentation, auth ClientAuth, now time.Time, audience, endpointKind string) (*domain.OAuthClient, error) {
+func (s *Service) authenticateClient(ctx context.Context, q repo.Querier, req clientPresentation, auth ClientAuth, now time.Time, audience, endpointKind string) (*domain.OAuthClient, error) {
+	if q == nil {
+		q = s.pool
+	}
 	method := strings.TrimSpace(auth.Method)
 	publicID := strings.TrimSpace(auth.ClientID)
 	if publicID == "" {
@@ -520,7 +521,7 @@ func (s *Service) authenticateClient(ctx context.Context, req clientPresentation
 		if req.ClientID != "" && req.ClientID != publicID {
 			return nil, oauthErr(ErrorInvalidRequest, "client_id must appear exactly once")
 		}
-		client, err := repo.GetEnabledOAuthClientByClientID(ctx, s.pool, publicID)
+		client, err := repo.GetEnabledOAuthClientByClientID(ctx, q, publicID)
 		if err != nil {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
@@ -535,7 +536,7 @@ func (s *Service) authenticateClient(ctx context.Context, req clientPresentation
 		if publicID == "" || auth.Secret == "" {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
-		client, err := repo.GetEnabledOAuthClientByClientID(ctx, s.pool, publicID)
+		client, err := repo.GetEnabledOAuthClientByClientID(ctx, q, publicID)
 		if err != nil {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
@@ -560,14 +561,14 @@ func (s *Service) authenticateClient(ctx context.Context, req clientPresentation
 		if strings.TrimSpace(audience) == "" || (endpointKind != domain.AssertionEndpointToken && endpointKind != domain.AssertionEndpointRevocation) {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
-		client, err := repo.GetEnabledOAuthClientByClientID(ctx, s.pool, publicID)
+		client, err := repo.GetEnabledOAuthClientByClientID(ctx, q, publicID)
 		if err != nil {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
 		if client.TokenEndpointAuthMethod != AuthPrivateKeyJWT || client.ClientType != "confidential" {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
-		keys, err := repo.ListEnabledOAuthClientKeys(ctx, s.pool, client.ID, now)
+		keys, err := repo.ListEnabledOAuthClientKeys(ctx, q, client.ID, now)
 		if err != nil || len(keys) == 0 {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
@@ -591,10 +592,9 @@ func (s *Service) authenticateClient(ctx context.Context, req clientPresentation
 		}
 		jtiHash, err := secrethash.Hash(secrethash.Peppers(s.secrets.AssertionPeppers), s.secrets.AssertionActiveVersion, assertionJTIHashContext, []byte(parsed.JTI))
 		if err != nil {
-			sum := sha256.Sum256([]byte(parsed.JTI))
-			jtiHash = append([]byte(nil), sum[:]...)
+			return nil, oauthErr(ErrorTemporarilyUnavail, "client authentication failed")
 		}
-		_, err = repo.RecordClientAssertionReplay(ctx, s.pool, domain.ClientAssertionReplay{
+		_, err = repo.RecordClientAssertionReplay(ctx, q, domain.ClientAssertionReplay{
 			OAuthClientID: client.ID, EndpointKind: endpointKind,
 			JTIHash: jtiHash, Audience: audience,
 			IssuedAt: parsed.IssuedAt, ExpiresAt: parsed.ExpiresAt, ConsumedAt: now,

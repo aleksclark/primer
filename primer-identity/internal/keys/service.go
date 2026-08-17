@@ -53,6 +53,46 @@ type Service struct {
 	// testBeforeSignerValidationFailure is an internal synchronization seam for
 	// proving validation locks are released before revocation can block.
 	testBeforeSignerValidationFailure func()
+
+	clock Clock
+}
+
+// Clock supplies custody temporal checks. Production defaults to UTC time.Now.
+type Clock interface {
+	Now() time.Time
+}
+
+// Option customizes a Service without breaking NewService callers.
+type Option func(*Service)
+
+// WithClock injects a custody clock. Nil clocks are rejected and the production
+// UTC default is kept. The installed clock is copied into an adapter so later
+// caller mutation of the Option argument cannot replace it, and every Now()
+// value is normalized to UTC.
+func WithClock(clock Clock) Option {
+	if clock == nil {
+		return func(*Service) {}
+	}
+	installed := utcAdapter{inner: clock}
+	return func(s *Service) {
+		if s == nil {
+			return
+		}
+		s.clock = installed
+	}
+}
+
+type utcClock struct{}
+
+func (utcClock) Now() time.Time { return time.Now().UTC() }
+
+type utcAdapter struct{ inner Clock }
+
+func (c utcAdapter) Now() time.Time {
+	if c.inner == nil {
+		return time.Now().UTC()
+	}
+	return c.inner.Now().UTC()
 }
 
 // ManagedSigner is a service-owned crypto.Signer. Callers never receive
@@ -74,7 +114,7 @@ var _ crypto.Signer = (*ManagedSigner)(nil)
 
 // NewService constructs a custody service. pool must be non-nil. Configuration
 // is validated here so programmatic construction cannot bypass loader checks.
-func NewService(pool *pgxpool.Pool, cfg config.KeyConfig, env string) *Service {
+func NewService(pool *pgxpool.Pool, cfg config.KeyConfig, env string, opts ...Option) *Service {
 	normalized := cfg
 	var validationErr error
 	switch env {
@@ -85,13 +125,30 @@ func NewService(pool *pgxpool.Pool, cfg config.KeyConfig, env string) *Service {
 	default:
 		validationErr = fmt.Errorf("%w: unsupported service environment", domain.ErrInvalid)
 	}
-	return &Service{
+	svc := &Service{
 		pool:          pool,
 		cfg:           normalized,
 		env:           env,
 		validationErr: validationErr,
 		holders:       make(map[string]*ManagedSigner),
+		clock:         utcClock{},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	if svc.clock == nil {
+		svc.clock = utcClock{}
+	}
+	return svc
+}
+
+func (s *Service) now() time.Time {
+	if s == nil || s.clock == nil {
+		return time.Now().UTC()
+	}
+	return s.clock.Now().UTC()
 }
 
 func (s *Service) String() string {
@@ -178,8 +235,11 @@ func (s *Service) createInitialActiveOnce(ctx context.Context, candidate repo.Si
 	if len(existing) > 1 {
 		return nil, fmt.Errorf("create initial active: %w", domain.ErrCorruptSigner)
 	}
+	// Observe time only after lock + durable read so a row committed while
+	// this caller waited is still temporally admissible.
+	now := s.now().UTC()
 	if len(existing) == 1 {
-		if err := s.acceptExistingActive(existing[0]); err != nil {
+		if err := s.acceptExistingActive(existing[0], now); err != nil {
 			return nil, err
 		}
 		pub := existing[0].Public()
@@ -193,7 +253,7 @@ func (s *Service) createInitialActiveOnce(ctx context.Context, candidate repo.Si
 		if errors.Is(err, domain.ErrConflict) {
 			again, listErr := repo.ListSigningKeysByStatus(ctx, tx, domain.SigningKeyStatusActive, true)
 			if listErr == nil && len(again) == 1 {
-				if acceptErr := s.acceptExistingActive(again[0]); acceptErr != nil {
+				if acceptErr := s.acceptExistingActive(again[0], s.now().UTC()); acceptErr != nil {
 					return nil, acceptErr
 				}
 				pub := again[0].Public()
@@ -220,8 +280,8 @@ func (s *Service) commitCreateInitial(ctx context.Context, tx pgx.Tx) error {
 	return tx.Commit(ctx)
 }
 
-func (s *Service) acceptExistingActive(rec repo.SigningKeyRecord) error {
-	if err := temporalUsable(rec, time.Now().UTC()); err != nil {
+func (s *Service) acceptExistingActive(rec repo.SigningKeyRecord, now time.Time) error {
+	if err := temporalUsable(rec, now); err != nil {
 		return err
 	}
 	return s.authenticateRecord(rec)
@@ -286,8 +346,11 @@ func (s *Service) createNextOnce(ctx context.Context, candidate repo.SigningKeyR
 	if len(next) > 1 {
 		return nil, fmt.Errorf("create next: %w", domain.ErrCorruptSigner)
 	}
+	// Observe time only after lock + durable read so a row committed while
+	// this caller waited is still temporally admissible.
+	now := s.now().UTC()
 	if len(next) == 1 {
-		if err := s.acceptExistingNext(next[0]); err != nil {
+		if err := s.acceptExistingNext(next[0], now); err != nil {
 			return nil, err
 		}
 		pub := next[0].Public()
@@ -304,7 +367,7 @@ func (s *Service) createNextOnce(ctx context.Context, candidate repo.SigningKeyR
 				return nil, fmt.Errorf("create next: %w", domain.ErrCorruptSigner)
 			}
 			if listErr == nil && len(again) == 1 {
-				if acceptErr := s.acceptExistingNext(again[0]); acceptErr != nil {
+				if acceptErr := s.acceptExistingNext(again[0], s.now().UTC()); acceptErr != nil {
 					return nil, acceptErr
 				}
 				pub := again[0].Public()
@@ -331,11 +394,11 @@ func (s *Service) commitCreateNext(ctx context.Context, tx pgx.Tx) error {
 	return tx.Commit(ctx)
 }
 
-func (s *Service) acceptExistingNext(rec repo.SigningKeyRecord) error {
+func (s *Service) acceptExistingNext(rec repo.SigningKeyRecord, now time.Time) error {
 	if rec.Status != domain.SigningKeyStatusNext {
 		return fmt.Errorf("create next: %w", domain.ErrCorruptSigner)
 	}
-	if err := temporalUsable(rec, time.Now().UTC()); err != nil {
+	if err := temporalUsable(rec, now); err != nil {
 		return err
 	}
 	return s.authenticateRecord(rec)
@@ -346,7 +409,7 @@ func (s *Service) reconcileExistingNextAfterUnknownCommit(ctx context.Context, c
 	if err != nil || len(next) != 1 {
 		return nil, fmt.Errorf("create next: commit: %w", commitErr)
 	}
-	if acceptErr := s.acceptExistingNext(next[0]); acceptErr != nil {
+	if acceptErr := s.acceptExistingNext(next[0], s.now().UTC()); acceptErr != nil {
 		return nil, fmt.Errorf("create next: commit: %w", commitErr)
 	}
 	pub := next[0].Public()
@@ -384,10 +447,13 @@ func (s *Service) ActivateNext(ctx context.Context) (*domain.SigningKey, error) 
 	if len(next) != 1 {
 		return nil, fmt.Errorf("activate next: %w", domain.ErrSignerUnavailable)
 	}
-	if err := s.acceptExistingNext(next[0]); err != nil {
+	// Sample the custody instant only after the durable read, so a row
+	// committed while this caller waited on the table lock is still admissible.
+	now := s.now().UTC()
+	if err := s.acceptExistingNext(next[0], now); err != nil {
 		return nil, err
 	}
-	got, err := repo.ActivateSigningKey(ctx, tx, next[0].Kid, time.Now().UTC())
+	got, err := repo.ActivateSigningKey(ctx, tx, next[0].Kid, now)
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +501,10 @@ func (s *Service) ActiveSigner(ctx context.Context) (*ManagedSigner, *domain.Sig
 		return nil, nil, domain.ErrCorruptSigner
 	}
 	rec := active[0]
-	if err := temporalUsable(rec, time.Now().UTC()); err != nil {
+	// Admission instant is sampled after the durable read so a key committed
+	// during this read is not rejected as not-yet-valid.
+	now := s.now().UTC()
+	if err := temporalUsable(rec, now); err != nil {
 		return nil, nil, err
 	}
 	pubs, err := s.publicJWKSUnlocked(ctx)
@@ -498,7 +567,9 @@ func (s *Service) ActiveSignerForTx(ctx context.Context, tx pgx.Tx) (*Transactio
 		return nil, nil, domain.ErrCorruptSigner
 	}
 	rec := active[0]
-	if err := temporalUsable(rec, time.Now().UTC()); err != nil {
+	// Admission instant is sampled after the locked durable read.
+	now := s.now().UTC()
+	if err := temporalUsable(rec, now); err != nil {
 		return nil, nil, err
 	}
 
@@ -515,7 +586,7 @@ func (s *Service) ActiveSignerForTx(ctx context.Context, tx pgx.Tx) (*Transactio
 	}
 	pubs = append(pubs, rec.PublicJWK)
 	for _, nextRec := range next {
-		if err := temporalUsable(nextRec, time.Now().UTC()); err != nil {
+		if err := temporalUsable(nextRec, now); err != nil {
 			return nil, nil, err
 		}
 		if err := s.authenticateRecord(nextRec); err != nil {
@@ -651,7 +722,8 @@ func (s *Service) publicJWKSUnlocked(ctx context.Context) ([]domain.PublicJWK, e
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
+	// Admission instant is sampled after the durable read of the published set.
+	now := s.now().UTC()
 	seen := make(map[string]struct{}, len(recs))
 	out := make([]domain.PublicJWK, 0, len(recs))
 	for _, rec := range recs {
@@ -893,7 +965,9 @@ func (m *ManagedSigner) Sign(random io.Reader, digest []byte, opts crypto.Signer
 		m.validationFailure(tx)
 		return nil, ErrSignerRevoked
 	}
-	if err := temporalUsable(*rec, time.Now().UTC()); err != nil {
+	// Admission instant is sampled after the locked row read.
+	now := m.svc.now().UTC()
+	if err := temporalUsable(*rec, now); err != nil {
 		m.validationFailure(tx)
 		return nil, ErrSignerRevoked
 	}
@@ -975,7 +1049,7 @@ func (s *Service) generateRecord(status string) (repo.SigningKeyRecord, error) {
 	if err != nil {
 		return repo.SigningKeyRecord{}, err
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	rec := repo.SigningKeyRecord{
 		Kid:              public.Kid,
 		Alg:              domain.SigningAlgES256,
