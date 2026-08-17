@@ -3,6 +3,7 @@ package keys
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -123,7 +124,7 @@ func TestManagedSignerReleasesValidationRowBeforeBlockedRevocation(t *testing.T)
 	signADone := make(chan signResult, 1)
 	signBDone := make(chan signResult, 1)
 	go func() {
-		signature, signErr := signerA.Sign(&internalBlockingReader{started: randomStarted, release: releaseRandom}, digest[:], nil)
+		signature, signErr := signerA.Sign(&internalBlockingReader{started: randomStarted, release: releaseRandom}, digest[:], crypto.SHA256)
 		signADone <- signResult{signature: signature, err: signErr}
 	}()
 	select {
@@ -143,7 +144,7 @@ func TestManagedSignerReleasesValidationRowBeforeBlockedRevocation(t *testing.T)
 		<-allowRevocation
 	}
 	go func() {
-		signature, signErr := signerB.Sign(rand.Reader, digest[:], nil)
+		signature, signErr := signerB.Sign(rand.Reader, digest[:], crypto.SHA256)
 		signBDone <- signResult{signature: signature, err: signErr}
 	}()
 	select {
@@ -195,9 +196,9 @@ func TestManagedSignerReleasesValidationRowBeforeBlockedRevocation(t *testing.T)
 	signB := <-signBDone
 	requireGenericInternalSignerFailure(t, signA.err, signA.signature)
 	requireGenericInternalSignerFailure(t, signB.err, signB.signature)
-	_, err = signerA.Sign(rand.Reader, digest[:], nil)
+	_, err = signerA.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.ErrorIs(t, err, ErrSignerRevoked)
-	_, err = signerB.Sign(rand.Reader, digest[:], nil)
+	_, err = signerB.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.ErrorIs(t, err, ErrSignerRevoked)
 }
 
@@ -326,13 +327,13 @@ func TestManagedSignerRevalidatesCompleteRowBeforeReturningSignature(t *testing.
 	require.NoError(t, err)
 
 	digest := sha256.Sum256([]byte("db-revalidation-ok"))
-	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.NoError(t, err)
 	require.NotEmpty(t, sig)
 
 	_, err = pool.Exec(context.Background(), `UPDATE signing_keys SET created_at = created_at - interval '1 second' WHERE kid = $1`, created.Kid)
 	require.NoError(t, err)
-	sig, err = signer.Sign(rand.Reader, digest[:], nil)
+	sig, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	requireGenericInternalSignerFailure(t, err, sig)
 }
 

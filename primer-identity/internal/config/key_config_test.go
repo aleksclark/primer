@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/aleksclark/primer/identity/internal/config"
+	"github.com/aleksclark/primer/identity/internal/logging"
 )
 
 // canonicalSealSecret returns a distinctive 32-byte key encoded as the one
@@ -153,7 +155,10 @@ func TestSealSecretNeverAppearsInErrorsJSONOrFormatting(t *testing.T) {
 	cfg := validConfig()
 	cfg.Key.Enabled = true
 	cfg.Key.SetSealSecretForTest(encoded)
-	secretFormatted := fmt.Sprintf("%v %#v %+v", cfg.Key.SealSecret, cfg.Key.SealSecret, cfg.Key.SealSecret)
+	secretFormatted := ""
+	for _, format := range []string{"%v", "%#v", "%+v", "%s", "%d", "%x"} {
+		secretFormatted += fmt.Sprintf(format, cfg.Key.SealSecret)
+	}
 	assert.NotContains(t, secretFormatted, encoded)
 	assert.NotContains(t, secretFormatted, string(raw[:]))
 	require.NoError(t, cfg.Validate())
@@ -432,4 +437,66 @@ func reflectedExportedConfigContains(v reflect.Value, encoded string, decoded []
 		}
 	}
 	return false
+}
+
+func TestCredentialBearingConfigTypesHaveVerbIndependentSafeFormatting(t *testing.T) {
+	cfg := validConfig()
+	dsnPassword := "dsn-" + "password-PLANT"
+	cfg.DatabaseURL = "postgres://identity:" + dsnPassword + "@db:5432/primer_identity"
+	cfg.StateHashPeppers = "1:pepper-encoded-PLANT"
+	cfg.Stytch.Secret = "stytch-secret-PLANT"
+	seal, _ := canonicalSealSecret(t)
+	cfg.Key.SetSealSecretForTest(seal)
+
+	values := []any{*cfg, cfg, cfg.Stytch, &cfg.Stytch, cfg.Key, &cfg.Key}
+	for _, value := range values {
+		baseline := fmt.Sprintf("%v", value)
+		for _, format := range []string{"%v", "%+v", "%#v", "%s", "%d", "%x"} {
+			got := fmt.Sprintf(format, value)
+			assert.Equal(t, baseline, got, "format %s for %T", format, value)
+			assert.NotContains(t, got, dsnPassword)
+			assert.NotContains(t, got, "pepper-encoded-PLANT")
+			assert.NotContains(t, got, "stytch-secret-PLANT")
+			assert.NotContains(t, got, seal)
+		}
+	}
+}
+
+func TestCredentialBearingConfigTypesMarshalCredentialFreeJSON(t *testing.T) {
+	cfg := validConfig()
+	dsnPassword := "dsn-" + "password-PLANT"
+	cfg.DatabaseURL = "postgres://identity:" + dsnPassword + "@db:5432/primer_identity"
+	cfg.StateHashPeppers = "1:pepper-encoded-PLANT"
+	cfg.Stytch.Secret = "stytch-secret-PLANT"
+	seal, _ := canonicalSealSecret(t)
+	cfg.Key.SetSealSecretForTest(seal)
+
+	for _, value := range []any{cfg, &cfg, cfg.Stytch, &cfg.Stytch, cfg.Key, &cfg.Key} {
+		blob, err := json.Marshal(value)
+		require.NoError(t, err, "%T must have a safe JSON projection", value)
+		out := string(blob)
+		assert.NotContains(t, out, dsnPassword)
+		assert.NotContains(t, out, "pepper-encoded-PLANT")
+		assert.NotContains(t, out, "stytch-secret-PLANT")
+		assert.NotContains(t, out, seal)
+	}
+}
+
+func TestRealRedactingLoggerDoesNotLeakCredentialBearingConfigValues(t *testing.T) {
+	var buf bytes.Buffer
+	logger := logging.NewJSONLogger(&buf, "info")
+	cfg := validConfig()
+	dsnPassword := "dsn-" + "password-PLANT"
+	cfg.DatabaseURL = "postgres://identity:" + dsnPassword + "@db:5432/primer_identity"
+	cfg.StateHashPeppers = "1:pepper-encoded-PLANT"
+	cfg.Stytch.Secret = "stytch-secret-PLANT"
+	seal, _ := canonicalSealSecret(t)
+	cfg.Key.SetSealSecretForTest(seal)
+
+	logger.Info("credential projection", "config", cfg, "stytch", cfg.Stytch, "key", cfg.Key)
+	out := buf.String()
+	assert.NotContains(t, out, dsnPassword)
+	assert.NotContains(t, out, "pepper-encoded-PLANT")
+	assert.NotContains(t, out, "stytch-secret-PLANT")
+	assert.NotContains(t, out, seal)
 }

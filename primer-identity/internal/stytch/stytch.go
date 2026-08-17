@@ -97,6 +97,19 @@ type Adapter struct {
 	projectID string
 }
 
+// String is a safe adapter projection. The SDK API object is intentionally
+// absent because it owns the provider secret and a large graph of internals.
+func (a Adapter) String() string {
+	return fmt.Sprintf("stytch-adapter project_id=%s", a.projectID)
+}
+
+func (a Adapter) GoString() string { return a.String() }
+
+// Format intentionally ignores the requested verb and flags.
+func (a Adapter) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, a.String())
+}
+
 // New constructs the official adapter, or returns (nil, nil) when explicitly
 // disabled. Disabled mode never constructs an SDK client.
 func New(cfg config.StytchConfig) (StytchClient, error) {

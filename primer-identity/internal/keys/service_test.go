@@ -351,7 +351,12 @@ func TestPublicJWKSAndActiveSignerFailClosedOnPlantedTamperedNext(t *testing.T) 
 	require.NoError(t, err)
 	next := plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
 
-	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, next.Kid)
+	var sealed []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT sealed_private_key FROM signing_keys WHERE kid = $1`, next.Kid).Scan(&sealed))
+	require.Greater(t, len(sealed), 16)
+	flipped := append([]byte(nil), sealed...)
+	flipped[len(flipped)-1] ^= 0xff
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = $2 WHERE kid = $1`, next.Kid, flipped)
 	require.NoError(t, err)
 
 	_, err = svc.PublicJWKS(ctx)
@@ -761,7 +766,7 @@ func TestManagedSignerRejectsStaleNonActiveRow(t *testing.T) {
 	signer, _, err := svc.ActiveSigner(ctx)
 	require.NoError(t, err)
 	digest := sha256.Sum256([]byte("pre-retire"))
-	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `
@@ -772,7 +777,7 @@ WHERE kid=$1`, created.Kid)
 
 	_, err = signer.PublicJWK()
 	require.NoError(t, err) // public metadata may still be readable locally
-	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	requireGenericSignerFailure(t, err, sig)
 
 	_, _, err = svc.ActiveSigner(ctx)
@@ -792,7 +797,7 @@ func TestServiceCloseDestroysOutstandingHolders(t *testing.T) {
 	_, err = signer.PublicJWK()
 	require.Error(t, err)
 	digest := sha256.Sum256([]byte("closed"))
-	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.Error(t, err)
 }
 
@@ -837,9 +842,9 @@ UPDATE signing_keys SET status='retired', retired_at=now() WHERE kid=$1`, create
 	require.NoError(t, err)
 
 	digest := sha256.Sum256([]byte("cross-process-retirement"))
-	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	requireGenericSignerFailure(t, err, sig)
-	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.ErrorIs(t, err, keys.ErrSignerRevoked)
 }
 
@@ -937,7 +942,7 @@ SELECT kid, alg, key_version, public_jwk, sealed_private_key, status, not_before
 			mutate.fn(t, pool, created.Kid)
 
 			digest := sha256.Sum256([]byte("external-corruption-" + mutate.name))
-			sig, err := signer.Sign(rand.Reader, digest[:], nil)
+			sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 			requireGenericSignerFailure(t, err, sig)
 		})
 	}
@@ -954,7 +959,7 @@ func TestManagedSignerRejectsClosedPoolWithoutSignature(t *testing.T) {
 	pool.Close()
 
 	digest := sha256.Sum256([]byte("closed-pool"))
-	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	requireGenericSignerFailure(t, err, sig)
 }
 
@@ -978,7 +983,7 @@ func TestManagedSignerRejectsDatabaseLockTimeoutWithoutSignature(t *testing.T) {
 
 	digest := sha256.Sum256([]byte("database-timeout"))
 	started := time.Now()
-	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	requireGenericSignerFailure(t, err, sig)
 	assert.LessOrEqual(t, time.Since(started), 2500*time.Millisecond)
 
@@ -986,9 +991,9 @@ func TestManagedSignerRejectsDatabaseLockTimeoutWithoutSignature(t *testing.T) {
 	recovered, _, err := service.ActiveSigner(ctx)
 	require.NoError(t, err)
 	assert.NotSame(t, signer, recovered)
-	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.ErrorIs(t, err, keys.ErrSignerRevoked)
-	_, err = recovered.Sign(rand.Reader, digest[:], nil)
+	_, err = recovered.Sign(rand.Reader, digest[:], crypto.SHA256)
 	require.NoError(t, err)
 }
 

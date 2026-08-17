@@ -93,10 +93,6 @@ func (s *Server) jwksDocument(ctx context.Context) (cachedDocument, error) {
 	if err != nil {
 		return cachedDocument{}, genericUnavailable()
 	}
-	etag, err := s.jwks.PublicSetETag(ctx)
-	if err != nil {
-		return cachedDocument{}, genericUnavailable()
-	}
 	body, err := encodeJWKS(pubs)
 	if err != nil {
 		return cachedDocument{}, genericUnavailable()
@@ -104,7 +100,7 @@ func (s *Server) jwksDocument(ctx context.Context) (cachedDocument, error) {
 	return cachedDocument{
 		status:      http.StatusOK,
 		contentType: "application/jwk-set+json",
-		etag:        etag,
+		etag:        metadataETag(body),
 		body:        body,
 	}, nil
 }
@@ -157,7 +153,7 @@ func authorizationServerDocument(issuer string) (authorizationServerMetadata, er
 		JWKSURI:                                         base + jwksPath,
 		ResponseTypesSupported:                          []string{"code"},
 		ResponseModesSupported:                          []string{"query"},
-		GrantTypesSupported:                             []string{"authorization_code", "refresh_token", "client_credentials"},
+		GrantTypesSupported:                             []string{"authorization_code"},
 		CodeChallengeMethodsSupported:                   []string{"S256"},
 		TokenEndpointAuthMethodsSupported:               []string{"none", "client_secret_basic", "private_key_jwt"},
 		TokenEndpointAuthSigningAlgValuesSupported:      []string{"ES256"},

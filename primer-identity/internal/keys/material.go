@@ -145,9 +145,15 @@ func (m *Material) Public() crypto.PublicKey {
 }
 
 // Sign implements crypto.Signer without exposing the private key pointer.
-func (m *Material) Sign(random io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
+func (m *Material) Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	if m == nil || m.mu == nil {
 		return nil, fmt.Errorf("%w: nil material", ErrInvalidMaterial)
+	}
+	if opts == nil || opts.HashFunc() != crypto.SHA256 {
+		return nil, fmt.Errorf("%w: SHA-256 signer options are required", ErrInvalidMaterial)
+	}
+	if len(digest) != sha256.Size {
+		return nil, fmt.Errorf("%w: SHA-256 digest must be %d bytes", ErrInvalidMaterial, sha256.Size)
 	}
 	if random == nil {
 		return nil, fmt.Errorf("%w: random source is required", ErrInvalidMaterial)

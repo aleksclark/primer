@@ -5,7 +5,9 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -38,6 +40,40 @@ type StytchConfig struct {
 	NegativeCacheTTL      time.Duration `split_words:"true" default:"5s"`
 	PositiveCacheCapacity int           `split_words:"true" default:"10000"`
 	NegativeCacheCapacity int           `split_words:"true" default:"2000"`
+}
+
+// String returns a credential-free projection. In particular, ProjectID is
+// useful operational context, while Secret and BaseURI are deliberately not
+// included because this value may cross logging and diagnostic boundaries.
+func (c StytchConfig) String() string {
+	return fmt.Sprintf("stytch-config enabled=%t project_id=%s env=%s request_timeout=%s", c.Enabled, c.ProjectID, c.Env, c.RequestTimeout)
+}
+
+func (c StytchConfig) GoString() string { return c.String() }
+
+// Format intentionally ignores the requested verb and flags. A credential
+// bearing configuration object must not fall back to fmt's struct formatter
+// for verbs such as %d or %x.
+func (c StytchConfig) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, c.String())
+}
+
+func (c StytchConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Enabled               bool          `json:"enabled"`
+		ProjectID             string        `json:"project_id"`
+		Env                   string        `json:"env"`
+		RequestTimeout        time.Duration `json:"request_timeout"`
+		PositiveCacheTTL      time.Duration `json:"positive_cache_ttl"`
+		NegativeCacheTTL      time.Duration `json:"negative_cache_ttl"`
+		PositiveCacheCapacity int           `json:"positive_cache_capacity"`
+		NegativeCacheCapacity int           `json:"negative_cache_capacity"`
+	}{
+		Enabled: c.Enabled, ProjectID: c.ProjectID, Env: c.Env,
+		RequestTimeout: c.RequestTimeout, PositiveCacheTTL: c.PositiveCacheTTL,
+		NegativeCacheTTL: c.NegativeCacheTTL, PositiveCacheCapacity: c.PositiveCacheCapacity,
+		NegativeCacheCapacity: c.NegativeCacheCapacity,
+	})
 }
 
 // Validate checks Stytch settings without constructing an SDK client.
@@ -151,6 +187,9 @@ func (s *sealedSecret) Decode(value string) error {
 
 func (s sealedSecret) String() string   { return "[redacted]" }
 func (s sealedSecret) GoString() string { return "sealedSecret{redacted}" }
+func (s sealedSecret) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, s.String())
+}
 func (s sealedSecret) MarshalJSON() ([]byte, error) {
 	return []byte(`""`), nil
 }
@@ -198,6 +237,18 @@ func (k KeyConfig) String() string {
 
 // GoString protects %#v from leaking the seal secret.
 func (k KeyConfig) GoString() string { return k.String() }
+
+// Format intentionally ignores the requested verb and flags.
+func (k KeyConfig) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, k.String())
+}
+
+func (k KeyConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Enabled       bool `json:"enabled"`
+		AutoBootstrap bool `json:"auto_bootstrap"`
+	}{Enabled: k.Enabled, AutoBootstrap: k.AutoBootstrap})
+}
 
 func (k *KeyConfig) Validate(serviceEnv string) error {
 	if k == nil {
@@ -333,6 +384,37 @@ type Config struct {
 	ClientSecretPepperSet      VersionedSecretSet `ignored:"true"`
 	RefreshTokenPepperSet      VersionedSecretSet `ignored:"true"`
 	ClientAssertionPepperSet   VersionedSecretSet `ignored:"true"`
+}
+
+// String returns only operational flags and non-credential identity metadata.
+// DatabaseURL, provider secrets, pepper encodings, and parsed secret material
+// are intentionally absent from this projection.
+func (c Config) String() string {
+	return fmt.Sprintf("identity-config env=%s host=%s port=%d stytch_enabled=%t key_enabled=%t", c.Env, c.Host, c.Port, c.Stytch.Enabled, c.Key.Enabled)
+}
+
+func (c Config) GoString() string { return c.String() }
+
+// Format intentionally ignores the requested verb and flags.
+func (c Config) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, c.String())
+}
+
+func (c Config) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Stytch               StytchConfig `json:"stytch"`
+		Key                  KeyConfig    `json:"key"`
+		Host                 string       `json:"host"`
+		Port                 int          `json:"port"`
+		Env                  string       `json:"env"`
+		LogLevel             string       `json:"log_level"`
+		Issuer               string       `json:"issuer"`
+		InsecureBrokerCookie bool         `json:"insecure_broker_cookie"`
+	}{
+		Stytch: c.Stytch, Key: c.Key, Host: c.Host, Port: c.Port,
+		Env: c.Env, LogLevel: c.LogLevel, Issuer: c.Issuer,
+		InsecureBrokerCookie: c.InsecureBrokerCookie,
+	})
 }
 
 // Load reads Identity configuration from the environment and validates it.
