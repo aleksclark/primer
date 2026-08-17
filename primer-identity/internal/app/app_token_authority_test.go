@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -44,6 +45,7 @@ func tokenAuthorityConfig(t *testing.T, env, databaseURL string) *config.Config 
 	cfg.DatabaseURL = databaseURL
 	cfg.Issuer = "https://id.example.test"
 	cfg.Key.Enabled = true
+	cfg.Key.AutoBootstrap = true
 	cfg.Key.SetSealSecretForTest(canonicalSeal(t))
 	cfg.ClientSecretPeppers = encodedKey(0x51)
 	cfg.ClientSecretActiveVersion = 1
@@ -103,7 +105,7 @@ func TestRunTokenAuthorityBootstrapsOneActiveKeyAndServesJWKS(t *testing.T) {
 	require.Equal(t, http.StatusOK, jwksResp.StatusCode)
 	assert.LessOrEqual(t, len(body), 64*1024)
 	assert.Contains(t, jwksResp.Header.Get("Content-Type"), "jwk-set+json")
-	assert.Contains(t, jwksResp.Header.Get("Cache-Control"), "public")
+	assert.Equal(t, "public,max-age=300", jwksResp.Header.Get("Cache-Control"))
 	assert.NotEmpty(t, jwksResp.Header.Get("ETag"))
 
 	parsed, err := token.ParseJWKS(body)
@@ -293,6 +295,7 @@ func TestRunDisabledTokenAuthorityKeepsHealthReadyAndOmitsJWKS(t *testing.T) {
 func TestRunRejectsProductionInjectedSignerSeamsBeforeListen(t *testing.T) {
 	cfg := tokenAuthorityConfig(t, "test", "postgres://identity:***@127.0.0.1:5432/primer_identity?sslmode=disable")
 	cfg.Env = "production"
+	cfg.Key.AutoBootstrap = false
 	cfg.Stytch = config.StytchConfig{
 		Enabled: true, ProjectID: "project-live-example", Secret: "secret-must-not-leak",
 		Env: "live", RequestTimeout: 3 * time.Second,
@@ -400,6 +403,163 @@ func TestRunReadinessAndJWKSFailGenericallyOnCorruptSigner(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(string(jwksBody)), "sql")
 }
 
+func TestRunNeverCallsCreateInitialActiveDirectly(t *testing.T) {
+	src, err := os.ReadFile("app.go")
+	require.NoError(t, err)
+	assert.NotContains(t, string(src), "CreateInitialActive")
+	assert.Contains(t, string(src), "Bootstrap")
+	assert.Contains(t, string(src), ".Ready(")
+}
+
+func TestRunProductionTokenAuthorityWithEmptyKeysFailsClosedBeforeListenAndMigrate(t *testing.T) {
+	url := dedicatedUnmigratedIdentityURL(t)
+	cfg := tokenAuthorityConfig(t, "test", url)
+	cfg.Env = "production"
+	cfg.Key.AutoBootstrap = false
+	cfg.Stytch = config.StytchConfig{
+		Enabled: true, ProjectID: "project-live-example", Secret: "secret-must-not-leak",
+		Env: "live", RequestTimeout: 3 * time.Second,
+		PositiveCacheTTL: 15 * time.Second, NegativeCacheTTL: 5 * time.Second,
+		PositiveCacheCapacity: 10000, NegativeCacheCapacity: 2000,
+	}
+	cfg.BrokerAllowedOrigin = "https://id.example"
+	cfg.BrokerDiscoveryRedirectURL = "https://id.example/broker/stytch/callback"
+	cfg.BrokerLoginRedirectURL = "https://id.example/broker/stytch/callback"
+	cfg.BrokerSignupRedirectURL = "https://id.example/broker/stytch/callback"
+	cfg.Issuer = "https://id.example"
+	cfg.StateSealKeys = encodedKey(0x11)
+	cfg.StateSealActiveVersion = 1
+	cfg.StateHashPeppers = encodedKey(0x22)
+	cfg.StateHashActiveVersion = 1
+	cfg.BrokerCookiePeppers = encodedKey(0x33)
+	cfg.BrokerCookieActiveVersion = 1
+	cfg.AuthorizationCodePeppers = encodedKey(0x44)
+	cfg.AuthorizationCodeActiveVersion = 1
+	cfg.StytchPublicToken = "public-token-live-example"
+	require.NoError(t, cfg.Validate())
+	assert.False(t, cfg.Key.AutoBootstrap)
+	assert.True(t, cfg.TokenAuthorityEnabled())
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	shutdown := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- app.Run(context.Background(), app.Options{Config: cfg, ShutdownSignal: shutdown})
+	}()
+	select {
+	case err = <-errCh:
+		require.Error(t, err)
+	case <-time.After(8 * time.Second):
+		close(shutdown)
+		t.Fatal("Run did not fail closed before listen/migration")
+	}
+	assert.NotContains(t, err.Error(), "secret-must-not-leak")
+	assert.NotContains(t, strings.ToLower(err.Error()), "sql")
+
+	conn, dialErr := net.DialTimeout("tcp", addr, 150*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		t.Fatal("process listened despite empty production signing_keys")
+	}
+
+	pool, err := db.Connect(context.Background(), url)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	var relation *string
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT to_regclass('public.signing_keys')::text`).Scan(&relation))
+	assert.Nil(t, relation)
+}
+
+func TestRunTokenAuthorityWithoutAutoBootstrapRequiresPreseededKey(t *testing.T) {
+	url := dedicatedIdentityURL(t)
+	cfg := tokenAuthorityConfig(t, "test", url)
+	cfg.Key.AutoBootstrap = false
+	assert.False(t, cfg.Key.AutoBootstrap)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	shutdown := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- app.Run(context.Background(), app.Options{
+			Config: cfg, SkipMigrate: true, ShutdownSignal: shutdown,
+		})
+	}()
+	select {
+	case err = <-errCh:
+		require.Error(t, err)
+	case <-time.After(8 * time.Second):
+		close(shutdown)
+		t.Fatal("Run did not fail closed without a usable active key")
+	}
+
+	conn, dialErr := net.DialTimeout("tcp", addr, 150*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		t.Fatal("process listened without a usable active key")
+	}
+
+	n, countErr := repo.CountSigningKeysByStatus(context.Background(), connectURL(t, url), domain.SigningKeyStatusActive)
+	require.NoError(t, countErr)
+	assert.Zero(t, n)
+}
+
+func TestRunTokenAuthorityAcceptsExplicitlyPreseededActiveKey(t *testing.T) {
+	url := dedicatedIdentityURL(t)
+	cfg := tokenAuthorityConfig(t, "test", url)
+	cfg.Key.AutoBootstrap = false
+	pool := connectURL(t, url)
+	keySvc := keys.NewService(pool, cfg.Key, "test")
+	t.Cleanup(func() { _ = keySvc.Close() })
+	created, err := keySvc.CreateInitialActive(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, created.Kid)
+
+	baseURL, _, _ := startApp(t, cfg, app.Options{})
+	ready, err := noFollow().Get(baseURL + "/readyz")
+	require.NoError(t, err)
+	_ = ready.Body.Close()
+	assert.Equal(t, http.StatusOK, ready.StatusCode)
+
+	jwks, err := noFollow().Get(baseURL + "/.well-known/jwks.json")
+	require.NoError(t, err)
+	body, err := io.ReadAll(jwks.Body)
+	_ = jwks.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, jwks.StatusCode)
+	parsed, err := token.ParseJWKS(body)
+	require.NoError(t, err)
+	require.Len(t, parsed, 1)
+	assert.Equal(t, created.Kid, parsed[0].Kid)
+}
+
+func dedicatedUnmigratedIdentityURL(t *testing.T) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
+	container, err := tcpostgres.Run(ctx,
+		"postgres:17-alpine",
+		tcpostgres.WithDatabase("primer_identity_test"),
+		tcpostgres.WithUsername("primer"),
+		tcpostgres.WithPassword("primer"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	url, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	return url
+}
+
 func TestJWKSEtagConditionalAndDeterministicOrder(t *testing.T) {
 	cfg := tokenAuthorityConfig(t, "test", dedicatedIdentityURL(t))
 	baseURL, _, _ := startApp(t, cfg, app.Options{})
@@ -453,7 +613,7 @@ func TestAuthorizationServerMetadataExactPathAndFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.LessOrEqual(t, len(body), 32*1024)
 	assert.Contains(t, resp.Header.Get("Content-Type"), "application/json")
-	assert.Contains(t, resp.Header.Get("Cache-Control"), "public")
+	assert.Equal(t, "public,max-age=300", resp.Header.Get("Cache-Control"))
 
 	var meta map[string]any
 	require.NoError(t, json.Unmarshal(body, &meta))
@@ -465,10 +625,12 @@ func TestAuthorizationServerMetadataExactPathAndFields(t *testing.T) {
 	assert.Equal(t, "https://id.example.test/issuer/path/.well-known/jwks.json", meta["jwks_uri"])
 	assert.Equal(t, []any{"code"}, meta["response_types_supported"])
 	assert.Equal(t, []any{"query"}, meta["response_modes_supported"])
-	assert.Equal(t, []any{"authorization_code"}, meta["grant_types_supported"])
+	assert.Equal(t, []any{"authorization_code", "refresh_token", "client_credentials"}, meta["grant_types_supported"])
 	assert.Equal(t, []any{"S256"}, meta["code_challenge_methods_supported"])
 	assert.Equal(t, []any{"none", "client_secret_basic", "private_key_jwt"}, meta["token_endpoint_auth_methods_supported"])
 	assert.Equal(t, []any{"ES256"}, meta["token_endpoint_auth_signing_alg_values_supported"])
+	assert.Equal(t, []any{"none", "client_secret_basic", "private_key_jwt"}, meta["revocation_endpoint_auth_methods_supported"])
+	assert.Equal(t, []any{"ES256"}, meta["revocation_endpoint_auth_signing_alg_values_supported"])
 	assert.Equal(t, true, meta["authorization_response_iss_parameter_supported"])
 	assert.NotContains(t, meta, "registration_endpoint")
 	assert.NotContains(t, meta, "introspection_endpoint")

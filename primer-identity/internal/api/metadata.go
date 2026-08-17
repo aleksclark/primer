@@ -19,7 +19,7 @@ import (
 const (
 	jwksMaxBytes     = 64 * 1024
 	metadataMaxBytes = 32 * 1024
-	metadataCache    = "public, max-age=300"
+	metadataCache    = "public,max-age=300"
 	jwksPath         = "/.well-known/jwks.json"
 	metadataRootPath = "/.well-known/oauth-authorization-server"
 )
@@ -127,19 +127,21 @@ func (s *Server) metadataDocument(context.Context) (cachedDocument, error) {
 }
 
 type authorizationServerMetadata struct {
-	Issuer                                     string   `json:"issuer"`
-	AuthorizationEndpoint                      string   `json:"authorization_endpoint"`
-	TokenEndpoint                              string   `json:"token_endpoint"`
-	RevocationEndpoint                         string   `json:"revocation_endpoint"`
-	JWKSURI                                    string   `json:"jwks_uri"`
-	ResponseTypesSupported                     []string `json:"response_types_supported"`
-	ResponseModesSupported                     []string `json:"response_modes_supported"`
-	GrantTypesSupported                        []string `json:"grant_types_supported"`
-	CodeChallengeMethodsSupported              []string `json:"code_challenge_methods_supported"`
-	TokenEndpointAuthMethodsSupported          []string `json:"token_endpoint_auth_methods_supported"`
-	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported"`
-	ScopesSupported                            []string `json:"scopes_supported"`
-	AuthorizationResponseISSParameterSupported bool     `json:"authorization_response_iss_parameter_supported"`
+	Issuer                                          string   `json:"issuer"`
+	AuthorizationEndpoint                           string   `json:"authorization_endpoint"`
+	TokenEndpoint                                   string   `json:"token_endpoint"`
+	RevocationEndpoint                              string   `json:"revocation_endpoint"`
+	JWKSURI                                         string   `json:"jwks_uri"`
+	ResponseTypesSupported                          []string `json:"response_types_supported"`
+	ResponseModesSupported                          []string `json:"response_modes_supported"`
+	GrantTypesSupported                             []string `json:"grant_types_supported"`
+	CodeChallengeMethodsSupported                   []string `json:"code_challenge_methods_supported"`
+	TokenEndpointAuthMethodsSupported               []string `json:"token_endpoint_auth_methods_supported"`
+	TokenEndpointAuthSigningAlgValuesSupported      []string `json:"token_endpoint_auth_signing_alg_values_supported"`
+	RevocationEndpointAuthMethodsSupported          []string `json:"revocation_endpoint_auth_methods_supported"`
+	RevocationEndpointAuthSigningAlgValuesSupported []string `json:"revocation_endpoint_auth_signing_alg_values_supported"`
+	ScopesSupported                                 []string `json:"scopes_supported"`
+	AuthorizationResponseISSParameterSupported      bool     `json:"authorization_response_iss_parameter_supported"`
 }
 
 func authorizationServerDocument(issuer string) (authorizationServerMetadata, error) {
@@ -148,19 +150,21 @@ func authorizationServerDocument(issuer string) (authorizationServerMetadata, er
 		return authorizationServerMetadata{}, err
 	}
 	return authorizationServerMetadata{
-		Issuer:                                     strings.TrimSpace(issuer),
-		AuthorizationEndpoint:                      base + "/oauth/authorize",
-		TokenEndpoint:                              base + "/oauth/token",
-		RevocationEndpoint:                         base + "/oauth/revoke",
-		JWKSURI:                                    base + jwksPath,
-		ResponseTypesSupported:                     []string{"code"},
-		ResponseModesSupported:                     []string{"query"},
-		GrantTypesSupported:                        []string{"authorization_code"},
-		CodeChallengeMethodsSupported:              []string{"S256"},
-		TokenEndpointAuthMethodsSupported:          []string{"none", "client_secret_basic", "private_key_jwt"},
-		TokenEndpointAuthSigningAlgValuesSupported: []string{"ES256"},
-		ScopesSupported:                            []string{"openid", "studio.publish", "studio.read"},
-		AuthorizationResponseISSParameterSupported: true,
+		Issuer:                                          strings.TrimSpace(issuer),
+		AuthorizationEndpoint:                           base + "/oauth/authorize",
+		TokenEndpoint:                                   base + "/oauth/token",
+		RevocationEndpoint:                              base + "/oauth/revoke",
+		JWKSURI:                                         base + jwksPath,
+		ResponseTypesSupported:                          []string{"code"},
+		ResponseModesSupported:                          []string{"query"},
+		GrantTypesSupported:                             []string{"authorization_code", "refresh_token", "client_credentials"},
+		CodeChallengeMethodsSupported:                   []string{"S256"},
+		TokenEndpointAuthMethodsSupported:               []string{"none", "client_secret_basic", "private_key_jwt"},
+		TokenEndpointAuthSigningAlgValuesSupported:      []string{"ES256"},
+		RevocationEndpointAuthMethodsSupported:          []string{"none", "client_secret_basic", "private_key_jwt"},
+		RevocationEndpointAuthSigningAlgValuesSupported: []string{"ES256"},
+		ScopesSupported:                                 []string{"openid", "studio.publish", "studio.read"},
+		AuthorizationResponseISSParameterSupported:      true,
 	}, nil
 }
 

@@ -49,6 +49,7 @@ func tokenProcessConfig(t *testing.T) *config.Config {
 	cfg := brokerProcessConfig(t)
 	cfg.Issuer = tokenProcessIssuer
 	cfg.Key.Enabled = true
+	cfg.Key.AutoBootstrap = true
 	cfg.Key.SetSealSecretForTest(tokenProcessSeal)
 	cfg.ClientSecretPeppers = encodedSecret(0x51)
 	cfg.ClientSecretActiveVersion = 1
@@ -449,10 +450,13 @@ func TestProcessTokenMetadataPublishesRevokeAndReadyRequiresKeyBootstrap(t *test
 	require.Equal(t, http.StatusOK, metaResp.StatusCode)
 	assert.Equal(t, tokenProcessIssuer+"/oauth/token", meta["token_endpoint"])
 	assert.Equal(t, tokenProcessIssuer+"/oauth/revoke", meta["revocation_endpoint"])
-	assert.Equal(t, []any{"authorization_code"}, meta["grant_types_supported"])
+	assert.Equal(t, []any{"authorization_code", "refresh_token", "client_credentials"}, meta["grant_types_supported"])
+	assert.Equal(t, []any{"none", "client_secret_basic", "private_key_jwt"}, meta["revocation_endpoint_auth_methods_supported"])
+	assert.Equal(t, []any{"ES256"}, meta["revocation_endpoint_auth_signing_alg_values_supported"])
+	assert.Equal(t, "public,max-age=300", metaResp.Header.Get("Cache-Control"))
 	assert.Contains(t, raw, "/oauth/revoke")
-	assert.NotContains(t, raw, "client_credentials")
-	assert.NotContains(t, raw, "refresh_token")
+	assert.Contains(t, raw, "client_credentials")
+	assert.Contains(t, raw, "refresh_token")
 
 	revoke, err := noFollowClient().Get(srv.baseURL + "/oauth/revoke")
 	require.NoError(t, err)

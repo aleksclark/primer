@@ -101,6 +101,11 @@ func Run(ctx context.Context, opts Options) error {
 
 	composeBroker := cfg.BrokerEnabled() || opts.EnableBrokerForTest || opts.Provider != nil
 	composeToken := cfg.TokenAuthorityEnabled()
+	if composeToken && cfg.Env == "production" && opts.Signer == nil && opts.JWKS == nil {
+		if err := requireExistingActiveKey(ctx, cfg); err != nil {
+			return err
+		}
+	}
 	var (
 		secrets  config.BrokerSecretSet
 		provider brokerprovider.Provider
@@ -175,9 +180,9 @@ func Run(ctx context.Context, opts Options) error {
 	if composeToken {
 		keySvc := keys.NewService(pool, cfg.Key, cfg.Env)
 		if opts.Signer == nil && opts.JWKS == nil {
-			if _, err := keySvc.CreateInitialActive(ctx); err != nil {
+			if err := prepareTokenAuthorityKey(ctx, keySvc, cfg); err != nil {
 				_ = keySvc.Close()
-				return errTokenUnavailable
+				return err
 			}
 		}
 		signer := opts.Signer
@@ -302,6 +307,39 @@ func newOfficialProofCache(cfg *config.Config, source func([]byte) (int, error))
 		return nil, errBrokerUnavailable
 	}
 	return cache, nil
+}
+
+func requireExistingActiveKey(ctx context.Context, cfg *config.Config) error {
+	if cfg == nil {
+		return errTokenUnavailable
+	}
+	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return errTokenUnavailable
+	}
+	defer pool.Close()
+	keySvc := keys.NewService(pool, cfg.Key, cfg.Env)
+	defer func() { _ = keySvc.Close() }()
+	if err := keySvc.Ready(ctx); err != nil {
+		return errTokenUnavailable
+	}
+	return nil
+}
+
+func prepareTokenAuthorityKey(ctx context.Context, keySvc *keys.Service, cfg *config.Config) error {
+	if keySvc == nil || cfg == nil {
+		return errTokenUnavailable
+	}
+	if cfg.Key.AutoBootstrap {
+		if _, err := keySvc.Bootstrap(ctx); err != nil {
+			return errTokenUnavailable
+		}
+		return nil
+	}
+	if err := keySvc.Ready(ctx); err != nil {
+		return errTokenUnavailable
+	}
+	return nil
 }
 
 func officialPublicHost(cfg *config.Config) string {
