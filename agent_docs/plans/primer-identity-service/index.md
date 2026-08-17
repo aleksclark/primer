@@ -1,6 +1,6 @@
 # Primer Identity — Stytch-backed broker delivery plan
 
-**IB0 status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Credential-free IB1 may PROCEED only after this review-status commit is merged to `master`; no later or live-provider wave is approved.
+**IB1 status: COMPLETE — reviewed credential-free broker exchange at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8` (`fix(identity): harden IB1 grant and redirect handling`).** Full specification PASS: 0 Critical/Important (nonblocking minors); full quality/security APPROVED: 0 Critical/Important (one nonblocking minor). The reviewed IB0 design freeze remains the contract authority; live Stytch remains **BLOCKED**.
 
 ## Outcome and current state
 
@@ -8,7 +8,9 @@ Primer Identity is the **sole Stytch B2B client** and the downstream Primer toke
 
 At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Stytch config, official adapter, bounded cache and normalized mapping. IA-R was reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` (`fix(identity): require namespaced configuration`): specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. Historical F0/PG1/PG2 work is complete history, not a reason to redispatch I1/I2.
 
-**Post-merge roadmap cursor:** **IB1 credential-free implementation**, only after this review-status commit is merged to `master`, using the reviewed IB0 freeze in [`../stytch-identity-ib0/`](../stytch-identity-ib0/). IB1–IB8 remain unimplemented; live Stytch remains **BLOCKED**.
+IB1-E01..E10 are green with credential-free `httptest`, real-PostgreSQL, and real-process evidence; the official Stytch Go v18.1.0 adapter boundary is qualified. Identity coverage is 84.1% (review reruns 84.3% and 84.1%); OpenAPI/generated-client parity and root/foundation gates are green in a clean environment. IB1 adds no public code consumption, token endpoint, JWT, or JWKS implementation.
+
+**Post-merge roadmap cursor:** **IB2 / I6 Primer ES256 JWT and JWKS bridge**, only after reviewed IB1 reaches `master`. Live Stytch credentials/browser proof remains **BLOCKED**.
 
 ## Non-negotiable boundaries
 
@@ -30,7 +32,7 @@ At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Sty
 | [02: IA / accounts and Stytch tuple mappings](./phase-02-accounts-and-external-identities.md) | Implemented tuple mapping foundation with exact distinct persona semantics. | IA-R index cleanup and fresh review. |
 | [03: IA-R / residual remediation and review](./phase-03-keys-jwks-access-tokens.md) | Close the blocking foundation residuals before composition. **Status:** reviewed at `8623ee639bd64d40f819d3079c52ed567b65b27b`: specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important; credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**. | Fresh quality and specification approval. |
 | [04: IB0 / reviewed broker, webhook, and provisioning design freeze](./phase-04-oauth-clients-and-op.md) | Independently reviewed docs/architecture **PASS** at the recorded design tip; no runtime implementation. | Credential-free IB1 may start only after the review-status commit reaches `master`; [`../stytch-identity-ib0/`](../stytch-identity-ib0/). |
-| [05: IB1 / compose validated Stytch broker exchange](./phase-05-sessions-cookies-login-csrf.md) | Credential-free callback/state/exact unpaginated `Sessions.Get` adapter/mapping/code-issuance composition with 1 MiB/256 bounds and account-bound associations; public token consume/JWT waits for IB2. | Reviewed IB0 design freeze; post-merge status gate. |
+| [05: IB1 / compose validated Stytch broker exchange](./phase-05-sessions-cookies-login-csrf.md) | **Complete and reviewed** at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8`: credential-free callback/state/exact unpaginated `Sessions.Get` adapter/mapping/code-issuance composition with 1 MiB/256 bounds and account-bound associations; public token consume/JWT/JWKS waits for IB2. | Reviewed IB0 design freeze; post-merge status gate. |
 | [06: IB2 / Primer ES256 JWT and JWKS bridge](./phase-06-google-rp-loopback.md) | Issue only Primer token material after the broker exchange, with required signed public `client_id` and no `azp`/internal UUID claim. | IB1. |
 | [07: IB3 / product BFF cookie, CSRF, and PKCE contract](./phase-07-product-bff-contract.md) | Give each product a safe broker-facing browser contract. | IB2 and IB0 contract. |
 | [08: IB4 / signed webhook and two-plane revocation](./phase-08-service-principals.md) | Make provider invalidation and local grants durable and replay safe, with four reason-bound collision classes and one restart-safe alert. | IB1–IB3; hard gate for production BFF/MCP. |

@@ -1,10 +1,10 @@
 # 05: IB1 / compose validated Stytch broker exchange
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: COMPLETE — reviewed credential-free IB1 at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8` (`fix(identity): harden IB1 grant and redirect handling`).** Full specification PASS: 0 Critical/Important (nonblocking minors); full quality/security APPROVED: 0 Critical/Important (one nonblocking minor). Live Stytch credentials/browser proof remains **BLOCKED**.
 
 ## Goal
 
-Candidate IB1 scope, pending review of [`../stytch-identity-ib0/`](../stytch-identity-ib0/): `/oauth/authorize`, Identity-owned Stytch login/discovery/callback, recoverable state, bounded provider revalidation, durable provider-session/grant association, and one-use Primer code issuance. IB1 has no public token endpoint, code consume/replay, or access JWT; those start in IB2.
+Completed credential-free IB1 scope under the reviewed [`../stytch-identity-ib0/`](../stytch-identity-ib0/) contract: `/oauth/authorize`, Identity-owned Stytch login/discovery/callback, recoverable state, bounded provider revalidation, durable provider-session/grant association, and one-use Primer code issuance. IB1 has no public token endpoint, code consume/replay, access JWT, or JWKS implementation; those start in IB2.
 
 ## BDD Success Criteria
 
@@ -46,9 +46,15 @@ Run IB1-E01..E10 from the IB0 verification matrix using real HTTP processes and 
 
 No in-memory broker/code store, fake mapping success, raw token/session persistence, code returned before commit, email lookup, provider-role membership, direct adapter bypass, redirect wildcard, or test-only production auth path.
 
+## Reviewed Evidence
+
+- IB1-E01..E10 are green with credential-free `httptest`, real-PostgreSQL, and real-process evidence; the official Stytch Go v18.1.0 adapter boundary is qualified. Live Stytch credentials/browser proof remains **BLOCKED**.
+- Identity coverage is 84.1%; review reruns recorded 84.3% and 84.1%. OpenAPI/generated-client parity and root/foundation gates are green in a clean environment.
+- IB2/I6 is the next cursor only after reviewed IB1 reaches `master`. This completion makes no token-consumption, JWT, or JWKS implementation claim.
+
 ## Completion Gate
 
-- [ ] IB1-S* and IB1-E01..E10 green at exact tip.
-- [ ] Public OpenAPI parity, race suite, IB1-owned real-DB migrations/constraints, full build/vet/coverage and diff hygiene pass without a future-wave table.
-- [ ] No Primer access token is issued before IB2.
-- [ ] Fresh specification and quality/security review approves the exact tip.
+- [x] IB1-S* and IB1-E01..E10 green at exact tip.
+- [x] Public OpenAPI parity, race suite, IB1-owned real-DB migrations/constraints, full build/vet/coverage and diff hygiene pass without a future-wave table.
+- [x] No Primer access token is issued before IB2.
+- [x] Fresh specification and quality/security review approves the exact tip.

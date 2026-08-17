@@ -1,6 +1,6 @@
 # Primer Stytch Integration — reconciled implementation record
 
-**IB0 status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Credential-free IB1 may PROCEED only after this review-status commit is merged to `master`; live Stytch remains **BLOCKED**.
+**IB1 status: COMPLETE — reviewed credential-free broker exchange at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8` (`fix(identity): harden IB1 grant and redirect handling`).** Full specification PASS: 0 Critical/Important (nonblocking minors); full quality/security APPROVED: 0 Critical/Important (one nonblocking minor). Live Stytch remains **BLOCKED**.
 
 **Status:** **IA-R reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` (`fix(identity): require namespaced configuration`): specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**.** The original IA foundation remains at `87d5c215134825edb410266a62c15534e1e9ecea`.
 
@@ -28,6 +28,10 @@ The official SDK authenticate request must **omit** `session_duration_minutes`; 
 3. **Cleanup:** correct SDK documentation to state `session_duration_minutes` is omitted; remove the duplicate project/org tuple index before deploy; make the `golang.org/x/sync` direct/indirect tidy classification correct.
 4. **Boundary gates:** use cache-only invocation or cap direct adapter tokens; use a CSPRNG per-process HMAC key with defined lifecycle; classify transient provider failure as unavailable and do not cache it; retain live-provider testing as an explicit blocked gate.
 
+## IB1 reviewed implementation evidence
+
+IB1-E01..E10 are green with credential-free `httptest`, real-PostgreSQL, and real-process evidence. The official Stytch Go v18.1.0 adapter boundary is qualified; live Stytch credentials/browser proof remains **BLOCKED**. Identity coverage is 84.1% (review reruns 84.3% and 84.1%), and OpenAPI/generated-client parity plus root/foundation gates are green in a clean environment. IB1 stops at one-use Primer code issuance and makes no public token-consumption, JWT, or JWKS implementation claim.
+
 ## Two-plane revocation and non-goals
 
 Revocation has two planes: (1) Stytch session validity and bounded validation cache; (2) Primer grants plus product BFF refresh/access-JWT lifecycle. IB4 must accept signed provider webhooks with signature, timestamp, replay and idempotency checks; retain a durable provider-session/grant association without storing a raw Stytch token; invalidate cache and revoke Primer grants. Access JWT expiry defaults to **≤15 minutes**. Webhooks do not grant or change Studio/LMS membership. Immediate revocation shorter than JWT TTL is deferred until a tested local/replicated `sid`/`jti` mechanism exists.
@@ -41,8 +45,8 @@ Not in this work: direct product-Stytch integration, roles as product authorizat
 | IA | implemented; credential-free/library foundation complete, not production auth | I1/I2 Stytch config, adapter/cache and exact tuple mapping foundation |
 | IA-R | reviewed at `8623ee639bd64d40f819d3079c52ed567b65b27b`; specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important | close config, invalidation, dependency/index residuals; fresh spec + quality review |
 | IB0 | **independently reviewed design freeze; PASS with no runtime implementation** | exact Identity-hosted interactive broker/redirect, webhook event contract, durable grant association, local break-glass policy, organization provisioning policy, Primer OAuth AS; see [`stytch-identity-ib0/`](./stytch-identity-ib0/) |
-| IB1 | post-merge credential-free implementation cursor | compose Stytch client/cache/mapping into Identity broker/exchange; Primer-only grant association |
-| IB2 | planned | ES256/JWKS single-audience Primer token bridge bound to validated mapped Stytch session |
+| IB1 | **complete and reviewed** at `59a3998208ba9ef87dfe0bf4a913eedab3753ef8`; credential-free evidence green | compose Stytch client/cache/mapping into Identity broker/exchange; Primer-only grant association; no token/JWT/JWKS implementation |
+| IB2 | post-merge implementation cursor | ES256/JWKS single-audience Primer token bridge bound to validated mapped Stytch session |
 | IB3 | planned | product BFF contract, host-only cookie/CSRF/PKCE, Primer-only material |
 | IB4 | planned hard gate | signed webhook, cache/grant revoke, replay/idempotency; production BFF/MCP dependency |
 | IB5 | planned | Primer-owned service principals and `client_credentials` |
@@ -50,7 +54,7 @@ Not in this work: direct product-Stytch integration, roles as product authorizat
 | IB7 | planned | Primer signing-key rotation and hardening |
 | IB8 | planned | admin/audit/recovery, LMS/TV and live Stytch cutover |
 
-**Post-merge roadmap cursor:** **IB1 credential-free implementation**, only after this review-status commit is merged to `master`. No IB1–IB8 runtime is implemented. Live Stytch remains **BLOCKED**.
+**Post-merge roadmap cursor:** **IB2 / I6 Primer ES256 JWT and JWKS bridge**, only after reviewed IB1 reaches `master`. No IB2 or later runtime is implemented. Live Stytch remains **BLOCKED**.
 
 ## IB0 reviewed design contract
 
