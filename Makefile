@@ -318,16 +318,20 @@ identity-build:
 identity-cover:
 	@./scripts/enforce-module-cover.sh primer-identity $(IDENTITY_COVER_MIN) identity
 
-## Identity OpenAPI emission — fail-closed drift check against committed baseline.
+## Identity OpenAPI emission + generated IB1 client — fail-closed drift check.
 identity-openapi:
-	@tmp="$$(mktemp)"; \
-	trap 'rm -f "$$tmp"' EXIT; \
-	( cd primer-identity && go run ./cmd/openapi-gen -out "$$tmp" ) && \
-	cmp -s "$$tmp" primer-identity/openapi.yaml
+	@spec="$$(mktemp)"; \
+	client="$$(mktemp)"; \
+	trap 'rm -f "$$spec" "$$client"' EXIT; \
+	( cd primer-identity && go run ./cmd/openapi-gen -out "$$spec" ) && \
+	cmp -s "$$spec" primer-identity/openapi.yaml && \
+	( cd primer-identity && go tool oapi-codegen -package identityclient -generate types,client -o "$$client" "$$spec" ) && \
+	cmp -s "$$client" primer-identity/client/client.gen.go
 
 ## Identity OAuth / IB1 adversarial suite (E01..E10 relevant packages, race, real DB).
 identity-test-oauth:
 	cd primer-identity && go test -race -count=1 \
+		./client \
 		./cmd/openapi-gen \
 		./internal/api \
 		./internal/app \

@@ -15,6 +15,7 @@ primer-identity/
   README.md
   go.mod
   openapi.yaml            # committed IB1 OpenAPI 3.1 baseline (generated)
+  client/                 # generated IB1 Go client (identityclient)
   cmd/identity-server/     # HTTP process (health/ready + graceful shutdown)
   cmd/identity-migrate/    # migrate-only entry (module-local)
   cmd/openapi-gen/         # offline Huma OpenAPI 3.1 emitter (no DB/provider)
@@ -99,7 +100,7 @@ stubs — use the module-local commands below until F0 wires them.
 make identity-build    # -> bin/identity-server
 make identity-test
 make identity-cover
-make identity-openapi      # generate to a private temp file and cmp the baseline
+make identity-openapi      # generate spec+client to private temps and cmp both baselines
 make identity-test-oauth   # IB1 E01..E10 relevant packages with -race (real DB)
 
 # Module-local build
@@ -110,9 +111,11 @@ go build -o ../bin/identity-migrate ./cmd/identity-migrate
 # OpenAPI (offline; no IDENTITY_DATABASE_URL / provider / network)
 go run ./cmd/openapi-gen                 # stdout
 go run ./cmd/openapi-gen -out /tmp/id.yaml
-# Update the committed baseline (explicit; ordinary check does not write it):
+# Update the committed spec baseline (explicit; ordinary check does not write it):
 go run ./cmd/openapi-gen -out openapi.yaml
-go test ./cmd/openapi-gen -count=1
+# Regenerate the committed IB1 Go client from the spec (pinned oapi-codegen v2 tool):
+go tool oapi-codegen -package identityclient -generate types,client -o client/client.gen.go openapi.yaml
+go test ./cmd/openapi-gen ./client -count=1
 
 # Migrate (requires IDENTITY_DATABASE_URL + IDENTITY_ISSUER)
 export IDENTITY_DATABASE_URL='postgres://primer:***@localhost:5432/primer_identity?sslmode=disable'
@@ -138,14 +141,16 @@ go test ./... -count=1
 | --- | --- |
 | `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
 | `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
-| `make identity-openapi` | generate IB1 OpenAPI to a private temp file and `cmp` `primer-identity/openapi.yaml` |
-| `make identity-test-oauth` | IB1 E01..E10 relevant packages with `-race` against real Postgres |
+| `make identity-openapi` | generate IB1 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
+| `make identity-test-oauth` | IB1 E01..E10 relevant packages (including `./client`) with `-race` against real Postgres |
 | `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
 
 IB1 is library-only. Live Stytch / production provider traffic remains
 **BLOCKED**. `openapi.yaml` is generated from handler signatures and covers
 health/ready plus the IB1 authorize/broker inventory only — it does not
 include `/oauth/token`, JWKS, or access/refresh/JWT/provider payload schemas.
+`client/client.gen.go` is generated from that spec with pinned
+`oapi-codegen` v2 (`go tool oapi-codegen`); do not add handwritten DTOs.
 
 ## Request logging (P1-S6)
 
