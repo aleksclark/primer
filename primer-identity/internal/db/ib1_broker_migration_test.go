@@ -44,12 +44,12 @@ func TestIB1MigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	assertNoTable(t, pool, "broker_transactions")
 	assertNoTable(t, pool, "oauth_clients")
 
-	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to current Identity tip")
-	for _, table := range []string{"oauth_clients", "oauth_client_redirects", "broker_transactions", "provider_session_associations", "oauth_grants", "oauth_authorization_codes", "signing_keys"} {
+	require.NoError(t, db.MigrateTo(ctx, url, 5), "fresh/upgrade to IB1 tip")
+	for _, table := range []string{"oauth_clients", "oauth_client_redirects", "broker_transactions", "provider_session_associations", "oauth_grants", "oauth_authorization_codes"} {
 		assertTable(t, pool, table)
 	}
 	for _, later := range []string{
-		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
+		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens", "signing_keys",
 		"token_issuance_audit", "oauth_client_assertion_replays", "webhook_events",
 		"webhook_security_events", "oauth_revocations", "identity_audit_events",
 		"oauth_service_principals",
@@ -96,9 +96,6 @@ SELECT tgname FROM pg_trigger
 WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&trigger))
 	require.Equal(t, "provider_session_associations_stytch_mapping_tuple_ck", trigger)
 
-	require.NoError(t, db.MigrateDown(ctx, url), "IB2 signing_keys is newest")
-	assertNoTable(t, pool, "signing_keys")
-	assertTable(t, pool, "broker_transactions")
 	require.NoError(t, db.MigrateDown(ctx, url), "IB1 broker exchange remains reversible")
 	assertNoTable(t, pool, "broker_transactions")
 	assertNoTable(t, pool, "provider_session_associations")
@@ -107,9 +104,36 @@ WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&tri
 	assertTable(t, pool, "oauth_clients")
 	assertNamedFK(t, pool, "stytch_mappings", "stytch_mappings_account_id_fkey", "CASCADE", false)
 
+	require.NoError(t, db.MigrateTo(ctx, url, 5))
+	assertTable(t, pool, "broker_transactions")
+	assertNoTable(t, pool, "signing_keys")
+	assertNamedFK(t, pool, "stytch_mappings", "stytch_mappings_account_id_fkey", "RESTRICT", false)
+
+	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to current Identity tip")
+	assertTable(t, pool, "signing_keys")
+	for _, table := range []string{
+		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
+		"oauth_client_assertion_replays", "token_issuance_audit",
+	} {
+		assertTable(t, pool, table)
+	}
+
+	require.NoError(t, db.MigrateDown(ctx, url), "IB2 token_grants is newest")
+	assertNoTable(t, pool, "oauth_client_keys")
+	assertNoTable(t, pool, "oauth_refresh_families")
+	assertNoTable(t, pool, "oauth_refresh_tokens")
+	assertNoTable(t, pool, "oauth_client_assertion_replays")
+	assertNoTable(t, pool, "token_issuance_audit")
+	assertTable(t, pool, "signing_keys")
+	assertTable(t, pool, "broker_transactions")
+	require.NoError(t, db.MigrateDown(ctx, url), "IB2 signing_keys remains reversible")
+	assertNoTable(t, pool, "signing_keys")
+	assertTable(t, pool, "broker_transactions")
+
 	require.NoError(t, db.Migrate(ctx, url))
 	assertTable(t, pool, "broker_transactions")
 	assertTable(t, pool, "signing_keys")
+	assertTable(t, pool, "oauth_refresh_families")
 	assertNamedFK(t, pool, "stytch_mappings", "stytch_mappings_account_id_fkey", "RESTRICT", false)
 }
 

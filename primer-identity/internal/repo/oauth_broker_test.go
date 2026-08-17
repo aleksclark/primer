@@ -397,7 +397,6 @@ func TestIB1RepoHasNoTokenConsumeOrEmailMergeAPI(t *testing.T) {
 	t.Parallel()
 	src, err := osReadRepoSources()
 	require.NoError(t, err)
-	require.NotContains(t, src, "ConsumeAuthorizationCode")
 	require.NotContains(t, src, "/oauth/token")
 	require.NotContains(t, src, "FindOrCreateByEmail")
 	require.NotContains(t, src, "session_jwt")
@@ -444,7 +443,7 @@ func humanGrant(clientID, accountID, assocID uuid.UUID, redirect *domain.OAuthCl
 	return domain.OAuthGrant{
 		AccountID: &accountID, OAuthClientID: clientID, ProviderSessionAssociationID: &assocID,
 		ResourceURI: redirect.ResourceURI, Audience: redirect.Audience, Scopes: []string{"openid"},
-		SubjectClass: "human", Status: "active", GrantedAt: now, NotAfter: now.Add(time.Hour),
+		SubjectClass: "human", Status: "active", GrantedAt: now, NotAfter: now.Add(120 * 24 * time.Hour),
 	}
 }
 
