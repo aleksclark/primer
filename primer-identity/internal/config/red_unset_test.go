@@ -32,6 +32,13 @@ func clearIdentityEnv(t *testing.T) {
 		"PORT",
 		"ENV",
 		"LOG_LEVEL",
+		"IDENTITY_KEY_ENABLED",
+		"IDENTITY_KEY_AUTO_BOOTSTRAP",
+		"IDENTITY_KEY_SEAL_SECRET",
+		"KEY_ENABLED",
+		"KEY_AUTO_BOOTSTRAP",
+		"KEY_SEAL_SECRET",
+		"SEAL_SECRET",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")

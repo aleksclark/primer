@@ -132,11 +132,136 @@ func requireActive(set VersionedSecretSet, active int) error {
 	return nil
 }
 
+// sealedSecret is a configured seal secret whose raw input exists only while
+// configuration is being populated and validated. Its field is deliberately
+// unexported so ordinary reflection cannot interface it.
+type sealedSecret struct {
+	raw string
+}
+
+var _ envconfig.Decoder = (*sealedSecret)(nil)
+
+func (s *sealedSecret) Decode(value string) error {
+	if s == nil {
+		return fmt.Errorf("identity key config: nil seal secret")
+	}
+	s.raw = value
+	return nil
+}
+
+func (s sealedSecret) String() string   { return "[redacted]" }
+func (s sealedSecret) GoString() string { return "sealedSecret{redacted}" }
+func (s sealedSecret) MarshalJSON() ([]byte, error) {
+	return []byte(`""`), nil
+}
+
+func (s *sealedSecret) takeRaw() string {
+	raw := s.raw
+	s.raw = ""
+	return raw
+}
+
+func (s *sealedSecret) clear() {
+	s.raw = ""
+}
+
+// KeyConfig holds fail-closed signing-key custody settings. The seal secret
+// is never serialized, formatted, or included in errors.
+type KeyConfig struct {
+	Enabled       bool         `split_words:"true" default:"false" json:"enabled"`
+	AutoBootstrap bool         `split_words:"true" default:"false" json:"auto_bootstrap"`
+	SealSecret    sealedSecret `split_words:"true" json:"-"`
+
+	sealKey    [32]byte
+	sealKeySet bool
+}
+
+// SealKey returns the decoded 32-byte AES-256 seal key.
+func (k KeyConfig) SealKey() [32]byte {
+	return k.sealKey
+}
+
+// SetSealSecretForTest sets the raw configured secret so Validate can parse it.
+func (k *KeyConfig) SetSealSecretForTest(secret string) {
+	if k == nil {
+		return
+	}
+	k.sealKey = [32]byte{}
+	k.sealKeySet = false
+	k.SealSecret.raw = secret
+}
+
+// String reports only non-secret key-custody flags.
+func (k KeyConfig) String() string {
+	return fmt.Sprintf("key-config enabled=%t auto_bootstrap=%t", k.Enabled, k.AutoBootstrap)
+}
+
+// GoString protects %#v from leaking the seal secret.
+func (k KeyConfig) GoString() string { return k.String() }
+
+func (k *KeyConfig) Validate(serviceEnv string) error {
+	if k == nil {
+		return fmt.Errorf("identity key config: missing")
+	}
+	defer k.SealSecret.clear()
+	required := k.Enabled || serviceEnv == "production"
+	if k.AutoBootstrap && !k.Enabled {
+		return fmt.Errorf("identity key config: auto-bootstrap requires key custody to be enabled")
+	}
+	if k.AutoBootstrap && serviceEnv == "production" {
+		return fmt.Errorf("identity key config: auto-bootstrap is not allowed in production")
+	}
+	if k.AutoBootstrap && serviceEnv != "development" && serviceEnv != "test" {
+		return fmt.Errorf("identity key config: auto-bootstrap is allowed only in development or test")
+	}
+	if err := k.parseSealSecret(required); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *KeyConfig) parseSealSecret(required bool) error {
+	raw := k.SealSecret.takeRaw()
+	defer func() { raw = "" }()
+	if raw == "" {
+		if required {
+			if !k.sealKeySet {
+				return fmt.Errorf("identity key config: seal secret is required")
+			}
+			return nil
+		}
+		k.sealKey = [32]byte{}
+		k.sealKeySet = false
+		return nil
+	}
+	k.sealKey = [32]byte{}
+	k.sealKeySet = false
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	defer zeroBytes(decoded)
+	if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != raw {
+		return fmt.Errorf("identity key config: seal secret must be 32 decoded bytes in canonical base64url without padding")
+	}
+	copy(k.sealKey[:], decoded)
+	k.sealKeySet = true
+	return nil
+}
+
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // Config holds all Identity runtime configuration, populated from the environment.
 type Config struct {
 	// Stytch is mandatory in production. Development and test may remain
 	// explicitly disabled; callers must not create a provider client then.
 	Stytch StytchConfig `split_words:"true"`
+
+	// Key controls local ES256 key custody. Loaded only from IDENTITY_KEY_*.
+	// The seal secret is required when custody is enabled and is always
+	// required in production. Bare KEY_* / SEAL_SECRET names are ignored.
+	Key KeyConfig `split_words:"true"`
 
 	// DatabaseURL is the PostgreSQL connection string for the Identity DB only.
 	// Required and non-empty in every environment (no localhost default).
@@ -204,6 +329,7 @@ type Config struct {
 // Load reads Identity configuration from the environment and validates it.
 func Load() (*Config, error) {
 	var cfg Config
+	defer cfg.Key.SealSecret.clear()
 	if err := envconfig.Process(EnvPrefix, &cfg); err != nil {
 		return nil, fmt.Errorf("load identity config: %w", err)
 	}
@@ -227,6 +353,7 @@ func (c *Config) BrokerEnabled() bool {
 
 // Validate enforces fail-fast rules for Identity configuration.
 func (c *Config) Validate() error {
+	defer c.Key.SealSecret.clear()
 	serviceEnv := strings.ToLower(strings.TrimSpace(c.Env))
 	switch serviceEnv {
 	case "development", "test", "production":
@@ -316,6 +443,9 @@ func (c *Config) Validate() error {
 		if err = requireActive(c.AuthorizationCodePepperSet, c.AuthorizationCodeActiveVersion); err != nil {
 			return fmt.Errorf("identity config: authorization code active version invalid")
 		}
+	}
+	if err := c.Key.Validate(serviceEnv); err != nil {
+		return err
 	}
 	return nil
 }

@@ -38,7 +38,7 @@ func TestLoadStytchDefaultsAndEnvironment(t *testing.T) {
 }
 
 func validConfig() *config.Config {
-	return &config.Config{
+	cfg := &config.Config{
 		DatabaseURL:           "postgres://identity:***@localhost:5432/primer_identity?sslmode=disable",
 		Issuer:                "https://id.example",
 		Env:                   "production",
@@ -66,6 +66,8 @@ func validConfig() *config.Config {
 			NegativeCacheCapacity: 2000,
 		},
 	}
+	cfg.Key.SetSealSecretForTest("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	return cfg
 }
 
 func TestValidateStytchRejectsPartialCredentials(t *testing.T) {

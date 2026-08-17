@@ -272,6 +272,7 @@ func TestLoadProductionStytchPolicyMatrix(t *testing.T) {
 				"IDENTITY_BROKER_LOGIN_REDIRECT_URL":     "https://id.example/broker/stytch/callback",
 				"IDENTITY_BROKER_SIGNUP_REDIRECT_URL":    "https://id.example/broker/stytch/callback",
 				"IDENTITY_STYTCH_PUBLIC_TOKEN":           "public-token-live-example",
+				"IDENTITY_KEY_SEAL_SECRET":               "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 			} {
 				t.Setenv(key, value)
 			}

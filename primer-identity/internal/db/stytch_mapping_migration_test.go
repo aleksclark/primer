@@ -98,6 +98,7 @@ func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
+	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_class WHERE relname='stytch_mappings'`).Scan(&mappingCount))
 	require.Zero(t, mappingCount)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_class WHERE relname='accounts'`).Scan(&mappingCount))

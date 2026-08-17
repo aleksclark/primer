@@ -44,12 +44,12 @@ func TestIB1MigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	assertNoTable(t, pool, "broker_transactions")
 	assertNoTable(t, pool, "oauth_clients")
 
-	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to IB1 tip")
-	for _, table := range []string{"oauth_clients", "oauth_client_redirects", "broker_transactions", "provider_session_associations", "oauth_grants", "oauth_authorization_codes"} {
+	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to current Identity tip")
+	for _, table := range []string{"oauth_clients", "oauth_client_redirects", "broker_transactions", "provider_session_associations", "oauth_grants", "oauth_authorization_codes", "signing_keys"} {
 		assertTable(t, pool, table)
 	}
 	for _, later := range []string{
-		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens", "signing_keys",
+		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
 		"token_issuance_audit", "oauth_client_assertion_replays", "webhook_events",
 		"webhook_security_events", "oauth_revocations", "identity_audit_events",
 		"oauth_service_principals",
@@ -96,7 +96,10 @@ SELECT tgname FROM pg_trigger
 WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&trigger))
 	require.Equal(t, "provider_session_associations_stytch_mapping_tuple_ck", trigger)
 
-	require.NoError(t, db.MigrateDown(ctx, url))
+	require.NoError(t, db.MigrateDown(ctx, url), "IB2 signing_keys is newest")
+	assertNoTable(t, pool, "signing_keys")
+	assertTable(t, pool, "broker_transactions")
+	require.NoError(t, db.MigrateDown(ctx, url), "IB1 broker exchange remains reversible")
 	assertNoTable(t, pool, "broker_transactions")
 	assertNoTable(t, pool, "provider_session_associations")
 	assertNoTable(t, pool, "oauth_grants")
@@ -106,6 +109,7 @@ WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&tri
 
 	require.NoError(t, db.Migrate(ctx, url))
 	assertTable(t, pool, "broker_transactions")
+	assertTable(t, pool, "signing_keys")
 	assertNamedFK(t, pool, "stytch_mappings", "stytch_mappings_account_id_fkey", "RESTRICT", false)
 }
 
