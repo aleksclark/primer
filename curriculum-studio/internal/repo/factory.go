@@ -63,6 +63,31 @@ func (f *Factory) Audits() *AuditRepo {
 	return NewAuditRepo(f.Q)
 }
 
+// Frameworks returns the standards-framework repository.
+func (f *Factory) Frameworks() *FrameworkRepo {
+	return NewFrameworkRepo(f.Q)
+}
+
+// CatalogStandards returns the hierarchical catalog-standard repository.
+func (f *Factory) CatalogStandards() *CatalogStandardRepo {
+	return NewCatalogStandardRepo(f.Q)
+}
+
+// CatalogPrereqs returns the catalog prerequisite-edge repository.
+func (f *Factory) CatalogPrereqs() *CatalogPrereqRepo {
+	return NewCatalogPrereqRepo(f.Q)
+}
+
+// Crosswalks returns the standard-crosswalk repository.
+func (f *Factory) Crosswalks() *CrosswalkRepo {
+	return NewCrosswalkRepo(f.Q)
+}
+
+// Resources returns the resource-metadata repository.
+func (f *Factory) Resources() *ResourceRepo {
+	return NewResourceRepo(f.Q)
+}
+
 // HealthRepo exposes readiness probes used by later service wiring.
 type HealthRepo struct {
 	Q Querier

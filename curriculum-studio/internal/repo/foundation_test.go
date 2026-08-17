@@ -193,6 +193,12 @@ func TestMapErrorClasses(t *testing.T) {
 	err = repo.MapError(&pgconn.PgError{Code: "23514", ConstraintName: "chk"})
 	require.ErrorIs(t, err, repo.ErrCheckViolation)
 
+	err = repo.MapError(&pgconn.PgError{Code: "23000", Message: "catalog standard prerequisite cycle detected"})
+	require.ErrorIs(t, err, repo.ErrPrerequisiteCycle)
+
+	err = repo.MapError(&pgconn.PgError{Code: "23000", Message: "other integrity"})
+	require.ErrorIs(t, err, repo.ErrCheckViolation)
+
 	err = repo.MapError(errors.New("closed pool"))
 	require.ErrorIs(t, err, repo.ErrClosed)
 }

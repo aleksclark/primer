@@ -14,10 +14,12 @@ import (
 
 // Sentinel-mapped error classes for persistence callers.
 var (
-	ErrNotFound       = errors.New("studio repo: not found")
-	ErrConflict       = errors.New("studio repo: conflict")
-	ErrForeignKey     = errors.New("studio repo: foreign key violation")
-	ErrCheckViolation = errors.New("studio repo: check violation")
+	ErrNotFound          = errors.New("studio repo: not found")
+	ErrConflict          = errors.New("studio repo: conflict")
+	ErrForeignKey        = errors.New("studio repo: foreign key violation")
+	ErrCheckViolation    = errors.New("studio repo: check violation")
+	ErrPrerequisiteCycle = errors.New("studio repo: prerequisite cycle")
+	ErrPayloadTooLarge   = errors.New("studio repo: payload too large")
 )
 
 // MapError converts pgx/pgconn errors into stable package sentinels when possible.
@@ -39,6 +41,11 @@ func MapError(err error) error {
 			return fmt.Errorf("%w: %s", ErrForeignKey, pgErr.ConstraintName)
 		case "23514": // check_violation
 			return fmt.Errorf("%w: %s", ErrCheckViolation, pgErr.ConstraintName)
+		case "23000": // integrity_constraint_violation (catalog/outcome cycle triggers)
+			if strings.Contains(strings.ToLower(pgErr.Message), "cycle") {
+				return fmt.Errorf("%w: %s", ErrPrerequisiteCycle, pgErr.Message)
+			}
+			return fmt.Errorf("%w: %s", ErrCheckViolation, pgErr.Message)
 		case "22021": // character_not_in_repertoire
 			return fmt.Errorf("%w: invalid byte sequence", domain.ErrInvalidIntegrationIdentity)
 		case "57014": // query_canceled
