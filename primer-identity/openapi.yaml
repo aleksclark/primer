@@ -151,10 +151,16 @@ paths:
             Location:
               schema:
                 type: string
+            Pragma:
+              schema:
+                type: string
             Referrer-Policy:
               schema:
                 type: string
             Set-Cookie:
+              schema:
+                type: string
+            Strict-Transport-Security:
               schema:
                 type: string
             X-Content-Type-Options:
@@ -201,12 +207,27 @@ paths:
             Cache-Control:
               schema:
                 type: string
+            Location:
+              schema:
+                type: string
+            Pragma:
+              schema:
+                type: string
             Referrer-Policy:
+              schema:
+                type: string
+            Strict-Transport-Security:
               schema:
                 type: string
             X-Content-Type-Options:
               schema:
                 type: string
+        "303":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: See Other
         "400":
           content:
             application/problem+json:
@@ -236,12 +257,27 @@ paths:
             Cache-Control:
               schema:
                 type: string
+            Location:
+              schema:
+                type: string
+            Pragma:
+              schema:
+                type: string
             Referrer-Policy:
+              schema:
+                type: string
+            Strict-Transport-Security:
               schema:
                 type: string
             X-Content-Type-Options:
               schema:
                 type: string
+        "303":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: See Other
         "400":
           content:
             application/problem+json:
@@ -307,12 +343,27 @@ paths:
             Cache-Control:
               schema:
                 type: string
+            Location:
+              schema:
+                type: string
+            Pragma:
+              schema:
+                type: string
             Referrer-Policy:
+              schema:
+                type: string
+            Strict-Transport-Security:
               schema:
                 type: string
             X-Content-Type-Options:
               schema:
                 type: string
+        "303":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: See Other
         "400":
           content:
             application/problem+json:
@@ -360,10 +411,16 @@ paths:
             Location:
               schema:
                 type: string
+            Pragma:
+              schema:
+                type: string
             Referrer-Policy:
               schema:
                 type: string
             Set-Cookie:
+              schema:
+                type: string
+            Strict-Transport-Security:
               schema:
                 type: string
             X-Content-Type-Options:
@@ -375,6 +432,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Bad Request
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Request Entity Too Large
         "500":
           content:
             application/problem+json:

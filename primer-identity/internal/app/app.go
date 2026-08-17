@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -140,9 +141,12 @@ func Run(ctx context.Context, opts Options) error {
 	apiOpts := api.Options{
 		RequireBroker: composeBroker,
 		BrokerHTTP: api.BrokerHTTPOptions{
-			AllowedOrigin:      cfg.BrokerAllowedOrigin,
-			InsecureTestCookie: opts.InsecureBrokerCookieForTest || cfg.InsecureBrokerCookie,
-			Production:         cfg.Env == "production",
+			AllowedOrigin:         cfg.BrokerAllowedOrigin,
+			InsecureTestCookie:    opts.InsecureBrokerCookieForTest || cfg.InsecureBrokerCookie,
+			Production:            cfg.Env == "production",
+			MaxRequestTargetBytes: cfg.AuthorizeTargetMaxBytes,
+			PublicToken:           cfg.StytchPublicToken,
+			PublicHost:            officialPublicHost(cfg),
 		},
 	}
 	if composeBroker {
@@ -235,6 +239,13 @@ func newOfficialProofCache(cfg *config.Config, source func([]byte) (int, error))
 		return nil, errBrokerUnavailable
 	}
 	return cache, nil
+}
+
+func officialPublicHost(cfg *config.Config) string {
+	if cfg != nil && strings.EqualFold(cfg.Stytch.Env, "live") {
+		return "api.stytch.com"
+	}
+	return "test.stytch.com"
 }
 
 // WaitReady polls addr until /readyz returns 200 or timeout.

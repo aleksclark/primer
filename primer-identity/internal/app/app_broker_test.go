@@ -299,7 +299,7 @@ func TestRunInjectedBrokerComposesAuthorizeLoginCallback(t *testing.T) {
 	csrf, _ := payload["csrf"].(string)
 	require.NotEmpty(t, csrf)
 
-	form := url.Values{"csrf": {csrf}}
+	form := url.Values{"csrf": {csrf}, "email": {"member@school.example"}}
 	startReq, err := http.NewRequest(http.MethodPost, baseURL+"/broker/stytch/email/start", strings.NewReader(form.Encode()))
 	require.NoError(t, err)
 	startReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -311,7 +311,7 @@ func TestRunInjectedBrokerComposesAuthorizeLoginCallback(t *testing.T) {
 	_ = started.Body.Close()
 	assert.Equal(t, http.StatusOK, started.StatusCode)
 
-	cbReq, err := http.NewRequest(http.MethodGet, baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact), nil)
+	cbReq, err := http.NewRequest(http.MethodGet, baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=discovery_magic_link", nil)
 	require.NoError(t, err)
 	cbReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
 	cb, err := client.Do(cbReq)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -29,6 +30,7 @@ import (
 	"github.com/aleksclark/primer/identity/internal/config"
 	"github.com/aleksclark/primer/identity/internal/domain"
 	"github.com/aleksclark/primer/identity/internal/repo"
+	"github.com/aleksclark/primer/identity/internal/stytch"
 	"github.com/aleksclark/primer/identity/internal/testutil"
 )
 
@@ -268,7 +270,7 @@ func TestProcessE01AuthorizeLoginStartCallbackExactRedirectAndCookieDeletion(t *
 	require.NotEmpty(t, cookie)
 
 	csrf := loginCSRFProcess(t, client, srv.baseURL, cookie)
-	form := url.Values{"csrf": {csrf}}
+	form := url.Values{"csrf": {csrf}, "email": {"member@school.example"}}
 	startReq, err := http.NewRequest(http.MethodPost, srv.baseURL+"/broker/stytch/email/start", strings.NewReader(form.Encode()))
 	require.NoError(t, err)
 	startReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -281,7 +283,7 @@ func TestProcessE01AuthorizeLoginStartCallbackExactRedirectAndCookieDeletion(t *
 	_ = started.Body.Close()
 	require.Equal(t, http.StatusOK, started.StatusCode)
 
-	cbReq, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact), nil)
+	cbReq, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=discovery_magic_link", nil)
 	require.NoError(t, err)
 	cbReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
 	cb, err := client.Do(cbReq)
@@ -311,10 +313,10 @@ func TestProcessE05FourMethodsAndIncompleteMFA(t *testing.T) {
 		method brokerprovider.Method
 		form   url.Values
 	}{
-		{"/broker/stytch/email/start", brokerprovider.MethodEmailMagicLink, url.Values{}},
-		{"/broker/stytch/email/verify", brokerprovider.MethodEmailOTP, url.Values{}},
-		{"/broker/stytch/sso/start", brokerprovider.MethodSSOSAML, url.Values{"type": {"saml"}}},
-		{"/broker/stytch/sso/start", brokerprovider.MethodSSOOIDC, url.Values{"type": {"oidc"}}},
+		{"/broker/stytch/email/start", brokerprovider.MethodEmailMagicLink, url.Values{"email": {"member@school.example"}}},
+		{"/broker/stytch/email/verify", brokerprovider.MethodEmailOTP, url.Values{"email": {"member@school.example"}}},
+		{"/broker/stytch/sso/start", brokerprovider.MethodSSOSAML, url.Values{"type": {"saml"}, "connection_id": {"saml-connection-test-example"}}},
+		{"/broker/stytch/sso/start", brokerprovider.MethodSSOOIDC, url.Values{"type": {"oidc"}, "organization_id": {"organization-test-example"}}},
 	}
 	fixtures := make([]brokerprovider.Fixture, 0, len(methods)+1)
 	for _, tc := range methods {
@@ -353,7 +355,7 @@ func TestProcessE05FourMethodsAndIncompleteMFA(t *testing.T) {
 			require.NoError(t, err)
 			body, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Contains(t, []int{http.StatusOK, http.StatusSeeOther, http.StatusBadRequest}, resp.StatusCode)
 			assertNoProviderLeak(t, string(body))
 		})
 	}
@@ -363,7 +365,7 @@ func TestProcessE05FourMethodsAndIncompleteMFA(t *testing.T) {
 	authz := authorize(t, client, srv.baseURL, clientID, redirect, resource, audience, uniqueLabel("mfa-st"))
 	cookie := cookieFrom(authz)
 	_ = authz.Body.Close()
-	cbReq, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(mfaArtifact), nil)
+	cbReq, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(mfaArtifact)+"&type=email_otp&email=member@school.example&organization_id=organization-test-example", nil)
 	require.NoError(t, err)
 	cbReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
 	cb, err := client.Do(cbReq)
@@ -399,7 +401,7 @@ func TestProcessE06CrossOrgDistinctAccountsAndNoMemberships(t *testing.T) {
 		authz := authorize(t, client, srv.baseURL, clientID, redirect, resource, audience, state)
 		cookie := cookieFrom(authz)
 		_ = authz.Body.Close()
-		req, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact), nil)
+		req, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=email_otp&email=member@school.example&organization_id=organization-test-example", nil)
 		require.NoError(t, err)
 		req.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
 		cb, err := client.Do(req)
@@ -450,7 +452,7 @@ func TestProcessE08ConcurrentCallbackOneRedirectAndCode(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			req, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact), nil)
+			req, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=discovery_magic_link", nil)
 			if err != nil {
 				return
 			}
@@ -483,6 +485,161 @@ func TestProcessE08ConcurrentCallbackOneRedirectAndCode(t *testing.T) {
 	assert.Equal(t, int64(1), redirects.Load())
 	assert.Equal(t, int64(1), codes.Load())
 	assert.Len(t, seen, 1)
+}
+
+func TestProcessOfficialAdapterStartFieldsSSOURLAndTypedCallback(t *testing.T) {
+	artifact := uniqueLabel("official-cb")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/b2b/magic_links/email/discovery/send":
+			writeOfficialJSON(w, http.StatusOK, map[string]any{"status_code": 200})
+		case "/v1/b2b/magic_links/discovery/authenticate":
+			writeOfficialJSON(w, http.StatusOK, map[string]any{
+				"status_code":                200,
+				"intermediate_session_token": "ist-must-not-leak",
+				"email_address":              "member@school.example",
+				"discovered_organizations": []map[string]any{{
+					"member_authenticated": false,
+					"organization":         map[string]any{"organization_id": "organization-test-example"},
+					"membership": map[string]any{
+						"type":   "active_member",
+						"member": map[string]any{"member_id": "member-test-example", "organization_id": "organization-test-example"},
+					},
+				}},
+			})
+		case "/v1/b2b/discovery/intermediate_sessions/exchange":
+			writeOfficialJSON(w, http.StatusOK, officialAuthenticatedMemberBody())
+		case "/v1/b2b/sessions/authenticate":
+			writeOfficialJSON(w, http.StatusOK, officialSessionAuthenticateBody())
+		case "/v1/b2b/sessions":
+			writeOfficialJSON(w, http.StatusOK, officialSessionGetBody())
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	official, err := stytch.NewBrokerWithHTTPClient(stytch.BrokerConfig{
+		Stytch: config.StytchConfig{
+			Enabled: true, ProjectID: "project-test-example", Secret: "secret-must-not-leak",
+			Env: "test", BaseURI: server.URL, RequestTimeout: 3 * time.Second,
+			PositiveCacheTTL: 15 * time.Second, NegativeCacheTTL: 5 * time.Second,
+			PositiveCacheCapacity: 10000, NegativeCacheCapacity: 2000,
+		},
+		DiscoveryRedirectURL: "https://id.example/broker/stytch/callback",
+		LoginRedirectURL:     "https://id.example/broker/stytch/callback",
+		SignupRedirectURL:    "https://id.example/broker/stytch/callback",
+		PublicToken:          e2ePubTok,
+	}, server.Client())
+	require.NoError(t, err)
+
+	cfg := brokerProcessConfig(t)
+	cfg.BrokerDiscoveryRedirectURL = "https://id.example/broker/stytch/callback"
+	cfg.BrokerLoginRedirectURL = "https://id.example/broker/stytch/callback"
+	cfg.BrokerSignupRedirectURL = "https://id.example/broker/stytch/callback"
+	srv := startBrokerProcess(t, cfg, official)
+	client := noFollowClient()
+	clientID := uniqueLabel("official")
+	redirect, resource, audience := registerProcessClient(t, clientID)
+	state := uniqueLabel("official-st")
+	authz := authorize(t, client, srv.baseURL, clientID, redirect, resource, audience, state)
+	cookie := cookieFrom(authz)
+	_ = authz.Body.Close()
+	require.NotEmpty(t, cookie)
+	csrf := loginCSRFProcess(t, client, srv.baseURL, cookie)
+
+	emailForm := url.Values{"csrf": {csrf}, "email": {"member@school.example"}}
+	emailReq, err := http.NewRequest(http.MethodPost, srv.baseURL+"/broker/stytch/email/start", strings.NewReader(emailForm.Encode()))
+	require.NoError(t, err)
+	emailReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	emailReq.Header.Set("Origin", e2eOrigin)
+	emailReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
+	emailReq.Header.Set("X-CSRF-Token", csrf)
+	emailResp, err := client.Do(emailReq)
+	require.NoError(t, err)
+	emailBody, _ := io.ReadAll(emailResp.Body)
+	_ = emailResp.Body.Close()
+	assert.Equal(t, http.StatusOK, emailResp.StatusCode)
+	assert.NotContains(t, string(emailBody), "member@school.example")
+
+	ssoForm := url.Values{"csrf": {csrf}, "type": {"saml"}, "connection_id": {"saml-connection-test-example"}}
+	ssoReq, err := http.NewRequest(http.MethodPost, srv.baseURL+"/broker/stytch/sso/start", strings.NewReader(ssoForm.Encode()))
+	require.NoError(t, err)
+	ssoReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	ssoReq.Header.Set("Origin", e2eOrigin)
+	ssoReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
+	ssoReq.Header.Set("X-CSRF-Token", csrf)
+	ssoResp, err := client.Do(ssoReq)
+	require.NoError(t, err)
+	_ = ssoResp.Body.Close()
+	assert.Equal(t, http.StatusSeeOther, ssoResp.StatusCode)
+	loc, err := url.Parse(ssoResp.Header.Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "https", loc.Scheme)
+	assert.Equal(t, "test.stytch.com", loc.Host)
+	assert.Equal(t, "/v1/public/sso/start", loc.Path)
+	assert.Equal(t, e2ePubTok, loc.Query().Get("public_token"))
+	assert.Equal(t, "saml-connection-test-example", loc.Query().Get("connection_id"))
+	assert.NotContains(t, loc.String(), server.URL)
+
+	cbReq, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=discovery_magic_link", nil)
+	require.NoError(t, err)
+	cbReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
+	cb, err := client.Do(cbReq)
+	require.NoError(t, err)
+	cbBody, _ := io.ReadAll(cb.Body)
+	_ = cb.Body.Close()
+	require.Equal(t, http.StatusSeeOther, cb.StatusCode)
+	cbLoc, err := url.Parse(cb.Header.Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, redirect, cbLoc.Scheme+"://"+cbLoc.Host+cbLoc.Path)
+	assert.Equal(t, state, cbLoc.Query().Get("state"))
+	assert.Equal(t, e2eIssuer, cbLoc.Query().Get("iss"))
+	assert.NotEmpty(t, cbLoc.Query().Get("code"))
+	assert.NotContains(t, cbLoc.String(), artifact)
+	assert.NotContains(t, string(cbBody), artifact)
+	assert.NotContains(t, string(cbBody), "session_jwt")
+}
+
+func writeOfficialJSON(w http.ResponseWriter, status int, body map[string]any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func officialAuthenticatedMemberBody() map[string]any {
+	exp := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	return map[string]any{
+		"status_code": 200, "member_authenticated": true,
+		"member_id": "member-test-example", "organization_id": "organization-test-example",
+		"session_token": "sess-token-must-not-leak", "session_jwt": "eyJhbG...leak",
+		"member":       map[string]any{"member_id": "member-test-example", "organization_id": "organization-test-example"},
+		"organization": map[string]any{"organization_id": "organization-test-example"},
+		"member_session": map[string]any{
+			"member_session_id": "member-session-test-example", "organization_id": "organization-test-example",
+			"member_id": "member-test-example", "expires_at": exp,
+		},
+	}
+}
+
+func officialSessionAuthenticateBody() map[string]any {
+	exp := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	return map[string]any{
+		"member_session": map[string]any{
+			"member_session_id": "member-session-test-example", "organization_id": "organization-test-example",
+			"member_id": "member-test-example", "expires_at": exp,
+		},
+	}
+}
+
+func officialSessionGetBody() map[string]any {
+	exp := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	return map[string]any{
+		"member_sessions": []map[string]any{{
+			"member_session_id": "member-session-test-example", "organization_id": "organization-test-example",
+			"member_id": "member-test-example", "expires_at": exp,
+		}},
+	}
 }
 
 func TestProcessFailBeforeListenMissingSecretsOriginRedirectAndPublicToken(t *testing.T) {

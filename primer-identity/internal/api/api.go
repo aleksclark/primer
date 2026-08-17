@@ -32,6 +32,13 @@ type Options struct {
 	BrokerHTTP BrokerHTTPOptions
 }
 
+const (
+	// DefaultAuthorizeRequestTargetMax is the IB1 authorize request-target cap.
+	DefaultAuthorizeRequestTargetMax = 8192
+	// productionHSTS is sent only when BrokerHTTP Production is true.
+	productionHSTS = "max-age=31536000; includeSubDomains"
+)
+
 // BrokerHTTPOptions is the HTTP-only broker security policy. It never carries
 // provider secrets.
 type BrokerHTTPOptions struct {
@@ -40,8 +47,18 @@ type BrokerHTTPOptions struct {
 	// InsecureTestCookie disables the Secure cookie flag. It is rejected when
 	// Production is true.
 	InsecureTestCookie bool
-	// Production enables fail-closed cookie policy (__Host- + Secure).
+	// Production enables fail-closed cookie policy (__Host- + Secure) and HSTS.
 	Production bool
+	// MaxRequestTargetBytes is the raw authorize request-target cap received
+	// from validated config. Zero means the hard maximum 8192. Values above
+	// 8192 are rejected at construction.
+	MaxRequestTargetBytes int
+	// PublicHost is the exact Stytch public host allowed in SSO ContinueURL
+	// (for example test.stytch.com or api.stytch.com). Never derived from Host.
+	PublicHost string
+	// PublicToken is the exact configured public token that an official SSO
+	// start URL must carry. It is not a secret.
+	PublicToken string
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -74,8 +91,19 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if opts.BrokerHTTP.Production && opts.BrokerHTTP.InsecureTestCookie {
 		panic("api: InsecureTestCookie is rejected when Production is true")
 	}
+	opts.BrokerHTTP.MaxRequestTargetBytes = validatedRequestTargetMax(opts.BrokerHTTP.MaxRequestTargetBytes)
 	s := &Server{pool: pool, now: now, broker: opts.Broker, requireBroker: opts.RequireBroker, brokerHTTP: opts.BrokerHTTP}
 	return s.build()
+}
+
+func validatedRequestTargetMax(n int) int {
+	if n == 0 {
+		return DefaultAuthorizeRequestTargetMax
+	}
+	if n < 0 || n > DefaultAuthorizeRequestTargetMax {
+		panic("api: MaxRequestTargetBytes must be between 1 and 8192")
+	}
+	return n
 }
 
 func (s *Server) build() (huma.API, http.Handler) {

@@ -666,13 +666,23 @@ func TestAuthorizeInvalidScopeIsRedirectableAfterRegistration(t *testing.T) {
 	clientID := uniqueID("scoperedirect")
 	redirect, resource, audience := registerClient(t, clientID)
 
-	req := authorizeReq(clientID, redirect, resource, audience, uniqueState("state"))
+	state := uniqueState("state")
+	req := authorizeReq(clientID, redirect, resource, audience, state)
 	req.Scopes = []string{"openid", "studio.publish"}
 	_, err := svc.Authorize(context.Background(), req)
 	require.Error(t, err)
 	assert.Equal(t, broker.ErrorInvalidScope, broker.ErrorCodeOf(err))
 	assert.True(t, broker.IsRedirectable(err))
 	assert.NotContains(t, err.Error(), "studio.publish")
+	assert.NotContains(t, err.Error(), redirect)
+	assert.NotContains(t, err.Error(), state)
+	tr, ok := broker.AsTrustedRedirect(err)
+	require.True(t, ok)
+	assert.Equal(t, broker.ErrorInvalidScope, tr.Code)
+	assert.Equal(t, broker.DescInvalidScope, tr.Description)
+	assert.Equal(t, redirect, tr.RedirectURI)
+	assert.Equal(t, []byte(state), tr.State)
+	assert.Equal(t, "https://id.example", tr.Issuer)
 }
 
 // Disabled clients and redirects never become a trusted redirect target.
@@ -947,7 +957,8 @@ func TestProviderDeniedIsRedirectableWithoutArtifacts(t *testing.T) {
 	svc := newService(t, provider)
 	clientID := uniqueID("denyr")
 	redirect, resource, audience := registerClient(t, clientID)
-	started, err := svc.Authorize(context.Background(), authorizeReq(clientID, redirect, resource, audience, uniqueState("deny")))
+	state := uniqueState("deny")
+	started, err := svc.Authorize(context.Background(), authorizeReq(clientID, redirect, resource, audience, state))
 	require.NoError(t, err)
 	_, err = svc.CompleteCallback(context.Background(), broker.CallbackInput{
 		CookieValue: started.CookieValue, Artifact: deniedArtifact})
@@ -956,6 +967,14 @@ func TestProviderDeniedIsRedirectableWithoutArtifacts(t *testing.T) {
 	assert.True(t, broker.IsRedirectable(err))
 	assert.NotContains(t, err.Error(), deniedArtifact)
 	assert.NotContains(t, err.Error(), started.CookieValue)
+	assert.NotContains(t, err.Error(), state)
+	assert.NotContains(t, err.Error(), redirect)
+	tr, ok := broker.AsTrustedRedirect(err)
+	require.True(t, ok)
+	assert.Equal(t, broker.ErrorAccessDenied, tr.Code)
+	assert.Equal(t, broker.DescAccessDenied, tr.Description)
+	assert.Equal(t, redirect, tr.RedirectURI)
+	assert.Equal(t, []byte(state), tr.State)
 }
 
 func TestProviderUnavailableIsNotRedirectable(t *testing.T) {

@@ -79,16 +79,19 @@ func IsRedirectable(err error) bool {
 		errors.Is(err, ErrProviderUnavailable) || errors.Is(err, ErrIncompleteMFA) {
 		return false
 	}
+	if _, ok := AsTrustedRedirect(err); ok {
+		return true
+	}
 	var oe *Error
 	if errors.As(err, &oe) {
 		switch oe.Code {
-		case ErrorInvalidScope, ErrorAccessDenied:
-			return true
 		case ErrorInvalidRequest, ErrorInvalidTarget, ErrorUnsupportedResponseType:
 			// Detected before redirect validation completes.
 			return false
 		}
 	}
+	// A bare provider denial is classified as redirectable at the service
+	// layer, but HTTP only builds a Location from AsTrustedRedirect.
 	return errors.Is(err, ErrProviderDenied)
 }
 
@@ -167,7 +170,14 @@ type StartedAuthorization struct {
 // transaction whose recoverable state is sealed with state-seal-v1. The
 // plaintext state buffer is zeroed before returning on every path.
 func (s *Service) Authorize(ctx context.Context, req AuthorizeRequest) (StartedAuthorization, error) {
-	defer stateseal.Zero(req.State)
+	// Preserve a private copy of original state before the deferred zero so a
+	// post-registration invalid_scope can still report the exact original
+	// state on the trusted registered redirect.
+	originalState := append([]byte(nil), req.State...)
+	defer func() {
+		stateseal.Zero(req.State)
+		stateseal.Zero(originalState)
+	}()
 
 	registration, err := repo.ResolveRegistration(ctx, s.pool, req.ClientID, req.RedirectURI, req.ResourceURI, req.Audience)
 	if err != nil {
@@ -175,7 +185,9 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizeRequest) (StartedA
 		return StartedAuthorization{}, fmt.Errorf("%w: %s", ErrUnboundCallback, "registration not found")
 	}
 	if !scopesWithin(req.Scopes, registration.AllowedScopes) {
-		return StartedAuthorization{}, oauthErr(ErrorInvalidScope, "scope is not registered")
+		return StartedAuthorization{}, trustedRedirect(
+			ErrorInvalidScope, DescInvalidScope, registration.RedirectURI, s.issuer, originalState,
+		)
 	}
 
 	transactionID := uuid.New()
@@ -319,8 +331,7 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 			}
 			return CallbackResult{}, ErrProviderUnavailable
 		default:
-			s.terminalize(ctx, binding, domain.BrokerStatusDenied)
-			return CallbackResult{}, ErrProviderDenied
+			return CallbackResult{}, s.deniedTrustedRedirect(ctx, binding)
 		}
 	}
 	if result.Outcome == brokerprovider.OutcomeIncompleteMFA {
@@ -331,8 +342,7 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		return CallbackResult{}, ErrIncompleteMFA
 	}
 	if !result.Authenticated() {
-		s.terminalize(ctx, binding, domain.BrokerStatusDenied)
-		return CallbackResult{}, ErrProviderDenied
+		return CallbackResult{}, s.deniedTrustedRedirect(ctx, binding)
 	}
 
 	// Exact tuple mapping. Email never links identities. Serializable first-login
@@ -372,8 +382,7 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 	issuedAt := s.now().UTC()
 	grantNotAfter, codeExpiresAt, err := capGrantAndCode(issuedAt, result.MemberSessionExpiresAt)
 	if err != nil {
-		s.terminalize(ctx, binding, domain.BrokerStatusDenied)
-		return CallbackResult{}, ErrProviderDenied
+		return CallbackResult{}, s.deniedTrustedRedirect(ctx, binding)
 	}
 	_, err = repo.IssueCallbackArtifacts(ctx, s.pool, repo.IssueCallbackArtifactsInput{
 		BrokerID: binding.transactionID, ExpectedVersion: binding.version,
@@ -414,6 +423,35 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		RedirectURI: binding.redirectURI, Code: code, State: recovered,
 		Issuer: s.issuer, AccountID: account.ID, TransactionID: binding.transactionID,
 	}, nil
+}
+
+// recoverBindingState opens the sealed envelope against exact AAD. Callers
+// must zero the returned buffer. Failure is local and never includes URI/state.
+func (s *Service) recoverBindingState(b liveBinding) ([]byte, error) {
+	state, err := s.sealer.Open(b.stateSealed, int(b.stateKeyVersion), stateseal.Bindings{
+		TransactionID: b.transactionID, OAuthClientID: b.oauthClientID,
+		RedirectURI: b.redirectURI, ResourceURI: b.resourceURI,
+		Audience: b.audience,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("broker callback: state recovery failed")
+	}
+	return state, nil
+}
+
+// deniedTrustedRedirect recovers original state from the sealed envelope
+// before terminalizing, then builds a trusted access_denied redirect. State
+// recovery failure is a local error and still terminalizes fail-closed.
+func (s *Service) deniedTrustedRedirect(ctx context.Context, b liveBinding) error {
+	state, err := s.recoverBindingState(b)
+	if err != nil {
+		s.terminalize(ctx, b, domain.BrokerStatusFailed)
+		return err
+	}
+	redir := trustedRedirect(ErrorAccessDenied, DescAccessDenied, b.redirectURI, s.issuer, state)
+	stateseal.Zero(state)
+	s.terminalize(ctx, b, domain.BrokerStatusDenied)
+	return redir
 }
 
 func (s *Service) completeProviderCallback(ctx context.Context, in CallbackInput) (brokerprovider.CallbackResult, error) {

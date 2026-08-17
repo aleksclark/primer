@@ -19,7 +19,6 @@ import (
 	otpemail "github.com/stytchauth/stytch-go/v18/stytch/b2b/otp/email"
 	emaildiscoveryotp "github.com/stytchauth/stytch-go/v18/stytch/b2b/otp/email/discovery"
 	"github.com/stytchauth/stytch-go/v18/stytch/b2b/sso"
-	sdkconfig "github.com/stytchauth/stytch-go/v18/stytch/config"
 
 	"github.com/aleksclark/primer/identity/internal/brokerprovider"
 	"github.com/aleksclark/primer/identity/internal/config"
@@ -182,8 +181,7 @@ func (b *Broker) publicSSOStartURL(req brokerprovider.StartRequest) (string, err
 	if req.OrganizationID != "" && !validSnapshotText(req.OrganizationID, maxSnapshotIDRunes, maxSnapshotIDBytes, false) {
 		return "", brokerprovider.ErrDefinitiveDenial
 	}
-	base := strings.TrimRight(b.providerBaseURI(), "/")
-	u, err := url.Parse(base + "/v1/public/sso/start")
+	u, err := url.Parse(b.officialPublicBase() + "/v1/public/sso/start")
 	if err != nil {
 		return "", brokerprovider.ErrProviderUnavailable
 	}
@@ -200,14 +198,11 @@ func (b *Broker) publicSSOStartURL(req brokerprovider.StartRequest) (string, err
 	return u.String(), nil
 }
 
-func (b *Broker) providerBaseURI() string {
-	if b.cfg.Stytch.BaseURI != "" {
-		return b.cfg.Stytch.BaseURI
-	}
+func (b *Broker) officialPublicBase() string {
 	if b.cfg.Stytch.Env == "live" {
-		return string(sdkconfig.BaseURILive)
+		return "https://api.stytch.com"
 	}
-	return string(sdkconfig.BaseURITest)
+	return "https://test.stytch.com"
 }
 
 // CompleteCallback without a recognized artifact type is a definitive denial

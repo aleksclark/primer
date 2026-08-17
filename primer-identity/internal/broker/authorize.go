@@ -53,9 +53,78 @@ func oauthErr(code, description string) error {
 	return &Error{Code: code, Description: description}
 }
 
+// Fixed descriptions for the only two post-registration redirectable codes.
+const (
+	DescInvalidScope = "requested scope is not registered"
+	DescAccessDenied = "the authorization request was denied"
+)
+
+// TrustedRedirect is the only post-registration OAuth error that HTTP may
+// turn into a Location. Error() is deliberately a fixed code:state/URI
+// never appear in logs or Error strings.
+type TrustedRedirect struct {
+	Code        string
+	Description string
+	RedirectURI string
+	State       []byte
+	Issuer      string
+}
+
+func (e *TrustedRedirect) Error() string {
+	if e == nil {
+		return ErrorServerError
+	}
+	switch e.Code {
+	case ErrorInvalidScope:
+		return ErrorInvalidScope
+	case ErrorAccessDenied:
+		return ErrorAccessDenied
+	default:
+		return ErrorServerError
+	}
+}
+
+func (e *TrustedRedirect) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	switch e.Code {
+	case ErrorInvalidScope:
+		return oauthErr(ErrorInvalidScope, DescInvalidScope)
+	case ErrorAccessDenied:
+		return ErrProviderDenied
+	default:
+		return nil
+	}
+}
+
+func trustedRedirect(code, description, redirectURI, issuer string, state []byte) *TrustedRedirect {
+	copied := append([]byte(nil), state...)
+	return &TrustedRedirect{
+		Code:        code,
+		Description: description,
+		RedirectURI: redirectURI,
+		State:       copied,
+		Issuer:      issuer,
+	}
+}
+
+// AsTrustedRedirect reports the only typed trusted redirect outcome.
+func AsTrustedRedirect(err error) (*TrustedRedirect, bool) {
+	var tr *TrustedRedirect
+	if errors.As(err, &tr) && tr != nil && (tr.Code == ErrorInvalidScope || tr.Code == ErrorAccessDenied) &&
+		tr.RedirectURI != "" && tr.Issuer != "" && len(tr.State) > 0 {
+		return tr, true
+	}
+	return nil, false
+}
+
 // ErrorCodeOf extracts the OAuth error code from err, or "" when err is not an
 // OAuth error.
 func ErrorCodeOf(err error) string {
+	if tr, ok := AsTrustedRedirect(err); ok {
+		return tr.Code
+	}
 	var oe *Error
 	if errors.As(err, &oe) {
 		return oe.Code
