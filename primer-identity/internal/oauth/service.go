@@ -80,6 +80,15 @@ func ErrorCodeOf(err error) string {
 	return ""
 }
 
+// RevokeRequest is the RFC7009 field set accepted by the core service.
+type RevokeRequest struct {
+	Token               string
+	TokenTypeHint       string
+	ClientID            string
+	ClientAssertionType string
+	ClientAssertion     string
+}
+
 // ExchangeRequest is the exact authorization-code grant field set.
 type ExchangeRequest struct {
 	GrantType           string
@@ -134,9 +143,10 @@ type Secrets struct {
 
 // Config is the fail-closed issuer configuration for this service.
 type Config struct {
-	Issuer        string
-	TokenEndpoint string
-	AccessTTL     time.Duration
+	Issuer             string
+	TokenEndpoint      string
+	RevocationEndpoint string
+	AccessTTL          time.Duration
 }
 
 // Dependencies are injected so app composition can stay in a later slice.
@@ -208,9 +218,10 @@ func NewService(in Dependencies) (*Service, error) {
 		rand:    random,
 		minter:  minter,
 		cfg: Config{
-			Issuer:        strings.TrimSpace(in.Config.Issuer),
-			TokenEndpoint: strings.TrimSpace(in.Config.TokenEndpoint),
-			AccessTTL:     ttl,
+			Issuer:             strings.TrimSpace(in.Config.Issuer),
+			TokenEndpoint:      strings.TrimSpace(in.Config.TokenEndpoint),
+			RevocationEndpoint: strings.TrimSpace(in.Config.RevocationEndpoint),
+			AccessTTL:          ttl,
 		},
 		after: in.afterSign,
 	}, nil
@@ -239,7 +250,12 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 	}
 
 	now := s.clock.Now().UTC()
-	client, err := s.authenticateClient(ctx, req, auth, now)
+	client, err := s.authenticateClient(ctx, clientPresentation{
+		ClientID:            req.ClientID,
+		ClientAssertionType: req.ClientAssertionType,
+		CodeVerifier:        req.CodeVerifier,
+		RequirePKCE:         true,
+	}, auth, now, s.cfg.TokenEndpoint, domain.AssertionEndpointToken)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -435,7 +451,61 @@ func (s *Service) RevokeInitialFamily(ctx context.Context, familyID uuid.UUID, r
 	return repo.RevokeInitialRefreshFamily(ctx, s.pool, familyID, reason, s.clock.Now().UTC())
 }
 
-func (s *Service) authenticateClient(ctx context.Context, req ExchangeRequest, auth ClientAuth, now time.Time) (*domain.OAuthClient, error) {
+// Revoke authenticates the registered owning client and idempotently revokes
+// an IB2 initial refresh family plus its grant. Unknown, already-revoked,
+// access-token, and cross-client presentations are oracle-free successes.
+func (s *Service) Revoke(ctx context.Context, req RevokeRequest, auth ClientAuth) error {
+	if s == nil || s.pool == nil {
+		return oauthErr(ErrorTemporarilyUnavail, "service is unavailable")
+	}
+	if ctx == nil || ctx.Err() != nil {
+		return oauthErr(ErrorTemporarilyUnavail, "request canceled")
+	}
+	if strings.TrimSpace(req.Token) == "" {
+		return oauthErr(ErrorInvalidRequest, "token is required")
+	}
+	now := s.clock.Now().UTC()
+	client, err := s.authenticateClient(ctx, clientPresentation{
+		ClientID:            req.ClientID,
+		ClientAssertionType: req.ClientAssertionType,
+		RequirePKCE:         false,
+	}, auth, now, s.cfg.RevocationEndpoint, domain.AssertionEndpointRevocation)
+	if err != nil {
+		return err
+	}
+	hashes, ok, err := refreshHashesFromPresented(s.secrets.RefreshTokenPeppers, s.secrets.RefreshTokenActiveVersion, req.Token)
+	if err != nil {
+		return oauthErr(ErrorTemporarilyUnavail, "token material is unavailable")
+	}
+	if !ok {
+		return nil
+	}
+	err = repo.WithSerializableRetry(ctx, s.pool, func(tx pgx.Tx) error {
+		return repo.RevokeOwnedInitialRefresh(ctx, tx, hashes, client.ID, "client_revoked", now)
+	})
+	if err != nil {
+		if ErrorCodeOf(err) != "" {
+			return err
+		}
+		if ctx.Err() != nil {
+			return oauthErr(ErrorTemporarilyUnavail, "request canceled")
+		}
+		if isRetryableSerialization(err) {
+			return oauthErr(ErrorTemporarilyUnavail, "token revocation is unavailable")
+		}
+		return oauthErr(ErrorTemporarilyUnavail, "token revocation is unavailable")
+	}
+	return nil
+}
+
+type clientPresentation struct {
+	ClientID            string
+	ClientAssertionType string
+	CodeVerifier        string
+	RequirePKCE         bool
+}
+
+func (s *Service) authenticateClient(ctx context.Context, req clientPresentation, auth ClientAuth, now time.Time, audience, endpointKind string) (*domain.OAuthClient, error) {
 	method := strings.TrimSpace(auth.Method)
 	publicID := strings.TrimSpace(auth.ClientID)
 	if publicID == "" {
@@ -456,7 +526,7 @@ func (s *Service) authenticateClient(ctx context.Context, req ExchangeRequest, a
 		if client.TokenEndpointAuthMethod != AuthNone || client.ClientType != "public" {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 		}
-		if req.CodeVerifier == "" {
+		if req.RequirePKCE && req.CodeVerifier == "" {
 			return nil, oauthErr(ErrorInvalidRequest, "code_verifier is required")
 		}
 		return client, nil
@@ -486,6 +556,9 @@ func (s *Service) authenticateClient(ctx context.Context, req ExchangeRequest, a
 		if req.ClientAssertionType != "" && req.ClientAssertionType != assertionTypeJWTBearer {
 			return nil, oauthErr(ErrorInvalidRequest, "client_assertion_type is invalid")
 		}
+		if strings.TrimSpace(audience) == "" || (endpointKind != domain.AssertionEndpointToken && endpointKind != domain.AssertionEndpointRevocation) {
+			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
+		}
 		client, err := repo.GetEnabledOAuthClientByClientID(ctx, s.pool, publicID)
 		if err != nil {
 			return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
@@ -507,7 +580,7 @@ func (s *Service) authenticateClient(ctx context.Context, req ExchangeRequest, a
 		}
 		parsed, err := token.ParseClientAssertion(auth.Assertion, token.AssertionInput{
 			ClientID:    client.ClientID,
-			Audience:    s.cfg.TokenEndpoint,
+			Audience:    audience,
 			Registered:  jwks,
 			Now:         now,
 			MaxLifetime: domain.MaxAssertionTTL,
@@ -521,8 +594,8 @@ func (s *Service) authenticateClient(ctx context.Context, req ExchangeRequest, a
 			jtiHash = append([]byte(nil), sum[:]...)
 		}
 		_, err = repo.RecordClientAssertionReplay(ctx, s.pool, domain.ClientAssertionReplay{
-			OAuthClientID: client.ID, EndpointKind: domain.AssertionEndpointToken,
-			JTIHash: jtiHash, Audience: s.cfg.TokenEndpoint,
+			OAuthClientID: client.ID, EndpointKind: endpointKind,
+			JTIHash: jtiHash, Audience: audience,
 			IssuedAt: parsed.IssuedAt, ExpiresAt: parsed.ExpiresAt, ConsumedAt: now,
 		})
 		if err != nil {
@@ -580,6 +653,19 @@ func hashAcrossPeppers(peppers map[int][]byte, active int, context string, secre
 		return nil, last
 	}
 	return out, nil
+}
+
+func refreshHashesFromPresented(peppers map[int][]byte, active int, presented string) ([][]byte, bool, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(presented)
+	if err != nil || len(raw) != refreshSecretBytes {
+		return nil, false, nil
+	}
+	hashes, err := hashAcrossPeppers(peppers, active, refreshTokenHashContext, raw)
+	zeroBytes(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	return hashes, true, nil
 }
 
 func capTime(candidate time.Time, caps ...time.Time) time.Time {

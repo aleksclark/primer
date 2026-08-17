@@ -183,9 +183,10 @@ func newTokenAPI(t *testing.T, fx httpTokenFixture) http.Handler {
 		Secrets: fx.secrets,
 		Clock:   frozenHTTPClock{now: fx.now},
 		Config: oauth.Config{
-			Issuer:        tokenHTTPIssuer,
-			TokenEndpoint: tokenHTTPEndpoint,
-			AccessTTL:     15 * time.Minute,
+			Issuer:             tokenHTTPIssuer,
+			TokenEndpoint:      tokenHTTPEndpoint,
+			RevocationEndpoint: revokeHTTPEndpoint,
+			AccessTTL:          15 * time.Minute,
 		},
 	})
 	require.NoError(t, err)
@@ -688,9 +689,10 @@ func TestHighCountPublicHTTPExchanges(t *testing.T) {
 				Secrets: fx.secrets,
 				Clock:   frozenHTTPClock{now: fx.now},
 				Config: oauth.Config{
-					Issuer:        tokenHTTPIssuer,
-					TokenEndpoint: tokenHTTPEndpoint,
-					AccessTTL:     15 * time.Minute,
+					Issuer:             tokenHTTPIssuer,
+					TokenEndpoint:      tokenHTTPEndpoint,
+					RevocationEndpoint: revokeHTTPEndpoint,
+					AccessTTL:          15 * time.Minute,
 				},
 			})
 			if err != nil {
@@ -752,9 +754,10 @@ func runBoundedHTTPExchanges(t *testing.T, base time.Time, maxConns int32, n int
 				Secrets: fx.secrets,
 				Clock:   frozenHTTPClock{now: fx.now},
 				Config: oauth.Config{
-					Issuer:        tokenHTTPIssuer,
-					TokenEndpoint: tokenHTTPEndpoint,
-					AccessTTL:     15 * time.Minute,
+					Issuer:             tokenHTTPIssuer,
+					TokenEndpoint:      tokenHTTPEndpoint,
+					RevocationEndpoint: revokeHTTPEndpoint,
+					AccessTTL:          15 * time.Minute,
 				},
 			})
 			if err != nil {
@@ -930,9 +933,10 @@ func mustTokenService(t *testing.T, fx httpTokenFixture, signer token.SignerSour
 		Secrets: fx.secrets,
 		Clock:   frozenHTTPClock{now: fx.now},
 		Config: oauth.Config{
-			Issuer:        tokenHTTPIssuer,
-			TokenEndpoint: tokenHTTPEndpoint,
-			AccessTTL:     15 * time.Minute,
+			Issuer:             tokenHTTPIssuer,
+			TokenEndpoint:      tokenHTTPEndpoint,
+			RevocationEndpoint: revokeHTTPEndpoint,
+			AccessTTL:          15 * time.Minute,
 		},
 	})
 	require.NoError(t, err)

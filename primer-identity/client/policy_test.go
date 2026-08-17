@@ -30,6 +30,8 @@ var requiredIB1ClientOps = []string{
 	"BrokerSSOStart",
 	"Healthz",
 	"OauthAuthorize",
+	"OauthRevokeWithBody",
+	"OauthRevokeWithFormdataBody",
 	"OauthTokenWithBody",
 	"OauthTokenWithFormdataBody",
 	"Readyz",
@@ -80,6 +82,24 @@ func TestGeneratedClientHasExactlyOneOauthTokenOperation(t *testing.T) {
 	assert.ElementsMatch(t, []string{"OauthTokenWithBody", "OauthTokenWithFormdataBody"}, tokenOps)
 }
 
+func TestGeneratedClientHasExactlyOneOauthRevokeOperation(t *testing.T) {
+	t.Parallel()
+
+	got := clientInterfaceMethods(t, parseGeneratedFile(t))
+	var revokeOps []string
+	for _, name := range got {
+		if strings.HasPrefix(name, "OauthRevoke") {
+			revokeOps = append(revokeOps, name)
+		}
+	}
+	require.NotEmpty(t, revokeOps)
+
+	src := readGeneratedClient(t)
+	assert.GreaterOrEqual(t, strings.Count(src, "(the `OauthRevoke` operationId)"), 1)
+	assert.NotContains(t, src, "OauthRevokeWithOctetStream")
+	assert.ElementsMatch(t, []string{"OauthRevokeWithBody", "OauthRevokeWithFormdataBody"}, revokeOps)
+}
+
 func TestGeneratedClientCompiles(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +136,7 @@ func TestGeneratedClientHasNoTokenJWKSOrProviderResponseTypes(t *testing.T) {
 
 	src := strings.ToLower(readGeneratedClient(t))
 	assert.Contains(t, src, "/oauth/token")
+	assert.Contains(t, src, "/oauth/revoke")
 	assert.Contains(t, src, "access_token")
 	assert.Contains(t, src, "refresh_token")
 	assert.NotContains(t, src, "application/octet-stream")
@@ -124,7 +145,6 @@ func TestGeneratedClientHasNoTokenJWKSOrProviderResponseTypes(t *testing.T) {
 		"session_token",
 		"id_token",
 		"provider_payload",
-		"/oauth/revoke",
 		"client_credentials",
 	} {
 		assert.NotContains(t, src, needle)

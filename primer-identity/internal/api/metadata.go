@@ -130,6 +130,7 @@ type authorizationServerMetadata struct {
 	Issuer                                     string   `json:"issuer"`
 	AuthorizationEndpoint                      string   `json:"authorization_endpoint"`
 	TokenEndpoint                              string   `json:"token_endpoint"`
+	RevocationEndpoint                         string   `json:"revocation_endpoint"`
 	JWKSURI                                    string   `json:"jwks_uri"`
 	ResponseTypesSupported                     []string `json:"response_types_supported"`
 	ResponseModesSupported                     []string `json:"response_modes_supported"`
@@ -150,6 +151,7 @@ func authorizationServerDocument(issuer string) (authorizationServerMetadata, er
 		Issuer:                                     strings.TrimSpace(issuer),
 		AuthorizationEndpoint:                      base + "/oauth/authorize",
 		TokenEndpoint:                              base + "/oauth/token",
+		RevocationEndpoint:                         base + "/oauth/revoke",
 		JWKSURI:                                    base + jwksPath,
 		ResponseTypesSupported:                     []string{"code"},
 		ResponseModesSupported:                     []string{"query"},

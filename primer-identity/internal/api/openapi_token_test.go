@@ -30,8 +30,10 @@ func TestNewOpenAPIRegistersTokenInventoryWithoutServingNilOAuth(t *testing.T) {
 	paths := openAPIPaths(t, doc)
 	assert.Contains(t, paths, "/oauth/token")
 	assert.Contains(t, pathMethods(t, paths["/oauth/token"]), http.MethodPost)
-	assert.NotContains(t, paths, "/oauth/revoke")
+	assert.Contains(t, paths, "/oauth/revoke")
+	assert.Contains(t, pathMethods(t, paths["/oauth/revoke"]), http.MethodPost)
 	assertTokenOpenAPIContract(t, doc)
+	assertRevokeOpenAPIContract(t, doc)
 
 	form := url.Values{
 		"grant_type":    {oauth.GrantAuthorizationCode},
@@ -58,20 +60,19 @@ func TestGenerateOpenAPIYAMLIncludesTokenAndStaysPolicyClean(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, api.CheckIdentityOpenAPIPolicy(spec))
 	assertTokenOpenAPIContract(t, parseOpenAPI(t, spec))
+	assertRevokeOpenAPIContract(t, parseOpenAPI(t, spec))
 }
 
-func TestCheckIdentityOpenAPIPolicyRejectsPlantedRevokeAndProviderSchema(t *testing.T) {
+func TestCheckIdentityOpenAPIPolicyRejectsPlantedRefreshGrantAndProviderSchema(t *testing.T) {
 	t.Parallel()
 
 	planted := plantedIB1Spec(t)
-	planted["paths"].(map[string]any)["/oauth/revoke"] = map[string]any{
-		"post": map[string]any{"summary": "forbidden"},
-	}
+	planted["paths"].(map[string]any)["/oauth/token"].(map[string]any)["post"].(map[string]any)["description"] = "grant_type: refresh_token"
 	raw, err := yaml.Marshal(planted)
 	require.NoError(t, err)
 	err = api.CheckIdentityOpenAPIPolicy(raw)
 	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "/oauth/revoke")
+	assert.Contains(t, strings.ToLower(err.Error()), "refresh_token")
 
 	planted = plantedIB1Spec(t)
 	components, _ := planted["components"].(map[string]any)
@@ -160,7 +161,64 @@ func assertTokenOpenAPIContract(t *testing.T, doc map[string]any) {
 	assert.NotContains(t, raw, "session_token")
 	assert.NotContains(t, raw, "id_token")
 	assert.NotContains(t, raw, "provider_payload")
-	assert.NotContains(t, paths, "/oauth/revoke")
+	assert.Contains(t, paths, "/oauth/revoke")
+}
+
+func assertRevokeOpenAPIContract(t *testing.T, doc map[string]any) {
+	t.Helper()
+	paths := openAPIPaths(t, doc)
+	revokePath, ok := paths["/oauth/revoke"].(map[string]any)
+	require.True(t, ok, "revoke path")
+	post, ok := lookupMethod(revokePath, "post")
+	require.True(t, ok, "revoke POST")
+	assert.Contains(t, strings.ToLower(asString(post["operationId"])), "oauthrevoke")
+	security, _ := post["security"].([]any)
+	require.NotEmpty(t, security)
+	foundBasic := false
+	foundOptional := false
+	for _, item := range security {
+		node, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := node["oauthTokenBasic"]; ok {
+			foundBasic = true
+		}
+		if len(node) == 0 {
+			foundOptional = true
+		}
+	}
+	assert.True(t, foundBasic, "oauthTokenBasic security")
+	assert.True(t, foundOptional, "optional empty security")
+
+	responses, _ := post["responses"].(map[string]any)
+	require.NotNil(t, responses)
+	for _, status := range []string{"200", "400", "401", "413", "415", "503"} {
+		assert.Contains(t, responses, status, status)
+	}
+	headers := collectResponseHeaders(responses)
+	for _, name := range []string{"cache-control", "pragma", "x-content-type-options", "www-authenticate"} {
+		assert.Contains(t, headers, name)
+	}
+
+	requestBody, ok := post["requestBody"].(map[string]any)
+	require.True(t, ok, "revoke requestBody")
+	content, ok := requestBody["content"].(map[string]any)
+	require.True(t, ok, "revoke requestBody.content")
+	assert.Contains(t, content, "application/x-www-form-urlencoded")
+	assert.NotContains(t, content, "application/octet-stream")
+	assert.Len(t, content, 1)
+
+	form := collectNamedSchemas(doc, post)
+	for _, field := range []string{
+		"token", "token_type_hint", "client_id", "client_assertion_type",
+		"client_assertion", "client_secret",
+	} {
+		assert.Contains(t, form, field)
+	}
+	for _, secret := range []string{"token", "client_secret", "client_assertion"} {
+		assert.True(t, isWriteOnly(form[secret]), "%s must be writeOnly", secret)
+	}
 }
 
 func lookupMethod(path map[string]any, method string) (map[string]any, bool) {

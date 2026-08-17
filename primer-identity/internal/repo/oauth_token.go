@@ -368,7 +368,41 @@ func RevokeInitialRefreshFamily(ctx context.Context, q Querier, familyID uuid.UU
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	tag, err := q.Exec(ctx, `
+	return revokeInitialRefreshFamilyTx(ctx, q, familyID, reason, now)
+}
+
+func RevokeOwnedInitialRefresh(ctx context.Context, q Querier, hashes [][]byte, clientID uuid.UUID, reason string, now time.Time) error {
+	if clientID == uuid.Nil {
+		return wrapf("revoke owned refresh", fmt.Errorf("%w: nil client", domain.ErrInvalid))
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if len(hashes) == 0 {
+		return nil
+	}
+	var familyID uuid.UUID
+	var owner uuid.UUID
+	err := q.QueryRow(ctx, `
+SELECT f.id, f.oauth_client_id
+FROM oauth_refresh_tokens t
+JOIN oauth_refresh_families f ON f.id=t.family_id
+WHERE t.token_hash = ANY($1)
+FOR UPDATE OF f, t`, hashes).Scan(&familyID, &owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return wrapf("lookup refresh token", err)
+	}
+	if owner != clientID {
+		return nil
+	}
+	return revokeInitialRefreshFamilyTx(ctx, q, familyID, reason, now)
+}
+
+func revokeInitialRefreshFamilyTx(ctx context.Context, q Querier, familyID uuid.UUID, reason string, now time.Time) error {
+	_, err := q.Exec(ctx, `
 UPDATE oauth_refresh_tokens
 SET revoked_at=$2
 WHERE family_id=$1 AND consumed_at IS NULL AND revoked_at IS NULL`, familyID, now)
@@ -382,7 +416,14 @@ WHERE id=$1 AND status='active'`, familyID, now, reason)
 	if err != nil {
 		return wrapf("revoke refresh family", err)
 	}
-	_ = tag
+	_, err = q.Exec(ctx, `
+UPDATE oauth_grants g
+SET status='revoked', revoked_at=$2, revoke_reason_code=$3, version=g.version+1
+FROM oauth_refresh_families f
+WHERE f.id=$1 AND g.id=f.grant_id AND g.status='active'`, familyID, now, reason)
+	if err != nil {
+		return wrapf("revoke refresh grant", err)
+	}
 	return nil
 }
 

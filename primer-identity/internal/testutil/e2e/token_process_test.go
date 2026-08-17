@@ -441,23 +441,24 @@ func TestProcessTokenConcurrencyReplayBindingsAndUnsupportedGrants(t *testing.T)
 	assert.Equal(t, oauth.ErrorUnsupportedGrantType, credsBody["error"])
 }
 
-func TestProcessTokenMetadataOmitsRevokeAndReadyRequiresKeyBootstrap(t *testing.T) {
+func TestProcessTokenMetadataPublishesRevokeAndReadyRequiresKeyBootstrap(t *testing.T) {
 	srv := startTokenProcess(t)
 	metaResp, err := noFollowClient().Get(srv.baseURL + "/.well-known/oauth-authorization-server")
 	require.NoError(t, err)
 	_, meta, raw := readJSON(t, metaResp)
 	require.Equal(t, http.StatusOK, metaResp.StatusCode)
 	assert.Equal(t, tokenProcessIssuer+"/oauth/token", meta["token_endpoint"])
+	assert.Equal(t, tokenProcessIssuer+"/oauth/revoke", meta["revocation_endpoint"])
 	assert.Equal(t, []any{"authorization_code"}, meta["grant_types_supported"])
-	assert.NotContains(t, meta, "revocation_endpoint")
-	assert.NotContains(t, raw, "/oauth/revoke")
+	assert.Contains(t, raw, "/oauth/revoke")
 	assert.NotContains(t, raw, "client_credentials")
 	assert.NotContains(t, raw, "refresh_token")
 
 	revoke, err := noFollowClient().Get(srv.baseURL + "/oauth/revoke")
 	require.NoError(t, err)
 	_ = revoke.Body.Close()
-	assert.Equal(t, http.StatusNotFound, revoke.StatusCode)
+	assert.True(t, revoke.StatusCode == http.StatusMethodNotAllowed || revoke.StatusCode == http.StatusNotFound, revoke.StatusCode)
+	assert.NotEqual(t, http.StatusOK, revoke.StatusCode)
 
 	ready, err := noFollowClient().Get(srv.baseURL + "/readyz")
 	require.NoError(t, err)
@@ -502,4 +503,236 @@ func TestProcessTokenHighCountPublicExchanges(t *testing.T) {
 	for err := range errCh {
 		require.NoError(t, err)
 	}
+}
+
+func postProcessRevoke(t *testing.T, baseURL string, form url.Values, headers map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/oauth/revoke", strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := noFollowClient().Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func assertProcessFamilyRevoked(t *testing.T, clientID string) {
+	t.Helper()
+	var familyStatus, grantStatus string
+	var live int
+	require.NoError(t, testutil.DB(t).QueryRow(context.Background(), `
+SELECT f.status, g.status,
+       (SELECT count(*) FROM oauth_refresh_tokens tok WHERE tok.family_id=f.id AND tok.consumed_at IS NULL AND tok.revoked_at IS NULL)
+FROM oauth_refresh_families f
+JOIN oauth_grants g ON g.id=f.grant_id
+JOIN oauth_clients c ON c.id=f.oauth_client_id
+WHERE c.client_id=$1`, clientID).Scan(&familyStatus, &grantStatus, &live))
+	require.Equal(t, "revoked", familyStatus)
+	require.Equal(t, "revoked", grantStatus)
+	require.Zero(t, live)
+}
+
+func assertProcessFamilyActive(t *testing.T, clientID string) {
+	t.Helper()
+	var status string
+	var live int
+	require.NoError(t, testutil.DB(t).QueryRow(context.Background(), `
+SELECT f.status,
+       (SELECT count(*) FROM oauth_refresh_tokens tok WHERE tok.family_id=f.id AND tok.consumed_at IS NULL AND tok.revoked_at IS NULL)
+FROM oauth_refresh_families f
+JOIN oauth_clients c ON c.id=f.oauth_client_id
+WHERE c.client_id=$1`, clientID).Scan(&status, &live))
+	require.Equal(t, "active", status)
+	require.Equal(t, 1, live)
+}
+
+func TestProcessPublicBasicAndPrivateRevokeAfterIssue(t *testing.T) {
+	publicID := uniqueLabel("rev-pub")
+	artifact := uniqueLabel("rev-pub-art")
+	srv := startTokenProcessWithArtifact(t, artifact)
+	redirect, resource, audience := registerProcessClient(t, publicID)
+	code := issueProcessCode(t, srv, publicID, redirect, resource, audience, artifact)
+	issued := postProcessToken(t, srv.baseURL, publicTokenForm(code, redirect, resource, publicID), nil)
+	status, body, raw := readJSON(t, issued)
+	require.Equal(t, http.StatusOK, status, raw)
+	access, _ := body["access_token"].(string)
+	refresh, _ := body["refresh_token"].(string)
+	require.NotEmpty(t, access)
+	require.NotEmpty(t, refresh)
+
+	ok := postProcessRevoke(t, srv.baseURL, url.Values{"token": {refresh}, "client_id": {publicID}}, nil)
+	okStatus, _, okRaw := readJSON(t, ok)
+	require.Equal(t, http.StatusOK, okStatus, okRaw)
+	assert.Empty(t, strings.TrimSpace(okRaw))
+	assert.Empty(t, ok.Header.Get("Access-Control-Allow-Origin"))
+	assert.Empty(t, ok.Header.Get("WWW-Authenticate"))
+	assertProcessFamilyRevoked(t, publicID)
+	verifyFetchedAccess(t, srv.baseURL, access, audience, publicID, accountSubjectForClient(t, publicID))
+
+	again := postProcessRevoke(t, srv.baseURL, url.Values{"token": {refresh}, "token_type_hint": {"refresh_token"}, "client_id": {publicID}}, nil)
+	againStatus, _, againRaw := readJSON(t, again)
+	require.Equal(t, http.StatusOK, againStatus, againRaw)
+	assert.Empty(t, strings.TrimSpace(againRaw))
+
+	secret := "basic-secret-" + uuid.NewString()
+	basicID := uniqueLabel("rev-basic")
+	basicArtifact := uniqueLabel("rev-basic-art")
+	basicSrv := startTokenProcessWithArtifact(t, basicArtifact)
+	basicRedirect, basicResource, basicAudience := registerConfidentialBasic(t, basicID, secret)
+	basicCode := issueProcessCode(t, basicSrv, basicID, basicRedirect, basicResource, basicAudience, basicArtifact)
+	basicIssued := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, basicID), map[string]string{
+		"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(basicID+":"+secret)),
+	})
+	basicStatus, basicBody, basicRaw := readJSON(t, basicIssued)
+	require.Equal(t, http.StatusOK, basicStatus, basicRaw)
+	basicRefresh, _ := basicBody["refresh_token"].(string)
+	require.NotEmpty(t, basicRefresh)
+
+	wrong := postProcessRevoke(t, basicSrv.baseURL, url.Values{"token": {basicRefresh}}, map[string]string{
+		"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(basicID+":wrong-secret-value-xxxxxxxxxxxxxxxx")),
+	})
+	wrongStatus, wrongBody, wrongRaw := readJSON(t, wrong)
+	assert.Equal(t, http.StatusUnauthorized, wrongStatus)
+	assert.Equal(t, oauth.ErrorInvalidClient, wrongBody["error"])
+	assert.Equal(t, `Basic realm="oauth/revoke", charset="UTF-8"`, wrong.Header.Get("WWW-Authenticate"))
+	assert.NotContains(t, wrongRaw, secret)
+	assertProcessFamilyActive(t, basicID)
+
+	okBasic := postProcessRevoke(t, basicSrv.baseURL, url.Values{"token": {basicRefresh}}, map[string]string{
+		"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(basicID+":"+secret)),
+	})
+	okBasicStatus, _, okBasicRaw := readJSON(t, okBasic)
+	require.Equal(t, http.StatusOK, okBasicStatus, okBasicRaw)
+	assert.Empty(t, okBasic.Header.Get("WWW-Authenticate"))
+	assertProcessFamilyRevoked(t, basicID)
+
+	mat, err := keys.Generate()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mat.Destroy() })
+	jwtID := uniqueLabel("rev-jwt")
+	jwtArtifact := uniqueLabel("rev-jwt-art")
+	jwtSrv := startTokenProcessWithArtifact(t, jwtArtifact)
+	jwtRedirect, jwtResource, jwtAudience := registerPrivateKeyJWT(t, jwtID, mat)
+	jwtCode := issueProcessCode(t, jwtSrv, jwtID, jwtRedirect, jwtResource, jwtAudience, jwtArtifact)
+	tokenAssertion := mintProcessAssertion(t, mat, jwtID, tokenProcessIssuer+"/oauth/token")
+	jwtForm := publicTokenForm(jwtCode, jwtRedirect, jwtResource, jwtID)
+	jwtForm.Set("client_assertion_type", tokenAssertionType)
+	jwtForm.Set("client_assertion", tokenAssertion)
+	jwtIssued := postProcessToken(t, jwtSrv.baseURL, jwtForm, nil)
+	jwtStatus, jwtBody, jwtRaw := readJSON(t, jwtIssued)
+	require.Equal(t, http.StatusOK, jwtStatus, jwtRaw)
+	jwtRefresh, _ := jwtBody["refresh_token"].(string)
+	require.NotEmpty(t, jwtRefresh)
+
+	replay := url.Values{"token": {jwtRefresh}, "client_id": {jwtID}, "client_assertion_type": {tokenAssertionType}, "client_assertion": {tokenAssertion}}
+	denied := postProcessRevoke(t, jwtSrv.baseURL, replay, nil)
+	deniedStatus, deniedBody, deniedRaw := readJSON(t, denied)
+	assert.Equal(t, http.StatusUnauthorized, deniedStatus)
+	assert.Equal(t, oauth.ErrorInvalidClient, deniedBody["error"])
+	assert.Empty(t, denied.Header.Get("WWW-Authenticate"))
+	assert.NotContains(t, deniedRaw, tokenAssertion)
+	assertProcessFamilyActive(t, jwtID)
+
+	revokeAssertion := mintProcessAssertion(t, mat, jwtID, tokenProcessIssuer+"/oauth/revoke")
+	okJWT := postProcessRevoke(t, jwtSrv.baseURL, url.Values{
+		"token": {jwtRefresh}, "client_id": {jwtID},
+		"client_assertion_type": {tokenAssertionType}, "client_assertion": {revokeAssertion},
+	}, nil)
+	okJWTStatus, _, okJWTRaw := readJSON(t, okJWT)
+	require.Equal(t, http.StatusOK, okJWTStatus, okJWTRaw)
+	assert.Empty(t, okJWT.Header.Get("WWW-Authenticate"))
+	assert.NotContains(t, okJWTRaw, revokeAssertion)
+	assertProcessFamilyRevoked(t, jwtID)
+	verifyFetchedAccess(t, jwtSrv.baseURL, jwtBody["access_token"].(string), jwtAudience, jwtID, accountSubjectForClient(t, jwtID))
+}
+
+func TestProcessRevokeIsOracleFreeAndRejectsQueryDuplicates(t *testing.T) {
+	ownerID := uniqueLabel("rev-owner")
+	otherID := uniqueLabel("rev-other")
+	artifact := uniqueLabel("rev-oracle")
+	srv := startTokenProcessWithArtifact(t, artifact)
+	ownerRedirect, ownerResource, ownerAudience := registerProcessClient(t, ownerID)
+	otherRedirect, otherResource, otherAudience := registerProcessClient(t, otherID)
+	ownerCode := issueProcessCode(t, srv, ownerID, ownerRedirect, ownerResource, ownerAudience, artifact)
+	issued := postProcessToken(t, srv.baseURL, publicTokenForm(ownerCode, ownerRedirect, ownerResource, ownerID), nil)
+	status, body, raw := readJSON(t, issued)
+	require.Equal(t, http.StatusOK, status, raw)
+	access, _ := body["access_token"].(string)
+	refresh, _ := body["refresh_token"].(string)
+
+	unknown := postProcessRevoke(t, srv.baseURL, url.Values{"token": {"not-a-refresh"}, "client_id": {ownerID}}, nil)
+	unknownStatus, _, unknownRaw := readJSON(t, unknown)
+	require.Equal(t, http.StatusOK, unknownStatus, unknownRaw)
+	assert.Empty(t, strings.TrimSpace(unknownRaw))
+
+	cross := postProcessRevoke(t, srv.baseURL, url.Values{"token": {refresh}, "client_id": {otherID}}, nil)
+	crossStatus, _, _ := readJSON(t, cross)
+	require.Equal(t, http.StatusOK, crossStatus)
+	assertProcessFamilyActive(t, ownerID)
+	_ = otherRedirect
+	_ = otherResource
+	_ = otherAudience
+
+	accessResp := postProcessRevoke(t, srv.baseURL, url.Values{"token": {access}, "token_type_hint": {"access_token"}, "client_id": {ownerID}}, nil)
+	accessStatus, _, _ := readJSON(t, accessResp)
+	require.Equal(t, http.StatusOK, accessStatus)
+	assertProcessFamilyActive(t, ownerID)
+
+	form := url.Values{"token": {refresh}, "client_id": {ownerID}}
+	req, err := http.NewRequest(http.MethodPost, srv.baseURL+"/oauth/revoke?token=x", strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	queryResp, err := noFollowClient().Do(req)
+	require.NoError(t, err)
+	queryStatus, queryBody, _ := readJSON(t, queryResp)
+	assert.Equal(t, http.StatusBadRequest, queryStatus)
+	assert.Equal(t, oauth.ErrorInvalidRequest, queryBody["error"])
+	assertProcessFamilyActive(t, ownerID)
+}
+
+func TestProcessConcurrentRevokeAndRestartStayIdempotent(t *testing.T) {
+	clientID := uniqueLabel("rev-conc")
+	artifact := uniqueLabel("rev-conc-art")
+	srv := startTokenProcessWithArtifact(t, artifact)
+	redirect, resource, audience := registerProcessClient(t, clientID)
+	code := issueProcessCode(t, srv, clientID, redirect, resource, audience, artifact)
+	issued := postProcessToken(t, srv.baseURL, publicTokenForm(code, redirect, resource, clientID), nil)
+	status, body, raw := readJSON(t, issued)
+	require.Equal(t, http.StatusOK, status, raw)
+	refresh, _ := body["refresh_token"].(string)
+	require.NotEmpty(t, refresh)
+
+	const n = 8
+	var wg sync.WaitGroup
+	errCh := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp := postProcessRevoke(t, srv.baseURL, url.Values{"token": {refresh}, "client_id": {clientID}}, nil)
+			got, _, bodyRaw := readJSON(t, resp)
+			if got != http.StatusOK {
+				errCh <- fmt.Errorf("http %d body=%s", got, bodyRaw)
+				return
+			}
+			if strings.TrimSpace(bodyRaw) != "" {
+				errCh <- fmt.Errorf("non-empty revoke body %q", bodyRaw)
+				return
+			}
+			errCh <- nil
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+	assertProcessFamilyRevoked(t, clientID)
+
+	again := postProcessRevoke(t, srv.baseURL, url.Values{"token": {refresh}, "client_id": {clientID}}, nil)
+	againStatus, _, againRaw := readJSON(t, again)
+	require.Equal(t, http.StatusOK, againStatus, againRaw)
+	assert.Empty(t, strings.TrimSpace(againRaw))
 }

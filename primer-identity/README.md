@@ -8,7 +8,7 @@ This tree is a **separate deployable** with its own PostgreSQL database
 (`primer_identity`, goose table `identity_goose_db_version`). It does not share
 a database with the LMS (`server/`), TV, or Curriculum Studio.
 
-## Layout (I1 + I2 + IB1 + IB2 token contract)
+## Layout (I1 + I2 + IB1 + IB2 token + revoke contract)
 
 ```text
 primer-identity/
@@ -101,7 +101,7 @@ make identity-build    # -> bin/identity-server
 make identity-test
 make identity-cover
 make identity-openapi      # generate spec+client to private temps and cmp both baselines
-make identity-test-oauth   # IB2 oauth/keys/token + process tests with -race (real DB)
+make identity-test-oauth   # IB2 oauth/keys/token/revoke + process tests with -race (real DB)
 
 # Module-local build
 cd primer-identity
@@ -142,23 +142,27 @@ go test ./... -count=1
 | `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
 | `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
 | `make identity-openapi` | generate IB2 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
-| `make identity-test-oauth` | IB2 oauth/keys/token packages plus process tests (including `./client`) with `-race` against real Postgres |
+| `make identity-test-oauth` | IB2 oauth/keys/token/revoke packages plus process tests (including `./client`) with `-race` against real Postgres |
 | `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
 
-IB2 publishes the authorization-code token contract. Live Stytch / production
-provider traffic remains **BLOCKED**. `openapi.yaml` is generated from handler
-signatures plus one documented `POST /oauth/token` form-urlencoded operation
-(Huma OpenAPI only; the live route is registered once on chi so Huma never
-reads the form body). It covers health/ready, the IB1 authorize/broker
-inventory, JWKS, authorization-server metadata, and `POST /oauth/token`. It
-does not include `/oauth/revoke`, refresh-token grant, `client_credentials`,
-or provider/private payload schemas. `client/client.gen.go` is generated from
-that spec with pinned `oapi-codegen` v2 (`go tool oapi-codegen`); do not add
-handwritten DTOs. The generated client has exactly one `OauthToken` operation.
+IB2 publishes the authorization-code token contract and RFC7009 revoke.
+Live Stytch / production provider traffic remains **BLOCKED**. `openapi.yaml`
+is generated from handler signatures plus documented `POST /oauth/token` and
+`POST /oauth/revoke` form-urlencoded operations (Huma OpenAPI only; the live
+routes are registered once on chi so Huma never reads the form body). It
+covers health/ready, the IB1 authorize/broker inventory, JWKS,
+authorization-server metadata (including `revocation_endpoint`),
+`POST /oauth/token`, and `POST /oauth/revoke`. It does not include
+refresh-token grant, `client_credentials`, or provider/private payload
+schemas. `client/client.gen.go` is generated from that spec with pinned
+`oapi-codegen` v2 (`go tool oapi-codegen`); do not add handwritten DTOs.
+The generated client has exactly one `OauthToken` operation and exactly one
+`OauthRevoke` operation.
 
-Token process proof uses a real `app.Run` listener plus Postgres and an active
-signing key. Codes are issued through production repos and a scripted broker
-labelled as test-only. Do not point process tests at live Stytch.
+Token and revoke process proof uses a real `app.Run` listener plus Postgres
+and an active signing key. Codes are issued through production repos and a
+scripted broker labelled as test-only. Do not point process tests at live
+Stytch.
 
 ## Request logging (P1-S6)
 

@@ -38,7 +38,8 @@ func TestNewOpenAPIRegistersIB1InventoryWithoutBrokerOrDatabase(t *testing.T) {
 	assert.Contains(t, paths, "/.well-known/oauth-authorization-server")
 	assert.Contains(t, paths, "/oauth/token")
 	assert.Contains(t, pathMethods(t, paths["/oauth/token"]), http.MethodPost)
-	assert.NotContains(t, paths, "/oauth/revoke")
+	assert.Contains(t, paths, "/oauth/revoke")
+	assert.Contains(t, pathMethods(t, paths["/oauth/revoke"]), http.MethodPost)
 
 	assert.Contains(t, pathMethods(t, paths["/healthz"]), http.MethodGet)
 	assert.Contains(t, pathMethods(t, paths["/readyz"]), http.MethodGet)
@@ -114,14 +115,14 @@ func TestCheckIB1OpenAPIPolicyRejectsPlantedForbiddenRoute(t *testing.T) {
 	t.Parallel()
 
 	planted := plantedIB1Spec(t)
-	planted["paths"].(map[string]any)["/oauth/revoke"] = map[string]any{
-		"post": map[string]any{"summary": "forbidden"},
+	planted["paths"].(map[string]any)["/jwks"] = map[string]any{
+		"get": map[string]any{"summary": "forbidden"},
 	}
 	raw, err := yaml.Marshal(planted)
 	require.NoError(t, err)
 	err = api.CheckIB1OpenAPIPolicy(raw)
 	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "/oauth/revoke")
+	assert.Contains(t, strings.ToLower(err.Error()), "/jwks")
 }
 
 func TestCheckIB1OpenAPIPolicyRejectsPlantedForbiddenSchema(t *testing.T) {
@@ -182,7 +183,7 @@ func TestNewOpenAPIMatchesLiveBrokerInventory(t *testing.T) {
 	assert.NotContains(t, livePaths, "/oauth/token")
 	assert.Contains(t, schemaPaths, "/oauth/token")
 	assert.NotContains(t, livePaths, "/oauth/revoke")
-	assert.NotContains(t, schemaPaths, "/oauth/revoke")
+	assert.Contains(t, schemaPaths, "/oauth/revoke")
 }
 
 func parseOpenAPI(t *testing.T, spec []byte) map[string]any {

@@ -22,6 +22,7 @@ var requiredIB1Paths = []string{
 	"/broker/stytch/callback",
 	"/.well-known/jwks.json",
 	"/.well-known/oauth-authorization-server",
+	"/oauth/revoke",
 }
 
 var requiredIdentityOperations = []string{
@@ -36,10 +37,10 @@ var requiredIdentityOperations = []string{
 	"brokerCallback",
 	"jwks",
 	"oauthAuthorizationServer",
+	"oauthRevoke",
 }
 
 var forbiddenIB1Paths = []string{
-	"/oauth/revoke",
 	"/jwks",
 	"/oauth/jwks",
 }
@@ -84,7 +85,7 @@ func CheckIB1OpenAPIPolicy(spec []byte) error {
 }
 
 // CheckIdentityOpenAPIPolicy rejects missing IB1+IB2 inventory routes and
-// planted revoke/JWKS-private/provider payload surfaces.
+// planted JWKS-private/provider payload surfaces.
 func CheckIdentityOpenAPIPolicy(spec []byte) error {
 	var doc map[string]any
 	if err := yaml.Unmarshal(spec, &doc); err != nil {
@@ -116,7 +117,7 @@ func CheckIdentityOpenAPIPolicy(spec []byte) error {
 			return fmt.Errorf("openapi policy: forbidden schema %s", needle)
 		}
 	}
-	for _, needle := range []string{"/oauth/revoke", "revocation_endpoint", "client_credentials", "grant_type: refresh_token"} {
+	for _, needle := range []string{"client_credentials", "grant_type: refresh_token"} {
 		if strings.Contains(raw, needle) {
 			return fmt.Errorf("openapi policy: forbidden surface %s", needle)
 		}

@@ -207,9 +207,10 @@ func Run(ctx context.Context, opts Options) error {
 				AssertionActiveVersion:         tokenSecrets.AssertionActiveVersion,
 			},
 			Config: oauth.Config{
-				Issuer:        cfg.Issuer,
-				TokenEndpoint: strings.TrimRight(cfg.Issuer, "/") + "/oauth/token",
-				AccessTTL:     domain.MaxAccessTTL,
+				Issuer:             cfg.Issuer,
+				TokenEndpoint:      strings.TrimRight(cfg.Issuer, "/") + "/oauth/token",
+				RevocationEndpoint: strings.TrimRight(cfg.Issuer, "/") + "/oauth/revoke",
+				AccessTTL:          domain.MaxAccessTTL,
 			},
 		})
 		if err != nil {

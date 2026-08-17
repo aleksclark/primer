@@ -493,6 +493,188 @@ paths:
       summary: Start an OAuth authorization request
       tags:
         - Broker
+  /oauth/revoke:
+    post:
+      operationId: oauthRevoke
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              properties:
+                client_assertion:
+                  type: string
+                  writeOnly: true
+                client_assertion_type:
+                  type: string
+                client_id:
+                  type: string
+                client_secret:
+                  type: string
+                  writeOnly: true
+                token:
+                  type: string
+                  writeOnly: true
+                token_type_hint:
+                  type: string
+              required:
+                - token
+              type: object
+        description: OAuth revocation form
+        required: true
+      responses:
+        "200":
+          description: RFC7009 empty success
+          headers:
+            Cache-Control:
+              description: Must be no-store
+              schema:
+                type: string
+            Pragma:
+              description: Must be no-cache
+              schema:
+                type: string
+            WWW-Authenticate:
+              description: Exact Basic challenge on failed client_secret_basic
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Must be nosniff
+              schema:
+                type: string
+        "400":
+          content:
+            application/json; charset=utf-8:
+              schema:
+                properties:
+                  error:
+                    type: string
+                  error_description:
+                    type: string
+                required:
+                  - error
+                type: object
+          description: OAuth invalid_request
+          headers:
+            Cache-Control:
+              description: Must be no-store
+              schema:
+                type: string
+            Pragma:
+              description: Must be no-cache
+              schema:
+                type: string
+            WWW-Authenticate:
+              description: Exact Basic challenge on failed client_secret_basic
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Must be nosniff
+              schema:
+                type: string
+        "401":
+          content:
+            application/json; charset=utf-8:
+              schema:
+                properties:
+                  error:
+                    type: string
+                  error_description:
+                    type: string
+                required:
+                  - error
+                type: object
+          description: OAuth invalid_client
+          headers:
+            Cache-Control:
+              description: Must be no-store
+              schema:
+                type: string
+            Pragma:
+              description: Must be no-cache
+              schema:
+                type: string
+            WWW-Authenticate:
+              description: Exact Basic challenge on failed client_secret_basic
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Must be nosniff
+              schema:
+                type: string
+        "413":
+          description: Request too large
+          headers:
+            Cache-Control:
+              description: Must be no-store
+              schema:
+                type: string
+            Pragma:
+              description: Must be no-cache
+              schema:
+                type: string
+            WWW-Authenticate:
+              description: Exact Basic challenge on failed client_secret_basic
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Must be nosniff
+              schema:
+                type: string
+        "415":
+          description: Unsupported media type
+          headers:
+            Cache-Control:
+              description: Must be no-store
+              schema:
+                type: string
+            Pragma:
+              description: Must be no-cache
+              schema:
+                type: string
+            WWW-Authenticate:
+              description: Exact Basic challenge on failed client_secret_basic
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Must be nosniff
+              schema:
+                type: string
+        "503":
+          content:
+            application/json; charset=utf-8:
+              schema:
+                properties:
+                  error:
+                    type: string
+                  error_description:
+                    type: string
+                required:
+                  - error
+                type: object
+          description: temporarily_unavailable
+          headers:
+            Cache-Control:
+              description: Must be no-store
+              schema:
+                type: string
+            Pragma:
+              description: Must be no-cache
+              schema:
+                type: string
+            WWW-Authenticate:
+              description: Exact Basic challenge on failed client_secret_basic
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Must be nosniff
+              schema:
+                type: string
+      security:
+        - oauthTokenBasic: []
+        - {}
+      summary: Revoke an IB2 refresh family
+      tags:
+        - OAuth
   /oauth/token:
     post:
       operationId: oauthToken

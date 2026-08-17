@@ -57,6 +57,7 @@ func (s *Server) registerTokenRoutes(api huma.API, router chi.Router) {
 	if router != nil {
 		router.Post(tokenPath, s.handleToken)
 	}
+	s.registerRevokeRoutes(api, router)
 }
 
 func tokenOpenAPIOperation() *huma.Operation {
