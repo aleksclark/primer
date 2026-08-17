@@ -1100,7 +1100,8 @@ func TestOpenAPIInventoryForbiddenSurfacesAndDeterminism(t *testing.T) {
 		assert.Contains(t, paths, p)
 	}
 	assert.NotContains(t, paths, "/oauth/token")
-	assert.NotContains(t, paths, "/.well-known/jwks.json")
+	assert.NotContains(t, paths, "/oauth/revoke")
+	assert.Contains(t, paths, "/.well-known/jwks.json")
 	assert.NotContains(t, paths, "/jwks")
 	assert.NotContains(t, paths, "/oauth/jwks")
 

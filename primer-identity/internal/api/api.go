@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aleksclark/primer/identity/internal/broker"
+	"github.com/aleksclark/primer/identity/internal/domain"
+	"github.com/aleksclark/primer/identity/internal/oauth"
 )
 
 // Options configures Identity API construction.
@@ -28,8 +30,24 @@ type Options struct {
 	Broker *broker.Service
 	// RequireBroker makes readiness fail closed unless the broker was composed.
 	RequireBroker bool
+	// RequireSigner makes readiness fail closed unless a usable JWKS provider
+	// can publish the current public set.
+	RequireSigner bool
+	// Issuer is the configured OAuth issuer used for RFC 8414 metadata.
+	Issuer string
+	// JWKS, when set, registers public JWKS and authorization-server metadata.
+	JWKS JWKSProvider
+	// OAuth, when set, registers the IB2 authorization-code token endpoint.
+	OAuth *oauth.Service
 	// BrokerHTTP configures cookie and CSRF origin policy for broker routes.
 	BrokerHTTP BrokerHTTPOptions
+}
+
+// JWKSProvider is the public-only signing-key view used by well-known routes
+// and signer-aware readiness.
+type JWKSProvider interface {
+	PublicJWKS(ctx context.Context) ([]domain.PublicJWK, error)
+	PublicSetETag(ctx context.Context) (string, error)
 }
 
 const (
@@ -73,8 +91,14 @@ type Server struct {
 	reqTotal                atomic.Int64
 	broker                  *broker.Service
 	requireBroker           bool
+	requireSigner           bool
+	issuer                  string
+	jwks                    JWKSProvider
+	oauth                   *oauth.Service
 	brokerHTTP              BrokerHTTPOptions
 	registerBrokerInventory bool
+	registerMetadata        bool
+	registerTokenInventory  bool
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -92,7 +116,17 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 		panic("api: InsecureTestCookie is rejected when Production is true")
 	}
 	opts.BrokerHTTP.MaxRequestTargetBytes = validatedRequestTargetMax(opts.BrokerHTTP.MaxRequestTargetBytes)
-	s := &Server{pool: pool, now: now, broker: opts.Broker, requireBroker: opts.RequireBroker, brokerHTTP: opts.BrokerHTTP}
+	s := &Server{
+		pool:          pool,
+		now:           now,
+		broker:        opts.Broker,
+		requireBroker: opts.RequireBroker,
+		requireSigner: opts.RequireSigner,
+		issuer:        opts.Issuer,
+		jwks:          opts.JWKS,
+		oauth:         opts.OAuth,
+		brokerHTTP:    opts.BrokerHTTP,
+	}
 	return s.build()
 }
 
@@ -115,13 +149,27 @@ func (s *Server) build() (huma.API, http.Handler) {
 	router.Use(RequestIDMiddleware)
 	router.Use(AccessLogMiddleware)
 	router.Use(s.metricsMiddleware)
+	router.Use(s.wellKnownRuntimePolicy)
 
 	cfg := huma.DefaultConfig("Primer Identity API", "0.1.0")
 	cfg.Info.Description = "Primer Identity service: health, readiness, and (later) OIDC/OAuth."
 	cfg.Servers = []*huma.Server{{URL: "/"}}
+	if s.oauth != nil || s.registerTokenInventory {
+		if cfg.Components == nil {
+			cfg.Components = &huma.Components{}
+		}
+		if cfg.Components.SecuritySchemes == nil {
+			cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
+		}
+		cfg.Components.SecuritySchemes["oauthTokenBasic"] = &huma.SecurityScheme{
+			Type:   "http",
+			Scheme: "basic",
+		}
+	}
 
 	humaAPI := humachi.New(router, cfg)
 	s.RegisterRoutes(humaAPI)
+	s.registerTokenRoutes(humaAPI, router)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
@@ -167,6 +215,17 @@ func (s *Server) RegisterRoutes(api huma.API) {
 		if s.requireBroker && s.broker == nil {
 			return nil, huma.Error503ServiceUnavailable("unavailable")
 		}
+		if s.requireSigner {
+			if s.jwks == nil {
+				return nil, huma.Error503ServiceUnavailable("unavailable")
+			}
+			readyCtx, readyCancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err := s.jwks.PublicJWKS(readyCtx)
+			readyCancel()
+			if err != nil {
+				return nil, huma.Error503ServiceUnavailable("unavailable")
+			}
+		}
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		if err := s.pool.Ping(pingCtx); err != nil {
@@ -184,6 +243,7 @@ func (s *Server) RegisterRoutes(api huma.API) {
 	})
 
 	s.registerBrokerRoutes(api)
+	s.registerMetadataRoutes(api)
 }
 
 // RequestIDMiddleware ensures every response carries X-Request-ID.

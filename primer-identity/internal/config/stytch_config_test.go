@@ -38,7 +38,7 @@ func TestLoadStytchDefaultsAndEnvironment(t *testing.T) {
 }
 
 func validConfig() *config.Config {
-	return &config.Config{
+	cfg := &config.Config{
 		DatabaseURL:           "postgres://identity:***@localhost:5432/primer_identity?sslmode=disable",
 		Issuer:                "https://id.example",
 		Env:                   "production",
@@ -49,6 +49,9 @@ func validConfig() *config.Config {
 		StateHashPeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", StateHashActiveVersion: 1,
 		BrokerCookiePeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", BrokerCookieActiveVersion: 1,
 		AuthorizationCodePeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", AuthorizationCodeActiveVersion: 1,
+		ClientSecretPeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ClientSecretActiveVersion: 1,
+		RefreshTokenPeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", RefreshTokenActiveVersion: 1,
+		ClientAssertionPeppers: "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ClientAssertionActiveVersion: 1,
 		BrokerAllowedOrigin:        "https://id.example",
 		BrokerDiscoveryRedirectURL: "https://id.example/broker/stytch/callback",
 		BrokerLoginRedirectURL:     "https://id.example/broker/stytch/callback",
@@ -66,6 +69,8 @@ func validConfig() *config.Config {
 			NegativeCacheCapacity: 2000,
 		},
 	}
+	cfg.Key.SetSealSecretForTest("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	return cfg
 }
 
 func TestValidateStytchRejectsPartialCredentials(t *testing.T) {

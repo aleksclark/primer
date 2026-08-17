@@ -11,6 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/aleksclark/primer/identity/internal/db"
+	"github.com/aleksclark/primer/identity/internal/testutil"
 )
 
 func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
@@ -57,20 +58,27 @@ func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO accounts (display_name) VALUES ('mapping test') RETURNING id`).Scan(&accountID))
 	_, err = pool.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, 'p', 'o', 'm')`, accountID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, 'p', 'o', 'm')`, accountID)
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	q := testutil.NewSavepointQuerier(tx)
+	_, err = q.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, 'p', 'o', 'm')`, accountID)
 	require.Error(t, err, "the tuple must be unique")
+	require.NotContains(t, err.Error(), "25P02")
 
 	for _, values := range []string{"'', 'o', 'm'", "'p', '', 'm'", "'p', 'o', ''"} {
-		_, err = pool.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, `+values+`)`, accountID)
+		_, err = q.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, `+values+`)`, accountID)
 		require.Error(t, err, "empty tuple component must fail: %s", values)
+		require.NotContains(t, err.Error(), "25P02")
 	}
 	for _, values := range []string{
 		"repeat('x', 256), 'o', 'm'",
 		"'p', repeat('x', 256), 'm'",
 		"'p', 'o', repeat('x', 256)",
 	} {
-		_, err = pool.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, `+values+`)`, accountID)
+		_, err = q.Exec(ctx, `INSERT INTO stytch_mappings (account_id, project_id, organization_id, member_id) VALUES ($1, `+values+`)`, accountID)
 		require.Error(t, err, "oversized tuple component must fail: %s", values)
+		require.NotContains(t, err.Error(), "25P02")
 	}
 
 	var indexNames []string
@@ -94,7 +102,10 @@ func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
 	var mappingCount int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM stytch_mappings`).Scan(&mappingCount))
 	require.Equal(t, 1, mappingCount, "restricted account deletion preserves mapping evidence")
+	require.NoError(t, tx.Rollback(ctx))
 
+	require.NoError(t, db.MigrateDown(ctx, url))
+	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))

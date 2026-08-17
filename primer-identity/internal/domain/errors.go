@@ -15,4 +15,14 @@ var (
 
 	// ErrPasswordDisabled is returned when a password credential is disabled.
 	ErrPasswordDisabled = errors.New("password disabled")
+
+	// ErrSignerUnavailable is returned when no usable active signer exists.
+	ErrSignerUnavailable = errors.New("signer unavailable")
+
+	// ErrCorruptSigner is returned when stored key material cannot be used.
+	ErrCorruptSigner = errors.New("corrupt signer")
+
+	// ErrRetryableSerialization is a cause-free signal that a serializable
+	// transaction should be retried. It never wraps SQL or persist text.
+	ErrRetryableSerialization = errors.New("retryable serialization")
 )

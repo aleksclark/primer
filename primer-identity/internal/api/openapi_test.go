@@ -34,7 +34,12 @@ func TestNewOpenAPIRegistersIB1InventoryWithoutBrokerOrDatabase(t *testing.T) {
 	assert.Contains(t, paths, "/broker/stytch/email/verify")
 	assert.Contains(t, paths, "/broker/stytch/sso/start")
 	assert.Contains(t, paths, "/broker/stytch/callback")
-	assert.NotContains(t, paths, "/oauth/token")
+	assert.Contains(t, paths, "/.well-known/jwks.json")
+	assert.Contains(t, paths, "/.well-known/oauth-authorization-server")
+	assert.Contains(t, paths, "/oauth/token")
+	assert.Contains(t, pathMethods(t, paths["/oauth/token"]), http.MethodPost)
+	assert.Contains(t, paths, "/oauth/revoke")
+	assert.Contains(t, pathMethods(t, paths["/oauth/revoke"]), http.MethodPost)
 
 	assert.Contains(t, pathMethods(t, paths["/healthz"]), http.MethodGet)
 	assert.Contains(t, pathMethods(t, paths["/readyz"]), http.MethodGet)
@@ -54,10 +59,25 @@ func TestNewOpenAPIHandlersFailClosedWithoutBroker(t *testing.T) {
 	assert.Less(t, rr.Code, 500)
 }
 
+func TestNewOpenAPIWellKnownHandlersFailClosedWithoutProvider(t *testing.T) {
+	t.Parallel()
+
+	_, handler := api.NewOpenAPI()
+	for _, path := range []string{"/.well-known/jwks.json", "/.well-known/oauth-authorization-server"} {
+		rr := httptest.NewRecorder()
+		require.NotPanics(t, func() {
+			handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		})
+		assert.Equal(t, http.StatusNotFound, rr.Code, path)
+		assert.NotContains(t, strings.ToLower(rr.Body.String()), "panic")
+		assert.NotContains(t, strings.ToLower(rr.Body.String()), "nil")
+	}
+}
+
 func TestNewWithoutBrokerDoesNotRegisterIB1Routes(t *testing.T) {
 	t.Parallel()
 
-	humaAPI, _ := api.New(nil, api.Options{})
+	humaAPI, handler := api.New(nil, api.Options{})
 	spec, err := humaAPI.OpenAPI().YAML()
 	require.NoError(t, err)
 	doc := parseOpenAPI(t, spec)
@@ -66,6 +86,14 @@ func TestNewWithoutBrokerDoesNotRegisterIB1Routes(t *testing.T) {
 	assert.Contains(t, paths, "/readyz")
 	assert.NotContains(t, paths, "/oauth/authorize")
 	assert.NotContains(t, paths, "/broker/stytch/callback")
+	assert.NotContains(t, paths, "/.well-known/jwks.json")
+	assert.NotContains(t, paths, "/.well-known/oauth-authorization-server")
+
+	rr := httptest.NewRecorder()
+	require.NotPanics(t, func() {
+		handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+	})
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestGenerateOpenAPIYAMLIsDeterministicAndPolicyClean(t *testing.T) {
@@ -87,14 +115,14 @@ func TestCheckIB1OpenAPIPolicyRejectsPlantedForbiddenRoute(t *testing.T) {
 	t.Parallel()
 
 	planted := plantedIB1Spec(t)
-	planted["paths"].(map[string]any)["/oauth/token"] = map[string]any{
-		"post": map[string]any{"summary": "forbidden"},
+	planted["paths"].(map[string]any)["/jwks"] = map[string]any{
+		"get": map[string]any{"summary": "forbidden"},
 	}
 	raw, err := yaml.Marshal(planted)
 	require.NoError(t, err)
 	err = api.CheckIB1OpenAPIPolicy(raw)
 	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "/oauth/token")
+	assert.Contains(t, strings.ToLower(err.Error()), "/jwks")
 }
 
 func TestCheckIB1OpenAPIPolicyRejectsPlantedForbiddenSchema(t *testing.T) {
@@ -111,16 +139,16 @@ func TestCheckIB1OpenAPIPolicyRejectsPlantedForbiddenSchema(t *testing.T) {
 		schemas = map[string]any{}
 		components["schemas"] = schemas
 	}
-	schemas["AccessToken"] = map[string]any{
+	schemas["ProviderPayload"] = map[string]any{
 		"properties": map[string]any{
-			"access_token": map[string]any{"type": "string"},
+			"session_jwt": map[string]any{"type": "string"},
 		},
 	}
 	raw, err := yaml.Marshal(planted)
 	require.NoError(t, err)
 	err = api.CheckIB1OpenAPIPolicy(raw)
 	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "access_token")
+	assert.Contains(t, strings.ToLower(err.Error()), "session_jwt")
 }
 
 func plantedIB1Spec(t *testing.T) map[string]any {
@@ -139,7 +167,23 @@ func TestNewOpenAPIMatchesLiveBrokerInventory(t *testing.T) {
 	schemaAPI, _ := api.NewOpenAPI()
 	schemaYAML, err := schemaAPI.OpenAPI().YAML()
 	require.NoError(t, err)
-	assert.Equal(t, string(liveYAML), string(schemaYAML))
+	require.NoError(t, api.CheckIdentityOpenAPIPolicy(schemaYAML))
+
+	livePaths := openAPIPaths(t, parseOpenAPI(t, liveYAML))
+	schemaPaths := openAPIPaths(t, parseOpenAPI(t, schemaYAML))
+	for _, p := range []string{
+		"/healthz", "/readyz", "/oauth/authorize",
+		"/broker/stytch/login", "/broker/stytch/email/start",
+		"/broker/stytch/email/verify", "/broker/stytch/sso/start",
+		"/broker/stytch/callback",
+	} {
+		assert.Contains(t, livePaths, p)
+		assert.Contains(t, schemaPaths, p)
+	}
+	assert.NotContains(t, livePaths, "/oauth/token")
+	assert.Contains(t, schemaPaths, "/oauth/token")
+	assert.NotContains(t, livePaths, "/oauth/revoke")
+	assert.Contains(t, schemaPaths, "/oauth/revoke")
 }
 
 func parseOpenAPI(t *testing.T, spec []byte) map[string]any {

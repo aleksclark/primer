@@ -1,0 +1,1390 @@
+package keys_test
+
+import (
+	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/aleksclark/primer/identity/internal/config"
+	"github.com/aleksclark/primer/identity/internal/db"
+	"github.com/aleksclark/primer/identity/internal/domain"
+	"github.com/aleksclark/primer/identity/internal/keys"
+)
+
+func custodyConfig(t *testing.T, env string, auto bool) config.KeyConfig {
+	t.Helper()
+	var cfg config.KeyConfig
+	cfg.Enabled = true
+	cfg.AutoBootstrap = auto
+	cfg.SetSealSecretForTest("UExBTlRfU0VBTF9TRUNSRVRfVkFMVUVfQUFBQSEhISE")
+	require.NoError(t, cfg.Validate(env))
+	return cfg
+}
+
+func dedicatedPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool, _ := dedicatedPoolURL(t)
+	return pool
+}
+
+func dedicatedPoolURL(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
+	container, err := tcpostgres.Run(ctx,
+		"postgres:17-alpine",
+		tcpostgres.WithDatabase("primer_identity_test"),
+		tcpostgres.WithUsername("primer"),
+		tcpostgres.WithPassword("primer"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	url, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	require.NoError(t, db.Migrate(ctx, url))
+	pool, err := db.Connect(ctx, url)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	return pool, url
+}
+
+func connectPool(t *testing.T, url string) *pgxpool.Pool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	pool, err := db.Connect(ctx, url)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+func requireGenericSignerFailure(t *testing.T, err error, sig []byte) {
+	t.Helper()
+	require.Error(t, err)
+	assert.Nil(t, sig)
+	assert.True(t, errors.Is(err, keys.ErrSignerRevoked) || errors.Is(err, domain.ErrSignerUnavailable), err)
+	assert.NotContains(t, err.Error(), `"d"`)
+	assert.NotContains(t, strings.ToLower(err.Error()), "private")
+	assert.NotContains(t, strings.ToLower(err.Error()), "sealed")
+}
+
+func tamperSealedPrivate(t *testing.T, ctx context.Context, pool *pgxpool.Pool, kid string) {
+	t.Helper()
+	var sealed []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT sealed_private_key FROM signing_keys WHERE kid = $1`, kid).Scan(&sealed))
+	require.Greater(t, len(sealed), 8)
+	sealed[7] ^= 0xff
+	tag, err := pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = $2 WHERE kid = $1`, kid, sealed)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), tag.RowsAffected())
+}
+
+func TestCreateInitialActiveAndFetchSigner(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	require.Equal(t, domain.SigningKeyStatusActive, created.Status)
+	require.NotNil(t, created.ActivatedAt)
+
+	signer, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	var _ crypto.Signer = signer
+	signerPub, err := signer.PublicJWK()
+	require.NoError(t, err)
+	assert.Equal(t, created.Kid, signerPub.Kid)
+	assert.Equal(t, created.Kid, meta.Kid)
+	again, againMeta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	assert.Same(t, signer, again)
+	assert.Equal(t, meta.Kid, againMeta.Kid)
+	_, err = json.Marshal(signer)
+	require.Error(t, err)
+	_, err = json.Marshal(*signer)
+	require.Error(t, err)
+	formatted := fmt.Sprintf("%v %#v %v %#v", signer, signer, *signer, *signer)
+	assert.NotContains(t, formatted, `"d"`)
+
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 1)
+	assert.Equal(t, created.Kid, pubs[0].Kid)
+	raw, err := json.Marshal(pubs)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"d"`)
+	etag, err := keys.PublicSetETag(pubs)
+	require.NoError(t, err)
+	assert.NotEmpty(t, etag)
+}
+
+func TestCreateNextAndPublicSetIncludesOptionalNext(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "development", false), "development")
+
+	active, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	next, err := svc.CreateNext(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, domain.SigningKeyStatusNext, next.Status)
+	assert.NotEqual(t, active.Kid, next.Kid)
+	assert.Nil(t, next.ActivatedAt)
+
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 2)
+	etag, err := svc.PublicSetETag(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, etag, "W/")
+}
+
+func TestActiveSignerFailsClosedOnEmptyAndMultiple(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+
+	_, _, err := svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable), err)
+
+	_, err = svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `DROP INDEX IF EXISTS signing_keys_one_active_uq`)
+	require.NoError(t, err)
+	mat, err := keys.Generate()
+	require.NoError(t, err)
+	pub, err := mat.PublicJWK()
+	require.NoError(t, err)
+	sealed, err := keys.Seal(mat, custodyConfig(t, "test", false).SealKey())
+	require.NoError(t, err)
+	pubJSON, err := json.Marshal(pub)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+INSERT INTO signing_keys (kid, alg, public_jwk, sealed_private_key, key_version, status, not_before, activated_at)
+VALUES ($1, 'ES256', $2::jsonb, $3, 1, 'active', now(), now())`, pub.Kid, pubJSON, sealed)
+	require.NoError(t, err)
+
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, domain.ErrSignerUnavailable), err)
+}
+
+func TestActiveSignerFailsClosedOnCorruptUnseal(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+	assert.NotContains(t, err.Error(), created.Kid+"private")
+	assert.NotContains(t, strings.ToLower(err.Error()), "begin")
+}
+
+func TestActiveSignerFailsWhenNotInPublicSetOrTimeInvalid(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before = now() + interval '2 hours' WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable) || errors.Is(err, domain.ErrInvalid), err)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before = now() - interval '2 hours', not_after = now() - interval '1 hour' WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+}
+
+func TestProductionDoesNotAutoGenerate(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "production", false)
+	svc := keys.NewService(pool, cfg, "production")
+
+	_, _, err := svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable), err)
+
+	_, err = svc.Bootstrap(ctx)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "bootstrap")
+
+	var n int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys`).Scan(&n))
+	assert.Zero(t, n)
+}
+
+func TestExplicitDevBootstrapCreatesOneActive(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "development", true), "development")
+	created, err := svc.Bootstrap(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, domain.SigningKeyStatusActive, created.Status)
+	again, err := svc.Bootstrap(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, created.Kid, again.Kid)
+}
+
+func TestCreateNextThenActivateWhenNoActiveExists(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	next := plantSealedKey(t, pool, custodyConfig(t, "test", false), domain.SigningKeyStatusNext)
+	activated, err := svc.ActivateNext(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, next.Kid, activated.Kid)
+	assert.Equal(t, domain.SigningKeyStatusActive, activated.Status)
+	require.NotNil(t, activated.ActivatedAt)
+}
+
+func TestActivateNextFailsWhenActiveAlreadyExists(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	_, err = svc.CreateNext(ctx)
+	require.NoError(t, err)
+	_, err = svc.ActivateNext(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrInvalid), err)
+}
+
+func TestSignerMustBeRepresentedInPublicSet(t *testing.T) {
+	t.Parallel()
+	jwk := domain.PublicJWK{
+		KTY: "EC",
+		CRV: "P-256",
+		Use: "sig",
+		Alg: domain.SigningAlgES256,
+		Kid: "11111111-2222-3333-4444-555555555555",
+		X:   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		Y:   "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+	}
+	require.False(t, keys.SignerInPublicSet(jwk, nil))
+	require.False(t, keys.SignerInPublicSet(jwk, []domain.PublicJWK{{Kid: jwk.Kid}}))
+	require.True(t, keys.SignerInPublicSet(jwk, []domain.PublicJWK{jwk}))
+	kidOnlyMatch := jwk
+	kidOnlyMatch.X = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	require.False(t, keys.SignerInPublicSet(jwk, []domain.PublicJWK{kidOnlyMatch}))
+}
+
+func plantSealedKey(t *testing.T, pool *pgxpool.Pool, cfg config.KeyConfig, status string) domain.PublicJWK {
+	t.Helper()
+	mat, err := keys.Generate()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mat.Destroy() })
+	pub, err := mat.PublicJWK()
+	require.NoError(t, err)
+	sealed, err := keys.Seal(mat, cfg.SealKey())
+	require.NoError(t, err)
+	pubJSON, err := json.Marshal(pub)
+	require.NoError(t, err)
+	if status == domain.SigningKeyStatusActive {
+		_, err = pool.Exec(context.Background(), `
+INSERT INTO signing_keys (kid, alg, public_jwk, sealed_private_key, key_version, status, not_before, activated_at)
+VALUES ($1, 'ES256', $2::jsonb, $3, 1, $4, now(), now())`, pub.Kid, pubJSON, sealed, status)
+	} else {
+		_, err = pool.Exec(context.Background(), `
+INSERT INTO signing_keys (kid, alg, public_jwk, sealed_private_key, key_version, status, not_before)
+VALUES ($1, 'ES256', $2::jsonb, $3, 1, $4, now())`, pub.Kid, pubJSON, sealed, status)
+	}
+	require.NoError(t, err)
+	return pub
+}
+
+func TestPublicJWKSAuthenticatesCompleteActiveAndNext(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	svc := keys.NewService(pool, cfg, "test")
+	active, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	next, err := svc.CreateNext(ctx)
+	require.NoError(t, err)
+
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 2)
+	assert.Equal(t, active.PublicJWK, pubs[0])
+	assert.Equal(t, next.PublicJWK, pubs[1])
+}
+
+func TestPublicJWKSAndActiveSignerFailClosedOnPlantedTamperedNext(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	svc := keys.NewService(pool, cfg, "test")
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	next := plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, next.Kid)
+	require.NoError(t, err)
+
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+	assert.NotContains(t, err.Error(), next.Kid+"private")
+
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+}
+
+func TestPublicJWKSFailsClosedOnCardinalityTemporalAndDuplicateKids(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	svc := keys.NewService(pool, cfg, "test")
+
+	_, err := svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable) || errors.Is(err, domain.ErrCorruptSigner), err)
+
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	next := plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before = now() + interval '2 hours' WHERE kid = $1`, next.Kid)
+	require.NoError(t, err)
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable) || errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, domain.ErrInvalid), err)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before = now() - interval '2 hours', not_after = now() - interval '1 hour' WHERE kid = $1`, next.Kid)
+	require.NoError(t, err)
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before = now() - interval '1 hour', not_after = NULL WHERE kid = $1`, next.Kid)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `DROP INDEX IF EXISTS signing_keys_one_next_uq`)
+	require.NoError(t, err)
+	plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner), err)
+
+	_, err = pool.Exec(ctx, `DELETE FROM signing_keys WHERE status = 'next'`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `ALTER TABLE signing_keys DROP CONSTRAINT IF EXISTS signing_keys_kid_uq`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+INSERT INTO signing_keys (kid, alg, public_jwk, sealed_private_key, key_version, status, not_before)
+SELECT kid, alg, public_jwk, sealed_private_key, key_version, 'next', now() FROM signing_keys WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner), err)
+}
+
+func TestCreateInitialActiveRejectsCorruptExistingActive(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	svc := keys.NewService(pool, cfg, "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+	_, err = svc.CreateInitialActive(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+
+	_, err = pool.Exec(ctx, `DELETE FROM signing_keys`)
+	require.NoError(t, err)
+	created, err = svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before = now() + interval '2 hours' WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+	_, err = svc.CreateInitialActive(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable) || errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, domain.ErrInvalid), err)
+}
+
+func TestConcurrentInitialBootstrapCreatesExactlyOneActive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", true), "test")
+	const callers = 8
+	start := make(chan struct{})
+	results := make(chan *domain.SigningKey, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, err := svc.CreateInitialActive(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- got
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	var created []*domain.SigningKey
+	for rec := range results {
+		created = append(created, rec)
+	}
+	var firstErr error
+	for err := range errs {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	require.NoError(t, firstErr)
+	require.Len(t, created, callers)
+	var n int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys WHERE status = 'active'`).Scan(&n))
+	assert.Equal(t, 1, n)
+	for _, rec := range created[1:] {
+		assert.Equal(t, created[0].Kid, rec.Kid)
+	}
+}
+
+func TestCreateNextReturnsExistingAuthenticatedNext(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	first, err := svc.CreateNext(ctx)
+	require.NoError(t, err)
+	require.Equal(t, domain.SigningKeyStatusNext, first.Status)
+
+	again, err := svc.CreateNext(ctx)
+	require.NoError(t, err, "retry after an existing next must converge instead of ErrConflict")
+	assert.Equal(t, first.Kid, again.Kid)
+	assert.Equal(t, domain.SigningKeyStatusNext, again.Status)
+	assert.Equal(t, first.PublicJWK, again.PublicJWK)
+
+	var n int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys WHERE status = 'next'`).Scan(&n))
+	assert.Equal(t, 1, n)
+}
+
+func TestConcurrentCreateNextConvergesOnOneKid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	const callers = 8
+	start := make(chan struct{})
+	results := make(chan *domain.SigningKey, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, err := svc.CreateNext(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- got
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	var created []*domain.SigningKey
+	for rec := range results {
+		created = append(created, rec)
+	}
+	var firstErr error
+	for err := range errs {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	require.NoError(t, firstErr)
+	require.Len(t, created, callers)
+	var n int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys WHERE status = 'next'`).Scan(&n))
+	assert.Equal(t, 1, n)
+	for _, rec := range created[1:] {
+		assert.Equal(t, created[0].Kid, rec.Kid)
+	}
+}
+
+func TestHighCountConcurrentBootstrapAndNextConverge(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", true), "test")
+	const callers = 32
+	start := make(chan struct{})
+	results := make(chan *domain.SigningKey, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, err := svc.CreateInitialActive(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- got
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	var created []*domain.SigningKey
+	for rec := range results {
+		created = append(created, rec)
+	}
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.Len(t, created, callers)
+	for _, rec := range created[1:] {
+		assert.Equal(t, created[0].Kid, rec.Kid)
+	}
+
+	start = make(chan struct{})
+	results = make(chan *domain.SigningKey, callers)
+	errs = make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got, err := svc.CreateNext(ctx)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- got
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	var next []*domain.SigningKey
+	for rec := range results {
+		next = append(next, rec)
+	}
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.Len(t, next, callers)
+	var activeCount, nextCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys WHERE status = 'active'`).Scan(&activeCount))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys WHERE status = 'next'`).Scan(&nextCount))
+	assert.Equal(t, 1, activeCount)
+	assert.Equal(t, 1, nextCount)
+	for _, rec := range next[1:] {
+		assert.Equal(t, next[0].Kid, rec.Kid)
+	}
+}
+
+func TestCreateInitialAndNextHonorCanceledContext(t *testing.T) {
+	pool := dedicatedPool(t)
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := svc.CreateInitialActive(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = svc.CreateNext(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+
+	created, err := svc.CreateInitialActive(context.Background())
+	require.NoError(t, err)
+	nextCtx, nextCancel := context.WithCancel(context.Background())
+	nextCancel()
+	_, err = svc.CreateNext(nextCtx)
+	require.ErrorIs(t, err, context.Canceled)
+	var n int
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT count(*) FROM signing_keys WHERE status = 'next'`).Scan(&n))
+	assert.Zero(t, n)
+	_ = created
+}
+
+func TestCreateNextFailsClosedOnMultipleNextRows(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	svc := keys.NewService(pool, cfg, "test")
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
+	_, err = pool.Exec(ctx, `DROP INDEX IF EXISTS signing_keys_one_next_uq`)
+	require.NoError(t, err)
+	plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
+
+	_, err = svc.CreateNext(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, domain.ErrConflict), err)
+	assert.NotContains(t, err.Error(), `"d"`)
+}
+
+func TestServiceErrorsOmitPrivateBytes(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	svc := keys.NewService(pool, cfg, "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	_, err = svc.CreateNext(ctx)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `DROP INDEX IF EXISTS signing_keys_one_next_uq`)
+	require.NoError(t, err)
+	plantSealedKey(t, pool, cfg, domain.SigningKeyStatusNext)
+	_, err = svc.CreateNext(ctx)
+	require.Error(t, err)
+	formatted := fmt.Sprintf("%v %#v", err, svc)
+	assert.NotContains(t, formatted, "PLANT_SEAL_SECRET_VALUE_AAAA")
+	assert.NotContains(t, err.Error(), `"d"`)
+	_ = created
+}
+
+func TestDisabledCustodyOperationsFailBeforeDatabaseAccess(t *testing.T) {
+	for _, env := range []string{"test", "production"} {
+		pool := dedicatedPool(t)
+		cfg := custodyConfig(t, env, false)
+		cfg.Enabled = false
+		svc := keys.NewService(pool, cfg, env)
+		ctx := context.Background()
+		want := func(err error) {
+			t.Helper()
+			require.Error(t, err)
+			assert.ErrorIs(t, err, keys.ErrCustodyDisabled)
+		}
+
+		_, err := svc.CreateInitialActive(ctx)
+		want(err)
+		_, _, err = svc.ActiveSigner(ctx)
+		want(err)
+		_, err = svc.PublicJWKS(ctx)
+		want(err)
+		_, err = svc.CreateNext(ctx)
+		want(err)
+		_, err = svc.ActivateNext(ctx)
+		want(err)
+		pool.Close()
+	}
+}
+
+func TestNewServiceRejectsProgrammaticInvalidConfiguration(t *testing.T) {
+	pool := dedicatedPool(t)
+	pool.Close()
+	ctx := context.Background()
+
+	invalid := config.KeyConfig{Enabled: true}
+	invalidSvc := keys.NewService(pool, invalid, "test")
+	_, err := invalidSvc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrInvalid)
+
+	unsupported := keys.NewService(pool, custodyConfig(t, "test", false), "staging")
+	_, err = unsupported.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrInvalid)
+
+	invalidAuto := custodyConfig(t, "test", false)
+	invalidAuto.AutoBootstrap = true
+	invalidAuto.Enabled = false
+	invalidAutoSvc := keys.NewService(pool, invalidAuto, "test")
+	_, err = invalidAutoSvc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrInvalid)
+}
+
+func TestManagedSignerRejectsStaleNonActiveRow(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	signer, _, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	digest := sha256.Sum256([]byte("pre-retire"))
+	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+UPDATE signing_keys
+SET status='retired', retired_at=now()
+WHERE kid=$1`, created.Kid)
+	require.NoError(t, err)
+
+	_, err = signer.PublicJWK()
+	require.NoError(t, err) // public metadata may still be readable locally
+	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	requireGenericSignerFailure(t, err, sig)
+
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrSignerUnavailable), err)
+}
+
+func TestServiceCloseDestroysOutstandingHolders(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	signer, _, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.Close())
+	_, err = signer.PublicJWK()
+	require.Error(t, err)
+	digest := sha256.Sum256([]byte("closed"))
+	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	require.Error(t, err)
+}
+
+func TestExternalDBMutationFailsClosedOnNextServiceLoad(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	first := keys.NewService(pool, cfg, "test")
+	created, err := first.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	holder, _, err := first.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, holder)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, created.Kid)
+	require.NoError(t, err)
+
+	next := keys.NewService(pool, cfg, "test")
+	_, err = next.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+	_, _, err = next.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+}
+
+func TestManagedSignerRejectsCrossProcessStatusChange(t *testing.T) {
+	poolA, url := dedicatedPoolURL(t)
+	t.Cleanup(poolA.Close)
+	poolB := connectPool(t, url)
+
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	serviceA := keys.NewService(poolA, cfg, "test")
+	created, err := serviceA.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	signer, _, err := serviceA.ActiveSigner(ctx)
+	require.NoError(t, err)
+
+	_, err = poolB.Exec(ctx, `
+UPDATE signing_keys SET status='retired', retired_at=now() WHERE kid=$1`, created.Kid)
+	require.NoError(t, err)
+
+	digest := sha256.Sum256([]byte("cross-process-retirement"))
+	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	requireGenericSignerFailure(t, err, sig)
+	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	require.ErrorIs(t, err, keys.ErrSignerRevoked)
+}
+
+func TestManagedSignerRejectsExternalStatusPublicAndSealedCorruption(t *testing.T) {
+	for _, mutate := range []struct {
+		name string
+		fn   func(t *testing.T, pool *pgxpool.Pool, kid string)
+	}{
+		{
+			name: "status",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				_, err := pool.Exec(context.Background(), `UPDATE signing_keys SET status = 'next', activated_at = NULL WHERE kid = $1`, kid)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "public_jwk",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				other, err := keys.Generate()
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = other.Destroy() })
+				public, err := other.PublicJWK()
+				require.NoError(t, err)
+				public.Kid = kid
+				raw, err := public.MarshalJSON()
+				require.NoError(t, err)
+				_, err = pool.Exec(context.Background(), `UPDATE signing_keys SET public_jwk = $2::jsonb WHERE kid = $1`, kid, raw)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "sealed_private",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				_, err := pool.Exec(context.Background(), `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, kid)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "id",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				_, err := pool.Exec(context.Background(), `UPDATE signing_keys SET id = gen_random_uuid() WHERE kid = $1`, kid)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "created_at",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				_, err := pool.Exec(context.Background(), `UPDATE signing_keys SET created_at = created_at - interval '1 second' WHERE kid = $1`, kid)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "activated_at",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				_, err := pool.Exec(context.Background(), `UPDATE signing_keys SET activated_at = activated_at + interval '1 second' WHERE kid = $1`, kid)
+				require.NoError(t, err)
+			},
+		},
+		{
+			// Donor 53b693cc93c8cccb15109d90bae90811029af893 row-replacement
+			// probe: delete+reinsert must keep created_at and
+			// activated_at>=created_at so signing_keys_status_material_ck
+			// is not the failure mode. A new id still changes the
+			// complete-row fingerprint and must fail closed.
+			name: "row_replacement",
+			fn: func(t *testing.T, pool *pgxpool.Pool, kid string) {
+				t.Helper()
+				tag, err := pool.Exec(context.Background(), `
+WITH old AS (
+    DELETE FROM signing_keys WHERE kid = $1
+    RETURNING kid, alg, key_version, public_jwk, sealed_private_key, status, not_before, not_after, created_at, activated_at
+)
+INSERT INTO signing_keys (kid, alg, key_version, public_jwk, sealed_private_key, status, not_before, not_after, created_at, activated_at)
+SELECT kid, alg, key_version, public_jwk, sealed_private_key, status, not_before, not_after, created_at, activated_at FROM old`, kid)
+				require.NoError(t, err)
+				require.Equal(t, int64(1), tag.RowsAffected())
+			},
+		},
+	} {
+		t.Run(mutate.name, func(t *testing.T) {
+			pool := dedicatedPool(t)
+			ctx := context.Background()
+			cfg := custodyConfig(t, "test", false)
+			service := keys.NewService(pool, cfg, "test")
+			created, err := service.CreateInitialActive(ctx)
+			require.NoError(t, err)
+			signer, _, err := service.ActiveSigner(ctx)
+			require.NoError(t, err)
+			mutate.fn(t, pool, created.Kid)
+
+			digest := sha256.Sum256([]byte("external-corruption-" + mutate.name))
+			sig, err := signer.Sign(rand.Reader, digest[:], nil)
+			requireGenericSignerFailure(t, err, sig)
+		})
+	}
+}
+
+func TestManagedSignerRejectsClosedPoolWithoutSignature(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	service := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	_, err := service.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	signer, _, err := service.ActiveSigner(ctx)
+	require.NoError(t, err)
+	pool.Close()
+
+	digest := sha256.Sum256([]byte("closed-pool"))
+	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	requireGenericSignerFailure(t, err, sig)
+}
+
+func TestManagedSignerRejectsDatabaseLockTimeoutWithoutSignature(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	service := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := service.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	signer, _, err := service.ActiveSigner(ctx)
+	require.NoError(t, err)
+
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	t.Cleanup(conn.Release)
+	lockTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lockTx.Rollback(context.Background()) })
+	_, err = lockTx.Exec(ctx, `SELECT id FROM signing_keys WHERE kid = $1 FOR UPDATE`, created.Kid)
+	require.NoError(t, err)
+
+	digest := sha256.Sum256([]byte("database-timeout"))
+	started := time.Now()
+	sig, err := signer.Sign(rand.Reader, digest[:], nil)
+	requireGenericSignerFailure(t, err, sig)
+	assert.LessOrEqual(t, time.Since(started), 2500*time.Millisecond)
+
+	require.NoError(t, lockTx.Rollback(context.Background()))
+	recovered, _, err := service.ActiveSigner(ctx)
+	require.NoError(t, err)
+	assert.NotSame(t, signer, recovered)
+	_, err = signer.Sign(rand.Reader, digest[:], nil)
+	require.ErrorIs(t, err, keys.ErrSignerRevoked)
+	_, err = recovered.Sign(rand.Reader, digest[:], nil)
+	require.NoError(t, err)
+}
+
+func TestReadyFailsClosedWithoutUsableActive(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	require.Error(t, svc.Ready(ctx))
+	_, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.Ready(ctx))
+}
+
+func TestHighCountConcurrentActiveSignerAndSign(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	const callers = 64
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			signer, meta, err := svc.ActiveSigner(ctx)
+			if err != nil {
+				errs <- fmt.Errorf("active signer: %w", err)
+				return
+			}
+			if meta == nil || meta.Kid != created.Kid {
+				errs <- fmt.Errorf("active signer kid mismatch")
+				return
+			}
+			digest := sha256.Sum256([]byte("bounded-parallel-sign"))
+			if _, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256); err != nil {
+				errs <- fmt.Errorf("sign: %w", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	recovered, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+	digest := sha256.Sum256([]byte("post-parallel-sign"))
+	_, err = recovered.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+}
+
+func TestManagedSignerDoesNotRevokeOnTransientPoolExhaustion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	base, url := dedicatedPoolURL(t)
+	created, err := keys.NewService(base, custodyConfig(t, "test", false), "test").CreateInitialActive(context.Background())
+	require.NoError(t, err)
+	_ = created
+
+	cfg, err := pgxpool.ParseConfig(url)
+	require.NoError(t, err)
+	cfg.MaxConns = 1
+	cfg.MinConns = 0
+	limited, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(limited.Close)
+
+	svc := keys.NewService(limited, custodyConfig(t, "test", false), "test")
+	signer, meta, err := svc.ActiveSigner(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+
+	held, err := limited.Acquire(context.Background())
+	require.NoError(t, err)
+
+	digest := sha256.Sum256([]byte("pool-exhaustion"))
+	started := time.Now()
+	sig, signErr := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	assert.LessOrEqual(t, time.Since(started), 2500*time.Millisecond)
+	require.Error(t, signErr)
+	assert.Nil(t, sig)
+	assert.NotContains(t, strings.ToLower(signErr.Error()), "private")
+	assert.False(t, errors.Is(signErr, keys.ErrSignerRevoked), "transient pool exhaustion must not permanently revoke the live signer: %v", signErr)
+
+	held.Release()
+	recovered, againMeta, err := svc.ActiveSigner(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, signer, recovered)
+	assert.Equal(t, created.Kid, againMeta.Kid)
+	_, err = recovered.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+}
+
+func TestManagedSignerRejectsStaleKeyAfterSwapWithoutPoisoningReplacement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	first, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	oldSigner, _, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+UPDATE signing_keys
+SET status='retired', retired_at=now()
+WHERE kid=$1`, first.Kid)
+	require.NoError(t, err)
+
+	replacement, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, first.Kid, replacement.Kid)
+
+	digest := sha256.Sum256([]byte("stale-after-swap"))
+	sig, err := oldSigner.Sign(rand.Reader, digest[:], crypto.SHA256)
+	requireGenericSignerFailure(t, err, sig)
+
+	fresh, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, replacement.Kid, meta.Kid)
+	assert.NotSame(t, oldSigner, fresh)
+	_, err = fresh.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+}
+
+func TestActiveSignerForTxSignsWithoutNestedPoolCheckout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	signer, meta, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+	t.Cleanup(func() { _ = signer.Close() })
+
+	held := holdRemainingConns(t, pool)
+	digest := sha256.Sum256([]byte("tx-bound-no-checkout"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err, "tx-bound signer must not open a nested pool connection")
+	releaseHeld(held)
+
+	require.NoError(t, tx.Commit(ctx))
+	require.NoError(t, signer.Close())
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.Error(t, err)
+	assert.Nil(t, sig)
+}
+
+func TestActiveSignerForTxBlocksCrossProcessStatusChangeUntilCommit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires real PostgreSQL concurrency harness")
+	}
+	poolA, url := dedicatedPoolURL(t)
+	poolB := connectPool(t, url)
+	ctx := context.Background()
+	svc := keys.NewService(poolA, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	tx, err := poolA.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	signer, _, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = signer.Close() })
+
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		_, updateErr := poolB.Exec(context.Background(), `
+UPDATE signing_keys SET status='retired', retired_at=now() WHERE kid=$1`, created.Kid)
+		done <- updateErr
+	}()
+	<-started
+	select {
+	case err := <-done:
+		t.Fatalf("status replacement must block on the SHARE lock, finished early: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	digest := sha256.Sum256([]byte("tx-bound-share"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+	require.NoError(t, signer.Close())
+	require.NoError(t, tx.Commit(ctx))
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("status replacement stayed blocked after commit")
+	}
+
+	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.Error(t, err)
+	assert.Nil(t, sig)
+}
+
+func TestActiveSignerForTxFailsClosedOnCancelAndCorruptRow(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	svc := keys.NewService(pool, custodyConfig(t, "test", false), "test")
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	_, _, err = svc.ActiveSignerForTx(canceled, tx)
+	require.Error(t, err)
+
+	_, err = tx.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid=$1`, created.Kid)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSignerForTx(ctx, tx)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, domain.ErrCorruptSigner) || errors.Is(err, keys.ErrUnsealFailed), err)
+}
+
+func holdRemainingConns(t *testing.T, pool *pgxpool.Pool) []*pgxpool.Conn {
+	t.Helper()
+	stat := pool.Stat()
+	want := int(stat.MaxConns() - stat.AcquiredConns())
+	if want < 0 {
+		want = 0
+	}
+	held := make([]*pgxpool.Conn, 0, want)
+	for i := 0; i < want; i++ {
+		conn, err := pool.Acquire(context.Background())
+		if err != nil {
+			break
+		}
+		held = append(held, conn)
+	}
+	return held
+}
+
+func releaseHeld(held []*pgxpool.Conn) {
+	for _, conn := range held {
+		conn.Release()
+	}
+}
+
+type blockingReader struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingReader) Read(p []byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	<-r.release
+	return io.ReadFull(rand.Reader, p)
+}
+
+type frozenCustodyClock struct{ now time.Time }
+
+func (c frozenCustodyClock) Now() time.Time { return c.now }
+
+func TestInjectedClockRejectsFutureAndExpiredKeysIndependentOfHost(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	frozen := time.Date(2026, 8, 17, 18, 0, 0, 0, time.UTC)
+	svc := keys.NewService(pool, cfg, "test", keys.WithClock(frozenCustodyClock{now: frozen}))
+
+	created, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	require.True(t, created.NotBefore.Equal(frozen), "not_before=%s want injected=%s", created.NotBefore, frozen)
+	require.NotNil(t, created.ActivatedAt)
+	require.True(t, created.ActivatedAt.Equal(frozen), "activated_at=%s want injected=%s", created.ActivatedAt, frozen)
+
+	var storedBefore, storedActivated time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT not_before, activated_at FROM signing_keys WHERE kid=$1`, created.Kid).Scan(&storedBefore, &storedActivated))
+	require.True(t, storedBefore.UTC().Equal(frozen))
+	require.True(t, storedActivated.UTC().Equal(frozen))
+
+	signer, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, meta.Kid)
+	digest := sha256.Sum256([]byte("injected-clock-ok"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 1)
+	require.NoError(t, svc.Close())
+	svc = keys.NewService(pool, cfg, "test", keys.WithClock(frozenCustodyClock{now: frozen}))
+
+	future := frozen.Add(2 * time.Hour)
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=NULL WHERE kid=$1`, created.Kid, future)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrSignerUnavailable)
+	_, err = svc.PublicJWKS(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrSignerUnavailable)
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=$3 WHERE kid=$1`, created.Kid, frozen.Add(-time.Hour), frozen)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrSignerUnavailable)
+
+	justAfter := frozen.Add(time.Second)
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=$3 WHERE kid=$1`, created.Kid, frozen.Add(-time.Hour), justAfter)
+	require.NoError(t, err)
+	_, _, err = svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	txSigner, txMeta, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, created.Kid, txMeta.Kid)
+	_, err = txSigner.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+	require.NoError(t, txSigner.Close())
+	require.NoError(t, tx.Rollback(context.Background()))
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET not_before=$2, not_after=NULL WHERE kid=$1`, created.Kid, frozen.Add(-time.Hour))
+	require.NoError(t, err)
+	hostSkewed := keys.NewService(pool, cfg, "test")
+	_, _, err = hostSkewed.ActiveSigner(ctx)
+	require.NoError(t, err, "host clock must still accept a currently-valid SQL window")
+}
+
+func TestInjectedClockGovernsKeySwapAndActivateNext(t *testing.T) {
+	pool := dedicatedPool(t)
+	ctx := context.Background()
+	cfg := custodyConfig(t, "test", false)
+	frozen := time.Date(2031, 1, 2, 3, 4, 5, 0, time.UTC)
+	svc := keys.NewService(pool, cfg, "test", keys.WithClock(frozenCustodyClock{now: frozen}))
+
+	first, err := svc.CreateInitialActive(ctx)
+	require.NoError(t, err)
+	next, err := svc.CreateNext(ctx)
+	require.NoError(t, err)
+	require.True(t, next.NotBefore.Equal(frozen))
+
+	_, err = pool.Exec(ctx, `UPDATE signing_keys SET status='retired', retired_at=$2 WHERE kid=$1`, first.Kid, frozen)
+	require.NoError(t, err)
+	activated, err := svc.ActivateNext(ctx)
+	require.NoError(t, err)
+	require.Equal(t, next.Kid, activated.Kid)
+	require.NotNil(t, activated.ActivatedAt)
+	require.True(t, activated.ActivatedAt.Equal(frozen), "activated_at=%s want injected=%s", activated.ActivatedAt, frozen)
+
+	var storedActivated time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT activated_at FROM signing_keys WHERE kid=$1`, next.Kid).Scan(&storedActivated))
+	require.True(t, storedActivated.UTC().Equal(frozen))
+
+	signer, meta, err := svc.ActiveSigner(ctx)
+	require.NoError(t, err)
+	require.Equal(t, next.Kid, meta.Kid)
+	digest := sha256.Sum256([]byte("injected-activate"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	txSigner, txMeta, err := svc.ActiveSignerForTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, next.Kid, txMeta.Kid)
+	t.Cleanup(func() { _ = txSigner.Close() })
+	_, err = txSigner.Sign(rand.Reader, digest[:], crypto.SHA256)
+	require.NoError(t, err)
+	pubs, err := svc.PublicJWKS(ctx)
+	require.NoError(t, err)
+	require.Len(t, pubs, 1)
+	require.Equal(t, next.Kid, pubs[0].Kid)
+}

@@ -57,6 +57,45 @@ func (c *Config) BrokerSecrets() (BrokerSecretSet, error) {
 	}, nil
 }
 
+// TokenSecretSet is the composed, copied IB2 token-exchange pepper material.
+type TokenSecretSet struct {
+	AuthorizationCodePeppers       map[int][]byte
+	AuthorizationCodeActiveVersion int
+	ClientSecretPeppers            map[int][]byte
+	ClientSecretActiveVersion      int
+	RefreshTokenPeppers            map[int][]byte
+	RefreshTokenActiveVersion      int
+	AssertionPeppers               map[int][]byte
+	AssertionActiveVersion         int
+}
+
+// TokenSecrets composes authorization-code, client-secret, refresh, and
+// assertion peppers. Returned maps and slices are defensive copies.
+func (c *Config) TokenSecrets() (TokenSecretSet, error) {
+	code, err := copiedSecretSet(c.AuthorizationCodePeppers, c.AuthorizationCodeActiveVersion)
+	if err != nil {
+		return TokenSecretSet{}, err
+	}
+	clientSecret, err := copiedSecretSet(c.ClientSecretPeppers, c.ClientSecretActiveVersion)
+	if err != nil {
+		return TokenSecretSet{}, err
+	}
+	refresh, err := copiedSecretSet(c.RefreshTokenPeppers, c.RefreshTokenActiveVersion)
+	if err != nil {
+		return TokenSecretSet{}, err
+	}
+	assertion, err := copiedSecretSet(c.ClientAssertionPeppers, c.ClientAssertionActiveVersion)
+	if err != nil {
+		return TokenSecretSet{}, err
+	}
+	return TokenSecretSet{
+		AuthorizationCodePeppers: code, AuthorizationCodeActiveVersion: c.AuthorizationCodeActiveVersion,
+		ClientSecretPeppers: clientSecret, ClientSecretActiveVersion: c.ClientSecretActiveVersion,
+		RefreshTokenPeppers: refresh, RefreshTokenActiveVersion: c.RefreshTokenActiveVersion,
+		AssertionPeppers: assertion, AssertionActiveVersion: c.ClientAssertionActiveVersion,
+	}, nil
+}
+
 // copiedSecretSet parses, validates, and deep-copies one versioned set. Every
 // failure collapses to ErrBrokerSecretsUnavailable so no parse detail, version,
 // or byte of material can leak through an error string.

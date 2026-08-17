@@ -1,6 +1,6 @@
 # 06: IB2 / Primer ES256 JWT and JWKS bridge
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: COMPLETE — reviewed credential-free IB2 at code tip `f31559db92445826aabd98bbc0903a22d80d6e80` (`fix(identity): harden IB2 replay and clock semantics`). Spec PASS 0C/0I/0M; quality/security APPROVED 0C/0I (1 nonblocking minor: unbounded X-Request-ID echo). Live Stytch remains **BLOCKED**; this records credential-free completion only.**
 
 ## Goal
 
@@ -39,7 +39,9 @@ No symmetric fallback, multi-audience token, missing or internal-UUID `client_id
 
 ## Completion Gate
 
-- [ ] IB2-S* and IB2-E00..E11 green.
-- [ ] IB2-owned migration constraints and copied issuance-evidence retention pass; refresh rotation/reuse remains IB6 and full key retirement/destruction remains IB7.
-- [ ] JWKS/AS metadata/OpenAPI parity and signer-aware readiness pass.
-- [ ] Fresh exact-tip specification and security review approves donor-derived and new code.
+- [x] IB2-S* and IB2-E00..E11 green.
+- [x] IB2-owned migration constraints and copied issuance-evidence retention pass. Refresh rotation/reuse remains explicitly out of scope for IB2 and belongs to IB6; full key retirement/destruction remains explicitly out of scope and belongs to IB7.
+- [x] JWKS/AS metadata/OpenAPI parity and signer-aware readiness pass.
+- [x] Fresh exact-tip specification and security review approves donor-derived and new code.
+
+**Credential-free boundary:** This completion does not claim live Stytch, IB3 BFF, production BFF/MCP, IB6 refresh rotation/reuse, or IB7 key retirement/destruction. Live Stytch remains **BLOCKED**.

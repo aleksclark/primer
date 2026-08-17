@@ -17,14 +17,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aleksclark/primer/identity/internal/api"
 	"github.com/aleksclark/primer/identity/internal/broker"
 	"github.com/aleksclark/primer/identity/internal/brokerprovider"
 	"github.com/aleksclark/primer/identity/internal/config"
 	"github.com/aleksclark/primer/identity/internal/db"
+	"github.com/aleksclark/primer/identity/internal/domain"
+	"github.com/aleksclark/primer/identity/internal/keys"
 	"github.com/aleksclark/primer/identity/internal/logging"
+	"github.com/aleksclark/primer/identity/internal/oauth"
 	"github.com/aleksclark/primer/identity/internal/stytch"
 	"github.com/aleksclark/primer/identity/internal/stytchcache"
+	"github.com/aleksclark/primer/identity/internal/token"
 )
 
 // Options customizes process bootstrap for tests.
@@ -52,6 +58,10 @@ type Options struct {
 	// ProofKeySource overrides the CSPRNG used to mint the official proof-cache
 	// HMAC key. Tests only; production always uses crypto/rand.
 	ProofKeySource func([]byte) (int, error)
+	// Signer injects a current signer source. Tests only; rejected in production.
+	Signer token.SignerSource
+	// JWKS injects a public JWKS provider. Tests only; rejected in production.
+	JWKS api.JWKSProvider
 }
 
 // Result is returned after a successful Run that has shut down.
@@ -62,6 +72,7 @@ type Result struct {
 var (
 	errProductionTestSeam = errors.New("identity app: production rejects test broker seams")
 	errBrokerUnavailable  = errors.New("identity app: broker composition is unavailable")
+	errTokenUnavailable   = errors.New("identity app: token authority is unavailable")
 )
 
 // Run loads config (unless provided), composes broker dependencies when
@@ -84,11 +95,17 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	if cfg.Env == "production" && (opts.Provider != nil || opts.EnableBrokerForTest || opts.InsecureBrokerCookieForTest || opts.ProofKeySource != nil) {
+	if cfg.Env == "production" && (opts.Provider != nil || opts.EnableBrokerForTest || opts.InsecureBrokerCookieForTest || opts.ProofKeySource != nil || opts.Signer != nil || opts.JWKS != nil) {
 		return errProductionTestSeam
 	}
 
 	composeBroker := cfg.BrokerEnabled() || opts.EnableBrokerForTest || opts.Provider != nil
+	composeToken := cfg.TokenAuthorityEnabled()
+	if composeToken && cfg.Env == "production" && opts.Signer == nil && opts.JWKS == nil {
+		if err := requireExistingActiveKey(ctx, cfg); err != nil {
+			return err
+		}
+	}
 	var (
 		secrets  config.BrokerSecretSet
 		provider brokerprovider.Provider
@@ -140,6 +157,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	apiOpts := api.Options{
 		RequireBroker: composeBroker,
+		RequireSigner: composeToken,
+		Issuer:        cfg.Issuer,
 		BrokerHTTP: api.BrokerHTTPOptions{
 			AllowedOrigin:         cfg.BrokerAllowedOrigin,
 			InsecureTestCookie:    opts.InsecureBrokerCookieForTest || cfg.InsecureBrokerCookie,
@@ -157,6 +176,55 @@ func Run(ctx context.Context, opts Options) error {
 			return errBrokerUnavailable
 		}
 		apiOpts.Broker = svc
+	}
+	if composeToken {
+		keySvc := keys.NewService(pool, cfg.Key, cfg.Env)
+		if opts.Signer == nil && opts.JWKS == nil {
+			if err := prepareTokenAuthorityKey(ctx, keySvc, cfg); err != nil {
+				_ = keySvc.Close()
+				return err
+			}
+		}
+		signer := opts.Signer
+		if signer == nil {
+			signer = keyServiceSigner{svc: keySvc}
+		}
+		jwks := opts.JWKS
+		if jwks == nil {
+			jwks = keySvc
+		}
+		tokenSecrets, err := cfg.TokenSecrets()
+		if err != nil {
+			_ = keySvc.Close()
+			return err
+		}
+		oauthSvc, err := oauth.NewService(oauth.Dependencies{
+			Pool:   pool,
+			Signer: signer,
+			Secrets: oauth.Secrets{
+				AuthorizationCodePeppers:       tokenSecrets.AuthorizationCodePeppers,
+				AuthorizationCodeActiveVersion: tokenSecrets.AuthorizationCodeActiveVersion,
+				ClientSecretPeppers:            tokenSecrets.ClientSecretPeppers,
+				ClientSecretActiveVersion:      tokenSecrets.ClientSecretActiveVersion,
+				RefreshTokenPeppers:            tokenSecrets.RefreshTokenPeppers,
+				RefreshTokenActiveVersion:      tokenSecrets.RefreshTokenActiveVersion,
+				AssertionPeppers:               tokenSecrets.AssertionPeppers,
+				AssertionActiveVersion:         tokenSecrets.AssertionActiveVersion,
+			},
+			Config: oauth.Config{
+				Issuer:             cfg.Issuer,
+				TokenEndpoint:      strings.TrimRight(cfg.Issuer, "/") + "/oauth/token",
+				RevocationEndpoint: strings.TrimRight(cfg.Issuer, "/") + "/oauth/revoke",
+				AccessTTL:          domain.MaxAccessTTL,
+			},
+		})
+		if err != nil {
+			_ = keySvc.Close()
+			return errTokenUnavailable
+		}
+		apiOpts.OAuth = oauthSvc
+		apiOpts.JWKS = jwks
+		defer func() { _ = keySvc.Close() }()
 	}
 
 	_, handler := api.New(pool, apiOpts)
@@ -241,11 +309,60 @@ func newOfficialProofCache(cfg *config.Config, source func([]byte) (int, error))
 	return cache, nil
 }
 
+func requireExistingActiveKey(ctx context.Context, cfg *config.Config) error {
+	if cfg == nil {
+		return errTokenUnavailable
+	}
+	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return errTokenUnavailable
+	}
+	defer pool.Close()
+	keySvc := keys.NewService(pool, cfg.Key, cfg.Env)
+	defer func() { _ = keySvc.Close() }()
+	if err := keySvc.Ready(ctx); err != nil {
+		return errTokenUnavailable
+	}
+	return nil
+}
+
+func prepareTokenAuthorityKey(ctx context.Context, keySvc *keys.Service, cfg *config.Config) error {
+	if keySvc == nil || cfg == nil {
+		return errTokenUnavailable
+	}
+	if cfg.Key.AutoBootstrap {
+		if _, err := keySvc.Bootstrap(ctx); err != nil {
+			return errTokenUnavailable
+		}
+		return nil
+	}
+	if err := keySvc.Ready(ctx); err != nil {
+		return errTokenUnavailable
+	}
+	return nil
+}
+
 func officialPublicHost(cfg *config.Config) string {
 	if cfg != nil && strings.EqualFold(cfg.Stytch.Env, "live") {
 		return "api.stytch.com"
 	}
 	return "test.stytch.com"
+}
+
+type keyServiceSigner struct{ svc *keys.Service }
+
+func (s keyServiceSigner) Current(ctx context.Context) (token.Signer, *domain.SigningKey, error) {
+	if s.svc == nil {
+		return nil, nil, errTokenUnavailable
+	}
+	return s.svc.ActiveSigner(ctx)
+}
+
+func (s keyServiceSigner) CurrentForTx(ctx context.Context, tx pgx.Tx) (token.Signer, *domain.SigningKey, error) {
+	if s.svc == nil {
+		return nil, nil, errTokenUnavailable
+	}
+	return s.svc.ActiveSignerForTx(ctx, tx)
 }
 
 // WaitReady polls addr until /readyz returns 200 or timeout.

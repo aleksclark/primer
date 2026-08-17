@@ -340,11 +340,15 @@ identity-test-oauth:
 		./internal/config \
 		./internal/db \
 		./internal/domain \
+		./internal/keys \
+		./internal/oauth \
 		./internal/repo \
 		./internal/secrethash \
 		./internal/stateseal \
 		./internal/stytch \
 		./internal/stytchcache \
+		./internal/token \
+		./internal/testutil \
 		./internal/testutil/e2e
 
 ## Identity process E2E (I1 harness under internal/testutil/e2e).

@@ -54,7 +54,9 @@ func wrapf(op string, err error) error {
 	if errors.Is(err, domain.ErrNotFound) ||
 		errors.Is(err, domain.ErrConflict) ||
 		errors.Is(err, domain.ErrInvalid) ||
-		errors.Is(err, domain.ErrPasswordDisabled) {
+		errors.Is(err, domain.ErrPasswordDisabled) ||
+		errors.Is(err, domain.ErrSignerUnavailable) ||
+		errors.Is(err, domain.ErrCorruptSigner) {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	return fmt.Errorf("%s: %w", op, err)

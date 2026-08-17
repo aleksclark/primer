@@ -8,14 +8,14 @@ This tree is a **separate deployable** with its own PostgreSQL database
 (`primer_identity`, goose table `identity_goose_db_version`). It does not share
 a database with the LMS (`server/`), TV, or Curriculum Studio.
 
-## Layout (I1 + I2 + IB1)
+## Layout (I1 + I2 + IB1 + IB2 token + revoke contract)
 
 ```text
 primer-identity/
   README.md
   go.mod
-  openapi.yaml            # committed IB1 OpenAPI 3.1 baseline (generated)
-  client/                 # generated IB1 Go client (identityclient)
+  openapi.yaml            # committed IB1+IB2 OpenAPI 3.1 baseline (generated)
+  client/                 # generated IB1+IB2 Go client (identityclient)
   cmd/identity-server/     # HTTP process (health/ready + graceful shutdown)
   cmd/identity-migrate/    # migrate-only entry (module-local)
   cmd/openapi-gen/         # offline Huma OpenAPI 3.1 emitter (no DB/provider)
@@ -91,7 +91,7 @@ export IDENTITY_ENV=development
 
 Root `make identity-build` / `identity-test` / `identity-cover` detect this
 module. Root `make identity-openapi` and `make identity-test-oauth` are the
-fail-closed IB1 OpenAPI drift check and OAuth/IB1 package suite. Root
+fail-closed IB2 OpenAPI drift check and OAuth/keys/token package suite. Root
 `migrate-identity`, `identity-e2e`, and `dev-db-identity` remain F0-owned
 stubs — use the module-local commands below until F0 wires them.
 
@@ -101,7 +101,7 @@ make identity-build    # -> bin/identity-server
 make identity-test
 make identity-cover
 make identity-openapi      # generate spec+client to private temps and cmp both baselines
-make identity-test-oauth   # IB1 E01..E10 relevant packages with -race (real DB)
+make identity-test-oauth   # IB2 oauth/keys/token/revoke + process tests with -race (real DB)
 
 # Module-local build
 cd primer-identity
@@ -113,7 +113,7 @@ go run ./cmd/openapi-gen                 # stdout
 go run ./cmd/openapi-gen -out /tmp/id.yaml
 # Update the committed spec baseline (explicit; ordinary check does not write it):
 go run ./cmd/openapi-gen -out openapi.yaml
-# Regenerate the committed IB1 Go client from the spec (pinned oapi-codegen v2 tool):
+# Regenerate the committed IB2 Go client from the spec (pinned oapi-codegen v2 tool):
 go tool oapi-codegen -package identityclient -generate types,client -o client/client.gen.go openapi.yaml
 go test ./cmd/openapi-gen ./client -count=1
 
@@ -141,16 +141,28 @@ go test ./... -count=1
 | --- | --- |
 | `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
 | `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
-| `make identity-openapi` | generate IB1 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
-| `make identity-test-oauth` | IB1 E01..E10 relevant packages (including `./client`) with `-race` against real Postgres |
+| `make identity-openapi` | generate IB2 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
+| `make identity-test-oauth` | IB2 oauth/keys/token/revoke packages plus process tests (including `./client`) with `-race` against real Postgres |
 | `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
 
-IB1 is library-only. Live Stytch / production provider traffic remains
-**BLOCKED**. `openapi.yaml` is generated from handler signatures and covers
-health/ready plus the IB1 authorize/broker inventory only — it does not
-include `/oauth/token`, JWKS, or access/refresh/JWT/provider payload schemas.
-`client/client.gen.go` is generated from that spec with pinned
+IB2 publishes the authorization-code token contract and RFC7009 revoke.
+Live Stytch / production provider traffic remains **BLOCKED**. `openapi.yaml`
+is generated from handler signatures plus documented `POST /oauth/token` and
+`POST /oauth/revoke` form-urlencoded operations (Huma OpenAPI only; the live
+routes are registered once on chi so Huma never reads the form body). It
+covers health/ready, the IB1 authorize/broker inventory, JWKS,
+authorization-server metadata (including `revocation_endpoint`),
+`POST /oauth/token`, and `POST /oauth/revoke`. It does not include
+refresh-token grant, `client_credentials`, or provider/private payload
+schemas. `client/client.gen.go` is generated from that spec with pinned
 `oapi-codegen` v2 (`go tool oapi-codegen`); do not add handwritten DTOs.
+The generated client has exactly one `OauthToken` operation and exactly one
+`OauthRevoke` operation.
+
+Token and revoke process proof uses a real `app.Run` listener plus Postgres
+and an active signing key. Codes are issued through production repos and a
+scripted broker labelled as test-only. Do not point process tests at live
+Stytch.
 
 ## Request logging (P1-S6)
 

@@ -405,6 +405,9 @@ func isRetryableSerialization(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, domain.ErrRetryableSerialization) {
+		return true
+	}
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) {
 		return pe.Code == "40001" || pe.Code == "40P01"
