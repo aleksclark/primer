@@ -119,6 +119,7 @@ func TestPublicClientAuthorizationCodeExchangeIssuesJWTAndRefresh(t *testing.T) 
 	var consumed *time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT consumed_at FROM oauth_authorization_codes WHERE id=$1`, fx.code.ID).Scan(&consumed))
 	require.NotNil(t, consumed)
+	require.True(t, consumed.UTC().Equal(now), "consumed_at=%s want service clock=%s", consumed.UTC(), now)
 
 	_, err = svc.Exchange(ctx, oauth.ExchangeRequest{
 		GrantType:    oauth.GrantAuthorizationCode,
@@ -130,6 +131,79 @@ func TestPublicClientAuthorizationCodeExchangeIssuesJWTAndRefresh(t *testing.T) 
 	}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
 	require.Error(t, err)
 	assert.Equal(t, oauth.ErrorInvalidGrant, oauth.ErrorCodeOf(err))
+}
+
+func TestPublicClientAuthorizationCodeExchangeHonorsFrozenClockIndependentOfHostDB(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	now := time.Date(1999, 1, 2, 3, 4, 5, 0, time.UTC)
+	fx := issuedPublicCode(t, now)
+
+	svc := newTestService(t, fx.secrets, frozenClock{now: now})
+	resp, err := svc.Exchange(ctx, oauth.ExchangeRequest{
+		GrantType:    oauth.GrantAuthorizationCode,
+		Code:         fx.rawCode,
+		ClientID:     fx.client.ClientID,
+		RedirectURI:  fx.redirect.RedirectURI,
+		Resource:     fx.redirect.ResourceURI,
+		CodeVerifier: testVerifier,
+	}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.AccessToken)
+
+	var consumed *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT consumed_at FROM oauth_authorization_codes WHERE id=$1`, fx.code.ID).Scan(&consumed))
+	require.NotNil(t, consumed)
+	require.True(t, consumed.UTC().Equal(now), "consumed_at=%s want frozen=%s", consumed.UTC(), now)
+
+	future := time.Date(2035, 6, 15, 12, 0, 0, 0, time.UTC)
+	futureFx := issuedPublicCode(t, future)
+	futureSvc := newTestService(t, futureFx.secrets, frozenClock{now: future})
+	futureResp, err := futureSvc.Exchange(ctx, oauth.ExchangeRequest{
+		GrantType:    oauth.GrantAuthorizationCode,
+		Code:         futureFx.rawCode,
+		ClientID:     futureFx.client.ClientID,
+		RedirectURI:  futureFx.redirect.RedirectURI,
+		Resource:     futureFx.redirect.ResourceURI,
+		CodeVerifier: testVerifier,
+	}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: futureFx.client.ClientID})
+	require.NoError(t, err)
+	require.NotEmpty(t, futureResp.AccessToken)
+	var futureConsumed *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT consumed_at FROM oauth_authorization_codes WHERE id=$1`, futureFx.code.ID).Scan(&futureConsumed))
+	require.NotNil(t, futureConsumed)
+	require.True(t, futureConsumed.UTC().Equal(future), "consumed_at=%s want future=%s", futureConsumed.UTC(), future)
+}
+
+func TestPublicClientAuthorizationCodeExchangeRejectsExpiredRelativeToServiceClock(t *testing.T) {
+	ctx := context.Background()
+	issuedAt := time.Date(2026, 8, 17, 16, 0, 0, 0, time.UTC)
+	expiresAt := issuedAt.Add(60 * time.Second)
+	fx := issuedPublicCode(t, issuedAt)
+
+	svc := newTestService(t, fx.secrets, frozenClock{now: expiresAt.Add(time.Nanosecond)})
+	_, err := svc.Exchange(ctx, oauth.ExchangeRequest{
+		GrantType:    oauth.GrantAuthorizationCode,
+		Code:         fx.rawCode,
+		ClientID:     fx.client.ClientID,
+		RedirectURI:  fx.redirect.RedirectURI,
+		Resource:     fx.redirect.ResourceURI,
+		CodeVerifier: testVerifier,
+	}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.Error(t, err)
+	assert.Equal(t, oauth.ErrorInvalidGrant, oauth.ErrorCodeOf(err))
+
+	boundary := newTestService(t, fx.secrets, frozenClock{now: expiresAt})
+	resp, err := boundary.Exchange(ctx, oauth.ExchangeRequest{
+		GrantType:    oauth.GrantAuthorizationCode,
+		Code:         fx.rawCode,
+		ClientID:     fx.client.ClientID,
+		RedirectURI:  fx.redirect.RedirectURI,
+		Resource:     fx.redirect.ResourceURI,
+		CodeVerifier: testVerifier,
+	}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.AccessToken)
 }
 
 type issuedFixture struct {

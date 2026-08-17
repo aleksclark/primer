@@ -99,6 +99,7 @@ type ClaimAuthorizationCodeInput struct {
 	OAuthClientID                      uuid.UUID
 	RedirectURI, ResourceURI, Audience string
 	CodeVerifier                       string
+	Now                                time.Time
 }
 
 func HumanSubjectRef(accountID uuid.UUID) string {
@@ -262,6 +263,9 @@ func ValidateClaimAuthorizationCode(in ClaimAuthorizationCodeInput) error {
 	if len(in.CodeHash) != 32 || in.OAuthClientID == uuid.Nil {
 		return invalidf("code_hash", "must be 32 bytes bound to a client")
 	}
+	if err := validateClaimNow(in.Now); err != nil {
+		return err
+	}
 	if err := validateBoundedText("redirect_uri", in.RedirectURI, 2048); err != nil {
 		return err
 	}
@@ -274,6 +278,16 @@ func ValidateClaimAuthorizationCode(in ClaimAuthorizationCodeInput) error {
 		}
 	}
 	return validateCodeVerifier(in.CodeVerifier)
+}
+
+func validateClaimNow(now time.Time) error {
+	if now.IsZero() {
+		return invalidf("now", "must be present")
+	}
+	if now.Location() != time.UTC {
+		return invalidf("now", "must be UTC")
+	}
+	return nil
 }
 
 func ValidatePublicClientID(clientID string) error {
@@ -371,10 +385,10 @@ func ValidateConsumeBindings(in ConsumeBindings, claim ClaimAuthorizationCodeInp
 	if in.Grant.Status != "active" {
 		return invalidf("grant", "must be active")
 	}
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
+	if err := validateClaimNow(in.Now); err != nil {
+		return err
 	}
+	now := in.Now
 	if !in.Grant.NotAfter.After(now) {
 		return invalidf("grant", "must not be expired")
 	}

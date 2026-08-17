@@ -122,7 +122,7 @@ FOR UPDATE`, in.CodeHash).Scan(
 	if out.ConsumedAt != nil {
 		return nil, wrapf("claim authorization code", fmt.Errorf("%w: already consumed", domain.ErrConflict))
 	}
-	now := time.Now().UTC()
+	now := in.Now
 	if now.After(out.ExpiresAt) {
 		return nil, wrapf("claim authorization code", fmt.Errorf("%w: expired", domain.ErrInvalid))
 	}
@@ -137,9 +137,9 @@ FOR UPDATE`, in.CodeHash).Scan(
 	}
 	err = q.QueryRow(ctx, `
 UPDATE oauth_authorization_codes
-SET consumed_at=now()
+SET consumed_at=$2
 WHERE id=$1 AND consumed_at IS NULL
-RETURNING consumed_at`, out.ID).Scan(&out.ConsumedAt)
+RETURNING consumed_at`, out.ID, now).Scan(&out.ConsumedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, wrapf("claim authorization code", fmt.Errorf("%w: already consumed", domain.ErrConflict))
 	}

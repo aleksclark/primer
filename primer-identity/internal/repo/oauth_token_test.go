@@ -73,40 +73,29 @@ func TestIB2ClaimAuthorizationCodeExactBindingAndConcurrentOneSuccess(t *testing
 	_, err := pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, fx.Code.ID)
 	require.NoError(t, err)
 
+	now := time.Now().UTC()
 	wrongClient := factory.OAuthClient(t, pool)
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: wrongClient.ID,
-		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-		Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-	})
+	wrong := claimInput(fx, verifier, now)
+	wrong.OAuthClientID = wrongClient.ID
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, wrong)
 	require.ErrorIs(t, err, domain.ErrInvalid)
 
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-		RedirectURI: "https://other.example/callback", ResourceURI: fx.Redirect.ResourceURI,
-		Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-	})
+	wrong = claimInput(fx, verifier, now)
+	wrong.RedirectURI = "https://other.example/callback"
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, wrong)
 	require.ErrorIs(t, err, domain.ErrInvalid)
 
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: "https://other.example/resource",
-		Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-	})
+	wrong = claimInput(fx, verifier, now)
+	wrong.ResourceURI = "https://other.example/resource"
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, wrong)
 	require.ErrorIs(t, err, domain.ErrInvalid)
 
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-		Audience: "other-audience", CodeVerifier: verifier,
-	})
+	wrong = claimInput(fx, verifier, now)
+	wrong.Audience = "other-audience"
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, wrong)
 	require.ErrorIs(t, err, domain.ErrInvalid)
 
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-		Audience: fx.Redirect.Audience, CodeVerifier: strings.Repeat("b", 43),
-	})
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, strings.Repeat("b", 43), now))
 	require.ErrorIs(t, err, domain.ErrInvalid)
 
 	var (
@@ -119,11 +108,7 @@ func TestIB2ClaimAuthorizationCodeExactBindingAndConcurrentOneSuccess(t *testing
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got, claimErr := repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-				CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-				RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-				Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-			})
+			got, claimErr := repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, verifier, now))
 			if claimErr != nil {
 				require.True(t, errors.Is(claimErr, domain.ErrConflict) || errors.Is(claimErr, domain.ErrInvalid) || errors.Is(claimErr, domain.ErrNotFound), claimErr)
 				return
@@ -139,12 +124,98 @@ func TestIB2ClaimAuthorizationCodeExactBindingAndConcurrentOneSuccess(t *testing
 	require.NotNil(t, claimed)
 	require.NotNil(t, claimed.ConsumedAt)
 
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, verifier, now))
+	require.Error(t, err)
+}
+
+func TestIB2ClaimAuthorizationCodeUsesSuppliedNowIndependentOfHostDB(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	fx := issuedCodeFixture(t)
+	verifier := strings.Repeat("a", 43)
+	challenge := s256Challenge(verifier)
+	_, err := pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, fx.Code.ID)
+	require.NoError(t, err)
+
+	frozen := time.Date(1999, 1, 2, 3, 4, 5, 0, time.UTC)
+	_, err = pool.Exec(ctx, `
+UPDATE oauth_authorization_codes
+SET issued_at=$1::timestamptz, expires_at=$1::timestamptz + interval '60 seconds'
+WHERE id=$2`, frozen, fx.Code.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+UPDATE oauth_grants
+SET granted_at=$1::timestamptz, not_after=$1::timestamptz + interval '24 hours'
+WHERE id=$2`, frozen, fx.Grant.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+UPDATE provider_session_associations
+SET last_validated_at=$1::timestamptz, provider_expires_at=$1::timestamptz + interval '2 hours'
+WHERE id=$2`, frozen, *fx.Grant.ProviderSessionAssociationID)
+	require.NoError(t, err)
+
+	got, err := repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, verifier, frozen))
+	require.NoError(t, err)
+	require.NotNil(t, got.ConsumedAt)
+	require.True(t, got.ConsumedAt.UTC().Equal(frozen), "consumed_at=%s want supplied now=%s", got.ConsumedAt.UTC(), frozen)
+
+	future := time.Date(2035, 6, 15, 12, 0, 0, 0, time.UTC)
+	futureFx := issuedCodeFixture(t)
+	_, err = pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, futureFx.Code.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+UPDATE oauth_authorization_codes
+SET issued_at=$1::timestamptz, expires_at=$1::timestamptz + interval '60 seconds'
+WHERE id=$2`, future, futureFx.Code.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+UPDATE oauth_grants
+SET granted_at=$1::timestamptz, not_after=$1::timestamptz + interval '24 hours'
+WHERE id=$2`, future, futureFx.Grant.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+UPDATE provider_session_associations
+SET last_validated_at=$1::timestamptz, provider_expires_at=$1::timestamptz + interval '2 hours'
+WHERE id=$2`, future, *futureFx.Grant.ProviderSessionAssociationID)
+	require.NoError(t, err)
+	futureGot, err := repo.ClaimAuthorizationCode(ctx, pool, claimInput(futureFx, verifier, future))
+	require.NoError(t, err)
+	require.NotNil(t, futureGot.ConsumedAt)
+	require.True(t, futureGot.ConsumedAt.UTC().Equal(future), "consumed_at=%s want future=%s", futureGot.ConsumedAt.UTC(), future)
+}
+
+func TestIB2ClaimAuthorizationCodeRejectsExpiredRelativeToSuppliedNow(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	fx := issuedCodeFixture(t)
+	verifier := strings.Repeat("a", 43)
+	challenge := s256Challenge(verifier)
+	_, err := pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, fx.Code.ID)
+	require.NoError(t, err)
+
+	issuedAt := time.Date(2026, 8, 17, 16, 0, 0, 0, time.UTC)
+	expiresAt := issuedAt.Add(60 * time.Second)
+	_, err = pool.Exec(ctx, `
+UPDATE oauth_authorization_codes
+SET issued_at=$1::timestamptz, expires_at=$2::timestamptz
+WHERE id=$3`, issuedAt, expiresAt, fx.Code.ID)
+	require.NoError(t, err)
+
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, verifier, expiresAt.Add(time.Nanosecond)))
+	require.ErrorIs(t, err, domain.ErrInvalid)
+
+	got, err := repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, verifier, expiresAt))
+	require.NoError(t, err)
+	require.NotNil(t, got.ConsumedAt)
+	require.True(t, got.ConsumedAt.UTC().Equal(expiresAt))
+}
+
+func claimInput(fx issuedCode, verifier string, now time.Time) domain.ClaimAuthorizationCodeInput {
+	return domain.ClaimAuthorizationCodeInput{
 		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
 		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-		Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-	})
-	require.Error(t, err)
+		Audience: fx.Redirect.Audience, CodeVerifier: verifier, Now: now,
+	}
 }
 
 func TestIB2ClaimAuthorizationCodeRollbackRestoresUnconsumed(t *testing.T) {
@@ -158,11 +229,7 @@ func TestIB2ClaimAuthorizationCodeRollbackRestoresUnconsumed(t *testing.T) {
 
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	got, err := repo.ClaimAuthorizationCode(ctx, tx, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-		Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-	})
+	got, err := repo.ClaimAuthorizationCode(ctx, tx, claimInput(fx, verifier, time.Now().UTC()))
 	require.NoError(t, err)
 	require.NotNil(t, got.ConsumedAt)
 	require.NoError(t, tx.Rollback(ctx))
@@ -184,11 +251,7 @@ func TestIB2IssueAuthorizationCodeTokensSignBeforeCommitAndLostResponse(t *testi
 
 	var signed atomic.Bool
 	out, err := repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-			RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-			Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim: claimInput(fx, verifier, now),
 		Refresh: domain.InitialRefreshIssuance{
 			Family: domain.OAuthRefreshFamily{
 				GrantID: fx.Grant.ID, OAuthClientID: fx.Client.ID, ResourceURI: fx.Redirect.ResourceURI,
@@ -232,11 +295,7 @@ func TestIB2IssueAuthorizationCodeTokensSignBeforeCommitAndLostResponse(t *testi
 	_, err = pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, signFail.Code.ID)
 	require.NoError(t, err)
 	_, err = repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: signFail.Code.CodeHash, OAuthClientID: signFail.Client.ID,
-			RedirectURI: signFail.Redirect.RedirectURI, ResourceURI: signFail.Redirect.ResourceURI,
-			Audience: signFail.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim:   claimInput(signFail, verifier, now),
 		Refresh: validRefresh(signFail, now),
 		Audit:   validAudit(signFail, now),
 		BeforeCommit: func(pgx.Tx, *repo.IssuedAuthorizationCodeTokens) error {
@@ -259,11 +318,7 @@ func TestIB2IssueAuthorizationCodeTokensSignBeforeCommitAndLostResponse(t *testi
 	_, err = pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, commitFail.Code.ID)
 	require.NoError(t, err)
 	_, err = repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: commitFail.Code.CodeHash, OAuthClientID: commitFail.Client.ID,
-			RedirectURI: commitFail.Redirect.RedirectURI, ResourceURI: commitFail.Redirect.ResourceURI,
-			Audience: commitFail.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim:   claimInput(commitFail, verifier, now),
 		Refresh: validRefresh(commitFail, now),
 		Audit:   validAudit(commitFail, now),
 		BeforeCommit: func(tx pgx.Tx, _ *repo.IssuedAuthorizationCodeTokens) error {
@@ -282,21 +337,13 @@ func TestIB2IssueAuthorizationCodeTokensSignBeforeCommitAndLostResponse(t *testi
 	_, err = pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, lost.Code.ID)
 	require.NoError(t, err)
 	issued, err := repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: lost.Code.CodeHash, OAuthClientID: lost.Client.ID,
-			RedirectURI: lost.Redirect.RedirectURI, ResourceURI: lost.Redirect.ResourceURI,
-			Audience: lost.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim:   claimInput(lost, verifier, now),
 		Refresh: validRefresh(lost, now),
 		Audit:   validAudit(lost, now),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, issued.Code.ConsumedAt)
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: lost.Code.CodeHash, OAuthClientID: lost.Client.ID,
-		RedirectURI: lost.Redirect.RedirectURI, ResourceURI: lost.Redirect.ResourceURI,
-		Audience: lost.Redirect.Audience, CodeVerifier: verifier,
-	})
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, claimInput(lost, verifier, now))
 	require.Error(t, err, "lost response leaves the code consumed and requires restart")
 }
 
@@ -310,11 +357,7 @@ func TestIB2CodePurgeNullsAuditFKAndRetainsCopiedHash(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Now().UTC().Truncate(time.Second)
 	issued, err := repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-			RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-			Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim:   claimInput(fx, verifier, now),
 		Refresh: validRefresh(fx, now),
 		Audit:   validAudit(fx, now),
 	})
@@ -425,11 +468,7 @@ func TestIB2ClaimAuthorizationCodeRejectsInactiveGrantAndProvider(t *testing.T) 
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE oauth_grants SET status='revoked', revoked_at=now(), revoke_reason_code='operator' WHERE id=$1`, fx.Grant.ID)
 	require.NoError(t, err)
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-		RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-		Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-	})
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, claimInput(fx, verifier, time.Now().UTC()))
 	require.ErrorIs(t, err, domain.ErrInvalid)
 
 	active := issuedCodeFixture(t)
@@ -437,11 +476,7 @@ func TestIB2ClaimAuthorizationCodeRejectsInactiveGrantAndProvider(t *testing.T) 
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE provider_session_associations SET status='revoked', revoked_at=now(), revoke_reason_code='operator' WHERE id=$1`, *active.Grant.ProviderSessionAssociationID)
 	require.NoError(t, err)
-	_, err = repo.ClaimAuthorizationCode(ctx, pool, domain.ClaimAuthorizationCodeInput{
-		CodeHash: active.Code.CodeHash, OAuthClientID: active.Client.ID,
-		RedirectURI: active.Redirect.RedirectURI, ResourceURI: active.Redirect.ResourceURI,
-		Audience: active.Redirect.Audience, CodeVerifier: verifier,
-	})
+	_, err = repo.ClaimAuthorizationCode(ctx, pool, claimInput(active, verifier, time.Now().UTC()))
 	require.ErrorIs(t, err, domain.ErrInvalid)
 }
 
@@ -456,11 +491,7 @@ func TestIB2IssueAuthorizationCodeTokensContextCancelRestoresNothing(t *testing.
 	now := time.Now().UTC().Truncate(time.Second)
 	cancel()
 	_, err = repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-			RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-			Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim:   claimInput(fx, verifier, now),
 		Refresh: validRefresh(fx, now),
 		Audit:   validAudit(fx, now),
 	})
@@ -486,11 +517,7 @@ func TestIB2HashedSecretsNeverPersistRawMaterial(t *testing.T) {
 	refresh := validRefresh(fx, now)
 	refresh.Token.TokenHash = uniqueHash(string(rawRefresh))
 	issued, err := repo.IssueAuthorizationCodeTokens(ctx, pool, repo.IssueAuthorizationCodeTokensInput{
-		Claim: domain.ClaimAuthorizationCodeInput{
-			CodeHash: fx.Code.CodeHash, OAuthClientID: fx.Client.ID,
-			RedirectURI: fx.Redirect.RedirectURI, ResourceURI: fx.Redirect.ResourceURI,
-			Audience: fx.Redirect.Audience, CodeVerifier: verifier,
-		},
+		Claim:   claimInput(fx, verifier, now),
 		Refresh: refresh,
 		Audit:   validAudit(fx, now),
 	})
@@ -514,6 +541,8 @@ func TestIB2RepoHasNoJWTSigningRefreshRedemptionOrIB6Rotation(t *testing.T) {
 	require.NoError(t, err)
 	body := string(src)
 	require.Contains(t, body, "BeforeCommit")
+	require.Contains(t, body, "SET consumed_at=$2")
+	require.NotContains(t, body, "consumed_at=now()")
 	require.NotContains(t, body, "jwt.")
 	require.NotContains(t, body, "session_jwt")
 	require.NotContains(t, body, "RotateRefresh")

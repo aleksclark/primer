@@ -163,6 +163,23 @@ func TestValidateClaimAuthorizationCodeBinding(t *testing.T) {
 	}
 }
 
+func TestValidateClaimAuthorizationCodeRequiresBoundedUTCNow(t *testing.T) {
+	valid := validClaimAuthorizationCode()
+	if err := ValidateClaimAuthorizationCode(valid); err != nil {
+		t.Fatalf("valid claim rejected: %v", err)
+	}
+	zero := valid
+	zero.Now = time.Time{}
+	if err := ValidateClaimAuthorizationCode(zero); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("zero now = %v, want ErrInvalid", err)
+	}
+	local := valid
+	local.Now = time.Date(2026, 8, 17, 16, 0, 0, 0, time.FixedZone("CST", -6*3600))
+	if err := ValidateClaimAuthorizationCode(local); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("non-UTC now = %v, want ErrInvalid", err)
+	}
+}
+
 func TestBindingMatchesRejectsClientRedirectResourceAudienceAndPKCE(t *testing.T) {
 	code := validIB2AuthorizationCode()
 	claim := validClaimAuthorizationCode()
@@ -218,6 +235,11 @@ func TestValidateConsumeBindingsRequireActiveGrantAndProvider(t *testing.T) {
 	wrongGrantClient.Grant.OAuthClientID = uuid.New()
 	if err := ValidateConsumeBindings(wrongGrantClient, claim); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("grant client = %v, want ErrInvalid", err)
+	}
+	zeroNow := in
+	zeroNow.Now = time.Time{}
+	if err := ValidateConsumeBindings(zeroNow, claim); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("zero consume now = %v, want ErrInvalid", err)
 	}
 }
 
@@ -326,6 +348,7 @@ func validClaimAuthorizationCode() ClaimAuthorizationCodeInput {
 		CodeHash: make([]byte, 32), OAuthClientID: uuid.New(),
 		RedirectURI: "https://bff.example/callback", ResourceURI: "https://resource.example",
 		Audience: "audience", CodeVerifier: strings.Repeat("a", 43),
+		Now: time.Date(2026, 8, 17, 16, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -367,6 +390,7 @@ func validConsumeBindings() (ConsumeBindings, ClaimAuthorizationCodeInput) {
 		CodeHash: code.CodeHash, OAuthClientID: code.OAuthClientID,
 		RedirectURI: code.RedirectURI, ResourceURI: code.ResourceURI,
 		Audience: code.Audience, CodeVerifier: strings.Repeat("a", 43),
+		Now: now,
 	}
 	return in, claim
 }

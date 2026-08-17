@@ -304,6 +304,7 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 				CodeHash: codeHash, OAuthClientID: client.ID,
 				RedirectURI: req.RedirectURI, ResourceURI: req.Resource,
 				Audience: registration.Audience, CodeVerifier: req.CodeVerifier,
+				Now: now,
 			})
 			if claimErr == nil {
 				break
