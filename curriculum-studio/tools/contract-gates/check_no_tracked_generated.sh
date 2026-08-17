@@ -121,7 +121,7 @@ self_test() {
     "curriculum-studio/openapi.emitted.yaml"
     "curriculum-studio/contracts/openapi/v1/openapi.emitted.yaml"
     "curriculum-studio/internal/api/openapi.emitted.yaml"
-    "curriculum-studio/contracts/gen/go/curriculumstudio/v1/common.pb.go"
+    "curriculum-studio/contracts/gen/go/curriculumstudio/v1/planted_c4_selftest.pb.go"
     "curriculum-studio/contracts/.tmp/spike.desc.binpb"
     "curriculum-studio/clients/ts-rest/generated/schema.d.ts"
     "curriculum-studio/clients/go-grpc/generated/client.go"
