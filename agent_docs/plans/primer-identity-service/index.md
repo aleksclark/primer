@@ -1,6 +1,6 @@
 # Primer Identity — Stytch-backed broker delivery plan
 
-**IB1 status: COMPLETE — reviewed credential-free broker exchange at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8` (`fix(identity): harden IB1 grant and redirect handling`).** Full specification PASS: 0 Critical/Important (nonblocking minors); full quality/security APPROVED: 0 Critical/Important (one nonblocking minor). The reviewed IB0 design freeze remains the contract authority; live Stytch remains **BLOCKED**.
+**IB2/I6 status: COMPLETE — reviewed credential-free implementation at code tip `f31559db92445826aabd98bbc0903a22d80d6e80` (`fix(identity): harden IB2 replay and clock semantics`). Spec PASS 0C/0I/0M; quality/security APPROVED 0C/0I (1 nonblocking minor: unbounded X-Request-ID echo). The reviewed IB0 design freeze remains the contract authority; live Stytch remains **BLOCKED**.
 
 ## Outcome and current state
 
@@ -8,9 +8,9 @@ Primer Identity is the **sole Stytch B2B client** and the downstream Primer toke
 
 At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Stytch config, official adapter, bounded cache and normalized mapping. IA-R was reviewed at code tip `8623ee639bd64d40f819d3079c52ed567b65b27b` (`fix(identity): require namespaced configuration`): specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important. Credential-free/library foundation is complete; **not** composed production authentication; live Stytch still **BLOCKED**. Historical F0/PG1/PG2 work is complete history, not a reason to redispatch I1/I2.
 
-IB1-E01..E10 are green with credential-free `httptest`, real-PostgreSQL, and real-process evidence; the official Stytch Go v18.1.0 adapter boundary is qualified. Identity coverage is 84.1% (review reruns 84.3% and 84.1%); OpenAPI/generated-client parity and root/foundation gates are green in a clean environment. IB1 adds no public code consumption, token endpoint, JWT, or JWKS implementation.
+IB1-E01..E10 remain green with credential-free `httptest`, real-PostgreSQL, and real-process evidence; the official Stytch Go v18.1.0 adapter boundary is qualified. IB2/I6 is now complete and reviewed at the exact code tip recorded above; this is credential-free completion only.
 
-**Post-merge roadmap cursor:** **IB2 / I6 Primer ES256 JWT and JWKS bridge**, only after reviewed IB1 reaches `master`. Live Stytch credentials/browser proof remains **BLOCKED**.
+**Post-merge roadmap cursor:** **IB3 / I7 product BFF cookie, CSRF, and PKCE contract**, after reviewed IB2 reaches `master`. Live Stytch credentials/browser proof remains **BLOCKED**. This status does not claim production BFF or MCP authorization.
 
 ## Non-negotiable boundaries
 
