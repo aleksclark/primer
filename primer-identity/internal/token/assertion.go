@@ -93,12 +93,12 @@ func ParseClientAssertion(raw string, in AssertionInput) (ClientAssertion, error
 	}
 	iat := time.Unix(claims.iat, 0).UTC()
 	exp := time.Unix(claims.exp, 0).UTC()
-	if now.Before(iat.Add(-MaxClockSkew)) || now.After(exp.Add(MaxClockSkew)) {
+	if now.Before(iat.Add(-AssertionClockSkew)) || now.After(exp.Add(AssertionClockSkew)) {
 		return ClientAssertion{}, denyInvalid()
 	}
 	if claims.hasNBF {
 		nbf := time.Unix(claims.nbf, 0).UTC()
-		if now.Before(nbf.Add(-MaxClockSkew)) || claims.nbf < claims.iat-int64(MaxClockSkew/time.Second) || claims.nbf > claims.exp {
+		if now.Before(nbf.Add(-AssertionClockSkew)) || claims.nbf < claims.iat-int64(AssertionClockSkew/time.Second) || claims.nbf > claims.exp {
 			return ClientAssertion{}, denyInvalid()
 		}
 	}
@@ -185,7 +185,7 @@ func parseAssertionClaims(raw []byte) (parsedAssertion, error) {
 	if err := requireClientID(out.iss); err != nil || out.iss != out.sub {
 		return parsedAssertion{}, denyInvalid()
 	}
-	if err := requireUUID(out.jti); err != nil {
+	if err := boundedUTF8("jti", out.jti, maxAssertionJTIBytes); err != nil {
 		return parsedAssertion{}, err
 	}
 	return out, nil

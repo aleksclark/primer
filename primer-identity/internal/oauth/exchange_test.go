@@ -81,7 +81,9 @@ func TestPublicClientAuthorizationCodeExchangeIssuesJWTAndRefresh(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(ctx))
-	verifier, err := token.NewVerifier(keyset, testIssuer, fx.redirect.Audience, frozenClock{now: now}, nil)
+	verifier, err := token.NewVerifier(keyset, testIssuer, fx.redirect.Audience, frozenClock{now: now}, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{ClientID: clientID, Audience: fx.redirect.Audience, SubjectClass: token.KindHuman}, nil
+	})
 	require.NoError(t, err)
 	got, err := verifier.Verify(ctx, resp.AccessToken)
 	require.NoError(t, err)

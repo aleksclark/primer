@@ -162,6 +162,14 @@ func humanInput(t testing.TB) token.HumanInput {
 	}
 }
 
+func registeredClientLookup(audience string) token.ClientLookup {
+	return func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{
+			ClientID: clientID, Audience: audience, SubjectClass: token.KindHuman, Scope: "openid studio:read",
+		}, nil
+	}
+}
+
 func commitOK(context.Context, token.IssuedToken) error { return nil }
 
 func issueHuman(t testing.TB, clock frozenClock) (token.IssuedToken, *testSigner, *token.Verifier, *staticKeySource) {
@@ -173,7 +181,7 @@ func issueHuman(t testing.TB, clock frozenClock) (token.IssuedToken, *testSigner
 	issued, err := minter.IssueHuman(context.Background(), humanInput(t), commitOK)
 	require.NoError(t, err)
 	src := &staticKeySource{keys: map[string]domain.PublicJWK{jwk.Kid: jwk}}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	return issued, signer, verifier, src
 }
@@ -265,7 +273,7 @@ func TestIssueHumanAndVerifyRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	src := &staticKeySource{keys: map[string]domain.PublicJWK{jwk.Kid: jwk}}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)

@@ -143,7 +143,7 @@ SELECT EXISTS (
 	assert.True(t, accounts)
 
 	// Roll down IB2, IB1, and baseline migrations one at a time; each is reversible.
-	for range 6 {
+	for range 7 {
 		require.NoError(t, db.MigrateDown(ctx, url))
 	}
 	var stytchMappings bool

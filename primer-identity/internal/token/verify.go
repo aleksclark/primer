@@ -127,10 +127,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 
 func (v *Verifier) bindClient(ctx context.Context, claims parsedClaims) error {
 	if v.clients == nil {
-		if claims.kind != KindHuman {
-			return denyInvalid()
-		}
-		return nil
+		return denyInvalid()
 	}
 	reg, err := v.clients(ctx, claims.clientID)
 	if err != nil {

@@ -199,7 +199,9 @@ func TestRevokeSuccessSetsProductionHSTSAndLeavesAccessJWTValid(t *testing.T) {
 	keyset, err := token.NewKeySet(func(context.Context) ([]domain.PublicJWK, error) { return pubs, nil })
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(context.Background()))
-	verifier, err := token.NewVerifier(keyset, tokenHTTPIssuer, fx.redirect.Audience, frozenHTTPClock{now: now}, nil)
+	verifier, err := token.NewVerifier(keyset, tokenHTTPIssuer, fx.redirect.Audience, frozenHTTPClock{now: now}, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{ClientID: clientID, Audience: fx.redirect.Audience, SubjectClass: token.KindHuman}, nil
+	})
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), issued.access)
 	require.NoError(t, err)
@@ -230,7 +232,7 @@ func exchangeHTTPPublic(t *testing.T, handler http.Handler, fx httpTokenFixture)
 
 func exchangeHTTPBasic(t *testing.T, handler http.Handler, fx httpTokenFixture, secret string) httpIssuedTokens {
 	t.Helper()
-	rr := postTokenOn(handler, publicCodeForm(fx), map[string]string{"Authorization": basicAuth(fx.client.ClientID, secret)})
+	rr := postTokenOn(handler, basicCodeForm(fx), map[string]string{"Authorization": basicAuth(fx.client.ClientID, secret)})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	return parseIssued(t, rr)
 }
@@ -298,6 +300,9 @@ func assertRevokeError(t *testing.T, rr *httptest.ResponseRecorder, status int, 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	assert.Equal(t, code, body["error"])
+	if code == oauth.ErrorInvalidClient {
+		assert.Equal(t, `{"error":"invalid_client"}`, rr.Body.String())
+	}
 }
 
 func assertHTTPFamilyActive(t *testing.T, grantID uuid.UUID) {

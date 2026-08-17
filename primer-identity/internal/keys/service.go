@@ -683,20 +683,21 @@ func (t *TransactionSigner) PublicJWK() (domain.PublicJWK, error) {
 	return state.mat.PublicJWK()
 }
 
-func (t *TransactionSigner) String() string {
-	if t == nil {
-		return "transaction-signer <nil>"
-	}
+func (t TransactionSigner) String() string {
 	return fmt.Sprintf("transaction-signer kid=%s", t.public.Kid)
 }
 
-func (t *TransactionSigner) GoString() string { return t.String() }
+func (t TransactionSigner) GoString() string { return t.String() }
 
-func (t *TransactionSigner) Format(state fmt.State, _ rune) {
+// Format intentionally ignores the requested verb and flags so copied values
+// and pointers cannot fall back to fmt's raw struct/public-key formatting.
+func (t TransactionSigner) Format(state fmt.State, _ rune) {
 	_, _ = io.WriteString(state, t.String())
 }
 
-func (*TransactionSigner) MarshalJSON() ([]byte, error) {
+// MarshalJSON refuses serialization rather than risking accidental custody
+// representation. Call PublicJWK when a public representation is required.
+func (TransactionSigner) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("transaction signer JSON serialization refused; use PublicJWK")
 }
 

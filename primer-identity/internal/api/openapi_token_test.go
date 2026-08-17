@@ -145,12 +145,12 @@ func assertTokenOpenAPIContract(t *testing.T, doc map[string]any) {
 	form := collectNamedSchemas(doc, post)
 	for _, field := range []string{
 		"grant_type", "code", "redirect_uri", "resource", "code_verifier",
-		"client_id", "client_assertion_type", "client_assertion", "client_secret",
-		"refresh_token", "scope",
+		"client_id", "client_assertion_type", "client_assertion",
 	} {
 		assert.Contains(t, form, field)
 	}
-	for _, secret := range []string{"code", "code_verifier", "client_secret", "client_assertion"} {
+	assert.NotContains(t, form, "client_secret")
+	for _, secret := range []string{"code", "code_verifier", "client_assertion"} {
 		assert.True(t, isWriteOnly(form[secret]), "%s must be writeOnly", secret)
 	}
 
@@ -212,11 +212,12 @@ func assertRevokeOpenAPIContract(t *testing.T, doc map[string]any) {
 	form := collectNamedSchemas(doc, post)
 	for _, field := range []string{
 		"token", "token_type_hint", "client_id", "client_assertion_type",
-		"client_assertion", "client_secret",
+		"client_assertion",
 	} {
 		assert.Contains(t, form, field)
 	}
-	for _, secret := range []string{"token", "client_secret", "client_assertion"} {
+	assert.NotContains(t, form, "client_secret")
+	for _, secret := range []string{"token", "client_assertion"} {
 		assert.True(t, isWriteOnly(form[secret]), "%s must be writeOnly", secret)
 	}
 }

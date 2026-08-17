@@ -96,7 +96,9 @@ func TestPublicClientTokenExchangeReturnsExactJSONAndValidatesJWKS(t *testing.T)
 	keyset, err := token.NewKeySet(func(context.Context) ([]domain.PublicJWK, error) { return pubs, nil })
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(context.Background()))
-	verifier, err := token.NewVerifier(keyset, tokenHTTPIssuer, fx.redirect.Audience, frozenHTTPClock{now: now}, nil)
+	verifier, err := token.NewVerifier(keyset, tokenHTTPIssuer, fx.redirect.Audience, frozenHTTPClock{now: now}, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{ClientID: clientID, Audience: fx.redirect.Audience, SubjectClass: token.KindHuman}, nil
+	})
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), access)
 	require.NoError(t, err)
@@ -128,7 +130,7 @@ func TestPublicBasicAndPrivateTokenHandlersReadOriginalRequestBody(t *testing.T)
 	secret := "basic-secret-" + uuid.NewString()
 	basicFX := issuedHTTPConfidentialBasicCode(t, now, secret)
 	basicHandler := newTokenAPI(t, basicFX)
-	basicOK := postTokenOn(basicHandler, publicCodeForm(basicFX), map[string]string{
+	basicOK := postTokenOn(basicHandler, basicCodeForm(basicFX), map[string]string{
 		"Authorization": basicAuth(basicFX.client.ClientID, secret),
 	})
 	require.Equal(t, http.StatusOK, basicOK.Code, basicOK.Body.String())
@@ -304,7 +306,7 @@ func TestConfidentialBasicExchangeAndWrongSecretChallenge(t *testing.T) {
 	fx := issuedHTTPConfidentialBasicCode(t, now, secret)
 	_ = newTokenAPI(t, fx)
 
-	wrong := postToken(publicCodeForm(fx), map[string]string{
+	wrong := postToken(basicCodeForm(fx), map[string]string{
 		"Authorization": basicAuth(fx.client.ClientID, "wrong-secret-value-xxxxxxxxxxxxxxxx"),
 	})
 	assertTokenError(t, wrong, http.StatusUnauthorized, oauth.ErrorInvalidClient, true)
@@ -312,7 +314,7 @@ func TestConfidentialBasicExchangeAndWrongSecretChallenge(t *testing.T) {
 	assert.NotContains(t, wrong.Body.String(), secret)
 	assert.NotContains(t, wrong.Body.String(), "wrong-secret")
 
-	ok := postToken(publicCodeForm(fx), map[string]string{
+	ok := postToken(basicCodeForm(fx), map[string]string{
 		"Authorization": basicAuth(fx.client.ClientID, secret),
 	})
 	require.Equal(t, http.StatusOK, ok.Code, ok.Body.String())
@@ -441,7 +443,7 @@ func TestPublicClientRejectsAssertionAndAuthorization(t *testing.T) {
 	withAuth := postToken(publicCodeForm(fx), map[string]string{
 		"Authorization": basicAuth(fx.client.ClientID, "public-must-not-use-basic"),
 	})
-	assertTokenError(t, withAuth, http.StatusUnauthorized, oauth.ErrorInvalidClient, true)
+	assertTokenError(t, withAuth, http.StatusBadRequest, oauth.ErrorInvalidRequest, false)
 
 	withAssertion := publicCodeForm(fx)
 	withAssertion.Set("client_assertion_type", tokenAssertionType)
@@ -464,7 +466,7 @@ func TestConfidentialMethodsMustBeExact(t *testing.T) {
 	t.Cleanup(func() { _ = mat.Destroy() })
 	jwtFX := issuedHTTPPrivateKeyJWTCode(t, now, mat)
 	_ = newTokenAPI(t, jwtFX)
-	asBasic := postToken(publicCodeForm(jwtFX), map[string]string{
+	asBasic := postToken(basicCodeForm(jwtFX), map[string]string{
 		"Authorization": basicAuth(jwtFX.client.ClientID, "not-a-secret"),
 	})
 	assertTokenError(t, asBasic, http.StatusUnauthorized, oauth.ErrorInvalidClient, true)
@@ -495,6 +497,32 @@ func TestTokenRejectsDuplicateUnknownQueryAndWrongMedia(t *testing.T) {
 	charset := postRaw(handler, form.Encode(), "application/x-www-form-urlencoded; charset=UTF-8", nil)
 	assert.Equal(t, http.StatusUnsupportedMediaType, charset.Code)
 	assertCodeUnconsumed(t, fx)
+}
+
+func TestAuthorizationCodeFormHasExactFieldsByClientAuthMethod(t *testing.T) {
+	now := time.Date(2026, 8, 17, 18, 19, 0, 0, time.UTC)
+	secret := "basic-secret-" + uuid.NewString()
+	fx := issuedHTTPConfidentialBasicCode(t, now, secret)
+	handler := newTokenAPI(t, fx)
+
+	for _, field := range []string{"scope", "refresh_token", "client_secret"} {
+		form := cloneForm(publicCodeForm(fx))
+		form.Set(field, "unsupported")
+		rr := postTokenOn(handler, form, nil)
+		assertTokenError(t, rr, http.StatusBadRequest, oauth.ErrorInvalidRequest, false)
+		assertCodeUnconsumed(t, fx)
+	}
+
+	matchingBasic := postTokenOn(handler, publicCodeForm(fx), map[string]string{
+		"Authorization": basicAuth(fx.client.ClientID, secret),
+	})
+	assertTokenError(t, matchingBasic, http.StatusBadRequest, oauth.ErrorInvalidRequest, false)
+	assertCodeUnconsumed(t, fx)
+
+	ok := postTokenOn(handler, basicCodeForm(fx), map[string]string{
+		"Authorization": basicAuth(fx.client.ClientID, secret),
+	})
+	require.Equal(t, http.StatusOK, ok.Code, ok.Body.String())
 }
 
 func TestTokenRejectsOversizeInvalidUTF8AndControlFields(t *testing.T) {
@@ -822,6 +850,12 @@ func publicCodeForm(fx httpTokenFixture) url.Values {
 	}
 }
 
+func basicCodeForm(fx httpTokenFixture) url.Values {
+	form := publicCodeForm(fx)
+	form.Del("client_id")
+	return form
+}
+
 func cloneForm(in url.Values) url.Values {
 	out := url.Values{}
 	for k, vals := range in {
@@ -872,6 +906,9 @@ func assertTokenError(t *testing.T, rr *httptest.ResponseRecorder, status int, c
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	assert.Equal(t, code, body["error"])
+	if code == oauth.ErrorInvalidClient {
+		assert.Equal(t, `{"error":"invalid_client"}`, rr.Body.String())
+	}
 	assert.NotContains(t, rr.Body.String(), "access_token")
 	assert.NotContains(t, rr.Body.String(), "$schema")
 }

@@ -170,7 +170,7 @@ func (s *Server) writeRevokeFail(w http.ResponseWriter, code, description string
 }
 
 func jsonMarshalRevokeError(code, description string) ([]byte, error) {
-	return json.Marshal(oauthTokenError{Code: code, ErrorDescription: description})
+	return json.Marshal(oauthTokenError{Code: code, ErrorDescription: tokenWireDescription(code, description)})
 }
 
 func setRevokeHeaders(w http.ResponseWriter, hsts string, basicChallenge bool) {
@@ -205,7 +205,6 @@ func revokeRequestBody() *huma.RequestBody {
 						"client_id":             plain(),
 						"client_assertion_type": plain(),
 						"client_assertion":      writeOnly(),
-						"client_secret":         writeOnly(),
 					},
 					Required: []string{"token"},
 				},
@@ -240,7 +239,14 @@ func revokeOpenAPIResponses() map[string]*huma.Response {
 	return map[string]*huma.Response{
 		"200": {Description: "RFC7009 empty success", Headers: security},
 		"400": {Description: "OAuth invalid_request", Headers: security, Content: jsonMedia(errSchema)},
-		"401": {Description: "OAuth invalid_client", Headers: security, Content: jsonMedia(errSchema)},
+		"401": {Description: "OAuth invalid_client", Headers: security, Content: jsonMedia(&huma.Schema{
+			Type:                 huma.TypeObject,
+			AdditionalProperties: false,
+			Properties: map[string]*huma.Schema{
+				"error": {Type: huma.TypeString, Const: oauth.ErrorInvalidClient},
+			},
+			Required: []string{"error"},
+		})},
 		"413": {Description: "Request too large", Headers: security},
 		"415": {Description: "Unsupported media type", Headers: security},
 		"503": {Description: "temporarily_unavailable", Headers: security, Content: jsonMedia(errSchema)},

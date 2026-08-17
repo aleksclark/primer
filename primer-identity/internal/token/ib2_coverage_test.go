@@ -96,7 +96,17 @@ func TestClientLookupUnavailableAndScopeMismatch(t *testing.T) {
 	requireDenied(t, err, principal)
 }
 
-func TestParseClientAssertionRejectsFutureNBFBeforeNow(t *testing.T) {
+func TestVerifyDeniesHumanTokenWithoutClientLookup(t *testing.T) {
+	clock := frozenClock{now: time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)}
+	issued, _, _, src := issueHuman(t, clock)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	require.NoError(t, err)
+
+	principal, err := verifier.Verify(context.Background(), issued.Compact)
+	requireDenied(t, err, principal)
+}
+
+func TestParseClientAssertionAcceptsFutureNBFWithinAssertionSkew(t *testing.T) {
 	now := time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)
 	signer := newTestSigner(t)
 	jwk := mustJWK(t, signer)
@@ -110,15 +120,56 @@ func TestParseClientAssertionRejectsFutureNBFBeforeNow(t *testing.T) {
 	futureNBF := resign(t, replacePayload(t, compact, func(p map[string]any) {
 		p["nbf"] = now.Add(30 * time.Second).Unix()
 	}), signer)
-	_, err := token.ParseClientAssertion(futureNBF, in)
-	require.ErrorIs(t, err, token.ErrInvalid)
-
-	skewOK := resign(t, replacePayload(t, compact, func(p map[string]any) {
-		p["nbf"] = now.Add(token.MaxClockSkew).Unix()
-	}), signer)
-	got, err := token.ParseClientAssertion(skewOK, in)
+	got, err := token.ParseClientAssertion(futureNBF, in)
 	require.NoError(t, err)
 	assert.Equal(t, clientID, got.ClientID)
+
+	skewOK := resign(t, replacePayload(t, compact, func(p map[string]any) {
+		p["nbf"] = now.Add(token.AssertionClockSkew).Unix()
+	}), signer)
+	got, err = token.ParseClientAssertion(skewOK, in)
+	require.NoError(t, err)
+	assert.Equal(t, clientID, got.ClientID)
+
+	justExpired := token.AssertionInput{
+		ClientID: clientID, Audience: aud, Registered: []domain.PublicJWK{jwk},
+		Now: now.Add(5*time.Minute + token.AssertionClockSkew + time.Second), MaxLifetime: 5 * time.Minute,
+	}
+	_, err = token.ParseClientAssertion(compact, justExpired)
+	require.ErrorIs(t, err, token.ErrInvalid)
+}
+
+func TestParseClientAssertionAcceptsOpaqueJTIAndRejectsUnsafeValues(t *testing.T) {
+	now := time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)
+	signer := newTestSigner(t)
+	jwk := mustJWK(t, signer)
+	clientID := "studio-confidential"
+	aud := "https://identity.example.test/oauth/token"
+	base := mintAssertion(t, signer, clientID, aud, now, time.Minute)
+	in := token.AssertionInput{ClientID: clientID, Audience: aud, Registered: []domain.PublicJWK{jwk}, Now: now, MaxLifetime: 5 * time.Minute}
+
+	opaque := "request-7f2c"
+	got, err := token.ParseClientAssertion(resign(t, replacePayload(t, base, func(p map[string]any) {
+		p["jti"] = opaque
+	}), signer), in)
+	require.NoError(t, err)
+	assert.Equal(t, opaque, got.JTI)
+
+	for _, tc := range []struct {
+		name string
+		jti  string
+	}{
+		{name: "empty", jti: ""},
+		{name: "control", jti: "request-\n7f2c"},
+		{name: "overlong", jti: strings.Repeat("a", 129)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := token.ParseClientAssertion(resign(t, replacePayload(t, base, func(p map[string]any) {
+				p["jti"] = tc.jti
+			}), signer), in)
+			require.ErrorIs(t, err, token.ErrInvalid)
+		})
+	}
 }
 
 func TestParseClientAssertionOptionalNBFAndMissingKid(t *testing.T) {
@@ -197,7 +248,7 @@ func TestKeySetRejectsEmptyDuplicateAndCanceledRefresh(t *testing.T) {
 func TestUnknownKidRefreshCooldown(t *testing.T) {
 	clock := frozenClock{now: time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)}
 	src := &staticKeySource{}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	issued, _, _, _ := issueHuman(t, clock)
 	principal, err := verifier.Verify(context.Background(), issued.Compact)

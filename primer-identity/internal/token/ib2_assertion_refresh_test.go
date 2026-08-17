@@ -105,7 +105,7 @@ func TestUnknownKidForcesExactlyOneRefresh(t *testing.T) {
 	issued, err := minter.IssueHuman(context.Background(), humanInput(t), commitOK)
 	require.NoError(t, err)
 	src := &staticKeySource{onRefresh: map[string]domain.PublicJWK{jwk.Kid: jwk}}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestNilClockUsesRealTime(t *testing.T) {
 	issued, err := minter.IssueHuman(context.Background(), humanInput(t), commitOK)
 	require.NoError(t, err)
 	src := &staticKeySource{keys: map[string]domain.PublicJWK{jwk.Kid: jwk}}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, nil, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, nil, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)

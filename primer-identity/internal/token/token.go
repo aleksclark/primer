@@ -20,6 +20,8 @@ const (
 	MintOperationTimeout = 30 * time.Second
 	// MaxClockSkew is the hard maximum future/expiry skew accepted by verify.
 	MaxClockSkew = 5 * time.Second
+	// AssertionClockSkew is the private_key_jwt assertion time tolerance.
+	AssertionClockSkew = 60 * time.Second
 	// MaxTokenBytes is the compact JWS size cap.
 	MaxTokenBytes = 8 * 1024
 	// HeaderType is the RFC 9068 access-token typ.
@@ -27,24 +29,25 @@ const (
 	// Algorithm is the only accepted JWS algorithm.
 	Algorithm = domain.SigningAlgES256
 
-	maxAudienceBytes   = 128
-	maxClientIDBytes   = domain.MaxClientIDLen
-	maxScopeBytes      = 256
-	maxScopeTokens     = 16
-	maxScopeTokenBytes = 64
-	maxHeaderBytes     = 512
-	maxPayloadBytes    = 4096
-	maxSignatureBytes  = 256
-	maxSegmentBytes    = 6144
-	jwsSignatureRawLen = 64
-	numericDateMaxUnix = 4102444800 // 2100-01-01T00:00:00Z
-	numericDateMinUnix = 0
-	maxIssuerBytes     = 256
-	maxJWKSBytes       = 64 * 1024
-	maxPublishedKeys   = 16
-	maxServiceSubject  = 160
-	refreshSecretBytes = 32
-	assertionTyp       = "JWT"
+	maxAudienceBytes     = 128
+	maxClientIDBytes     = domain.MaxClientIDLen
+	maxScopeBytes        = 256
+	maxScopeTokens       = 16
+	maxScopeTokenBytes   = 64
+	maxHeaderBytes       = 512
+	maxPayloadBytes      = 4096
+	maxSignatureBytes    = 256
+	maxSegmentBytes      = 6144
+	jwsSignatureRawLen   = 64
+	numericDateMaxUnix   = 4102444800 // 2100-01-01T00:00:00Z
+	numericDateMinUnix   = 0
+	maxIssuerBytes       = 256
+	maxAssertionJTIBytes = 128
+	maxJWKSBytes         = 64 * 1024
+	maxPublishedKeys     = 16
+	maxServiceSubject    = 160
+	refreshSecretBytes   = 32
+	assertionTyp         = "JWT"
 )
 
 // Kind distinguishes fail-closed human and service subject classes.

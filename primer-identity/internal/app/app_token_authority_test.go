@@ -152,7 +152,9 @@ func TestRunJWKSCanVerifyCurrentTokenPackageOutput(t *testing.T) {
 	keyset, err := token.NewKeySet(func(context.Context) ([]domain.PublicJWK, error) { return pubs, nil })
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(context.Background()))
-	verifier, err := token.NewVerifier(keyset, cfg.Issuer, "studio", nil, nil)
+	verifier, err := token.NewVerifier(keyset, cfg.Issuer, "studio", nil, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{ClientID: clientID, Audience: "studio", SubjectClass: token.KindHuman, Scope: "openid"}, nil
+	})
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)

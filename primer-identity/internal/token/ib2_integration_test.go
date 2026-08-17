@@ -61,7 +61,7 @@ func TestIssueVerifyWithRealKeyServiceAndPostgres(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(ctx))
-	verifier, err := token.NewVerifier(keyset, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(keyset, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	got, err := verifier.Verify(ctx, issued.Compact)
 	require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestHighCountIssueVerify(t *testing.T) {
 	minter, err := token.NewMinter(staticSignerSource{signer: signer}, testIssuer, clock)
 	require.NoError(t, err)
 	src := &staticKeySource{keys: map[string]domain.PublicJWK{jwk.Kid: jwk}}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	const n = 200
 	var wg sync.WaitGroup
@@ -143,7 +143,7 @@ func TestHighCountIssueVerifyWithKeyService(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(ctx))
-	verifier, err := token.NewVerifier(keyset, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(keyset, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 
 	const n = 64
@@ -213,7 +213,7 @@ func TestUnknownKidRefreshFailureIsUnavailable(t *testing.T) {
 	clock := frozenClock{now: time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)}
 	issued, _, _, _ := issueHuman(t, clock)
 	src := &staticKeySource{refreshErr: io.ErrUnexpectedEOF}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	principal, err := verifier.Verify(context.Background(), issued.Compact)
 	require.ErrorIs(t, err, token.ErrUnavailable)
