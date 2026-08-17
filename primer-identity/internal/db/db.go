@@ -75,6 +75,14 @@ func (m *Migrator) Down(ctx context.Context, url string) error {
 	})
 }
 
+// UpTo applies migrations through the requested version.
+func (m *Migrator) UpTo(ctx context.Context, url string, version int64) error {
+	return m.with(ctx, url, func(p *goose.Provider) error {
+		_, err := p.UpTo(ctx, version)
+		return err
+	})
+}
+
 func (m *Migrator) with(ctx context.Context, url string, fn func(*goose.Provider) error) error {
 	if err := ValidateDatabaseURL(url); err != nil {
 		return err
@@ -111,6 +119,11 @@ var migrator = NewMigrator(migrationsFS, VersionTable)
 // Migrate applies all pending Identity up migrations.
 // Forbidden LMS/TV/Studio database names are always refused.
 func Migrate(ctx context.Context, url string) error { return migrator.Up(ctx, url) }
+
+// MigrateTo applies Identity migrations through the requested version.
+func MigrateTo(ctx context.Context, url string, version int64) error {
+	return migrator.UpTo(ctx, url, version)
+}
 
 // MigrateDown rolls back a single Identity migration.
 // Forbidden LMS/TV/Studio database names are always refused.

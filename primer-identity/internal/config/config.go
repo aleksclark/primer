@@ -4,8 +4,10 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,6 +92,46 @@ func (c *StytchConfig) Validate() error {
 	return nil
 }
 
+// VersionedSecretSet is an immutable copied set of exact 32-byte key material.
+// The encoded environment form is comma-separated positiveVersion:base64rawurl.
+type VersionedSecretSet struct{ Values map[int][]byte }
+
+func parseVersionedSecrets(value string) (VersionedSecretSet, error) {
+	if strings.TrimSpace(value) == "" {
+		return VersionedSecretSet{}, fmt.Errorf("required versioned secret set is missing")
+	}
+	values := make(map[int][]byte)
+	for _, item := range strings.Split(value, ",") {
+		parts := strings.SplitN(item, ":", 2)
+		if len(parts) != 2 {
+			return VersionedSecretSet{}, fmt.Errorf("invalid versioned secret set")
+		}
+		version, err := strconv.Atoi(parts[0])
+		if err != nil || version <= 0 {
+			return VersionedSecretSet{}, fmt.Errorf("invalid versioned secret version")
+		}
+		decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil || len(decoded) != 32 {
+			return VersionedSecretSet{}, fmt.Errorf("invalid versioned secret material")
+		}
+		if _, exists := values[version]; exists {
+			return VersionedSecretSet{}, fmt.Errorf("duplicate versioned secret version")
+		}
+		values[version] = append([]byte(nil), decoded...)
+	}
+	return VersionedSecretSet{Values: values}, nil
+}
+
+func requireActive(set VersionedSecretSet, active int) error {
+	if active <= 0 {
+		return fmt.Errorf("active version must be positive")
+	}
+	if _, ok := set.Values[active]; !ok {
+		return fmt.Errorf("active version has no secret")
+	}
+	return nil
+}
+
 // Config holds all Identity runtime configuration, populated from the environment.
 type Config struct {
 	// Stytch is mandatory in production. Development and test may remain
@@ -120,6 +162,43 @@ type Config struct {
 	HTTPReadHeaderTimeout time.Duration `split_words:"true" default:"10s"`
 	// HTTPMaxBodyBytes caps request body size for future write endpoints.
 	HTTPMaxBodyBytes int64 `split_words:"true" default:"1048576"`
+
+	// BrokerAllowedOrigin is the exact Origin accepted by mutating broker POSTs.
+	// Loaded only from IDENTITY_BROKER_ALLOWED_ORIGIN.
+	BrokerAllowedOrigin string `split_words:"true"`
+	// BrokerDiscoveryRedirectURL is the exact Stytch discovery redirect URL.
+	BrokerDiscoveryRedirectURL string `split_words:"true"`
+	// BrokerLoginRedirectURL is the exact Stytch login redirect URL.
+	BrokerLoginRedirectURL string `split_words:"true"`
+	// BrokerSignupRedirectURL is the exact Stytch signup redirect URL.
+	BrokerSignupRedirectURL string `split_words:"true"`
+	// StytchPublicToken is the public (non-secret) Stytch token used for SSO start.
+	StytchPublicToken string `split_words:"true"`
+	// InsecureBrokerCookie disables the Secure cookie flag. Production forbids it.
+	InsecureBrokerCookie bool `split_words:"true" default:"false"`
+
+	StateSealKeys                  string        `split_words:"true"`
+	StateSealActiveVersion         int           `split_words:"true"`
+	StateHashPeppers               string        `split_words:"true"`
+	StateHashActiveVersion         int           `split_words:"true"`
+	BrokerCookiePeppers            string        `split_words:"true"`
+	BrokerCookieActiveVersion      int           `split_words:"true"`
+	AuthorizationCodePeppers       string        `split_words:"true"`
+	AuthorizationCodeActiveVersion int           `split_words:"true"`
+	BrokerTransactionTTL           time.Duration `split_words:"true" default:"10m"`
+	BrokerCookieTTL                time.Duration `split_words:"true" default:"10m"`
+	AuthorizationCodeTTL           time.Duration `split_words:"true" default:"60s"`
+	AuthorizeTargetMaxBytes        int           `split_words:"true" default:"8192"`
+	ProviderRevalidationDeadline   time.Duration `split_words:"true" default:"2s"`
+	ProviderResponseMaxBytes       int           `split_words:"true" default:"1048576"`
+	ProviderMemberSessionsMax      int           `split_words:"true" default:"256"`
+	ProviderProofCacheTTL          time.Duration `split_words:"true" default:"15s"`
+	ProviderProofCacheCapacity     int           `split_words:"true" default:"256"`
+
+	StateSealKeySet            VersionedSecretSet `ignored:"true"`
+	StateHashPepperSet         VersionedSecretSet `ignored:"true"`
+	BrokerCookiePepperSet      VersionedSecretSet `ignored:"true"`
+	AuthorizationCodePepperSet VersionedSecretSet `ignored:"true"`
 }
 
 // Load reads Identity configuration from the environment and validates it.
@@ -137,6 +216,13 @@ func Load() (*Config, error) {
 // Addr returns the host:port bind address.
 func (c *Config) Addr() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
+// BrokerEnabled reports whether this process should compose the IB1 broker.
+// Production always requires the official provider. Development and test may
+// leave Stytch disabled so health-only checkout still works.
+func (c *Config) BrokerEnabled() bool {
+	return c.Stytch.Enabled
 }
 
 // Validate enforces fail-fast rules for Identity configuration.
@@ -176,6 +262,9 @@ func (c *Config) Validate() error {
 	if err := db.ValidateDatabaseURL(c.DatabaseURL); err != nil {
 		return fmt.Errorf("identity config: %w", err)
 	}
+	if (c.BrokerTransactionTTL != 0 && c.BrokerTransactionTTL != 10*time.Minute) || (c.BrokerCookieTTL != 0 && c.BrokerCookieTTL != 10*time.Minute) || (c.AuthorizationCodeTTL != 0 && c.AuthorizationCodeTTL != time.Minute) || (c.AuthorizeTargetMaxBytes != 0 && c.AuthorizeTargetMaxBytes != 8192) || (c.ProviderRevalidationDeadline != 0 && c.ProviderRevalidationDeadline != 2*time.Second) || (c.ProviderResponseMaxBytes != 0 && c.ProviderResponseMaxBytes != 1<<20) || (c.ProviderMemberSessionsMax != 0 && c.ProviderMemberSessionsMax != 256) || (c.ProviderProofCacheTTL != 0 && (c.ProviderProofCacheTTL <= 0 || c.ProviderProofCacheTTL > 15*time.Second)) || (c.ProviderProofCacheCapacity != 0 && (c.ProviderProofCacheCapacity <= 0 || c.ProviderProofCacheCapacity > 1024)) {
+		return fmt.Errorf("identity config: invalid IB1 bounded lifetime or provider limit")
+	}
 	if serviceEnv == "production" {
 		if !c.Stytch.Enabled {
 			return fmt.Errorf("identity config: production service requires Stytch enabled")
@@ -186,6 +275,9 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(c.Stytch.BaseURI) != "" {
 			return fmt.Errorf("identity config: production service does not allow a Stytch base URI override")
 		}
+		if c.InsecureBrokerCookie {
+			return fmt.Errorf("identity config: production forbids an insecure broker cookie")
+		}
 	}
 	// Older tests and explicit programmatic configs may omit the optional
 	// provider entirely. envconfig populates all defaults for Load; only run
@@ -195,5 +287,125 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
+	if err := c.validateBrokerHTTP(serviceEnv); err != nil {
+		return err
+	}
+	if serviceEnv == "production" {
+		var err error
+		if c.StateSealKeySet, err = parseVersionedSecrets(c.StateSealKeys); err != nil {
+			return fmt.Errorf("identity config: state seal keys invalid")
+		}
+		if err = requireActive(c.StateSealKeySet, c.StateSealActiveVersion); err != nil {
+			return fmt.Errorf("identity config: state seal active version invalid")
+		}
+		if c.StateHashPepperSet, err = parseVersionedSecrets(c.StateHashPeppers); err != nil {
+			return fmt.Errorf("identity config: state hash peppers invalid")
+		}
+		if err = requireActive(c.StateHashPepperSet, c.StateHashActiveVersion); err != nil {
+			return fmt.Errorf("identity config: state hash active version invalid")
+		}
+		if c.BrokerCookiePepperSet, err = parseVersionedSecrets(c.BrokerCookiePeppers); err != nil {
+			return fmt.Errorf("identity config: broker cookie peppers invalid")
+		}
+		if err = requireActive(c.BrokerCookiePepperSet, c.BrokerCookieActiveVersion); err != nil {
+			return fmt.Errorf("identity config: broker cookie active version invalid")
+		}
+		if c.AuthorizationCodePepperSet, err = parseVersionedSecrets(c.AuthorizationCodePeppers); err != nil {
+			return fmt.Errorf("identity config: authorization code peppers invalid")
+		}
+		if err = requireActive(c.AuthorizationCodePepperSet, c.AuthorizationCodeActiveVersion); err != nil {
+			return fmt.Errorf("identity config: authorization code active version invalid")
+		}
+	}
 	return nil
+}
+
+func (c *Config) validateBrokerHTTP(serviceEnv string) error {
+	c.BrokerAllowedOrigin = strings.TrimSpace(c.BrokerAllowedOrigin)
+	c.BrokerDiscoveryRedirectURL = strings.TrimSpace(c.BrokerDiscoveryRedirectURL)
+	c.BrokerLoginRedirectURL = strings.TrimSpace(c.BrokerLoginRedirectURL)
+	c.BrokerSignupRedirectURL = strings.TrimSpace(c.BrokerSignupRedirectURL)
+	c.StytchPublicToken = strings.TrimSpace(c.StytchPublicToken)
+
+	required := serviceEnv == "production" || c.Stytch.Enabled
+	anySet := c.BrokerAllowedOrigin != "" || c.BrokerDiscoveryRedirectURL != "" ||
+		c.BrokerLoginRedirectURL != "" || c.BrokerSignupRedirectURL != "" || c.StytchPublicToken != ""
+	if !required && !anySet {
+		return nil
+	}
+	return c.RequireBrokerHTTP()
+}
+
+// RequireBrokerHTTP validates exact origin, redirect URLs, and public token.
+// App composition calls this whenever the broker is enabled or injected.
+func (c *Config) RequireBrokerHTTP() error {
+	c.BrokerAllowedOrigin = strings.TrimSpace(c.BrokerAllowedOrigin)
+	c.BrokerDiscoveryRedirectURL = strings.TrimSpace(c.BrokerDiscoveryRedirectURL)
+	c.BrokerLoginRedirectURL = strings.TrimSpace(c.BrokerLoginRedirectURL)
+	c.BrokerSignupRedirectURL = strings.TrimSpace(c.BrokerSignupRedirectURL)
+	c.StytchPublicToken = strings.TrimSpace(c.StytchPublicToken)
+
+	requireHTTPS := strings.EqualFold(strings.TrimSpace(c.Env), "production")
+	if err := validateExactOrigin(c.BrokerAllowedOrigin, requireHTTPS); err != nil {
+		return err
+	}
+	for _, raw := range []string{c.BrokerDiscoveryRedirectURL, c.BrokerLoginRedirectURL, c.BrokerSignupRedirectURL} {
+		if err := validateExactRedirectURL(raw, requireHTTPS); err != nil {
+			return err
+		}
+	}
+	if !validPublicToken(c.StytchPublicToken) {
+		return fmt.Errorf("identity config: stytch public token is invalid")
+	}
+	return nil
+}
+
+func validateExactOrigin(raw string, requireHTTPS bool) error {
+	if raw == "" {
+		return fmt.Errorf("identity config: broker allowed origin is required")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
+		u.Fragment != "" || (u.Path != "" && u.Path != "/") || strings.Contains(raw, ",") {
+		return fmt.Errorf("identity config: broker allowed origin must be an exact origin")
+	}
+	if requireHTTPS {
+		if !strings.EqualFold(u.Scheme, "https") {
+			return fmt.Errorf("identity config: broker allowed origin must be an exact https origin")
+		}
+	} else if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("identity config: broker allowed origin must be an exact origin")
+	}
+	return nil
+}
+
+func validateExactRedirectURL(raw string, requireHTTPS bool) error {
+	if raw == "" {
+		return fmt.Errorf("identity config: broker redirect url is required")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
+		u.Fragment != "" || strings.ContainsAny(u.Path, "?#") {
+		return fmt.Errorf("identity config: broker redirect url must be an exact url")
+	}
+	if requireHTTPS {
+		if !strings.EqualFold(u.Scheme, "https") {
+			return fmt.Errorf("identity config: broker redirect url must be an exact https url")
+		}
+	} else if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("identity config: broker redirect url must be an exact url")
+	}
+	return nil
+}
+
+func validPublicToken(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, r := range value {
+		if r < 33 || r > 126 {
+			return false
+		}
+	}
+	return true
 }

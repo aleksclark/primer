@@ -142,8 +142,10 @@ SELECT EXISTS (
 )`).Scan(&accounts))
 	assert.True(t, accounts)
 
-	// One down removes only the additive Stytch mapping table.
-	require.NoError(t, db.MigrateDown(ctx, url))
+	// Roll down IB1 and baseline migrations one at a time; each is reversible.
+	for range 4 {
+		require.NoError(t, db.MigrateDown(ctx, url))
+	}
 	var stytchMappings bool
 	require.NoError(t, pool.QueryRow(ctx, `
 SELECT EXISTS (
@@ -151,13 +153,12 @@ SELECT EXISTS (
   WHERE table_schema = 'public' AND table_name = 'stytch_mappings'
 )`).Scan(&stytchMappings))
 	assert.False(t, stytchMappings)
-
 	require.NoError(t, pool.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM information_schema.tables
   WHERE table_schema = 'public' AND table_name = 'accounts'
 )`).Scan(&accounts))
-	assert.True(t, accounts, "one down must preserve accounts")
+	assert.False(t, accounts, "full rollback should drop accounts")
 
 	var meta bool
 	require.NoError(t, pool.QueryRow(ctx, `
@@ -165,16 +166,7 @@ SELECT EXISTS (
   SELECT 1 FROM information_schema.tables
   WHERE table_schema = 'public' AND table_name = 'schema_meta'
 )`).Scan(&meta))
-	assert.True(t, meta, "foundation remains after one down")
-
-	// A second down reaches the phase-1 foundation.
-	require.NoError(t, db.MigrateDown(ctx, url))
-	require.NoError(t, pool.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1 FROM information_schema.tables
-  WHERE table_schema = 'public' AND table_name = 'accounts'
-)`).Scan(&accounts))
-	assert.False(t, accounts, "second down should drop accounts")
+	assert.True(t, meta, "foundation remains after IB1/baseline rollback")
 
 	require.NoError(t, db.Migrate(ctx, url), "upgrade from phase 1 must apply all later migrations")
 	require.NoError(t, pool.QueryRow(ctx, `

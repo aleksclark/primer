@@ -16,12 +16,49 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aleksclark/primer/identity/internal/broker"
 )
 
 // Options configures Identity API construction.
 type Options struct {
 	// Now overrides the clock for tests.
 	Now func() time.Time
+	// Broker, when set, registers the IB1 OAuth/broker HTTP routes.
+	Broker *broker.Service
+	// RequireBroker makes readiness fail closed unless the broker was composed.
+	RequireBroker bool
+	// BrokerHTTP configures cookie and CSRF origin policy for broker routes.
+	BrokerHTTP BrokerHTTPOptions
+}
+
+const (
+	// DefaultAuthorizeRequestTargetMax is the IB1 authorize request-target cap.
+	DefaultAuthorizeRequestTargetMax = 8192
+	// productionHSTS is sent only when BrokerHTTP Production is true.
+	productionHSTS = "max-age=31536000; includeSubDomains"
+)
+
+// BrokerHTTPOptions is the HTTP-only broker security policy. It never carries
+// provider secrets.
+type BrokerHTTPOptions struct {
+	// AllowedOrigin is the exact Origin accepted by mutating broker POSTs.
+	AllowedOrigin string
+	// InsecureTestCookie disables the Secure cookie flag. It is rejected when
+	// Production is true.
+	InsecureTestCookie bool
+	// Production enables fail-closed cookie policy (__Host- + Secure) and HSTS.
+	Production bool
+	// MaxRequestTargetBytes is the raw authorize request-target cap received
+	// from validated config. Zero means the hard maximum 8192. Values above
+	// 8192 are rejected at construction.
+	MaxRequestTargetBytes int
+	// PublicHost is the exact Stytch public host allowed in SSO ContinueURL
+	// (for example test.stytch.com or api.stytch.com). Never derived from Host.
+	PublicHost string
+	// PublicToken is the exact configured public token that an official SSO
+	// start URL must carry. It is not a secret.
+	PublicToken string
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -31,9 +68,13 @@ type Pinger interface {
 
 // Server holds shared handler dependencies.
 type Server struct {
-	pool    Pinger
-	now     func() time.Time
-	reqTotal atomic.Int64
+	pool                    Pinger
+	now                     func() time.Time
+	reqTotal                atomic.Int64
+	broker                  *broker.Service
+	requireBroker           bool
+	brokerHTTP              BrokerHTTPOptions
+	registerBrokerInventory bool
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -47,8 +88,28 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, now: now}
+	if opts.BrokerHTTP.Production && opts.BrokerHTTP.InsecureTestCookie {
+		panic("api: InsecureTestCookie is rejected when Production is true")
+	}
+	opts.BrokerHTTP.MaxRequestTargetBytes = validatedRequestTargetMax(opts.BrokerHTTP.MaxRequestTargetBytes)
+	s := &Server{pool: pool, now: now, broker: opts.Broker, requireBroker: opts.RequireBroker, brokerHTTP: opts.BrokerHTTP}
+	return s.build()
+}
 
+func validatedRequestTargetMax(n int) int {
+	if n == 0 {
+		return DefaultAuthorizeRequestTargetMax
+	}
+	if n < 0 || n > DefaultAuthorizeRequestTargetMax {
+		panic("api: MaxRequestTargetBytes must be between 1 and 8192")
+	}
+	return n
+}
+
+func (s *Server) build() (huma.API, http.Handler) {
+	if s.now == nil {
+		s.now = time.Now
+	}
 	router := chi.NewMux()
 	router.Use(middleware.Recoverer)
 	router.Use(RequestIDMiddleware)
@@ -103,6 +164,9 @@ func (s *Server) RegisterRoutes(api huma.API) {
 		if s.pool == nil {
 			return nil, huma.Error503ServiceUnavailable("database unavailable")
 		}
+		if s.requireBroker && s.broker == nil {
+			return nil, huma.Error503ServiceUnavailable("unavailable")
+		}
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		if err := s.pool.Ping(pingCtx); err != nil {
@@ -118,6 +182,8 @@ func (s *Server) RegisterRoutes(api huma.API) {
 		out.Body.Status = "ready"
 		return out, nil
 	})
+
+	s.registerBrokerRoutes(api)
 }
 
 // RequestIDMiddleware ensures every response carries X-Request-ID.

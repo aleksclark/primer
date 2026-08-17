@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -12,13 +13,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/aleksclark/primer/identity/internal/api"
+	"github.com/aleksclark/primer/identity/internal/broker"
+	"github.com/aleksclark/primer/identity/internal/brokerprovider"
 	"github.com/aleksclark/primer/identity/internal/config"
 	"github.com/aleksclark/primer/identity/internal/db"
 	"github.com/aleksclark/primer/identity/internal/logging"
+	"github.com/aleksclark/primer/identity/internal/stytch"
+	"github.com/aleksclark/primer/identity/internal/stytchcache"
 )
 
 // Options customizes process bootstrap for tests.
@@ -27,13 +33,25 @@ type Options struct {
 	Config *config.Config
 	// Stdout is the log destination (defaults to os.Stdout).
 	Stdout io.Writer
-	// ListenConfig allows tests to inject a bound listener.
+	// Listener allows tests to inject a bound listener.
 	// When nil, the server listens on cfg.Addr().
 	Listener net.Listener
 	// SkipMigrate skips goose up (tests that manage schema themselves).
 	SkipMigrate bool
 	// ShutdownSignal, when set, is used instead of OS signals.
 	ShutdownSignal <-chan struct{}
+
+	// Provider injects a broker provider. Tests only; rejected in production.
+	Provider brokerprovider.Provider
+	// EnableBrokerForTest composes broker routes in development/test without
+	// enabling the official Stytch provider. Rejected in production.
+	EnableBrokerForTest bool
+	// InsecureBrokerCookieForTest disables the Secure cookie flag. Rejected
+	// in production. The production binary has no environment test-provider mode.
+	InsecureBrokerCookieForTest bool
+	// ProofKeySource overrides the CSPRNG used to mint the official proof-cache
+	// HMAC key. Tests only; production always uses crypto/rand.
+	ProofKeySource func([]byte) (int, error)
 }
 
 // Result is returned after a successful Run that has shut down.
@@ -41,8 +59,14 @@ type Result struct {
 	Addr string
 }
 
-// Run loads config (unless provided), migrates, serves HTTP, and shuts down
-// gracefully on SIGINT/SIGTERM or Options.ShutdownSignal.
+var (
+	errProductionTestSeam = errors.New("identity app: production rejects test broker seams")
+	errBrokerUnavailable  = errors.New("identity app: broker composition is unavailable")
+)
+
+// Run loads config (unless provided), composes broker dependencies when
+// required, migrates, serves HTTP, and shuts down gracefully on
+// SIGINT/SIGTERM or Options.ShutdownSignal.
 func Run(ctx context.Context, opts Options) error {
 	out := opts.Stdout
 	if out == nil {
@@ -60,6 +84,45 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	if cfg.Env == "production" && (opts.Provider != nil || opts.EnableBrokerForTest || opts.InsecureBrokerCookieForTest || opts.ProofKeySource != nil) {
+		return errProductionTestSeam
+	}
+
+	composeBroker := cfg.BrokerEnabled() || opts.EnableBrokerForTest || opts.Provider != nil
+	var (
+		secrets  config.BrokerSecretSet
+		provider brokerprovider.Provider
+	)
+	if composeBroker {
+		if err := cfg.RequireBrokerHTTP(); err != nil {
+			return err
+		}
+		var err error
+		secrets, err = cfg.BrokerSecrets()
+		if err != nil {
+			return err
+		}
+		provider = opts.Provider
+		if provider == nil {
+			proofs, err := newOfficialProofCache(cfg, opts.ProofKeySource)
+			if err != nil {
+				return errBrokerUnavailable
+			}
+			official, err := stytch.NewBroker(stytch.BrokerConfig{
+				Stytch:               cfg.Stytch,
+				DiscoveryRedirectURL: cfg.BrokerDiscoveryRedirectURL,
+				LoginRedirectURL:     cfg.BrokerLoginRedirectURL,
+				SignupRedirectURL:    cfg.BrokerSignupRedirectURL,
+				PublicToken:          cfg.StytchPublicToken,
+				Proofs:               proofs,
+			})
+			if err != nil {
+				return errBrokerUnavailable
+			}
+			provider = official
+		}
+	}
+
 	logger := logging.NewJSONLogger(out, cfg.LogLevel)
 	slog.SetDefault(logger)
 
@@ -75,7 +138,28 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer pool.Close()
 
-	_, handler := api.New(pool, api.Options{})
+	apiOpts := api.Options{
+		RequireBroker: composeBroker,
+		BrokerHTTP: api.BrokerHTTPOptions{
+			AllowedOrigin:         cfg.BrokerAllowedOrigin,
+			InsecureTestCookie:    opts.InsecureBrokerCookieForTest || cfg.InsecureBrokerCookie,
+			Production:            cfg.Env == "production",
+			MaxRequestTargetBytes: cfg.AuthorizeTargetMaxBytes,
+			PublicToken:           cfg.StytchPublicToken,
+			PublicHost:            officialPublicHost(cfg),
+		},
+	}
+	if composeBroker {
+		svc, err := broker.NewService(broker.ServiceConfig{
+			Pool: pool, Secrets: secrets, Provider: provider, Issuer: cfg.Issuer,
+		})
+		if err != nil {
+			return errBrokerUnavailable
+		}
+		apiOpts.Broker = svc
+	}
+
+	_, handler := api.New(pool, apiOpts)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr(),
@@ -122,6 +206,46 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	logger.Info("shutdown complete", "addr", addr)
 	return nil
+}
+
+func newOfficialProofCache(cfg *config.Config, source func([]byte) (int, error)) (*stytchcache.ProofCache, error) {
+	if cfg == nil {
+		return nil, errBrokerUnavailable
+	}
+	ttl := cfg.ProviderProofCacheTTL
+	if ttl == 0 {
+		ttl = 15 * time.Second
+	}
+	capacity := cfg.ProviderProofCacheCapacity
+	if capacity == 0 {
+		capacity = stytchcache.DefaultProofCacheCapacity
+	}
+	if source == nil {
+		source = rand.Read
+	}
+	key := make([]byte, 32)
+	n, err := source(key)
+	if err != nil || n != len(key) {
+		clear(key)
+		return nil, errBrokerUnavailable
+	}
+	cache, err := stytchcache.NewProofCache(stytchcache.ProofConfig{
+		HMACKey:  key,
+		TTL:      ttl,
+		Capacity: capacity,
+	})
+	clear(key)
+	if err != nil {
+		return nil, errBrokerUnavailable
+	}
+	return cache, nil
+}
+
+func officialPublicHost(cfg *config.Config) string {
+	if cfg != nil && strings.EqualFold(cfg.Stytch.Env, "live") {
+		return "api.stytch.com"
+	}
+	return "test.stytch.com"
 }
 
 // WaitReady polls addr until /readyz returns 200 or timeout.

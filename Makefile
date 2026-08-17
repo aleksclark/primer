@@ -318,13 +318,34 @@ identity-build:
 identity-cover:
 	@./scripts/enforce-module-cover.sh primer-identity $(IDENTITY_COVER_MIN) identity
 
-## Identity OpenAPI emission — deferred.
+## Identity OpenAPI emission + generated IB1 client — fail-closed drift check.
 identity-openapi:
-	@echo "identity-openapi: deferred until Identity OpenAPI generator exists (I1+)"; exit 2
+	@spec="$$(mktemp)"; \
+	client="$$(mktemp)"; \
+	trap 'rm -f "$$spec" "$$client"' EXIT; \
+	( cd primer-identity && go run ./cmd/openapi-gen -out "$$spec" ) && \
+	cmp -s "$$spec" primer-identity/openapi.yaml && \
+	( cd primer-identity && go tool oapi-codegen -package identityclient -generate types,client -o "$$client" "$$spec" ) && \
+	cmp -s "$$client" primer-identity/client/client.gen.go
 
-## Identity OAuth adversarial suite — deferred until OAuth packages exist (I4+).
+## Identity OAuth / IB1 adversarial suite (E01..E10 relevant packages, race, real DB).
 identity-test-oauth:
-	@echo "identity-test-oauth: deferred until Identity OAuth packages exist (I4+)"; exit 2
+	cd primer-identity && go test -race -count=1 \
+		./client \
+		./cmd/openapi-gen \
+		./internal/api \
+		./internal/app \
+		./internal/broker \
+		./internal/brokerprovider \
+		./internal/config \
+		./internal/db \
+		./internal/domain \
+		./internal/repo \
+		./internal/secrethash \
+		./internal/stateseal \
+		./internal/stytch \
+		./internal/stytchcache \
+		./internal/testutil/e2e
 
 ## Identity process E2E (I1 harness under internal/testutil/e2e).
 identity-e2e:

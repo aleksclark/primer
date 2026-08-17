@@ -145,14 +145,14 @@ func TestLoadProductionStytchPolicyMatrix(t *testing.T) {
 		{
 			name: "prod disabled with live pair set",
 			env: map[string]string{
-				"IDENTITY_ENV":                "production",
-				"IDENTITY_DATABASE_URL":       identityDSN,
-				"IDENTITY_ISSUER":             "https://id.example",
-				"IDENTITY_STYTCH_ENABLED":     "false",
-				"IDENTITY_STYTCH_ENV":         "live",
-				"IDENTITY_STYTCH_PROJECT_ID":  "project-live-example",
-				"IDENTITY_STYTCH_SECRET":      productionStytchSecret,
-				"IDENTITY_STYTCH_BASE_URI":    "",
+				"IDENTITY_ENV":               "production",
+				"IDENTITY_DATABASE_URL":      identityDSN,
+				"IDENTITY_ISSUER":            "https://id.example",
+				"IDENTITY_STYTCH_ENABLED":    "false",
+				"IDENTITY_STYTCH_ENV":        "live",
+				"IDENTITY_STYTCH_PROJECT_ID": "project-live-example",
+				"IDENTITY_STYTCH_SECRET":     productionStytchSecret,
+				"IDENTITY_STYTCH_BASE_URI":   "",
 			},
 			want:    "enabled",
 			wantErr: true,
@@ -160,12 +160,12 @@ func TestLoadProductionStytchPolicyMatrix(t *testing.T) {
 		{
 			name: "prod default disabled is not an incidental live-env failure",
 			env: map[string]string{
-				"IDENTITY_ENV":                "production",
-				"IDENTITY_DATABASE_URL":       identityDSN,
-				"IDENTITY_ISSUER":             "https://id.example",
-				"IDENTITY_STYTCH_ENV":         "live",
-				"IDENTITY_STYTCH_PROJECT_ID":  "project-live-example",
-				"IDENTITY_STYTCH_SECRET":      productionStytchSecret,
+				"IDENTITY_ENV":               "production",
+				"IDENTITY_DATABASE_URL":      identityDSN,
+				"IDENTITY_ISSUER":            "https://id.example",
+				"IDENTITY_STYTCH_ENV":        "live",
+				"IDENTITY_STYTCH_PROJECT_ID": "project-live-example",
+				"IDENTITY_STYTCH_SECRET":     productionStytchSecret,
 			},
 			want:    "enabled",
 			wantErr: true,
@@ -173,13 +173,13 @@ func TestLoadProductionStytchPolicyMatrix(t *testing.T) {
 		{
 			name: "prod test env",
 			env: map[string]string{
-				"IDENTITY_ENV":                "production",
-				"IDENTITY_DATABASE_URL":       identityDSN,
-				"IDENTITY_ISSUER":             "https://id.example",
-				"IDENTITY_STYTCH_ENABLED":     "true",
-				"IDENTITY_STYTCH_ENV":         "test",
-				"IDENTITY_STYTCH_PROJECT_ID":  "project-test-example",
-				"IDENTITY_STYTCH_SECRET":      productionStytchSecret,
+				"IDENTITY_ENV":               "production",
+				"IDENTITY_DATABASE_URL":      identityDSN,
+				"IDENTITY_ISSUER":            "https://id.example",
+				"IDENTITY_STYTCH_ENABLED":    "true",
+				"IDENTITY_STYTCH_ENV":        "test",
+				"IDENTITY_STYTCH_PROJECT_ID": "project-test-example",
+				"IDENTITY_STYTCH_SECRET":     productionStytchSecret,
 			},
 			want:    "live",
 			wantErr: true,
@@ -240,9 +240,9 @@ func TestLoadProductionStytchPolicyMatrix(t *testing.T) {
 		{
 			name: "development disabled",
 			env: map[string]string{
-				"IDENTITY_ENV":          "development",
-				"IDENTITY_DATABASE_URL": identityDSN,
-				"IDENTITY_ISSUER":        "http://localhost:8090",
+				"IDENTITY_ENV":            "development",
+				"IDENTITY_DATABASE_URL":   identityDSN,
+				"IDENTITY_ISSUER":         "http://localhost:8090",
 				"IDENTITY_STYTCH_ENABLED": "false",
 			},
 		},
@@ -260,6 +260,19 @@ func TestLoadProductionStytchPolicyMatrix(t *testing.T) {
 			clearIdentityEnv(t)
 			clearStytchEnv(t)
 			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+			for key, value := range map[string]string{
+				"IDENTITY_STATE_SEAL_KEYS": "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "IDENTITY_STATE_SEAL_ACTIVE_VERSION": "1",
+				"IDENTITY_STATE_HASH_PEPPERS": "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "IDENTITY_STATE_HASH_ACTIVE_VERSION": "1",
+				"IDENTITY_BROKER_COOKIE_PEPPERS": "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "IDENTITY_BROKER_COOKIE_ACTIVE_VERSION": "1",
+				"IDENTITY_AUTHORIZATION_CODE_PEPPERS": "1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "IDENTITY_AUTHORIZATION_CODE_ACTIVE_VERSION": "1",
+				"IDENTITY_BROKER_ALLOWED_ORIGIN":         "https://id.example",
+				"IDENTITY_BROKER_DISCOVERY_REDIRECT_URL": "https://id.example/broker/stytch/callback",
+				"IDENTITY_BROKER_LOGIN_REDIRECT_URL":     "https://id.example/broker/stytch/callback",
+				"IDENTITY_BROKER_SIGNUP_REDIRECT_URL":    "https://id.example/broker/stytch/callback",
+				"IDENTITY_STYTCH_PUBLIC_TOKEN":           "public-token-live-example",
+			} {
 				t.Setenv(key, value)
 			}
 			cfg, err := config.Load()

@@ -1,6 +1,6 @@
 # 05 — Reviewed verification, rollout, rollback, and traceability
 
-**Status: PASS — independent IB0 design review at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Review evidence covers 40 docs/architecture files, links, 58 planned E2Es, 24 requirements, and passing LikeC4 topology. This is a design freeze, not runtime or live-provider completion. Credential-free IB1 may PROCEED only after this review-status commit is merged to `master`; live Stytch remains **BLOCKED**.
+**Status: PASS — independent IB0 design review at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; 0 Critical, 0 Important, and 0 Minor findings.** Review evidence covers 40 docs/architecture files, links, 58 planned E2Es, 24 requirements, and passing LikeC4 topology. This remains the design freeze. Credential-free IB1 subsequently completed and passed review at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8`; IB2/I6 is next only after reviewed IB1 reaches `master`, and live Stytch credentials/browser proof remains **BLOCKED**.
 
 ## BDD success criteria
 
@@ -221,6 +221,6 @@ Rollback never deletes tuple mappings/webhook/audit evidence, never broadens red
 - [x] LikeC4 required positive edges render and forbidden direct Stytch pairs are absent;
 - [x] mechanical link/heading/traceability/allowlist/diff checks passed.
 
-**PROCEED applies only to credential-free IB1 after this review-status commit is merged to `master`.** It does not mark any IB1–IB8 runtime E2E complete and does not unblock live Stytch.
+**The IB0 PROCEED gate was consumed by reviewed credential-free IB1 at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8`.** IB2/I6 is next only after reviewed IB1 reaches `master`; IB1 makes no token/JWT/JWKS implementation claim and does not unblock live Stytch.
 
 **STOP** if any value remains “TBD,” live credentials/provider calls are required, event spellings are invented beyond verified catalog evidence, generated/code/SQL artifacts appear, donor intake would overwrite IA-R, or runtime completion is claimed from docs/fakes.

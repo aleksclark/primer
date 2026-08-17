@@ -189,3 +189,18 @@ func scanStytchMapping(row scannable) (*domain.StytchMapping, error) {
 	}
 	return &mapping, nil
 }
+
+// GetStytchMapping loads a mapping by primary key.
+func GetStytchMapping(ctx context.Context, q Querier, id uuid.UUID) (*domain.StytchMapping, error) {
+	if id == uuid.Nil {
+		return nil, wrapf("get stytch mapping", fmt.Errorf("%w: nil id", domain.ErrInvalid))
+	}
+	mapping, err := scanStytchMapping(q.QueryRow(ctx, `SELECT `+stytchMappingColumns+` FROM stytch_mappings WHERE id=$1`, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, wrapf("get stytch mapping", domain.ErrNotFound)
+		}
+		return nil, wrapf("get stytch mapping", err)
+	}
+	return mapping, nil
+}
