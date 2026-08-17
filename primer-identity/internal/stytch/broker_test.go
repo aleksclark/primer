@@ -227,9 +227,10 @@ func TestStartLoginSSOConstructsOfficialPublicStartURLWithoutHTTP(t *testing.T) 
 	assert.Equal(t, "https", parsed.Scheme)
 	assert.Equal(t, brokerConn, parsed.Query().Get("connection_id"))
 	assert.Equal(t, brokerPublicTok, parsed.Query().Get("public_token"))
-	assert.Equal(t, brokerRedirect, parsed.Query().Get("login_redirect_url"))
-	assert.Equal(t, brokerRedirect, parsed.Query().Get("signup_redirect_url"))
+	assert.Empty(t, parsed.Query().Get("login_redirect_url"))
+	assert.Empty(t, parsed.Query().Get("signup_redirect_url"))
 	assert.Empty(t, parsed.Query().Get("session_duration_minutes"))
+	assert.Len(t, parsed.Query(), 2)
 
 	oidc, err := p.StartLogin(context.Background(), brokerprovider.StartRequest{
 		Method: brokerprovider.MethodSSOOIDC, ConnectionID: "oidc-connection-test-example",

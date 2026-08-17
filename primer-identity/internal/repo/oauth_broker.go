@@ -315,7 +315,10 @@ func reuseOrCreateActiveHumanGrant(ctx context.Context, q Querier, in domain.OAu
 	if in.AccountID == nil || in.ProviderSessionAssociationID == nil {
 		return nil, wrapf("reuse oauth grant", domain.ErrInvalid)
 	}
-	existing, err := getActiveHumanGrant(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience)
+	if err := expireActiveHumanGrants(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience, in.GrantedAt); err != nil {
+		return nil, err
+	}
+	existing, err := getReusableActiveHumanGrant(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience, in.GrantedAt)
 	if err == nil {
 		return reuseActiveHumanGrant(existing, in.Scopes)
 	}
@@ -329,22 +332,35 @@ func reuseOrCreateActiveHumanGrant(ctx context.Context, q Querier, in domain.OAu
 	if !errors.Is(createErr, domain.ErrConflict) {
 		return nil, createErr
 	}
-	existing, err = getActiveHumanGrant(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience)
+	existing, err = getReusableActiveHumanGrant(ctx, q, *in.AccountID, in.OAuthClientID, *in.ProviderSessionAssociationID, in.ResourceURI, in.Audience, in.GrantedAt)
 	if err != nil {
 		return nil, createErr
 	}
 	return reuseActiveHumanGrant(existing, in.Scopes)
 }
 
-func getActiveHumanGrant(ctx context.Context, q Querier, accountID, clientID, associationID uuid.UUID, resourceURI, audience string) (*domain.OAuthGrant, error) {
+func expireActiveHumanGrants(ctx context.Context, q Querier, accountID, clientID, associationID uuid.UUID, resourceURI, audience string, issuedAt time.Time) error {
+	_, err := q.Exec(ctx, `
+UPDATE oauth_grants
+SET status='expired', version=version+1, revoked_at=$6, revoke_reason_code='expired'
+WHERE account_id=$1 AND oauth_client_id=$2 AND provider_session_association_id=$3
+  AND resource_uri=$4 AND audience=$5 AND subject_class='human' AND status='active'
+  AND not_after <= $6`,
+		accountID, clientID, associationID, resourceURI, audience, issuedAt,
+	)
+	return wrapf("expire oauth grant", err)
+}
+
+func getReusableActiveHumanGrant(ctx context.Context, q Querier, accountID, clientID, associationID uuid.UUID, resourceURI, audience string, issuedAt time.Time) (*domain.OAuthGrant, error) {
 	out := &domain.OAuthGrant{}
 	err := q.QueryRow(ctx, `
 SELECT id,account_id,service_principal_id,oauth_client_id,provider_session_association_id,resource_uri,audience,scopes,subject_class,status,granted_at,not_after,revoked_at,revoke_reason_code,version
 FROM oauth_grants
 WHERE account_id=$1 AND oauth_client_id=$2 AND provider_session_association_id=$3
   AND resource_uri=$4 AND audience=$5 AND subject_class='human' AND status='active'
+  AND not_after > $6
 FOR UPDATE`,
-		accountID, clientID, associationID, resourceURI, audience,
+		accountID, clientID, associationID, resourceURI, audience, issuedAt,
 	).Scan(&out.ID, &out.AccountID, &out.ServicePrincipalID, &out.OAuthClientID, &out.ProviderSessionAssociationID, &out.ResourceURI, &out.Audience, &out.Scopes, &out.SubjectClass, &out.Status, &out.GrantedAt, &out.NotAfter, &out.RevokedAt, &out.RevokeReasonCode, &out.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, wrapf("get oauth grant", domain.ErrNotFound)

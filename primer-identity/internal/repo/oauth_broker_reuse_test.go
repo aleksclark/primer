@@ -380,3 +380,182 @@ func TestIssueCallbackArtifactsDoesNotShortenAssociationExpiry(t *testing.T) {
 	assert.True(t, secondOut.Association.LastValidatedAt.After(firstOut.Association.LastValidatedAt) ||
 		secondOut.Association.LastValidatedAt.Equal(first.LastValidatedAt.Add(time.Minute)))
 }
+
+func forceExpiredActiveGrant(t *testing.T, grantID uuid.UUID, notAfter time.Time) {
+	t.Helper()
+	_, err := testutil.DB(t).Exec(context.Background(),
+		`UPDATE oauth_grants SET not_after=$2 WHERE id=$1 AND status='active'`,
+		grantID, notAfter)
+	require.NoError(t, err)
+}
+
+func grantStatusAndVersion(t *testing.T, grantID uuid.UUID) (status string, version int64, revokedAt *time.Time, reason *string) {
+	t.Helper()
+	require.NoError(t, testutil.DB(t).QueryRow(context.Background(),
+		`SELECT status, version, revoked_at, revoke_reason_code FROM oauth_grants WHERE id=$1`,
+		grantID).Scan(&status, &version, &revokedAt, &reason))
+	return status, version, revokedAt, reason
+}
+
+func activeHumanGrantCount(t *testing.T, accountID, clientID, associationID uuid.UUID, resourceURI, audience string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, testutil.DB(t).QueryRow(context.Background(),
+		`SELECT count(*) FROM oauth_grants
+		 WHERE account_id=$1 AND oauth_client_id=$2 AND provider_session_association_id=$3
+		   AND resource_uri=$4 AND audience=$5 AND subject_class='human' AND status='active'`,
+		accountID, clientID, associationID, resourceURI, audience).Scan(&n))
+	return n
+}
+
+func repeatIssuance(t *testing.T, first repo.IssueCallbackArtifactsInput, sessionID string, issuedAt time.Time) repo.IssueCallbackArtifactsInput {
+	t.Helper()
+	second := issuanceFixture(t, sessionID)
+	second.AccountID = first.AccountID
+	second.MappingID = first.MappingID
+	second.ProviderProjectID = first.ProviderProjectID
+	second.ProviderOrganizationID = first.ProviderOrganizationID
+	second.ProviderMemberID = first.ProviderMemberID
+	second.OAuthClientID = first.OAuthClientID
+	second.ResourceURI = first.ResourceURI
+	second.Audience = first.Audience
+	second.Scopes = first.Scopes
+	second.IssuedAt = issuedAt
+	second.ExpiresAt = issuedAt.Add(30 * time.Second)
+	second.GrantNotAfter = issuedAt.Add(24 * time.Hour)
+	return second
+}
+
+// An active human grant whose not_after is already in the past must be expired
+// atomically and replaced; the new code must not attach to the stale grant.
+func TestIssueCallbackArtifactsExpiresActiveGrantPastNotAfter(t *testing.T) {
+	sessionID := "grant-expired-" + uuid.NewString()[:8]
+	first := issuanceFixture(t, sessionID)
+	firstOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), first)
+	require.NoError(t, err)
+	require.Equal(t, "active", firstOut.Grant.Status)
+
+	issuedAt := first.IssuedAt.Add(time.Hour)
+	forceExpiredActiveGrant(t, firstOut.Grant.ID, issuedAt.Add(-time.Second))
+
+	second := repeatIssuance(t, first, sessionID, issuedAt)
+	secondOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), second)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, firstOut.Grant.ID, secondOut.Grant.ID, "expired-but-active grant must not be reused")
+	assert.Equal(t, "active", secondOut.Grant.Status)
+	assert.True(t, secondOut.Grant.NotAfter.After(issuedAt))
+	assert.Equal(t, firstOut.Association.ID, secondOut.Association.ID)
+	assert.Equal(t, first.AccountID, *secondOut.Grant.AccountID)
+	assert.Equal(t, first.Scopes, secondOut.Grant.Scopes)
+	assert.NotEqual(t, firstOut.Code.ID, secondOut.Code.ID)
+	assert.Equal(t, secondOut.Grant.ID, secondOut.Code.GrantID, "new code must bind the fresh grant")
+	assert.NotEqual(t, firstOut.Grant.ID, secondOut.Code.GrantID, "new code must not bind the stale grant")
+
+	status, version, revokedAt, reason := grantStatusAndVersion(t, firstOut.Grant.ID)
+	assert.Equal(t, "expired", status)
+	assert.Greater(t, version, firstOut.Grant.Version)
+	require.NotNil(t, revokedAt)
+	require.NotNil(t, reason)
+	assert.NotEmpty(t, *reason)
+	assert.Equal(t, 1, activeHumanGrantCount(t, first.AccountID, first.OAuthClientID, firstOut.Association.ID, first.ResourceURI, first.Audience))
+}
+
+// Exact not_after == issuedAt is expired, not reusable.
+func TestIssueCallbackArtifactsExpiresActiveGrantAtExactNotAfterBoundary(t *testing.T) {
+	sessionID := "grant-boundary-" + uuid.NewString()[:8]
+	first := issuanceFixture(t, sessionID)
+	firstOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), first)
+	require.NoError(t, err)
+
+	issuedAt := first.IssuedAt.Add(30 * time.Minute)
+	forceExpiredActiveGrant(t, firstOut.Grant.ID, issuedAt)
+
+	second := repeatIssuance(t, first, sessionID, issuedAt)
+	secondOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), second)
+	require.NoError(t, err)
+	assert.NotEqual(t, firstOut.Grant.ID, secondOut.Grant.ID)
+
+	status, _, _, _ := grantStatusAndVersion(t, firstOut.Grant.ID)
+	assert.Equal(t, "expired", status)
+	assert.Equal(t, secondOut.Grant.ID, secondOut.Code.GrantID)
+	assert.Equal(t, 1, activeHumanGrantCount(t, first.AccountID, first.OAuthClientID, firstOut.Association.ID, first.ResourceURI, first.Audience))
+}
+
+// Concurrent expiry/reissue must leave exactly one new active grant.
+func TestIssueCallbackArtifactsConcurrentExpiredGrantReissueCreatesOneActive(t *testing.T) {
+	sessionID := "grant-conc-exp-" + uuid.NewString()[:8]
+	first := issuanceFixture(t, sessionID)
+	firstOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), first)
+	require.NoError(t, err)
+
+	issuedAt := first.IssuedAt.Add(time.Hour)
+	forceExpiredActiveGrant(t, firstOut.Grant.ID, issuedAt.Add(-time.Millisecond))
+
+	const workers = 8
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		grantIDs  []uuid.UUID
+		successes int
+	)
+	gate := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			attempt := repeatIssuance(t, first, sessionID, issuedAt)
+			<-gate
+			out, issueErr := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), attempt)
+			if issueErr != nil {
+				return
+			}
+			mu.Lock()
+			successes++
+			grantIDs = append(grantIDs, out.Grant.ID)
+			mu.Unlock()
+		}()
+	}
+	close(gate)
+	wg.Wait()
+
+	require.GreaterOrEqual(t, successes, 1)
+	seen := map[uuid.UUID]struct{}{}
+	for _, id := range grantIDs {
+		assert.NotEqual(t, firstOut.Grant.ID, id)
+		seen[id] = struct{}{}
+	}
+	assert.Len(t, seen, 1, "concurrent expiry/reissue must converge on one new grant")
+	status, _, _, _ := grantStatusAndVersion(t, firstOut.Grant.ID)
+	assert.Equal(t, "expired", status)
+	assert.Equal(t, 1, activeHumanGrantCount(t, first.AccountID, first.OAuthClientID, firstOut.Association.ID, first.ResourceURI, first.Audience))
+}
+
+// A later issuance after expiry/reissue must reuse the fresh grant and leave
+// the expired row terminal (restart must not resurrect it).
+func TestIssueCallbackArtifactsRestartAfterExpiredGrantDoesNotResurrect(t *testing.T) {
+	sessionID := "grant-restart-" + uuid.NewString()[:8]
+	first := issuanceFixture(t, sessionID)
+	firstOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), first)
+	require.NoError(t, err)
+
+	issuedAt := first.IssuedAt.Add(time.Hour)
+	forceExpiredActiveGrant(t, firstOut.Grant.ID, issuedAt.Add(-time.Second))
+
+	second := repeatIssuance(t, first, sessionID, issuedAt)
+	secondOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), second)
+	require.NoError(t, err)
+	require.NotEqual(t, firstOut.Grant.ID, secondOut.Grant.ID)
+
+	restartAt := issuedAt.Add(time.Minute)
+	third := repeatIssuance(t, first, sessionID, restartAt)
+	thirdOut, err := repo.IssueCallbackArtifacts(context.Background(), testutil.DB(t), third)
+	require.NoError(t, err)
+	assert.Equal(t, secondOut.Grant.ID, thirdOut.Grant.ID, "restart must reuse the still-valid replacement grant")
+	assert.NotEqual(t, firstOut.Grant.ID, thirdOut.Grant.ID)
+	assert.Equal(t, thirdOut.Grant.ID, thirdOut.Code.GrantID)
+
+	status, _, _, _ := grantStatusAndVersion(t, firstOut.Grant.ID)
+	assert.Equal(t, "expired", status)
+	assert.Equal(t, 1, activeHumanGrantCount(t, first.AccountID, first.OAuthClientID, firstOut.Association.ID, first.ResourceURI, first.Audience))
+}

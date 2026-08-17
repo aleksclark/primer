@@ -192,8 +192,6 @@ func (b *Broker) publicSSOStartURL(req brokerprovider.StartRequest) (string, err
 	} else {
 		q.Set("organization_id", req.OrganizationID)
 	}
-	q.Set("login_redirect_url", b.cfg.LoginRedirectURL)
-	q.Set("signup_redirect_url", b.cfg.SignupRedirectURL)
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }

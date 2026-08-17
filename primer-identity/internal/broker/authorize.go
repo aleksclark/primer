@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -207,10 +208,11 @@ func ParseAuthorizeRequest(query url.Values) (AuthorizeRequest, error) {
 		return AuthorizeRequest{}, err
 	}
 
-	state := []byte(query.Get("state"))
-	if len(state) < MinStateBytes || len(state) > MaxStateBytes {
-		return AuthorizeRequest{}, oauthErr(ErrorInvalidRequest, "invalid state length")
+	stateRaw := query.Get("state")
+	if !validOpaqueState(stateRaw) {
+		return AuthorizeRequest{}, oauthErr(ErrorInvalidRequest, "invalid state")
 	}
+	state := []byte(stateRaw)
 
 	if query.Get("code_challenge_method") != "S256" {
 		return AuthorizeRequest{}, oauthErr(ErrorInvalidRequest, "code_challenge_method must be S256")
@@ -264,6 +266,20 @@ func validBoundedText(value string, maxBytes int) bool {
 	}
 	for _, r := range value {
 		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// validOpaqueState accepts 1..1024 bytes of strict UTF-8 with no Unicode or
+// ASCII control characters. Opaque printable text, including non-ASCII, is kept.
+func validOpaqueState(value string) bool {
+	if len(value) < MinStateBytes || len(value) > MaxStateBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
 			return false
 		}
 	}

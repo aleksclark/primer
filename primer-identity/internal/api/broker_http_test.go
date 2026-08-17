@@ -3,9 +3,12 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -266,6 +269,96 @@ func TestAuthorizeRejectsDuplicateUnknownOpenRedirectControlAndOversize(t *testi
 			assert.Empty(t, cookieValue(rr))
 		})
 	}
+}
+
+func TestAuthorizeRejectsControlAndInvalidUTF8StateWithoutCookieProviderOrRedirect(t *testing.T) {
+	var starts atomic.Int64
+	provider := &countingStartProvider{
+		inner: scripted(t, successFixture(uniqueLabel("state-ctl"), brokerprovider.MethodEmailMagicLink)),
+		n:     &starts,
+	}
+	svc := newBrokerService(t, provider)
+	handler, _ := newBrokerAPI(t, svc)
+	clientID := uniqueLabel("stctl")
+	redirect, resource, audience := registerHTTPClient(t, clientID)
+
+	cases := []struct {
+		name  string
+		state string
+	}{
+		{"nul", "ok\x00state"},
+		{"crlf", "ok\r\nSet-Cookie: injected=1"},
+		{"tab", "ok	state"},
+		{"del", "ok\x7fstate"},
+		{"c1 nel", "ok\u0085state"},
+		{"line separator", "ok\u2028state"},
+		{"invalid utf8", "ok\xffstate"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := authorizeQuery(clientID, redirect, resource, audience, tc.state)
+			req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+q.Encode(), nil)
+			rr := serve(handler, req)
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assertBrokerSecurityHeaders(t, rr)
+			assertHasCSP(t, rr)
+			assert.Empty(t, rr.Header().Get("Location"))
+			assert.Empty(t, cookieValue(rr))
+			assert.NotContains(t, rr.Header().Get("Set-Cookie"), "injected")
+			body := readBody(t, rr)
+			assert.NotContains(t, body, tc.state)
+			assert.NotContains(t, body, "\r")
+			assert.NotContains(t, body, "\nSet-Cookie")
+			assert.NotContains(t, strings.ToLower(body), clientID)
+		})
+	}
+	assert.Zero(t, starts.Load())
+}
+
+func TestAuthorizeAcceptsOpaqueUTF8State(t *testing.T) {
+	svc := newBrokerService(t, scripted(t, successFixture(uniqueLabel("state-ok"), brokerprovider.MethodEmailMagicLink)))
+	handler, _ := newBrokerAPI(t, svc)
+	clientID := uniqueLabel("stok")
+	redirect, resource, audience := registerHTTPClient(t, clientID)
+	for _, state := range []string{"s", "café-state", "状态", "🙂opaque", strings.Repeat("s", 1024)} {
+		rr := doAuthorize(t, handler, authorizeQuery(clientID, redirect, resource, audience, state))
+		assert.Equal(t, http.StatusSeeOther, rr.Code, "state %q", state)
+		assert.Equal(t, "/broker/stytch/login", rr.Header().Get("Location"))
+		assert.NotEmpty(t, cookieValue(rr))
+	}
+}
+
+func TestTrustedInvalidScopeRedirectDoesNotEchoHostileStateOrErrorURI(t *testing.T) {
+	svc := newBrokerService(t, scripted(t, successFixture(uniqueLabel("echo"), brokerprovider.MethodEmailMagicLink)))
+	handler, _ := newBrokerAPI(t, svc)
+	clientID := uniqueLabel("echook")
+	redirect, resource, audience := registerHTTPClient(t, clientID)
+
+	hostile := "ok\r\nLocation: https://evil.example"
+	q := authorizeQuery(clientID, redirect, resource, audience, hostile)
+	q.Set("scope", "openid studio.publish")
+	rr := doAuthorize(t, handler, q)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Empty(t, rr.Header().Get("Location"))
+	assert.Empty(t, cookieValue(rr))
+	body := readBody(t, rr)
+	assert.NotContains(t, body, "evil.example")
+	assert.NotContains(t, body, hostile)
+	assert.NotContains(t, rr.Header().Get("Location"), "\r")
+	assert.NotContains(t, rr.Header().Get("Location"), "\n")
+
+	safe := uniqueLabel("safe-state")
+	q = authorizeQuery(clientID, redirect, resource, audience, safe)
+	q.Set("scope", "openid studio.publish")
+	rr = doAuthorize(t, handler, q)
+	assert.Equal(t, http.StatusSeeOther, rr.Code)
+	loc, err := url.Parse(rr.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, safe, loc.Query().Get("state"))
+	assert.Equal(t, "invalid_scope", loc.Query().Get("error"))
+	assert.Empty(t, loc.Query().Get("error_uri"))
+	assert.NotContains(t, rr.Header().Get("Location"), "studio.publish")
+	assert.NotContains(t, readBody(t, rr), safe)
 }
 
 func TestProductionCookieIsHostPrefixedSecureAndInsecureTestCookieRejected(t *testing.T) {
@@ -588,13 +681,121 @@ func TestSSOStartReturns303OnlyForOfficialPublicStartURL(t *testing.T) {
 	rr := serve(handler, postForm("/broker/stytch/sso/start", form, cookie, testOrigin))
 	assert.Equal(t, http.StatusSeeOther, rr.Code)
 	assertBrokerSecurityHeaders(t, rr)
-	assert.Equal(t, official, rr.Header().Get("Location"))
+	loc, err := url.Parse(rr.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "https", loc.Scheme)
+	assert.Equal(t, "test.stytch.com", loc.Host)
+	assert.Equal(t, "/v1/public/sso/start", loc.EscapedPath())
+	assert.Equal(t, "public-token-test", loc.Query().Get("public_token"))
+	assert.Equal(t, "saml-connection-test-example", loc.Query().Get("connection_id"))
+	assert.Empty(t, loc.Query().Get("organization_id"))
+	assert.Len(t, loc.Query(), 2)
+	assert.NotContains(t, rr.Header().Get("Location"), "login_redirect")
+	assert.NotContains(t, rr.Header().Get("Location"), "signup_redirect")
 	body := readBody(t, rr)
 	assert.NotContains(t, body, "public-token-test")
 	rec.mu.Lock()
 	require.Len(t, rec.starts, 1)
 	assert.Equal(t, "saml-connection-test-example", rec.starts[0].ConnectionID)
 	rec.mu.Unlock()
+}
+
+func TestSSOStartReconstructsOfficialContinueURLAndRejectsQueryInjection(t *testing.T) {
+	const (
+		publicHost  = "test.stytch.com"
+		publicToken = "public-token-test"
+		connection  = "saml-connection-test-example"
+		org         = "organization-test-example"
+	)
+	wantConn := "https://test.stytch.com/v1/public/sso/start?connection_id=saml-connection-test-example&public_token=public-token-test"
+	wantOrg := "https://test.stytch.com/v1/public/sso/start?organization_id=organization-test-example&public_token=public-token-test"
+
+	okCases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"connection selector", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection, wantConn},
+		{"organization selector", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&organization_id=" + org, wantOrg},
+		{"reordered query", "https://test.stytch.com/v1/public/sso/start?connection_id=" + connection + "&public_token=public-token-test", wantConn},
+	}
+	for _, tc := range okCases {
+		t.Run("accept_"+tc.name, func(t *testing.T) {
+			loc := ssoStartLocation(t, tc.raw)
+			assert.Equal(t, tc.want, loc)
+			assert.NotContains(t, loc, "login_redirect")
+			assert.NotContains(t, loc, "signup_redirect")
+		})
+	}
+
+	rejectCases := []struct {
+		name string
+		raw  string
+	}{
+		{"login redirect", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection + "&login_redirect_url=https://evil.example/cb"},
+		{"signup redirect", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection + "&signup_redirect_url=https://evil.example/cb"},
+		{"unknown key", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection + "&next=https://evil.example"},
+		{"duplicate public_token", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&public_token=public-token-test&connection_id=" + connection},
+		{"duplicate connection_id", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection + "&connection_id=other-connection"},
+		{"both selectors", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection + "&organization_id=" + org},
+		{"encoded unknown key", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection + "&login%5Fredirect%5Furl=https://evil.example"},
+		{"userinfo", "https://evil:pass@test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection},
+		{"nondefault port", "https://test.stytch.com:8443/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection},
+		{"path prefix", "https://test.stytch.com/v1/public/sso/start/extra?public_token=public-token-test&connection_id=" + connection},
+		{"control in selector", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test&connection_id=saml%00id"},
+		{"open redirect host", "https://evil.example/v1/public/sso/start?public_token=public-token-test&connection_id=" + connection},
+		{"missing selector", "https://test.stytch.com/v1/public/sso/start?public_token=public-token-test"},
+	}
+	for _, tc := range rejectCases {
+		t.Run("reject_"+tc.name, func(t *testing.T) {
+			rec := &recordingHTTPProvider{
+				inner:     scripted(t, successFixture(uniqueLabel("sso-inj"), brokerprovider.MethodSSOSAML)),
+				continue_: tc.raw,
+			}
+			svc := newBrokerService(t, rec)
+			handler, _ := newBrokerAPI(t, svc, func(o *api.BrokerHTTPOptions) {
+				o.PublicToken = publicToken
+				o.PublicHost = publicHost
+			})
+			clientID := uniqueLabel("ssoinj")
+			redirect, resource, audience := registerHTTPClient(t, clientID)
+			started := doAuthorize(t, handler, authorizeQuery(clientID, redirect, resource, audience, uniqueLabel("st")))
+			cookie := cookieValue(started)
+			csrf := loginCSRF(t, handler, cookie)
+			form := url.Values{"csrf": {csrf}, "type": {"saml"}, "connection_id": {connection}}
+			rr := serve(handler, postForm("/broker/stytch/sso/start", form, cookie, testOrigin))
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assertBrokerSecurityHeaders(t, rr)
+			assertHasCSP(t, rr)
+			assert.Empty(t, rr.Header().Get("Location"))
+			body := readBody(t, rr)
+			assert.NotContains(t, body, "evil.example")
+			assert.NotContains(t, body, tc.raw)
+			assert.NotContains(t, body, publicToken)
+		})
+	}
+}
+
+func ssoStartLocation(t *testing.T, continueURL string) string {
+	t.Helper()
+	rec := &recordingHTTPProvider{
+		inner:     scripted(t, successFixture(uniqueLabel("sso-ok-recon"), brokerprovider.MethodSSOSAML)),
+		continue_: continueURL,
+	}
+	svc := newBrokerService(t, rec)
+	handler, _ := newBrokerAPI(t, svc, func(o *api.BrokerHTTPOptions) {
+		o.PublicToken = "public-token-test"
+		o.PublicHost = "test.stytch.com"
+	})
+	clientID := uniqueLabel("ssorecon")
+	redirect, resource, audience := registerHTTPClient(t, clientID)
+	started := doAuthorize(t, handler, authorizeQuery(clientID, redirect, resource, audience, uniqueLabel("st")))
+	cookie := cookieValue(started)
+	csrf := loginCSRF(t, handler, cookie)
+	form := url.Values{"csrf": {csrf}, "type": {"saml"}, "connection_id": {"saml-connection-test-example"}}
+	rr := serve(handler, postForm("/broker/stytch/sso/start", form, cookie, testOrigin))
+	require.Equal(t, http.StatusSeeOther, rr.Code)
+	return rr.Header().Get("Location")
 }
 
 func TestSSOStartRejectsNonOfficialContinueURL(t *testing.T) {
@@ -1104,5 +1305,121 @@ func TestStartRejectsOversizeBody(t *testing.T) {
 	req.Header.Set("Cookie", setCookieHeader(cookie))
 	req.Header.Set("X-CSRF-Token", csrf)
 	rr := serve(handler, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestKeyedCSRFIsPepperBoundAndRejectsForgedSHA(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	first := newBrokerService(t, scripted(t, successFixture(uniqueLabel("csrf-a"), brokerprovider.MethodEmailMagicLink)))
+	handlerA, _ := newBrokerAPI(t, first)
+	clientA := uniqueLabel("csrfa")
+	redirectA, resourceA, audienceA := registerHTTPClient(t, clientA)
+	startedA := doAuthorize(t, handlerA, authorizeQuery(clientA, redirectA, resourceA, audienceA, uniqueLabel("st")))
+	cookie := cookieValue(startedA)
+	require.NotEmpty(t, cookie)
+	csrfA := loginCSRF(t, handlerA, cookie)
+
+	secrets := brokerSecrets(t)
+	secrets.BrokerCookiePeppers = map[int][]byte{1: bytes.Repeat([]byte{0x99}, 32)}
+	second, err := broker.NewService(broker.ServiceConfig{
+		Pool: testutil.DB(t), Secrets: secrets, Provider: scripted(t, successFixture(uniqueLabel("csrf-b"), brokerprovider.MethodEmailMagicLink)),
+		Issuer: testIssuer,
+	})
+	require.NoError(t, err)
+	csrfB, err := second.MintCSRF(cookie)
+	require.NoError(t, err)
+	assert.NotEqual(t, csrfA, csrfB)
+
+	sum := sha256.Sum256([]byte("primer.broker.csrf\x00" + cookie))
+	forged := base64.RawURLEncoding.EncodeToString(sum[:])
+	rr := serve(handlerA, postForm("/broker/stytch/email/start", url.Values{"csrf": {forged}, "email": {"member@school.example"}}, cookie, testOrigin))
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Empty(t, rr.Header().Get("Location"))
+
+	wrongCookie := serve(handlerA, postForm("/broker/stytch/email/start", url.Values{"csrf": {csrfA}, "email": {"member@school.example"}}, cookie+"x", testOrigin))
+	assert.Equal(t, http.StatusBadRequest, wrongCookie.Code)
+
+	malformed := serve(handlerA, postForm("/broker/stytch/email/start", url.Values{"csrf": {"v1.\n" + strings.Repeat("A", 43)}, "email": {"member@school.example"}}, cookie, testOrigin))
+	assert.Equal(t, http.StatusBadRequest, malformed.Code)
+
+	logs := strings.ToLower(logBuf.String())
+	assert.NotContains(t, logs, "pepper")
+	assert.NotContains(t, logs, strings.ToLower(csrfA))
+	assert.NotContains(t, readBody(t, rr), csrfA)
+}
+
+func TestKeyedCSRFAcceptsConfiguredOldVersionUntilPepperRemoved(t *testing.T) {
+	oldPepper := bytes.Repeat([]byte{0x11}, 32)
+	newPepper := bytes.Repeat([]byte{0x22}, 32)
+
+	oldSecrets := brokerSecrets(t)
+	oldSecrets.BrokerCookiePeppers = map[int][]byte{1: oldPepper}
+	oldSecrets.BrokerCookieActiveVersion = 1
+	oldSvc, err := broker.NewService(broker.ServiceConfig{
+		Pool: testutil.DB(t), Secrets: oldSecrets, Provider: scripted(t, successFixture(uniqueLabel("csrf-old"), brokerprovider.MethodEmailMagicLink)),
+		Issuer: testIssuer,
+	})
+	require.NoError(t, err)
+
+	overlapSecrets := brokerSecrets(t)
+	overlapSecrets.BrokerCookiePeppers = map[int][]byte{1: oldPepper, 2: newPepper}
+	overlapSecrets.BrokerCookieActiveVersion = 2
+	overlapSvc, err := broker.NewService(broker.ServiceConfig{
+		Pool: testutil.DB(t), Secrets: overlapSecrets, Provider: scripted(t, successFixture(uniqueLabel("csrf-overlap"), brokerprovider.MethodEmailMagicLink)),
+		Issuer: testIssuer,
+	})
+	require.NoError(t, err)
+	overlapHandler, _ := newBrokerAPI(t, overlapSvc)
+
+	clientID := uniqueLabel("csrfrot")
+	redirect, resource, audience := registerHTTPClient(t, clientID)
+	bound := doAuthorize(t, overlapHandler, authorizeQuery(clientID, redirect, resource, audience, uniqueLabel("st")))
+	boundCookie := cookieValue(bound)
+	require.NotEmpty(t, boundCookie)
+
+	oldToken, err := oldSvc.MintCSRF(boundCookie)
+	require.NoError(t, err)
+	newToken, err := overlapSvc.MintCSRF(boundCookie)
+	require.NoError(t, err)
+	assert.NotEqual(t, oldToken, newToken)
+
+	okOld := serve(overlapHandler, postForm("/broker/stytch/email/start", url.Values{"csrf": {oldToken}, "email": {"member@school.example"}}, boundCookie, testOrigin))
+	assert.Equal(t, http.StatusOK, okOld.Code)
+
+	okNew := serve(overlapHandler, postForm("/broker/stytch/email/start", url.Values{"csrf": {newToken}, "email": {"member@school.example"}}, boundCookie, testOrigin))
+	assert.Equal(t, http.StatusOK, okNew.Code)
+
+	newOnlySecrets := brokerSecrets(t)
+	newOnlySecrets.BrokerCookiePeppers = map[int][]byte{2: newPepper}
+	newOnlySecrets.BrokerCookieActiveVersion = 2
+	newOnly, err := broker.NewService(broker.ServiceConfig{
+		Pool: testutil.DB(t), Secrets: newOnlySecrets, Provider: scripted(t, successFixture(uniqueLabel("csrf-new"), brokerprovider.MethodEmailMagicLink)),
+		Issuer: testIssuer,
+	})
+	require.NoError(t, err)
+	newOnlyHandler, _ := newBrokerAPI(t, newOnly)
+	denied := serve(newOnlyHandler, postForm("/broker/stytch/email/start", url.Values{"csrf": {oldToken}, "email": {"member@school.example"}}, boundCookie, testOrigin))
+	assert.Equal(t, http.StatusBadRequest, denied.Code)
+}
+
+func TestStartStillRequiresOriginAndCookieWithKeyedCSRF(t *testing.T) {
+	svc := newBrokerService(t, scripted(t, successFixture(uniqueLabel("csrf-origin"), brokerprovider.MethodEmailMagicLink)))
+	handler, _ := newBrokerAPI(t, svc)
+	clientID := uniqueLabel("csrforigin")
+	redirect, resource, audience := registerHTTPClient(t, clientID)
+	started := doAuthorize(t, handler, authorizeQuery(clientID, redirect, resource, audience, uniqueLabel("st")))
+	cookie := cookieValue(started)
+	csrf := loginCSRF(t, handler, cookie)
+
+	noOrigin := postForm("/broker/stytch/email/start", url.Values{"csrf": {csrf}, "email": {"member@school.example"}}, cookie, "")
+	rr := serve(handler, noOrigin)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+
+	noCookie := postForm("/broker/stytch/email/start", url.Values{"csrf": {csrf}, "email": {"member@school.example"}}, "", testOrigin)
+	rr = serve(handler, noCookie)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }

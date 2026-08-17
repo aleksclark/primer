@@ -1,7 +1,10 @@
 package broker_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -1048,11 +1051,11 @@ func TestHighCountConcurrentCallbacksIssueExactlyOneCode(t *testing.T) {
 }
 
 type recordingTypedProvider struct {
-	inner        *brokerprovider.ScriptedProvider
-	mu           sync.Mutex
-	typed        []brokerprovider.CallbackRequest
-	untyped      int
-	startReqs    []brokerprovider.StartRequest
+	inner     *brokerprovider.ScriptedProvider
+	mu        sync.Mutex
+	typed     []brokerprovider.CallbackRequest
+	untyped   int
+	startReqs []brokerprovider.StartRequest
 }
 
 func (p *recordingTypedProvider) StartLogin(ctx context.Context, req brokerprovider.StartRequest) (brokerprovider.StartResult, error) {
@@ -1236,4 +1239,77 @@ func TestCompleteCallbackRejectsAlreadyExpiredProviderSession(t *testing.T) {
 		`SELECT count(*) FROM oauth_grants WHERE oauth_client_id=(SELECT oauth_client_id FROM broker_transactions WHERE id=$1)`,
 		started.TransactionID).Scan(&grants))
 	assert.Zero(t, grants)
+}
+
+func csrfPepper(b byte) []byte {
+	return bytes.Repeat([]byte{b}, 32)
+}
+
+func csrfService(t *testing.T, peppers map[int][]byte, active int) *broker.Service {
+	t.Helper()
+	secrets := testSecrets(t)
+	copied := make(map[int][]byte, len(peppers))
+	for version, material := range peppers {
+		copied[version] = append([]byte(nil), material...)
+	}
+	secrets.BrokerCookiePeppers = copied
+	secrets.BrokerCookieActiveVersion = active
+	svc, err := broker.NewService(broker.ServiceConfig{
+		Pool: testutil.DB(t), Secrets: secrets, Provider: scriptedSuccess(t, "csrf"),
+		Issuer: "https://id.example",
+	})
+	require.NoError(t, err)
+	return svc
+}
+
+func TestMintCSRFDiffersAcrossPeppersAndRejectsForgedSHA(t *testing.T) {
+	const cookie = "broker-cookie-value"
+	first := csrfService(t, map[int][]byte{1: csrfPepper(0x33)}, 1)
+	second := csrfService(t, map[int][]byte{1: csrfPepper(0x99)}, 1)
+
+	tokenA, err := first.MintCSRF(cookie)
+	require.NoError(t, err)
+	tokenB, err := second.MintCSRF(cookie)
+	require.NoError(t, err)
+	assert.NotEqual(t, tokenA, tokenB)
+	assert.True(t, first.ValidateCSRF(cookie, tokenA))
+	assert.False(t, first.ValidateCSRF(cookie, tokenB))
+	assert.False(t, second.ValidateCSRF(cookie, tokenA))
+
+	sum := sha256.Sum256([]byte("primer.broker.csrf\x00" + cookie))
+	forged := base64.RawURLEncoding.EncodeToString(sum[:])
+	assert.False(t, first.ValidateCSRF(cookie, forged))
+	assert.NotContains(t, strings.ToLower(tokenA), "pepper")
+}
+
+func TestValidateCSRFRejectsWrongCookieVersionAndMalformed(t *testing.T) {
+	svc := csrfService(t, map[int][]byte{1: csrfPepper(0x33)}, 1)
+	token, err := svc.MintCSRF("live-cookie")
+	require.NoError(t, err)
+	assert.False(t, svc.ValidateCSRF("other-cookie", token))
+	assert.False(t, svc.ValidateCSRF("live-cookie", ""))
+	assert.False(t, svc.ValidateCSRF("live-cookie", "not-a-token"))
+	assert.False(t, svc.ValidateCSRF("live-cookie", token+"AA"))
+	assert.False(t, svc.ValidateCSRF("live-cookie", "v999."+strings.Repeat("A", 43)))
+	assert.False(t, svc.ValidateCSRF("live-cookie", "v1."+strings.Repeat("A", 200)))
+	assert.False(t, svc.ValidateCSRF("live-cookie", "v1."+token))
+	assert.False(t, svc.ValidateCSRF("live-cookie", "v1.\n"+strings.Repeat("A", 43)))
+	assert.False(t, svc.ValidateCSRF("live-cookie", "v1."+strings.Repeat("A", 42)+"="))
+	assert.False(t, svc.ValidateCSRF("", token))
+}
+
+func TestValidateCSRFAcceptsConfiguredOldVersionUntilPepperRemoved(t *testing.T) {
+	overlap := csrfService(t, map[int][]byte{1: csrfPepper(0x11), 2: csrfPepper(0x22)}, 2)
+	oldOnly := csrfService(t, map[int][]byte{1: csrfPepper(0x11)}, 1)
+	newOnly := csrfService(t, map[int][]byte{2: csrfPepper(0x22)}, 2)
+
+	oldToken, err := oldOnly.MintCSRF("rotate-cookie")
+	require.NoError(t, err)
+	newToken, err := overlap.MintCSRF("rotate-cookie")
+	require.NoError(t, err)
+	assert.NotEqual(t, oldToken, newToken)
+	assert.True(t, overlap.ValidateCSRF("rotate-cookie", oldToken))
+	assert.True(t, overlap.ValidateCSRF("rotate-cookie", newToken))
+	assert.False(t, newOnly.ValidateCSRF("rotate-cookie", oldToken))
+	assert.True(t, newOnly.ValidateCSRF("rotate-cookie", newToken))
 }

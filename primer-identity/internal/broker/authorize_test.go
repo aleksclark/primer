@@ -261,6 +261,61 @@ func TestParseAuthorizeRequestAcceptsOneByteState(t *testing.T) {
 	assert.Equal(t, []byte("s"), req.State)
 }
 
+// Invalid UTF-8 and Unicode/ASCII controls in state fail before any cookie,
+// provider start, or redirect is issued.
+func TestParseAuthorizeRequestRejectsInvalidUTF8AndControlState(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		state string
+	}{
+		{"nul", "ok\x00state"},
+		{"crlf", "ok\r\nstate"},
+		{"lf", "ok\nstate"},
+		{"tab", "ok	state"},
+		{"del", "ok\x7fstate"},
+		{"c1 nel", "ok\u0085state"},
+		{"line separator", "ok\u2028state"},
+		{"paragraph separator", "ok\u2029state"},
+		{"invalid utf8", "ok\xffstate"},
+		{"truncated utf8", "ok\xc3"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			q := validQuery()
+			q.Set("state", tc.state)
+			_, err := broker.ParseAuthorizeRequest(q)
+			require.Error(t, err)
+			assert.Equal(t, broker.ErrorInvalidRequest, broker.ErrorCodeOf(err))
+			assert.False(t, broker.IsRedirectable(err))
+			assert.NotContains(t, err.Error(), tc.state)
+			assert.NotContains(t, err.Error(), "\r")
+			assert.NotContains(t, err.Error(), "\n")
+		})
+	}
+}
+
+func TestParseAuthorizeRequestAcceptsOpaqueUTF8State(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"s",
+		"opaque-product-state",
+		"café-state",
+		"状态",
+		"🙂opaque",
+		strings.Repeat("s", 1024),
+		strings.Repeat("é", 512),
+	}
+	for _, state := range cases {
+		q := validQuery()
+		q.Set("state", state)
+		req, err := broker.ParseAuthorizeRequest(q)
+		require.NoError(t, err, "state %q", state)
+		assert.Equal(t, []byte(state), req.State)
+	}
+}
+
 // Userinfo, forced query, and non-http schemes never become a redirect target.
 func TestParseAuthorizeRequestRejectsUnsafeAbsoluteURIs(t *testing.T) {
 	t.Parallel()

@@ -2,9 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"html"
@@ -26,7 +23,6 @@ const (
 	brokerFormMaxBytes = 4096
 	brokerCSP          = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	loginPath          = "/broker/stytch/login"
-	csrfContext        = "primer.broker.csrf"
 )
 
 type requestKey struct{}
@@ -126,7 +122,10 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 		if cookie == "" || s.broker == nil || s.broker.BoundCookie(ctx, cookie) != nil {
 			return nil, s.brokerLocalError(true)
 		}
-		csrf := csrfForCookie(cookie)
+		csrf, err := s.broker.MintCSRF(cookie)
+		if err != nil || csrf == "" {
+			return nil, s.brokerLocalError(true)
+		}
 		accept := ""
 		if in != nil {
 			accept = in.Accept
@@ -248,9 +247,9 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 
 func (s *Server) registerStartRoute(api huma.API, attach huma.Middlewares, id, path string, methodOf func(url.Values) (brokerprovider.Method, bool)) {
 	type startOut struct {
-		Status             int
-		Location           string `header:"Location"`
-		Body               struct {
+		Status   int
+		Location string `header:"Location"`
+		Body     struct {
 			Status string `json:"status" example:"started"`
 		}
 		CacheControl       string `header:"Cache-Control"`
@@ -345,10 +344,10 @@ func (s *Server) requireBrokerPOST(r *http.Request) (string, url.Values, error) 
 	if csrf == "" {
 		csrf = r.PostForm.Get("csrf")
 	}
-	if !csrfValid(c.Value, csrf) {
+	if s.broker == nil || !s.broker.ValidateCSRF(c.Value, csrf) {
 		return "", nil, s.brokerLocalError(true)
 	}
-	if s.broker == nil || s.broker.BoundCookie(r.Context(), c.Value) != nil {
+	if s.broker.BoundCookie(r.Context(), c.Value) != nil {
 		return "", nil, s.brokerLocalError(true)
 	}
 	return c.Value, r.PostForm, nil
@@ -357,19 +356,6 @@ func (s *Server) requireBrokerPOST(r *http.Request) (string, url.Values, error) 
 func exactFormContentType(raw string) bool {
 	media, _, err := mime.ParseMediaType(raw)
 	return err == nil && media == "application/x-www-form-urlencoded"
-}
-
-func csrfForCookie(cookie string) string {
-	sum := sha256.Sum256([]byte(csrfContext + "\x00" + cookie))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
-func csrfValid(cookie, presented string) bool {
-	if presented == "" {
-		return false
-	}
-	expected := csrfForCookie(cookie)
-	return subtle.ConstantTimeCompare([]byte(expected), []byte(presented)) == 1
 }
 
 func (s *Server) brokerCookie(value string, maxAge int) *http.Cookie {
@@ -573,17 +559,44 @@ func (s *Server) officialSSOContinueURL(raw string) (string, error) {
 	if err != nil || !u.IsAbs() || !strings.EqualFold(u.Scheme, "https") || u.User != nil || u.Fragment != "" || u.ForceQuery {
 		return "", errors.New("unofficial continue url")
 	}
-	if !strings.EqualFold(u.Host, s.brokerHTTP.PublicHost) || u.EscapedPath() != "/v1/public/sso/start" {
+	if u.Hostname() != s.brokerHTTP.PublicHost || u.Port() != "" || u.EscapedPath() != "/v1/public/sso/start" {
 		return "", errors.New("unofficial continue url")
 	}
-	q := u.Query()
-	if q.Get("public_token") != s.brokerHTTP.PublicToken {
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
 		return "", errors.New("unofficial continue url")
 	}
-	if (q.Get("connection_id") == "") == (q.Get("organization_id") == "") {
+	allowed := map[string]struct{}{
+		"public_token": {}, "connection_id": {}, "organization_id": {},
+	}
+	for name, values := range q {
+		if _, ok := allowed[name]; !ok {
+			return "", errors.New("unofficial continue url")
+		}
+		if len(values) != 1 {
+			return "", errors.New("unofficial continue url")
+		}
+		if values[0] == "" || !utf8.ValidString(values[0]) || containsControl(values[0]) {
+			return "", errors.New("unofficial continue url")
+		}
+	}
+	tokens := q["public_token"]
+	if len(tokens) != 1 || tokens[0] != s.brokerHTTP.PublicToken {
 		return "", errors.New("unofficial continue url")
 	}
-	return raw, nil
+	conns := q["connection_id"]
+	orgs := q["organization_id"]
+	if (len(conns) == 1) == (len(orgs) == 1) {
+		return "", errors.New("unofficial continue url")
+	}
+	out := url.Values{}
+	out.Set("public_token", s.brokerHTTP.PublicToken)
+	if len(conns) == 1 {
+		out.Set("connection_id", conns[0])
+	} else {
+		out.Set("organization_id", orgs[0])
+	}
+	return "https://" + s.brokerHTTP.PublicHost + "/v1/public/sso/start?" + out.Encode(), nil
 }
 
 func parseCallbackInput(query url.Values) (string, broker.CallbackInput, bool) {
