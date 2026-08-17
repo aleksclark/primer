@@ -310,6 +310,12 @@ type Config struct {
 	BrokerCookieActiveVersion      int           `split_words:"true"`
 	AuthorizationCodePeppers       string        `split_words:"true"`
 	AuthorizationCodeActiveVersion int           `split_words:"true"`
+	ClientSecretPeppers            string        `split_words:"true"`
+	ClientSecretActiveVersion      int           `split_words:"true"`
+	RefreshTokenPeppers            string        `split_words:"true"`
+	RefreshTokenActiveVersion      int           `split_words:"true"`
+	ClientAssertionPeppers         string        `split_words:"true"`
+	ClientAssertionActiveVersion   int           `split_words:"true"`
 	BrokerTransactionTTL           time.Duration `split_words:"true" default:"10m"`
 	BrokerCookieTTL                time.Duration `split_words:"true" default:"10m"`
 	AuthorizationCodeTTL           time.Duration `split_words:"true" default:"60s"`
@@ -324,6 +330,9 @@ type Config struct {
 	StateHashPepperSet         VersionedSecretSet `ignored:"true"`
 	BrokerCookiePepperSet      VersionedSecretSet `ignored:"true"`
 	AuthorizationCodePepperSet VersionedSecretSet `ignored:"true"`
+	ClientSecretPepperSet      VersionedSecretSet `ignored:"true"`
+	RefreshTokenPepperSet      VersionedSecretSet `ignored:"true"`
+	ClientAssertionPepperSet   VersionedSecretSet `ignored:"true"`
 }
 
 // Load reads Identity configuration from the environment and validates it.

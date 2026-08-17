@@ -262,8 +262,16 @@ func ValidateClaimAuthorizationCode(in ClaimAuthorizationCodeInput) error {
 	if len(in.CodeHash) != 32 || in.OAuthClientID == uuid.Nil {
 		return invalidf("code_hash", "must be 32 bytes bound to a client")
 	}
-	if err := validateRegistrationStrings(in.RedirectURI, in.ResourceURI, in.Audience); err != nil {
+	if err := validateBoundedText("redirect_uri", in.RedirectURI, 2048); err != nil {
 		return err
+	}
+	if err := validateBoundedText("resource_uri", in.ResourceURI, 2048); err != nil {
+		return err
+	}
+	if in.Audience != "" {
+		if err := validateBoundedText("audience", in.Audience, 128); err != nil {
+			return err
+		}
 	}
 	return validateCodeVerifier(in.CodeVerifier)
 }

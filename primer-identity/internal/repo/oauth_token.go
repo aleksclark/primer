@@ -116,6 +116,9 @@ FOR UPDATE`, in.CodeHash).Scan(
 	if err != nil {
 		return nil, wrapf("claim authorization code", err)
 	}
+	if in.Audience == "" {
+		in.Audience = out.Audience
+	}
 	if out.ConsumedAt != nil {
 		return nil, wrapf("claim authorization code", fmt.Errorf("%w: already consumed", domain.ErrConflict))
 	}
@@ -123,7 +126,7 @@ FOR UPDATE`, in.CodeHash).Scan(
 	if now.After(out.ExpiresAt) {
 		return nil, wrapf("claim authorization code", fmt.Errorf("%w: expired", domain.ErrInvalid))
 	}
-	grant, assoc, err := loadConsumeBindings(ctx, q, out.GrantID)
+	grant, assoc, err := LoadConsumeBindings(ctx, q, out.GrantID)
 	if err != nil {
 		return nil, wrapf("claim authorization code", err)
 	}
@@ -261,7 +264,7 @@ func issueAuthorizationCodeTokensTx(ctx context.Context, tx pgx.Tx, in IssueAuth
 	return &IssuedAuthorizationCodeTokens{Code: code, Family: refresh.Family, Token: refresh.Token, Audit: audit}, nil
 }
 
-func loadConsumeBindings(ctx context.Context, q Querier, grantID uuid.UUID) (*domain.OAuthGrant, *domain.ProviderSessionAssociation, error) {
+func LoadConsumeBindings(ctx context.Context, q Querier, grantID uuid.UUID) (*domain.OAuthGrant, *domain.ProviderSessionAssociation, error) {
 	grant, err := GetOAuthGrant(ctx, q, grantID)
 	if err != nil {
 		return nil, nil, err
@@ -274,6 +277,113 @@ func loadConsumeBindings(ctx context.Context, q Querier, grantID uuid.UUID) (*do
 		return nil, nil, err
 	}
 	return grant, assoc, nil
+}
+
+func GetEnabledOAuthClientByClientID(ctx context.Context, q Querier, clientID string) (*domain.OAuthClient, error) {
+	if err := domain.ValidatePublicClientID(clientID); err != nil {
+		return nil, wrapf("get oauth client", err)
+	}
+	out := &domain.OAuthClient{}
+	err := q.QueryRow(ctx, `
+SELECT id,client_id,name,client_type,token_endpoint_auth_method,client_secret_hash,client_secret_pepper_version,allowed_grants,enabled,created_at,updated_at,disabled_at
+FROM oauth_clients
+WHERE client_id=$1 AND enabled AND disabled_at IS NULL`, clientID).Scan(
+		&out.ID, &out.ClientID, &out.Name, &out.ClientType, &out.TokenEndpointAuthMethod,
+		&out.ClientSecretHash, &out.ClientSecretPepperVersion, &out.AllowedGrants, &out.Enabled,
+		&out.CreatedAt, &out.UpdatedAt, &out.DisabledAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, wrapf("get oauth client", domain.ErrNotFound)
+	}
+	return out, wrapf("get oauth client", err)
+}
+
+func GetEnabledOAuthClientRedirect(ctx context.Context, q Querier, clientID uuid.UUID, redirectURI, resourceURI string) (*domain.OAuthClientRedirect, error) {
+	if clientID == uuid.Nil {
+		return nil, wrapf("get oauth client redirect", fmt.Errorf("%w: nil client", domain.ErrInvalid))
+	}
+	out := &domain.OAuthClientRedirect{}
+	err := q.QueryRow(ctx, `
+SELECT id,oauth_client_id,redirect_uri,resource_uri,audience,allowed_scopes,enabled,created_at,updated_at
+FROM oauth_client_redirects
+WHERE oauth_client_id=$1 AND enabled AND redirect_uri=$2 AND resource_uri=$3`, clientID, redirectURI, resourceURI).Scan(
+		&out.ID, &out.OAuthClientID, &out.RedirectURI, &out.ResourceURI, &out.Audience, &out.AllowedScopes, &out.Enabled, &out.CreatedAt, &out.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, wrapf("get oauth client redirect", domain.ErrNotFound)
+	}
+	return out, wrapf("get oauth client redirect", err)
+}
+
+func ListEnabledOAuthClientKeys(ctx context.Context, q Querier, clientID uuid.UUID, now time.Time) ([]domain.OAuthClientKey, error) {
+	if clientID == uuid.Nil {
+		return nil, wrapf("list oauth client keys", fmt.Errorf("%w: nil client", domain.ErrInvalid))
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	rows, err := q.Query(ctx, `
+SELECT id,oauth_client_id,kid,jwk_json,alg,use,enabled,not_before,not_after,created_at,disabled_at
+FROM oauth_client_keys
+WHERE oauth_client_id=$1 AND enabled AND disabled_at IS NULL
+  AND (not_before IS NULL OR not_before <= $2)
+  AND (not_after IS NULL OR not_after > $2)`, clientID, now)
+	if err != nil {
+		return nil, wrapf("list oauth client keys", err)
+	}
+	defer rows.Close()
+	var out []domain.OAuthClientKey
+	for rows.Next() {
+		var rec domain.OAuthClientKey
+		if scanErr := rows.Scan(&rec.ID, &rec.OAuthClientID, &rec.Kid, &rec.JWKJSON, &rec.Alg, &rec.Use, &rec.Enabled, &rec.NotBefore, &rec.NotAfter, &rec.CreatedAt, &rec.DisabledAt); scanErr != nil {
+			return nil, wrapf("list oauth client keys", scanErr)
+		}
+		out = append(out, rec)
+	}
+	return out, wrapf("list oauth client keys", rows.Err())
+}
+
+func PurgeExpiredClientAssertionReplaysBounded(ctx context.Context, q Querier, now time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		limit = 256
+	}
+	tag, err := q.Exec(ctx, `
+DELETE FROM oauth_client_assertion_replays
+WHERE id IN (
+  SELECT id FROM oauth_client_assertion_replays
+  WHERE expires_at <= $1
+  ORDER BY expires_at
+  LIMIT $2
+)`, now, limit)
+	if err != nil {
+		return 0, wrapf("purge client assertion replays", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func RevokeInitialRefreshFamily(ctx context.Context, q Querier, familyID uuid.UUID, reason string, now time.Time) error {
+	if familyID == uuid.Nil {
+		return wrapf("revoke refresh family", fmt.Errorf("%w: nil family", domain.ErrInvalid))
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	tag, err := q.Exec(ctx, `
+UPDATE oauth_refresh_tokens
+SET revoked_at=$2
+WHERE family_id=$1 AND consumed_at IS NULL AND revoked_at IS NULL`, familyID, now)
+	if err != nil {
+		return wrapf("revoke refresh family", err)
+	}
+	_, err = q.Exec(ctx, `
+UPDATE oauth_refresh_families
+SET status='revoked', revoked_at=$2, revoke_reason_code=$3, version=version+1
+WHERE id=$1 AND status='active'`, familyID, now, reason)
+	if err != nil {
+		return wrapf("revoke refresh family", err)
+	}
+	_ = tag
+	return nil
 }
 
 func GetOAuthGrant(ctx context.Context, q Querier, id uuid.UUID) (*domain.OAuthGrant, error) {
