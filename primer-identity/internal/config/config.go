@@ -16,6 +16,7 @@ import (
 	"github.com/kelseyhightower/envconfig"
 
 	"github.com/aleksclark/primer/identity/internal/db"
+	"github.com/aleksclark/primer/identity/internal/token"
 )
 
 // EnvPrefix namespaces every Identity setting (e.g. IDENTITY_DATABASE_URL).
@@ -470,6 +471,11 @@ func (c *Config) Validate() error {
 	if c.Issuer == "" {
 		return fmt.Errorf("identity config: issuer is required")
 	}
+	canonicalIssuer, err := token.CanonicalIssuer(c.Issuer, serviceEnv == "production")
+	if err != nil {
+		return fmt.Errorf("identity config: issuer is invalid")
+	}
+	c.Issuer = canonicalIssuer
 	// Port 0 is allowed for tests that inject an already-bound listener.
 	if c.Port < 0 || c.Port > 65535 {
 		return fmt.Errorf("identity config: port out of range: %d", c.Port)

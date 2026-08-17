@@ -169,11 +169,7 @@ func issuerBase(raw string) (string, error) {
 	if err != nil || !u.IsAbs() || u.Host == "" {
 		return "", genericUnavailable()
 	}
-	base := u.Scheme + "://" + u.Host
-	if path := strings.TrimSuffix(u.Path, "/"); path != "" && path != "/" {
-		base += path
-	}
-	return base, nil
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func issuerWellKnownSuffix(raw string) string {

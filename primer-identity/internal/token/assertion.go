@@ -96,8 +96,11 @@ func ParseClientAssertion(raw string, in AssertionInput) (ClientAssertion, error
 	if now.Before(iat.Add(-MaxClockSkew)) || now.After(exp.Add(MaxClockSkew)) {
 		return ClientAssertion{}, denyInvalid()
 	}
-	if claims.hasNBF && (claims.nbf < claims.iat-int64(MaxClockSkew/time.Second) || claims.nbf > claims.exp) {
-		return ClientAssertion{}, denyInvalid()
+	if claims.hasNBF {
+		nbf := time.Unix(claims.nbf, 0).UTC()
+		if now.Before(nbf.Add(-MaxClockSkew)) || claims.nbf < claims.iat-int64(MaxClockSkew/time.Second) || claims.nbf > claims.exp {
+			return ClientAssertion{}, denyInvalid()
+		}
 	}
 	return ClientAssertion{
 		ClientID:  claims.iss,

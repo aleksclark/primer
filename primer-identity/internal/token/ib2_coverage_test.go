@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/aleksclark/primer/identity/internal/config"
 	"github.com/aleksclark/primer/identity/internal/domain"
 	"github.com/aleksclark/primer/identity/internal/token"
 )
@@ -46,6 +47,29 @@ func TestVerifyRejectsUnsortedScopeAndNBFMismatch(t *testing.T) {
 	requireDenied(t, err, principal)
 }
 
+func TestMinterIssuerMatchesValidatedConfigIssuer(t *testing.T) {
+	cfg := &config.Config{
+		DatabaseURL:           "postgres://identity:***@localhost:5432/primer_identity?sslmode=disable",
+		Host:                  "127.0.0.1",
+		Port:                  0,
+		Env:                   "test",
+		Issuer:                testIssuer + "/",
+		ShutdownTimeout:       time.Second,
+		HTTPReadHeaderTimeout: time.Second,
+		HTTPMaxBodyBytes:      1,
+	}
+	require.NoError(t, cfg.Validate())
+
+	clock := frozenClock{now: time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)}
+	minter, err := token.NewMinter(staticSignerSource{signer: newTestSigner(t)}, cfg.Issuer, clock)
+	require.NoError(t, err)
+	issued, err := minter.IssueHuman(context.Background(), humanInput(t), commitOK)
+	require.NoError(t, err)
+
+	assert.Equal(t, testIssuer, cfg.Issuer)
+	assert.Equal(t, testIssuer, decodePayload(t, issued.Compact)["iss"])
+}
+
 func TestNewVerifierRejectsHTTPIssuerAndEmptyAudience(t *testing.T) {
 	src := &staticKeySource{}
 	_, err := token.NewVerifier(src, "http://id.example", testAudience, nil, nil)
@@ -70,6 +94,31 @@ func TestClientLookupUnavailableAndScopeMismatch(t *testing.T) {
 	require.NoError(t, err)
 	principal, err = mismatch.Verify(context.Background(), issued.Compact)
 	requireDenied(t, err, principal)
+}
+
+func TestParseClientAssertionRejectsFutureNBFBeforeNow(t *testing.T) {
+	now := time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)
+	signer := newTestSigner(t)
+	jwk := mustJWK(t, signer)
+	clientID := "studio-confidential"
+	aud := "https://identity.example.test/oauth/token"
+	compact := mintAssertion(t, signer, clientID, aud, now, 5*time.Minute)
+	in := token.AssertionInput{
+		ClientID: clientID, Audience: aud, Registered: []domain.PublicJWK{jwk}, Now: now, MaxLifetime: 5 * time.Minute,
+	}
+
+	futureNBF := resign(t, replacePayload(t, compact, func(p map[string]any) {
+		p["nbf"] = now.Add(30 * time.Second).Unix()
+	}), signer)
+	_, err := token.ParseClientAssertion(futureNBF, in)
+	require.ErrorIs(t, err, token.ErrInvalid)
+
+	skewOK := resign(t, replacePayload(t, compact, func(p map[string]any) {
+		p["nbf"] = now.Add(token.MaxClockSkew).Unix()
+	}), signer)
+	got, err := token.ParseClientAssertion(skewOK, in)
+	require.NoError(t, err)
+	assert.Equal(t, clientID, got.ClientID)
 }
 
 func TestParseClientAssertionOptionalNBFAndMissingKid(t *testing.T) {
