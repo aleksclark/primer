@@ -75,6 +75,35 @@ WHERE id = $1 AND (workspace_id IS NULL OR workspace_id = $2)`
 	return out, nil
 }
 
+// GetByCode returns the framework with code in an exact workspace scope. A nil
+// workspaceID selects a global framework; a non-nil ID selects a workspace-owned
+// framework. This is used by imports to make the source/title key idempotent.
+func (r *FrameworkRepo) GetByCode(ctx context.Context, workspaceID *uuid.UUID, code string) (*domain.StandardFramework, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, fmt.Errorf("framework code is required")
+	}
+	const q = `
+SELECT id, workspace_id, code, name, jurisdiction, version, created_at, updated_at
+FROM curriculum_studio.standard_frameworks
+WHERE workspace_id IS NOT DISTINCT FROM $1 AND code = $2`
+	var scope any
+	if workspaceID != nil {
+		if *workspaceID == uuid.Nil {
+			return nil, fmt.Errorf("workspace_id is required")
+		}
+		scope = *workspaceID
+	}
+	out, err := scanFramework(r.Q.QueryRow(ctx, q, scope, code))
+	if err != nil {
+		return nil, MapError(err)
+	}
+	return out, nil
+}
+
 // ListWorkspace returns frameworks owned by workspaceID (not globals).
 func (r *FrameworkRepo) ListWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.StandardFramework, error) {
 	if r == nil || r.Q == nil {
@@ -89,6 +118,48 @@ FROM curriculum_studio.standard_frameworks
 WHERE workspace_id = $1
 ORDER BY code ASC`
 	return listFrameworks(ctx, r.Q, q, workspaceID)
+}
+
+// ListVisiblePage returns a server-paginated view of global and workspace-owned
+// frameworks visible to workspaceID.
+func (r *FrameworkRepo) ListVisiblePage(ctx context.Context, workspaceID uuid.UUID, limit, offset int) ([]domain.StandardFramework, int, error) {
+	if r == nil || r.Q == nil {
+		return nil, 0, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil {
+		return []domain.StandardFramework{}, 0, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	const q = `
+SELECT id, workspace_id, code, name, jurisdiction, version, created_at, updated_at,
+       COUNT(*) OVER() AS total_count
+FROM curriculum_studio.standard_frameworks
+WHERE workspace_id IS NULL OR workspace_id = $1
+ORDER BY workspace_id NULLS FIRST, code ASC
+LIMIT $2 OFFSET $3`
+	rows, err := r.Q.Query(ctx, q, workspaceID, limit, offset)
+	if err != nil {
+		return nil, 0, MapError(err)
+	}
+	defer rows.Close()
+	out := []domain.StandardFramework{}
+	total := 0
+	for rows.Next() {
+		var fw domain.StandardFramework
+		if err := rows.Scan(&fw.ID, &fw.WorkspaceID, &fw.Code, &fw.Name, &fw.Jurisdiction, &fw.Version, &fw.CreatedAt, &fw.UpdatedAt, &total); err != nil {
+			return nil, 0, MapError(err)
+		}
+		out = append(out, fw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, MapError(err)
+	}
+	return out, total, nil
 }
 
 // ListVisible returns global frameworks plus those owned by workspaceID.

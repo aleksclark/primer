@@ -107,6 +107,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 func (s *Server) RegisterRoutes(api huma.API) {
 	s.registerAuthRoutes(api)
 	s.RegisterWorkspaceRoutes(api)
+	s.registerStandardsRoutes(api)
 
 	type healthOut struct {
 		Body struct {
