@@ -1,9 +1,9 @@
 # MAF Go Feasibility — RUN REPORT
 
-**Date (UTC):** 2026-08-13
+**Date (UTC):** 2026-08-13 (rebase reconciliation stamp)
 **Worktree:** `/home/aleks/work/projects/primer/worktrees/maf-go-feasibility`
 **Branch:** `spike/maf-go-feasibility`
-**Base:** `origin/master` @ `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
+**Base:** `origin/master` @ `76475d4eb05bd363c16f0411e26b396308a7c988` (post-rebase merge-base; superseded pre-rebase base `8772d98004a9bb6f86431c3f30cf10848dcc86b9`)
 **Plan:** `agent_docs/plans/maf-go-feasibility-spike.md`
 **Artifact:** `spikes/maf-go/` (standalone module)
 
@@ -26,23 +26,43 @@ spikes/maf-go/**
 
 No production Primer packages modified. No `agent-framework-go/internal` imports.
 
-## Gate commands and real outputs (post two-context / bridge-close tip)
+## Gate commands and real outputs (re-verified post-rebase, HEAD `92b5cb3`)
+
+The worktree root now has a `go.work` (added by other in-progress work at the
+repo root, listing `curriculum-studio`/`primer-identity`/`server`) that does
+**not** include `spikes/maf-go`. Running `go build`/`go test`/`go vet`/`go run`
+from inside `spikes/maf-go` with an ambient `go.work` fails with:
+`pattern ./...: directory prefix . does not contain modules listed in go.work
+or their selected dependencies`. All commands below were re-run with
+`GOWORK=off` (spike module remains fully self-contained; this only bypasses an
+unrelated root workspace file, not a spike dependency) and reflect real,
+freshly executed output at the current HEAD — no gate command here is claimed
+to pass under the ambient (`GOWORK` unset) root `go.work`.
 
 ```
+$ cd spikes/maf-go && export GOWORK=off
+
 === go version ===
 go version go1.26.6 linux/amd64
 
 === go test ./... -count=1 ===
 ?   github.com/aleksclark/primer/spikes/maf-go/cmd/demo  [no test files]
 ?   github.com/aleksclark/primer/spikes/maf-go/fakes     [no test files]
-ok  github.com/aleksclark/primer/spikes/maf-go/primer   0.212s
+ok  github.com/aleksclark/primer/spikes/maf-go/primer   0.216s
 
 === go test -race ./... -count=1 ===
-ok  github.com/aleksclark/primer/spikes/maf-go/primer   1.330s
+?   github.com/aleksclark/primer/spikes/maf-go/cmd/demo  [no test files]
+?   github.com/aleksclark/primer/spikes/maf-go/fakes     [no test files]
+ok  github.com/aleksclark/primer/spikes/maf-go/primer   1.313s
 
-=== go test -race ./primer -count=20 (focused F5 bridge/disconnect/cancel) ===
-ok  github.com/aleksclark/primer/spikes/maf-go/primer   3.219s
-(run: TestF5_SSEBridge_ConcurrentEmitClose|TestF5_SSEHandler_HTTPDisconnect|TestF5_SSEHandler_ExplicitRunCancel|TestF5_SSEBridge_Cancel|TestF5_SSEBridge_Slow)
+=== go test -race ./primer -count=20 -run 'TestF5_SSEBridge_ConcurrentEmitClose|TestF5_SSEHandler_HTTPDisconnect|TestF5_SSEHandler_ExplicitRunCancel|TestF5_SSEBridge_Cancel|TestF5_SSEBridge_Slow' -v ===
+PASS (all 20 iterations; last iteration shown)
+--- PASS: TestF5_SSEBridge_CancelTerminatesWriter (0.00s)
+--- PASS: TestF5_SSEBridge_ConcurrentEmitClose_NoPanic (0.09s)
+--- PASS: TestF5_SSEHandler_HTTPDisconnect_RunCompletes (0.01s)
+--- PASS: TestF5_SSEHandler_ExplicitRunCancel_ReachesBlockingMCP (0.02s)
+--- PASS: TestF5_SSEBridge_SlowWriterDoesNotBlockRunner (0.00s)
+ok  github.com/aleksclark/primer/spikes/maf-go/primer   3.377s
 
 === go vet ./... ===
 (exit 0, clean)
@@ -52,11 +72,11 @@ ok  github.com/aleksclark/primer/spikes/maf-go/primer   3.219s
 
 === go run ./cmd/demo ===
 child_result="child-delta-1 child-delta-2"
-parent_run_id="<uuid>" agent_id="demo-parent" depth=0
+parent_run_id="a88cddf4-8a3b-49b4-b01d-505a9e3c3820" agent_id="demo-parent" depth=0
 child_depth=1
-events: start/text/end (parent) + child_start/text/child_end with parent=root=parent_run_id
+events: start/text/end (parent, agent=Overseer) + child_start/text/child_end (agent=MathTutor, depth=1) with parent=root=parent_run_id
 
-=== git diff --check base..HEAD ===
+=== git diff --check 76475d4eb05bd363c16f0411e26b396308a7c988..HEAD ===
 (exit 0, clean)
 ```
 
@@ -248,15 +268,15 @@ If the team prefers zero new preview framework surface and already invests in Fa
 | `b26a735` | (no fresh post-fix review; previously overclaimed APPROVED) | allowlist + AG-UI hard asserts |
 | `c874670` | CHANGES_REQUIRED | 2 Important: StartChild-before-Run lineage drift; F5 MCP cancel soft assert |
 | `1d73c2d` | APPROVED | Fresh independent review; 0 Critical / 0 Important; suggestions only |
-| **`e562f54`** | **APPROVED** | Fresh independent review; 0 Critical / 0 Important; two-context stream/run + Emit/Close race fix + stronger F5 proofs; suggestions only (client-reader vs WriteDone naming; in-flight Write preemption) |
+| **`e562f54`** (pre-rebase; current equivalent tip `449f257`) | **APPROVED** | Fresh independent review; 0 Critical / 0 Important; two-context stream/run + Emit/Close race fix + stronger F5 proofs; suggestions only (client-reader vs WriteDone naming; in-flight Write preemption). `e562f54` was the pre-rebase commit reviewed; the rebase preserved the reviewed diff verbatim onto `449f257` (`git show 449f257` = same "separate stream/run contexts and harden SSE bridge close" change), so the APPROVED verdict carries forward to `449f257` unchanged. |
 
 ## Final git state
 
 - Branch: `spike/maf-go-feasibility`
-- Base: `8772d98004a9bb6f86431c3f30cf10848dcc86b9`
-- **Reviewed code SHA:** `e562f54a33a29462547ef59741319d779562128f` (APPROVED)
-- **Honest report content commit:** (docs tip; `git rev-parse HEAD` after stamp)
-- **Final HEAD:** tip of `spike/maf-go-feasibility` after docs-only stamps (descendant of reviewed code SHA; `git rev-parse HEAD`)
+- Base: `origin/master` @ `76475d4eb05bd363c16f0411e26b396308a7c988` (merge-base of this branch and `origin/master` after rebase; supersedes pre-rebase base `8772d98004a9bb6f86431c3f30cf10848dcc86b9`)
+- **Reviewed code SHA:** `449f257d70092fe6d88d34331429485168007bc0` — the post-rebase commit carrying the exact reviewed change ("separate stream/run contexts and harden SSE bridge close") that was APPROVED pre-rebase at `e562f54a33a29462547ef59741319d779562128f`; content verified identical via `git show 449f257` (APPROVED)
+- **Honest report content commit:** `92b5cb35d2dccb41fe925d429dfd355de3c14e83` (this stamp; `git rev-parse HEAD`)
+- **Final HEAD:** `92b5cb35d2dccb41fe925d429dfd355de3c14e83` (tip of `spike/maf-go-feasibility` after docs-only stamps; descendant of reviewed code SHA `449f257`; `git rev-parse HEAD`)
 - Push/PR: **none** (local only)
 - **CONDITIONAL GO still stands**
 - **F5 final verdict: VALIDATED** (two-context + concurrent bridge close proven)
