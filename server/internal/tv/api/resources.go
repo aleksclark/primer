@@ -162,6 +162,18 @@ func (s *Server) registerMediaItemMutations() {
 		Tags:        []string{mediaItemsTag},
 		Errors:      []int{http.StatusNotFound, http.StatusConflict, http.StatusMethodNotAllowed, http.StatusUnprocessableEntity},
 	}), s.updateMediaItem)
+
+	// Ingest reconciliation is a separate server-side operation so automated
+	// metadata refreshes do not acquire the locks reserved for curator edits.
+	huma.Register(s.api, s.adminOp(huma.Operation{
+		OperationID: "ingest-media-item",
+		Method:      http.MethodPost,
+		Path:        "/media-items/{id}/ingest",
+		Summary:     "Reconcile a media item from ingest",
+		Description: "Partial automated metadata update. Unlike curator PATCH, title, overview, and classification changes do not set metadata locks.",
+		Tags:        []string{mediaItemsTag},
+		Errors:      []int{http.StatusNotFound, http.StatusConflict, http.StatusMethodNotAllowed, http.StatusUnprocessableEntity},
+	}), s.ingestMediaItem)
 }
 
 type createMediaItemInput struct {
@@ -194,6 +206,29 @@ func (s *Server) updateMediaItem(ctx context.Context, in *updateMediaItemInput) 
 	if err != nil {
 		return nil, err
 	}
+	if len(values) == 0 {
+		item, err := tvrepo.MediaItems.Get(ctx, s.q, in.ID)
+		if err != nil {
+			return nil, baseapi.MapError(err)
+		}
+		return &mediaItemOutput{Body: *item}, nil
+	}
+	item, err := tvrepo.MediaItems.Update(ctx, s.q, in.ID, values)
+	if err != nil {
+		return nil, baseapi.MapError(err)
+	}
+	return &mediaItemOutput{Body: *item}, nil
+}
+
+// ingestMediaItem applies automated metadata without changing curator locks.
+func (s *Server) ingestMediaItem(ctx context.Context, in *updateMediaItemInput) (*mediaItemOutput, error) {
+	values, err := mediaItemUpdateValues(in.Body)
+	if err != nil {
+		return nil, err
+	}
+	delete(values, "title_locked")
+	delete(values, "overview_locked")
+	delete(values, "classification_locked")
 	if len(values) == 0 {
 		item, err := tvrepo.MediaItems.Get(ctx, s.q, in.ID)
 		if err != nil {

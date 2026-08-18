@@ -116,6 +116,26 @@ func TestMediaItemCRUD(t *testing.T) {
 	assert.True(t, updated.ClassificationLocked)
 	assert.True(t, updated.TitleLocked, "prior title lock survives classification patch")
 
+	// Automated ingest updates use a separate operation and must not acquire
+	// curator locks, even when they change title/classification fields.
+	ingest := h.Post("/media-items", objMap{
+		"jellyfinItemId": "jf-ingest-locks",
+		"title":          "Initial",
+		"class":          domain.ClassEntertainment,
+	})
+	require.Equal(t, http.StatusCreated, ingest.Code, ingest.Body.String())
+	ingestItem := decode[domain.MediaItem](t, ingest.Body.Bytes())
+	ingest = h.Post("/media-items/"+ingestItem.ID+"/ingest", objMap{
+		"title": "Automated title",
+		"class": "educational",
+	})
+	require.Equal(t, http.StatusOK, ingest.Code, ingest.Body.String())
+	ingestUpdated := decode[domain.MediaItem](t, ingest.Body.Bytes())
+	assert.Equal(t, "Automated title", ingestUpdated.Title)
+	assert.Equal(t, domain.ClassEducational, ingestUpdated.Class)
+	assert.False(t, ingestUpdated.TitleLocked)
+	assert.False(t, ingestUpdated.ClassificationLocked)
+
 	// The Jellyfin ID is unique.
 	dup := h.Post("/media-items", objMap{
 		"jellyfinItemId": "jf-crud-1",

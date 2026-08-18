@@ -68,6 +68,8 @@ func TestPerShowArchivePath(t *testing.T) {
 	t.Parallel()
 	got := ytdlp.PerShowArchivePath("/media/tv/Primer", "paul-sellers")
 	assert.Equal(t, filepath.Join("/media/tv/Primer", "Shows", "paul-sellers", ".ytdlp-archive.txt"), got)
+	custom := ytdlp.PerShowArchivePathIn("/media/tv/Primer", "/var/lib/primer/archives", "paul-sellers")
+	assert.Equal(t, filepath.Join("/var/lib/primer/archives", "paul-sellers", ".ytdlp-archive.txt"), custom)
 }
 
 func TestPathPrefixStillWorks(t *testing.T) {

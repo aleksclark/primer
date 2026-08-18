@@ -3772,6 +3772,73 @@ paths:
       summary: Update a media item
       tags:
         - Media Items
+  /media-items/{id}/ingest:
+    post:
+      description: Partial automated metadata update. Unlike curator PATCH, title, overview, and classification changes do not set metadata locks.
+      operationId: ingest-media-item
+      parameters:
+        - description: Media item ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Media item ID.
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaItemUpdate"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaItem"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "405":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Method Not Allowed
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - adminKey: []
+      summary: Reconcile a media item from ingest
+      tags:
+        - Media Items
   /media/{id}/grant:
     post:
       description: Issues a single-use, short-lived playback authorization. In on-demand mode (the default) the item must have an open availability window with its play unconsumed. In programmed mode the item must be the programme airing on the channel right now, and the grant carries the offset to join it at. Returns 403 otherwise.

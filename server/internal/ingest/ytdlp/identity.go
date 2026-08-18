@@ -67,8 +67,18 @@ func FinalBasename(slug string, season, episode int, title, id string) string {
 	return fmt.Sprintf("%s - S%02dE%03d - %s [%s]", slug, season, episode, title, id)
 }
 
-// PerShowArchivePath is the per-slug --download-archive file.
+// PerShowArchivePath is the default per-slug --download-archive file.
 func PerShowArchivePath(outputDir, slug string) string {
+	return PerShowArchivePathIn(outputDir, "", slug)
+}
+
+// PerShowArchivePathIn returns the per-slug archive under archiveDir when set.
+// archiveDir is the parent directory for slug subdirectories; an empty value
+// keeps the archive beside the show under outputDir/Shows.
+func PerShowArchivePathIn(outputDir, archiveDir, slug string) string {
+	if archiveDir != "" {
+		return filepath.Join(archiveDir, slug, ".ytdlp-archive.txt")
+	}
 	return filepath.Join(outputDir, "Shows", slug, ".ytdlp-archive.txt")
 }
 

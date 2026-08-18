@@ -161,8 +161,10 @@ type Client interface {
 	ListMediaItems(ctx context.Context) ([]MediaItem, error)
 	// CreateMediaItem imports a Jellyfin item.
 	CreateMediaItem(ctx context.Context, in MediaItemCreate) (*MediaItem, error)
-	// UpdateMediaItem patches classification fields.
+	// UpdateMediaItem patches curator-owned fields and sets metadata locks.
 	UpdateMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error)
+	// ReconcileMediaItem applies automated ingest metadata without setting curator locks.
+	ReconcileMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error)
 	// SyncJellyfin refreshes cached metadata for already-imported items.
 	SyncJellyfin(ctx context.Context) (*SyncResult, error)
 	// SyncManifest upserts desired-state catalog rows from the YAML manifest.
@@ -228,10 +230,19 @@ func (c *HTTPClient) CreateMediaItem(ctx context.Context, in MediaItemCreate) (*
 	return &out, nil
 }
 
-// UpdateMediaItem patches classification fields.
+// UpdateMediaItem patches curator-owned fields and sets metadata locks.
 func (c *HTTPClient) UpdateMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
 	var out MediaItem
 	if err := c.do(ctx, http.MethodPatch, "/media-items/"+url.PathEscape(id), nil, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ReconcileMediaItem applies automated ingest metadata without setting curator locks.
+func (c *HTTPClient) ReconcileMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+	var out MediaItem
+	if err := c.do(ctx, http.MethodPost, "/media-items/"+url.PathEscape(id)+"/ingest", nil, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

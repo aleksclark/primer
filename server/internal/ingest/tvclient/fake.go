@@ -87,8 +87,17 @@ func (f *Fake) CreateMediaItem(_ context.Context, in MediaItemCreate) (*MediaIte
 	return &item, nil
 }
 
-// UpdateMediaItem patches an item.
-func (f *Fake) UpdateMediaItem(_ context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+// UpdateMediaItem patches an item and applies curator lock side effects.
+func (f *Fake) UpdateMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+	return f.updateMediaItem(ctx, id, in, true)
+}
+
+// ReconcileMediaItem applies automated metadata without setting curator locks.
+func (f *Fake) ReconcileMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+	return f.updateMediaItem(ctx, id, in, false)
+}
+
+func (f *Fake) updateMediaItem(_ context.Context, id string, in MediaItemUpdate, lock bool) (*MediaItem, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.Err != nil {
@@ -100,23 +109,33 @@ func (f *Fake) UpdateMediaItem(_ context.Context, id string, in MediaItemUpdate)
 		}
 		if in.Title != nil {
 			f.Items[i].Title = *in.Title
-			f.Items[i].TitleLocked = true
+			if lock {
+				f.Items[i].TitleLocked = true
+			}
 		}
 		if in.Class != nil {
 			f.Items[i].Class = *in.Class
-			f.Items[i].ClassificationLocked = true
+			if lock {
+				f.Items[i].ClassificationLocked = true
+			}
 		}
 		if in.SubjectTags != nil {
 			f.Items[i].SubjectTags = *in.SubjectTags
-			f.Items[i].ClassificationLocked = true
+			if lock {
+				f.Items[i].ClassificationLocked = true
+			}
 		}
 		if in.StandardCodes != nil {
 			f.Items[i].StandardCodes = *in.StandardCodes
-			f.Items[i].ClassificationLocked = true
+			if lock {
+				f.Items[i].ClassificationLocked = true
+			}
 		}
 		if in.Overview != nil {
 			f.Items[i].Overview = *in.Overview
-			f.Items[i].OverviewLocked = true
+			if lock {
+				f.Items[i].OverviewLocked = true
+			}
 		}
 		if in.YouTubeVideoID != nil {
 			f.Items[i].YouTubeVideoID = *in.YouTubeVideoID

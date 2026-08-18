@@ -48,6 +48,7 @@ type Deps struct {
 	// PerShowArchivePath. Cookies/JSRuntime are wired onto DownloadOpts.
 	YtDlpOutputDir   string
 	YtDlpArchivePath string
+	YtDlpArchiveDir  string
 	YtDlpBinary      string
 	YtDlpCookiesPath string
 	YtDlpJSRuntime   string
@@ -565,7 +566,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				URL:                it.URL,
 				Slug:               it.ID,
 				OutputDir:          e.deps.YtDlpOutputDir,
-				ArchivePath:        ytdlp.PerShowArchivePath(e.deps.YtDlpOutputDir, it.ID),
+				ArchivePath:        ytdlp.PerShowArchivePathIn(e.deps.YtDlpOutputDir, e.deps.YtDlpArchiveDir, it.ID),
 				Binary:             e.deps.YtDlpBinary,
 				CookiesPath:        e.deps.YtDlpCookiesPath,
 				JSRuntime:          e.deps.YtDlpJSRuntime,
@@ -576,7 +577,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				ShowTitle:          it.Title,
 			}
 			if err := e.deps.YtDlp.Download(ctx, dlOpts); err != nil {
-				if leftoverExit1Complete(e.deps.YtDlpOutputDir, it.ID, err) {
+				if leftoverExit1Complete(e.deps.YtDlpOutputDir, it.ID, dlOpts.ArchivePath, err) {
 					rep.AcquiredYouTube = append(rep.AcquiredYouTube, fmt.Sprintf("%s (archive complete; leftover exit 1 ignored)", it.ID))
 					continue
 				}
@@ -702,7 +703,7 @@ func (e *Engine) syncTV(ctx context.Context, rep *Report) error {
 
 // leftoverExit1Complete reports leftover yt-dlp exit 1 after a complete
 // per-show archive and at least one final playable file. That is not a new fail.
-func leftoverExit1Complete(outputDir, slug string, err error) bool {
+func leftoverExit1Complete(outputDir, slug, archive string, err error) bool {
 	if err == nil || outputDir == "" || slug == "" {
 		return false
 	}
@@ -710,7 +711,6 @@ func leftoverExit1Complete(outputDir, slug string, err error) bool {
 	if !strings.Contains(msg, "exit status 1") && !strings.Contains(msg, "exit code 1") {
 		return false
 	}
-	archive := ytdlp.PerShowArchivePath(outputDir, slug)
 	st, statErr := os.Stat(archive)
 	if statErr != nil || st.Size() == 0 {
 		return false
@@ -919,7 +919,7 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 						}
 						continue
 					}
-					_, err := e.deps.TV.UpdateMediaItem(ctx, existingItem.ID, upd)
+					_, err := e.deps.TV.ReconcileMediaItem(ctx, existingItem.ID, upd)
 					if err != nil {
 						rep.Errors = append(rep.Errors, fmt.Sprintf("%s update %s: %v", it.ID, jf.ID, err))
 						continue

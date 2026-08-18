@@ -129,6 +129,7 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 			OutputDir:     opts.OutputDir,
 			Slug:          opts.Slug,
 			ShowTitle:     opts.ShowTitle,
+			ArchivePath:   persistentArchive,
 			MinDuration:   effectiveMinDuration(opts.MinDurationSeconds),
 			AllowPastLive: opts.AllowPastLive,
 		}); err != nil {

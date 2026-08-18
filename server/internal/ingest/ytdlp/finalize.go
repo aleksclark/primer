@@ -11,10 +11,12 @@ import (
 
 // FinalizeOpts configures FinalizeStaging.
 type FinalizeOpts struct {
-	OutputDir     string
-	Slug          string
-	ShowTitle     string
-	ChannelID     string
+	OutputDir string
+	Slug      string
+	ShowTitle string
+	ChannelID string
+	// ArchivePath optionally overrides the default per-show archive location.
+	ArchivePath   string
 	Now           time.Time
 	MinDuration   int // seconds; 0 => DefaultMinDurationSeconds; negative disables
 	AllowPastLive bool
@@ -164,7 +166,11 @@ func FinalizeStaging(opts FinalizeOpts) ([]FinalizedEpisode, error) {
 		if err != nil {
 			return out, err
 		}
-		if err := appendArchive(PerShowArchivePath(opts.OutputDir, opts.Slug), it.info.ID); err != nil {
+		archivePath := opts.ArchivePath
+		if archivePath == "" {
+			archivePath = PerShowArchivePath(opts.OutputDir, opts.Slug)
+		}
+		if err := appendArchive(archivePath, it.info.ID); err != nil {
 			return out, err
 		}
 		out = append(out, FinalizedEpisode{
