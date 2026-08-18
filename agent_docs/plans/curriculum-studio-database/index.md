@@ -9,12 +9,12 @@ checkpointing, materialized-item edit/lock/supersession/provenance, exports and
 object refs, transactional outbox/webhook leases/idempotency, and
 audit/retention/backup/restore with observability and operational gates.
 
-**Database track cursor:** **D8 complete** (durable stage checkpoints,
-retry/reclaim handling, leases, and SQL fence-token protection; merged at
-`973c8a4`). The next wave is **D9 — materialized items lifecycle**. D1–D8
-evidence is present on this branch with real-Postgres repository, migration,
-and race tests; the full-module generated gRPC client gate remains a
-pre-existing Contracts-track blocker.
+**Database track cursor:** **D9 complete** (materialized item provenance,
+lock/unlock, edit history, supersession, and assessment-support publication
+rules; included in merge `8e2c381`). The next wave is **D10 — exports and
+object refs**. D1–D9 evidence is present on this branch with real-Postgres
+repository, migration, and race tests; the full-module generated gRPC client
+gate is green on the merged tip.
 
 **Branch / base:** `planning/curriculum-studio-plan-db` @
 `66449725337165c2ef00f7c269633696313e0be2`
@@ -55,7 +55,6 @@ pre-existing Contracts-track blocker.
 
 ### Missing (this plan owns)
 
-- Materialized item edit/lock/supersession/provenance/assessment support repos
 - Export metadata + object-store refs (bytes out of Postgres)
 - Transactional outbox, webhook delivery leases, inbound idempotency keys
 - Audit trail, retention, backup/restore/PITR operational gates, metrics/tracing

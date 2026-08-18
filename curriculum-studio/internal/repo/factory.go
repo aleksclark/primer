@@ -62,6 +62,9 @@ func (f *Factory) MaterializedItems() *MaterializedItemRepo { return NewMaterial
 // AssessmentSupports returns assessment support-link persistence.
 func (f *Factory) AssessmentSupports() *AssessmentSupportRepo { return NewAssessmentSupportRepo(f.Q) }
 
+// Exports returns export-job metadata persistence.
+func (f *Factory) Exports() *ExportRepo { return NewExportRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}
