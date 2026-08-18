@@ -9,11 +9,12 @@ checkpointing, materialized-item edit/lock/supersession/provenance, exports and
 object refs, transactional outbox/webhook leases/idempotency, and
 audit/retention/backup/restore with observability and operational gates.
 
-**Database track cursor:** **D4 complete** (PR #30, merged at `710e6ff`). The
-next wave is **D5 — plan graph and publication consistency**. D1–D4 evidence is
-present on the current master tip: Studio migration lifecycle and pgx
-foundation, tenant/workspace projections, and catalog/resource repositories
-with real-Postgres tests and database-authoritative scope/ownership policies.
+**Database track cursor:** **D5 complete** (transactional plan graph,
+publish/supersede consistency, and serialized outcome-prerequisite cycles;
+merged at `cc870c3`). The next wave is **D6 — validation reports**. D1–D5
+evidence is present on this branch with real-Postgres repository and migration
+tests; the full-module generated gRPC client gate remains a pre-existing
+Contracts-track blocker.
 
 **Branch / base:** `planning/curriculum-studio-plan-db` @
 `66449725337165c2ef00f7c269633696313e0be2`
@@ -54,8 +55,6 @@ with real-Postgres tests and database-authoritative scope/ownership policies.
 
 ### Missing (this plan owns)
 
-- Transactional plan graph write/read paths and publish/supersede consistency beyond raw SQL
-- Outcome prerequisite acyclicity under concurrent writers and same-revision enforcement at the repository boundary
 - Validation report persistence
 - Learner profile + materialization run fingerprint/idempotency
 - Workflow stage/attempt checkpointing, retry, reclaim fencing
