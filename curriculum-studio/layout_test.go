@@ -62,6 +62,14 @@ func TestServerPackagesDoNotImportClients(t *testing.T) {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 				return nil
 			}
+			// internal/grpcapi/e2e contains integration-harness test files that
+			// deliberately call CurriculumIntegrationService through the generated
+			// client façade (clients/go-grpc). This is an explicitly allowed
+			// exception: only *_test.go files here may import clients; production
+			// server code (non-test .go) in internal/ still cannot.
+			if strings.Contains(path, "internal/grpcapi/e2e") && strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
 			raw, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("read %s: %v", path, err)
