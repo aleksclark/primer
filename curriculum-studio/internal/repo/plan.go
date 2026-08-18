@@ -229,9 +229,9 @@ func (r *PlanRevisionRepo) publishScoped(ctx context.Context, workspaceID, id uu
 	}))
 }
 func publishRevision(ctx context.Context, q Querier, id uuid.UUID, subjectRef string) error {
-	var curriculumID uuid.UUID
+	var curriculumID, workspaceID uuid.UUID
 	var status string
-	if e := q.QueryRow(ctx, `SELECT curriculum_id,status FROM curriculum_studio.plan_revisions WHERE id=$1 FOR UPDATE`, id).Scan(&curriculumID, &status); e != nil {
+	if e := q.QueryRow(ctx, `SELECT r.curriculum_id,c.workspace_id,r.status FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1 FOR UPDATE OF c,r`, id).Scan(&curriculumID, &workspaceID, &status); e != nil {
 		return e
 	}
 	if status != "draft" {
@@ -249,7 +249,10 @@ func publishRevision(ctx context.Context, q Querier, id uuid.UUID, subjectRef st
 	if _, e := q.Exec(ctx, `UPDATE curriculum_studio.plan_revisions SET status='published',published_at=now(),published_by_subject_ref=$2,updated_at=now() WHERE id=$1 AND status='draft'`, id, subjectRef); e != nil {
 		return e
 	}
-	_, e := q.Exec(ctx, `UPDATE curriculum_studio.curricula SET status='active',published_revision_id=$2,current_draft_revision_id=NULL,updated_at=now() WHERE id=$1`, curriculumID, id)
+	if _, e := q.Exec(ctx, `UPDATE curriculum_studio.curricula SET status='active',published_revision_id=$2,current_draft_revision_id=NULL,updated_at=now() WHERE id=$1`, curriculumID, id); e != nil {
+		return e
+	}
+	_, e := q.Exec(ctx, `INSERT INTO curriculum_studio.outbox_events(workspace_id,event_type,aggregate_kind,aggregate_id,payload) VALUES($1,'plan_revision.published','plan_revision',$2,$3)`, workspaceID, id, json.RawMessage(fmt.Sprintf(`{"revision_id":%q}`, id.String())))
 	return e
 }
 func (r *PlanRevisionRepo) Supersede(ctx context.Context, workspaceID, id uuid.UUID) error {
