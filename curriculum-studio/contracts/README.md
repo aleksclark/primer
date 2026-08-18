@@ -113,7 +113,8 @@ curriculum-studio/contracts/
 
 Sibling package map (server edge, clients, gates): see `OWNERS.md` and
 `../Makefile` targets `contracts-validate`, `contracts-ownership`,
-`contracts-parity`, `contracts-gates`.
+`contracts-buf-generate`, `clients-go-grpc-build`, `contracts-parity`,
+`contracts-gates`.
 
 ## Closed-enum parity (C2)
 
@@ -155,12 +156,18 @@ path (no BSR remote plugins — remote execution hit `resource_exhausted` rate
 limits and is not reproducible):
 
 ```bash
-# from curriculum-studio/contracts/
-./scripts/bootstrap_local_plugins.sh   # installs exact pins into ignored .tmp cache
-# PATH is printed; or:
-eval "$(./scripts/bootstrap_local_plugins.sh | awk -F= '/^plugin_bin_dir=/{print "export PATH=" $2 ":$PATH"}')"
-buf generate
+# from curriculum-studio/
+make contracts-buf-generate
+make clients-go-grpc-build
+
+# or from curriculum-studio/contracts/
+./scripts/generate.sh
+./scripts/generate.sh --twice
 ```
+
+`./scripts/generate.sh` bootstraps exact pins into the ignored `.tmp` cache,
+prepends that private bin to `PATH`, and runs `buf generate` into `gen/go`
+(gitignored). Do not invoke ambient host `protoc-gen-go` or BSR remote plugins.
 
 Exact pins (fail closed; no ambient 1.36.5 fallback):
 

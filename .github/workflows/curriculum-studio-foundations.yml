@@ -16,6 +16,8 @@ on:
       - "scripts/probe-module-cover-gates.sh"
       - "curriculum-studio/go.mod"
       - "curriculum-studio/**/*.go"
+      - "curriculum-studio/contracts/**"
+      - "curriculum-studio/clients/**"
       - "primer-identity/go.mod"
       - "primer-identity/**/*.go"
       - ".github/workflows/curriculum-studio-foundations.yml"
@@ -28,6 +30,8 @@ on:
       - "scripts/probe-module-cover-gates.sh"
       - "curriculum-studio/go.mod"
       - "curriculum-studio/**/*.go"
+      - "curriculum-studio/contracts/**"
+      - "curriculum-studio/clients/**"
       - "primer-identity/go.mod"
       - "primer-identity/**/*.go"
       - ".github/workflows/curriculum-studio-foundations.yml"
@@ -50,8 +54,26 @@ jobs:
             primer-identity/go.mod
             server/go.sum
 
+      - name: Set up pinned Buf CLI
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: "1.72.0"
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: C4 contract validation and generated client tests
+        run: |
+          make -C curriculum-studio contracts-validate
+          make -C curriculum-studio clients-go-grpc-build
+          bash curriculum-studio/tools/contract-gates/check_no_tracked_generated.sh
+          git diff --check
+
+      - name: Studio full module tests with generated stubs
+        run: cd curriculum-studio && go test ./... -count=1
+
       - name: F0 foundation check
-        run: make foundation-check
+        run: GOFLAGS=-count=1 make foundation-check
 
       - name: Studio module tests
         run: make studio-test

@@ -139,8 +139,11 @@ STUDIO_TEST_DATABASE_URL='postgres://primer:***@127.0.0.1:5432/curriculum_studio
 TEST_DATABASE_URL='postgres://primer:***@127.0.0.1:5432/curriculum_studio_test' \
   python3 -m pytest tests -q
 
-# Contracts (buf / protoc / OpenAPI)
-cd curriculum-studio/contracts && ./scripts/validate.sh
+# Contracts (buf / protoc / OpenAPI + protobuf generate)
+cd curriculum-studio && make contracts-validate
+cd curriculum-studio && make contracts-buf-generate
+cd curriculum-studio && make clients-go-grpc-build
+# or: cd curriculum-studio/contracts && ./scripts/validate.sh && ./scripts/generate.sh --twice
 ```
 
 Parser/static checks run even when Docker and Postgres are unavailable.

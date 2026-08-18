@@ -18,6 +18,7 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 	contracts-validate \
 	contracts-ownership \
 	contracts-buf-generate \
+	clients-go-grpc-build \
 	contracts-openapi-emit \
 	clients-generate \
 	contracts-parity \
@@ -35,7 +36,8 @@ help:
 	@echo "  db-test                 Python schema/freeze suite"
 	@echo "  contracts-validate      offline buf/protoc/OpenAPI validate"
 	@echo "  contracts-ownership     ownership + layout scan (C1)"
-	@echo "  contracts-buf-generate  buf generate (C4)"
+	@echo "  contracts-buf-generate  buf generate via local pinned plugins (C4)"
+	@echo "  clients-go-grpc-build   generate stubs then go test clients/go-grpc (C4)"
 	@echo "  contracts-openapi-emit  openapi-gen offline emit (C6)"
 	@echo "  clients-generate        fan-out client generation (C4/C7)"
 	@echo "  contracts-parity        closed-enum parity gate (C2)"
@@ -89,20 +91,21 @@ contracts-validate:
 contracts-ownership:
 	python3 "$(GATES)/ownership_scan.py" --studio-root "$(STUDIO_ROOT)"
 
-# Filled in C4 — keep name stable.
+# C4: local pinned plugins only (no BSR remote).
 contracts-buf-generate:
-	@echo "TODO(C4): cd contracts && buf generate" >&2
-	@exit 1
+	cd "$(CONTRACTS)" && ./scripts/generate.sh
+
+clients-go-grpc-build: contracts-buf-generate
+	cd "$(STUDIO_ROOT)" && GOWORK=off go test ./clients/go-grpc/... -count=1
 
 # Filled in C6 — keep name stable.
 contracts-openapi-emit:
 	@echo "TODO(C6): run cmd/openapi-gen offline emitter" >&2
 	@exit 1
 
-# Filled in C4/C7 — keep name stable.
-clients-generate:
-	@echo "TODO(C4/C7): generate ts-rest / go-rest / go-grpc clients" >&2
-	@exit 1
+# C4 fills go-grpc generate; C7 fills REST clients.
+clients-generate: contracts-buf-generate
+	@echo "OK: clients-generate (go-grpc via contracts-buf-generate; REST deferred to C7)"
 
 # Filled in C2 — keep name stable.
 contracts-parity:

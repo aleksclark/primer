@@ -66,6 +66,10 @@ Production and C3 qualification use **local** Buf plugins only (not BSR remote):
   installs exact Go module pins into ignored `.tmp/pinned-plugins/` and fails
   closed on missing/mismatched versions (no ambient fallback).
 - Pins: `protoc-gen-go@v1.36.11`, `protoc-gen-go-grpc@v1.5.1`, Buf CLI `1.72.x`.
+- C4 production generate: `contracts/scripts/generate.sh` (and
+  `make contracts-buf-generate` / `make clients-go-grpc-build`).
+  Output: gitignored `contracts/gen/go`. Client façade:
+  `clients/go-grpc` (no copied messages).
 
 Remote BSR plugins are non-reproducible under rate limits (`resource_exhausted`)
 and must not re-enter the ordinary generate path.
