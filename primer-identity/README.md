@@ -8,7 +8,11 @@ This tree is a **separate deployable** with its own PostgreSQL database
 (`primer_identity`, goose table `identity_goose_db_version`). It does not share
 a database with the LMS (`server/`), TV, or Curriculum Studio.
 
-## Layout (I1 + I2 + IB1 + IB2 token + revoke contract)
+## Layout (I1 + I2 + IB1 + IB2 token/JWKS/revoke + hardening)
+
+**Status tip:** dual-reviewed IB2 hardening `0dd5faa` (local branch
+`impl/IB2-hardening-remed`); master may still be at `f31559d` until integrated.
+Resume: `agent_docs/plans/identity-ib2-resume.md`. Next wave: IB3/I7 BFF.
 
 ```text
 primer-identity/
@@ -21,17 +25,23 @@ primer-identity/
   cmd/openapi-gen/         # offline Huma OpenAPI 3.1 emitter (no DB/provider)
   internal/config/         # IDENTITY_* envconfig, fail-fast validation
   internal/db/             # pgx pool + embedded goose migrations
-  internal/db/migrations/  # foundation + accounts/external_identities/password
+  internal/db/migrations/  # 00001–00009 (IB1 broker + IB2 keys/grants/audit/retention)
   internal/db/SCHEMA.md    # schema notes
-  internal/domain/         # Account, ExternalIdentity, bounds, typed errors
+  internal/domain/         # Account, ExternalIdentity, OAuth bounds, typed errors
   internal/password/       # Argon2id PHC KDF (never stores plaintext)
-  internal/repo/           # Create/Get/Lock account, external identities, password
-  internal/api/            # chi+Huma /healthz /readyz /metrics + request IDs
-  internal/app/            # process bootstrap
+  internal/repo/           # accounts, broker, oauth token/assertion repos
+  internal/api/            # chi+Huma health + authorize/broker + token/revoke/JWKS/metadata
+  internal/app/            # process bootstrap (prod fail-closed without active key)
+  internal/broker/         # authorize/start/callback composition
+  internal/oauth/          # code exchange + revoke core (sign-before-commit)
+  internal/token/          # ES256 mint/verify + private_key_jwt assertion
+  internal/keys/           # signing custody + TransactionSigner
+  internal/stytch/         # official adapter + broker provider boundary
   internal/logging/        # structured JSON logs with secret redaction
   internal/testutil/       # Postgres testcontainer (primer_identity_test)
-  internal/testutil/factory/ # account/identity test builders
-  internal/testutil/e2e/   # process-level fail-fast + SIGTERM proofs
+  internal/testutil/factory/
+  internal/testutil/e2e/   # process-level token/broker proofs (credential-free)
+  internal/testutil/live/  # opt-in -tags=live_stytch test-project qualification
 ```
 
 ## Accounts and identities (I2)
