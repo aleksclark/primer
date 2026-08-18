@@ -179,6 +179,7 @@ def test_migrations_are_goose_paired():
         "00002_plan_domain.sql",
         "00003_materialization_and_integration.sql",
         "00004_invariants.sql",
+        "00005_catalog_scope_and_resource_policy.sql",
     ]
     for path in MIGRATIONS:
         text = path.read_text()

@@ -35,7 +35,7 @@ func TestP4E1_GlobalAndWorkspaceFrameworks(t *testing.T) {
 	require.Equal(t, "TN-MATH", global.Code)
 	require.False(t, global.CreatedAt.IsZero())
 
-	got, err := f.Frameworks().Get(ctx, global.ID)
+	got, err := f.Frameworks().Get(ctx, ws.ID, global.ID)
 	require.NoError(t, err)
 	require.Equal(t, global.ID, got.ID)
 	require.Equal(t, "Tennessee Math", got.Name)
@@ -106,13 +106,14 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 	ctx := context.Background()
 	tx := testutil.Tx(t)
 	f := repo.NewFactory(tx)
+	ws := factory.Workspace(t, tx)
 	fw, err := f.Frameworks().Create(ctx, &domain.StandardFramework{
 		Code: "TN-MATH",
 		Name: "Tennessee Math",
 	})
 	require.NoError(t, err)
 
-	parent, err := f.CatalogStandards().Create(ctx, &domain.CatalogStandard{
+	parent, err := f.CatalogStandards().Create(ctx, ws.ID, &domain.CatalogStandard{
 		FrameworkID: fw.ID,
 		Code:        "6.NS",
 		SubjectCode: "MATH",
@@ -125,7 +126,7 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 	require.Nil(t, parent.ParentID)
 	require.Equal(t, "6.NS", parent.Code)
 
-	child, err := f.CatalogStandards().Create(ctx, &domain.CatalogStandard{
+	child, err := f.CatalogStandards().Create(ctx, ws.ID, &domain.CatalogStandard{
 		FrameworkID: fw.ID,
 		ParentID:    &parent.ID,
 		Code:        "6.NS.A.1",
@@ -139,23 +140,23 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 	require.NotNil(t, child.ParentID)
 	require.Equal(t, parent.ID, *child.ParentID)
 
-	got, err := f.CatalogStandards().Get(ctx, child.ID)
+	got, err := f.CatalogStandards().Get(ctx, ws.ID, child.ID)
 	require.NoError(t, err)
 	require.Equal(t, child.ID, got.ID)
 	require.Equal(t, parent.ID, *got.ParentID)
 
-	tree, err := f.CatalogStandards().ListByFramework(ctx, fw.ID)
+	tree, err := f.CatalogStandards().ListByFramework(ctx, ws.ID, fw.ID)
 	require.NoError(t, err)
 	require.Len(t, tree, 2)
 
-	children, err := f.CatalogStandards().ListChildren(ctx, parent.ID)
+	children, err := f.CatalogStandards().ListChildren(ctx, ws.ID, parent.ID)
 	require.NoError(t, err)
 	require.Len(t, children, 1)
 	require.Equal(t, child.ID, children[0].ID)
 
 	// unique (framework_id, code)
 	sp := testutil.NewSavepointQuerier(tx)
-	_, err = repo.NewCatalogStandardRepo(sp).Create(ctx, &domain.CatalogStandard{
+	_, err = repo.NewCatalogStandardRepo(sp).Create(ctx, ws.ID, &domain.CatalogStandard{
 		FrameworkID: fw.ID,
 		Code:        "6.NS",
 		Description: "dup",
@@ -165,7 +166,7 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 	// same code in a different framework is allowed
 	fwB, err := f.Frameworks().Create(ctx, &domain.StandardFramework{Code: "CCSS-MATH", Name: "CCSS Math"})
 	require.NoError(t, err)
-	other, err := f.CatalogStandards().Create(ctx, &domain.CatalogStandard{
+	other, err := f.CatalogStandards().Create(ctx, ws.ID, &domain.CatalogStandard{
 		FrameworkID: fwB.ID,
 		Code:        "6.NS",
 		Description: "CCSS counterpart",
@@ -177,7 +178,7 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 	var imported []domain.CatalogStandard
 	err = repo.WithTx(ctx, tx, func(q repo.Querier) error {
 		var batchErr error
-		imported, batchErr = repo.NewCatalogStandardRepo(q).Import(ctx, fw.ID, []domain.CatalogStandard{
+		imported, batchErr = repo.NewCatalogStandardRepo(q).Import(ctx, ws.ID, fw.ID, []domain.CatalogStandard{
 			{Code: "6.RP", Description: "Ratios and Proportional Relationships"},
 			{Code: "6.RP.A.1", Description: "Understand the concept of a ratio."},
 		})
@@ -189,7 +190,7 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 	require.Equal(t, "6.RP", imported[0].Code)
 	require.Equal(t, fw.ID, imported[0].FrameworkID)
 	require.Equal(t, "6.RP.A.1", imported[1].Code)
-	tree, err = f.CatalogStandards().ListByFramework(ctx, fw.ID)
+	tree, err = f.CatalogStandards().ListByFramework(ctx, ws.ID, fw.ID)
 	require.NoError(t, err)
 	require.Len(t, tree, 4)
 }
@@ -197,18 +198,19 @@ func TestP4E2_HierarchicalCatalogStandards(t *testing.T) {
 func seedTwoStandards(t *testing.T, q repo.Querier) (a, b *domain.CatalogStandard) {
 	t.Helper()
 	ctx := context.Background()
+	ws := factory.Workspace(t, q)
 	fw, err := repo.NewFrameworkRepo(q).Create(ctx, &domain.StandardFramework{
 		Code: "FW-" + uuid.NewString()[:8],
 		Name: "Cycle FW",
 	})
 	require.NoError(t, err)
-	a, err = repo.NewCatalogStandardRepo(q).Create(ctx, &domain.CatalogStandard{
+	a, err = repo.NewCatalogStandardRepo(q).Create(ctx, ws.ID, &domain.CatalogStandard{
 		FrameworkID: fw.ID,
 		Code:        "A",
 		Description: "A",
 	})
 	require.NoError(t, err)
-	b, err = repo.NewCatalogStandardRepo(q).Create(ctx, &domain.CatalogStandard{
+	b, err = repo.NewCatalogStandardRepo(q).Create(ctx, ws.ID, &domain.CatalogStandard{
 		FrameworkID: fw.ID,
 		Code:        "B",
 		Description: "B",
@@ -222,9 +224,10 @@ func TestP4E3_CatalogPrerequisiteCycleRejected(t *testing.T) {
 	ctx := context.Background()
 	tx := testutil.Tx(t)
 	f := repo.NewFactory(tx)
+	ws := factory.Workspace(t, tx)
 	a, b := seedTwoStandards(t, tx)
 
-	edge, err := f.CatalogPrereqs().Create(ctx, domain.CatalogPrerequisite{
+	edge, err := f.CatalogPrereqs().Create(ctx, ws.ID, domain.CatalogPrerequisite{
 		StandardID:     b.ID,
 		PrerequisiteID: a.ID,
 	})
@@ -232,14 +235,14 @@ func TestP4E3_CatalogPrerequisiteCycleRejected(t *testing.T) {
 	require.Equal(t, b.ID, edge.StandardID)
 	require.Equal(t, a.ID, edge.PrerequisiteID)
 
-	listed, err := f.CatalogPrereqs().ListForStandard(ctx, b.ID)
+	listed, err := f.CatalogPrereqs().ListForStandard(ctx, ws.ID, b.ID)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	require.Equal(t, a.ID, listed[0].PrerequisiteID)
 
 	// Reverse edge is a cycle; DB trigger must reject even via raw SQL.
 	sp := testutil.NewSavepointQuerier(tx)
-	_, err = repo.NewCatalogPrereqRepo(sp).Create(ctx, domain.CatalogPrerequisite{
+	_, err = repo.NewCatalogPrereqRepo(sp).Create(ctx, ws.ID, domain.CatalogPrerequisite{
 		StandardID:     a.ID,
 		PrerequisiteID: b.ID,
 	})
@@ -252,7 +255,7 @@ VALUES ($1, $2)`, a.ID, b.ID)
 	require.ErrorIs(t, repo.MapError(err), repo.ErrPrerequisiteCycle)
 
 	// Self-edge CHECK.
-	_, err = repo.NewCatalogPrereqRepo(sp).Create(ctx, domain.CatalogPrerequisite{
+	_, err = repo.NewCatalogPrereqRepo(sp).Create(ctx, ws.ID, domain.CatalogPrerequisite{
 		StandardID:     a.ID,
 		PrerequisiteID: a.ID,
 	})
@@ -274,10 +277,9 @@ func TestP4E3_ConcurrentCycleRejected(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := repo.WithTx(ctx, pool, func(q repo.Querier) error {
-				_, err := repo.NewCatalogPrereqRepo(q).Create(ctx, domain.CatalogPrerequisite{
-					StandardID:     pair[0],
-					PrerequisiteID: pair[1],
-				})
+				_, err := q.Exec(ctx, `
+INSERT INTO curriculum_studio.catalog_standard_prerequisites (standard_id, prerequisite_id)
+VALUES ($1, $2)`, pair[0], pair[1])
 				return err
 			})
 			errs <- err
@@ -332,7 +334,7 @@ func TestP4E4_ResourceMetadataWithoutBytes(t *testing.T) {
 	require.Equal(t, "obj:euclid-elements", book.ArtifactRef)
 	require.NotContains(t, string(book.Metadata), "body")
 
-	got, err := f.Resources().Get(ctx, ten.ID, book.ID)
+	got, err := f.Resources().Get(ctx, ten.ID, ws.ID, book.ID)
 	require.NoError(t, err)
 	require.Equal(t, book.Title, got.Title)
 	require.Equal(t, ws.ID, *got.WorkspaceID)
@@ -358,7 +360,7 @@ func TestP4E4_ResourceMetadataWithoutBytes(t *testing.T) {
 
 	// IDOR: wrong tenant cannot see the row.
 	tenB := factory.Tenant(t, tx)
-	_, err = f.Resources().Get(ctx, tenB.ID, book.ID)
+	_, err = f.Resources().Get(ctx, tenB.ID, wsB.ID, book.ID)
 	require.ErrorIs(t, err, repo.ErrNotFound)
 
 	// kind CHECK

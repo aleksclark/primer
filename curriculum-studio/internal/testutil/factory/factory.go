@@ -132,7 +132,18 @@ func CatalogStandard(t *testing.T, q repo.Querier, overrides ...func(*domain.Cat
 	if in.FrameworkID == uuid.Nil {
 		in.FrameworkID = Framework(t, q).ID
 	}
-	out, err := repo.NewCatalogStandardRepo(q).Create(context.Background(), in)
+	// Catalog repository operations require a requested workspace scope. Global
+	// frameworks are visible to any workspace; custom frameworks use their
+	// owning workspace.
+	var frameworkWorkspace *uuid.UUID
+	err := q.QueryRow(context.Background(), `
+SELECT workspace_id FROM curriculum_studio.standard_frameworks WHERE id = $1`, in.FrameworkID).Scan(&frameworkWorkspace)
+	require.NoError(t, err)
+	scope := Workspace(t, q).ID
+	if frameworkWorkspace != nil {
+		scope = *frameworkWorkspace
+	}
+	out, err := repo.NewCatalogStandardRepo(q).Create(context.Background(), scope, in)
 	require.NoError(t, err)
 	return out
 }

@@ -22,10 +22,15 @@ func NewCatalogStandardRepo(q Querier) *CatalogStandardRepo {
 	return &CatalogStandardRepo{Q: q}
 }
 
-// Create inserts a catalog standard. Unique (framework_id, code) is enforced by Postgres.
-func (r *CatalogStandardRepo) Create(ctx context.Context, in *domain.CatalogStandard) (*domain.CatalogStandard, error) {
+// Create inserts a catalog standard visible to workspaceID. The framework may
+// be global or owned by that workspace; a foreign workspace framework is not
+// a valid insert scope.
+func (r *CatalogStandardRepo) Create(ctx context.Context, workspaceID uuid.UUID, in *domain.CatalogStandard) (*domain.CatalogStandard, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil {
+		return nil, fmt.Errorf("workspace_id is required")
 	}
 	if in == nil {
 		return nil, fmt.Errorf("catalog standard is required")
@@ -51,71 +56,81 @@ func (r *CatalogStandardRepo) Create(ctx context.Context, in *domain.CatalogStan
 	const q = `
 INSERT INTO curriculum_studio.catalog_standards
     (framework_id, parent_id, code, subject_code, grade_band, domain, cluster, description, metadata)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+SELECT f.id, $2, $3, $4, $5, $6, $7, $8, $9::jsonb
+FROM curriculum_studio.standard_frameworks f
+WHERE f.id = $1 AND (f.workspace_id IS NULL OR f.workspace_id = $10)
 RETURNING id, framework_id, parent_id, code, subject_code, grade_band, domain, cluster, description, metadata, created_at, updated_at`
 	out, err := scanCatalogStandard(r.Q.QueryRow(ctx, q,
-		in.FrameworkID, parent, code, in.SubjectCode, in.GradeBand, in.Domain, in.Cluster, in.Description, []byte(meta)))
+		in.FrameworkID, parent, code, in.SubjectCode, in.GradeBand, in.Domain, in.Cluster, in.Description, []byte(meta), workspaceID))
 	if err != nil {
 		return nil, MapError(err)
 	}
 	return out, nil
 }
 
-// Get returns a catalog standard by id.
-func (r *CatalogStandardRepo) Get(ctx context.Context, id uuid.UUID) (*domain.CatalogStandard, error) {
+// Get returns a standard visible to workspaceID. A standard in a global
+// framework is readable by every requested workspace.
+func (r *CatalogStandardRepo) Get(ctx context.Context, workspaceID, id uuid.UUID) (*domain.CatalogStandard, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
-	if id == uuid.Nil {
+	if workspaceID == uuid.Nil || id == uuid.Nil {
 		return nil, fmt.Errorf("%w", ErrNotFound)
 	}
 	const q = `
-SELECT id, framework_id, parent_id, code, subject_code, grade_band, domain, cluster, description, metadata, created_at, updated_at
-FROM curriculum_studio.catalog_standards
-WHERE id = $1`
-	out, err := scanCatalogStandard(r.Q.QueryRow(ctx, q, id))
+SELECT s.id, s.framework_id, s.parent_id, s.code, s.subject_code, s.grade_band, s.domain, s.cluster, s.description, s.metadata, s.created_at, s.updated_at
+FROM curriculum_studio.catalog_standards s
+JOIN curriculum_studio.standard_frameworks f ON f.id = s.framework_id
+WHERE s.id = $1 AND (f.workspace_id IS NULL OR f.workspace_id = $2)`
+	out, err := scanCatalogStandard(r.Q.QueryRow(ctx, q, id, workspaceID))
 	if err != nil {
 		return nil, MapError(err)
 	}
 	return out, nil
 }
 
-// ListByFramework returns all standards in a framework ordered by code.
-func (r *CatalogStandardRepo) ListByFramework(ctx context.Context, frameworkID uuid.UUID) ([]domain.CatalogStandard, error) {
+// ListByFramework returns all visible standards in a framework ordered by code.
+func (r *CatalogStandardRepo) ListByFramework(ctx context.Context, workspaceID, frameworkID uuid.UUID) ([]domain.CatalogStandard, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
-	if frameworkID == uuid.Nil {
+	if workspaceID == uuid.Nil || frameworkID == uuid.Nil {
 		return []domain.CatalogStandard{}, nil
 	}
 	const q = `
-SELECT id, framework_id, parent_id, code, subject_code, grade_band, domain, cluster, description, metadata, created_at, updated_at
-FROM curriculum_studio.catalog_standards
-WHERE framework_id = $1
-ORDER BY code ASC`
-	return listCatalogStandards(ctx, r.Q, q, frameworkID)
+SELECT s.id, s.framework_id, s.parent_id, s.code, s.subject_code, s.grade_band, s.domain, s.cluster, s.description, s.metadata, s.created_at, s.updated_at
+FROM curriculum_studio.catalog_standards s
+JOIN curriculum_studio.standard_frameworks f ON f.id = s.framework_id
+WHERE s.framework_id = $1 AND (f.workspace_id IS NULL OR f.workspace_id = $2)
+ORDER BY s.code ASC`
+	return listCatalogStandards(ctx, r.Q, q, frameworkID, workspaceID)
 }
 
-// ListChildren returns direct children of parentID ordered by code.
-func (r *CatalogStandardRepo) ListChildren(ctx context.Context, parentID uuid.UUID) ([]domain.CatalogStandard, error) {
+// ListChildren returns direct children of a visible parent ordered by code.
+func (r *CatalogStandardRepo) ListChildren(ctx context.Context, workspaceID, parentID uuid.UUID) ([]domain.CatalogStandard, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
-	if parentID == uuid.Nil {
+	if workspaceID == uuid.Nil || parentID == uuid.Nil {
 		return []domain.CatalogStandard{}, nil
 	}
 	const q = `
-SELECT id, framework_id, parent_id, code, subject_code, grade_band, domain, cluster, description, metadata, created_at, updated_at
-FROM curriculum_studio.catalog_standards
-WHERE parent_id = $1
-ORDER BY code ASC`
-	return listCatalogStandards(ctx, r.Q, q, parentID)
+SELECT s.id, s.framework_id, s.parent_id, s.code, s.subject_code, s.grade_band, s.domain, s.cluster, s.description, s.metadata, s.created_at, s.updated_at
+FROM curriculum_studio.catalog_standards s
+JOIN curriculum_studio.standard_frameworks f ON f.id = s.framework_id
+WHERE s.parent_id = $1 AND (f.workspace_id IS NULL OR f.workspace_id = $2)
+ORDER BY s.code ASC`
+	return listCatalogStandards(ctx, r.Q, q, parentID, workspaceID)
 }
 
-// Import inserts a small standards set. Callers should wrap this in WithTx.
-func (r *CatalogStandardRepo) Import(ctx context.Context, frameworkID uuid.UUID, items []domain.CatalogStandard) ([]domain.CatalogStandard, error) {
+// Import inserts a small standards set in one framework and workspace scope.
+// Callers should wrap this in WithTx.
+func (r *CatalogStandardRepo) Import(ctx context.Context, workspaceID, frameworkID uuid.UUID, items []domain.CatalogStandard) ([]domain.CatalogStandard, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil {
+		return nil, fmt.Errorf("workspace_id is required")
 	}
 	if frameworkID == uuid.Nil {
 		return nil, fmt.Errorf("framework_id is required")
@@ -124,7 +139,7 @@ func (r *CatalogStandardRepo) Import(ctx context.Context, frameworkID uuid.UUID,
 	for i := range items {
 		in := items[i]
 		in.FrameworkID = frameworkID
-		created, err := r.Create(ctx, &in)
+		created, err := r.Create(ctx, workspaceID, &in)
 		if err != nil {
 			return nil, err
 		}

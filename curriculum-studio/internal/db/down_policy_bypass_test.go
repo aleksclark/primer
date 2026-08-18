@@ -74,7 +74,7 @@ func TestDownWithPolicyIsSoleDestructivePath(t *testing.T) {
 
 	v, err := studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, int64(4), v, "live down must not apply")
+	require.Equal(t, int64(5), v, "live down must not apply")
 
 	// Status remains available (non-destructive).
 	st, err := studiodb.Studio.Status(ctx, url)
@@ -85,5 +85,5 @@ func TestDownWithPolicyIsSoleDestructivePath(t *testing.T) {
 	require.NoError(t, studiodb.Studio.DownWithPolicy(ctx, url, nonLive))
 	v, err = studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), v)
+	require.Equal(t, int64(4), v)
 }

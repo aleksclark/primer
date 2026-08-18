@@ -29,7 +29,7 @@ func TestMigrateDownAndStatus(t *testing.T) {
 	}))
 	v, err := studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), v)
+	require.Equal(t, int64(4), v)
 }
 
 func TestConnectWithConfigMaxConns(t *testing.T) {

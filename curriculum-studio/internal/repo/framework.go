@@ -55,19 +55,20 @@ RETURNING id, workspace_id, code, name, jurisdiction, version, created_at, updat
 	return out, nil
 }
 
-// Get returns a framework by id.
-func (r *FrameworkRepo) Get(ctx context.Context, id uuid.UUID) (*domain.StandardFramework, error) {
+// Get returns a framework visible to workspaceID. Global frameworks are
+// visible to every requested workspace; workspace-owned frameworks are not.
+func (r *FrameworkRepo) Get(ctx context.Context, workspaceID, id uuid.UUID) (*domain.StandardFramework, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
-	if id == uuid.Nil {
+	if workspaceID == uuid.Nil || id == uuid.Nil {
 		return nil, fmt.Errorf("%w", ErrNotFound)
 	}
 	const q = `
 SELECT id, workspace_id, code, name, jurisdiction, version, created_at, updated_at
 FROM curriculum_studio.standard_frameworks
-WHERE id = $1`
-	out, err := scanFramework(r.Q.QueryRow(ctx, q, id))
+WHERE id = $1 AND (workspace_id IS NULL OR workspace_id = $2)`
+	out, err := scanFramework(r.Q.QueryRow(ctx, q, id, workspaceID))
 	if err != nil {
 		return nil, MapError(err)
 	}
