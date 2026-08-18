@@ -627,7 +627,7 @@ func TestAuthorizationServerMetadataExactPathAndFields(t *testing.T) {
 	assert.Equal(t, "https://id.example.test/.well-known/jwks.json", meta["jwks_uri"])
 	assert.Equal(t, []any{"code"}, meta["response_types_supported"])
 	assert.Equal(t, []any{"query"}, meta["response_modes_supported"])
-	assert.Equal(t, []any{"authorization_code"}, meta["grant_types_supported"])
+	assert.Equal(t, []any{"authorization_code", "refresh_token", "client_credentials"}, meta["grant_types_supported"])
 	assert.Equal(t, []any{"S256"}, meta["code_challenge_methods_supported"])
 	assert.Equal(t, []any{"none", "client_secret_basic", "private_key_jwt"}, meta["token_endpoint_auth_methods_supported"])
 	assert.Equal(t, []any{"ES256"}, meta["token_endpoint_auth_signing_alg_values_supported"])

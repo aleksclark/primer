@@ -21,7 +21,8 @@ const (
 	// MaxClockSkew is the hard maximum future/expiry skew accepted by verify.
 	MaxClockSkew = 5 * time.Second
 	// AssertionClockSkew is the private_key_jwt assertion time tolerance.
-	AssertionClockSkew = 60 * time.Second
+	// Identical to domain.AssertionClockSkew (single policy source).
+	AssertionClockSkew = domain.AssertionClockSkew
 	// MaxTokenBytes is the compact JWS size cap.
 	MaxTokenBytes = 8 * 1024
 	// HeaderType is the RFC 9068 access-token typ.

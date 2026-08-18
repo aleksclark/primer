@@ -118,7 +118,8 @@ WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&tri
 		assertTable(t, pool, table)
 	}
 
-	require.NoError(t, db.MigrateDown(ctx, url), "IB2 audit signing-key FK is newest")
+	require.NoError(t, db.MigrateDown(ctx, url), "IB2 assertion replay retention is newest")
+	require.NoError(t, db.MigrateDown(ctx, url), "IB2 audit signing-key FK remains reversible")
 	require.NoError(t, db.MigrateDown(ctx, url), "IB2 token_grants remains reversible")
 	assertNoTable(t, pool, "oauth_client_keys")
 	assertNoTable(t, pool, "oauth_refresh_families")

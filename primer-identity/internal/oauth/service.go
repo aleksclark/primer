@@ -594,13 +594,19 @@ func (s *Service) authenticateClient(ctx context.Context, q repo.Querier, req cl
 		if err != nil {
 			return nil, oauthErr(ErrorTemporarilyUnavail, "client authentication failed")
 		}
+		// Retain through the parser accept window (JWT exp + clock skew) so
+		// purge-at-exp cannot open a post-expiry replay oracle.
+		retention := parsed.ExpiresAt.Add(domain.AssertionClockSkew)
 		_, err = repo.RecordClientAssertionReplay(ctx, q, domain.ClientAssertionReplay{
 			OAuthClientID: client.ID, EndpointKind: endpointKind,
 			JTIHash: jtiHash, Audience: audience,
-			IssuedAt: parsed.IssuedAt, ExpiresAt: parsed.ExpiresAt, ConsumedAt: now,
+			IssuedAt: parsed.IssuedAt, ExpiresAt: retention, ConsumedAt: now,
 		})
 		if err != nil {
-			if errors.Is(err, domain.ErrConflict) {
+			// Conflict and lifetime-edge validation are client-auth failures.
+			// Never surface temporarily_unavailable for crypto-valid late material
+			// near expiry (avoids a post-exp skew oracle).
+			if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrInvalid) {
 				return nil, oauthErr(ErrorInvalidClient, "client authentication failed")
 			}
 			return nil, oauthErr(ErrorTemporarilyUnavail, "client authentication failed")

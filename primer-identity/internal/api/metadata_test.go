@@ -112,7 +112,7 @@ func TestWellKnownRoutesRegisterOnceAndServeExactWire(t *testing.T) {
 	assert.Equal(t, "https://id.example.test/oauth/revoke", parsed["revocation_endpoint"])
 	assert.Contains(t, meta.Body.String(), "/oauth/revoke")
 	assert.Equal(t, "https://id.example.test/.well-known/jwks.json", parsed["jwks_uri"])
-	assert.Equal(t, []any{"authorization_code"}, parsed["grant_types_supported"])
+	assert.Equal(t, []any{"authorization_code", "refresh_token", "client_credentials"}, parsed["grant_types_supported"])
 	assert.Equal(t, []any{"none", "client_secret_basic", "private_key_jwt"}, parsed["revocation_endpoint_auth_methods_supported"])
 	assert.Equal(t, []any{"ES256"}, parsed["revocation_endpoint_auth_signing_alg_values_supported"])
 	assert.Equal(t, "public,max-age=300", meta.Header().Get("Cache-Control"))

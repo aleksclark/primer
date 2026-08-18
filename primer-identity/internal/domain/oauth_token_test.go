@@ -16,6 +16,21 @@ func TestValidateClientAssertionReplayRejectsReplayBounds(t *testing.T) {
 	if err := ValidateClientAssertionReplay(valid); err != nil {
 		t.Fatalf("valid replay rejected: %v", err)
 	}
+	// Retention may extend through JWT exp + AssertionClockSkew (parser accept window).
+	retain := validClientAssertionReplay()
+	retain.ExpiresAt = retain.IssuedAt.Add(MaxAssertionTTL + AssertionClockSkew)
+	retain.ConsumedAt = retain.IssuedAt.Add(MaxAssertionTTL + AssertionClockSkew)
+	if err := ValidateClientAssertionReplay(retain); err != nil {
+		t.Fatalf("skew retention window rejected: %v", err)
+	}
+	// consumed_at may sit after JWT exp while still inside retention.
+	late := validClientAssertionReplay()
+	jwtExp := late.IssuedAt.Add(2 * time.Minute)
+	late.ExpiresAt = jwtExp.Add(AssertionClockSkew)
+	late.ConsumedAt = jwtExp.Add(59 * time.Second)
+	if err := ValidateClientAssertionReplay(late); err != nil {
+		t.Fatalf("late skew consumption rejected: %v", err)
+	}
 	cases := []struct {
 		name   string
 		mutate func(*ClientAssertionReplay)
@@ -26,9 +41,15 @@ func TestValidateClientAssertionReplayRejectsReplayBounds(t *testing.T) {
 		{"audience control", func(in *ClientAssertionReplay) { in.Audience = "https://x\x00/token" }},
 		{"lifetime", func(in *ClientAssertionReplay) {
 			in.IssuedAt = valid.IssuedAt
-			in.ExpiresAt = valid.IssuedAt.Add(5*time.Minute + time.Second)
+			in.ExpiresAt = valid.IssuedAt.Add(MaxAssertionTTL + AssertionClockSkew + time.Second)
 		}},
 		{"zero lifetime", func(in *ClientAssertionReplay) { in.ExpiresAt = in.IssuedAt }},
+		{"consumed after retention", func(in *ClientAssertionReplay) {
+			in.ConsumedAt = in.ExpiresAt.Add(time.Second)
+		}},
+		{"consumed before iat skew", func(in *ClientAssertionReplay) {
+			in.ConsumedAt = in.IssuedAt.Add(-AssertionClockSkew - time.Second)
+		}},
 		{"client", func(in *ClientAssertionReplay) { in.OAuthClientID = uuid.Nil }},
 	}
 	for _, tc := range cases {

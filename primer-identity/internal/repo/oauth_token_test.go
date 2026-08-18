@@ -64,6 +64,52 @@ func TestIB2RecordClientAssertionReplayAtomicAndPurgeExpired(t *testing.T) {
 	require.Zero(t, leftover)
 }
 
+func TestIB2AssertionReplayRetentionSurvivesJWTExpSkewWindow(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	client := confidentialJWTClient(t)
+
+	// JWT exp is "now"; parser still accepts through exp+AssertionClockSkew.
+	// Ledger must retain until at least that extended timestamp.
+	iat := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	jwtExp := iat.Add(2 * time.Minute)
+	consumed := jwtExp.Add(59 * time.Second)
+	retention := jwtExp.Add(domain.AssertionClockSkew)
+	jti := uniqueHash("jti-skew-retain")
+
+	row, err := repo.RecordClientAssertionReplay(ctx, pool, domain.ClientAssertionReplay{
+		OAuthClientID: client.ID, EndpointKind: domain.AssertionEndpointToken,
+		JTIHash: jti, Audience: "https://identity.example/oauth/token",
+		IssuedAt: iat, ExpiresAt: retention, ConsumedAt: consumed,
+	})
+	require.NoError(t, err)
+	require.True(t, row.ExpiresAt.Equal(retention), "ledger stores retention past JWT exp")
+	require.True(t, row.ExpiresAt.After(jwtExp))
+
+	// Purge at JWT exp must NOT drop the row — still inside skew accept window.
+	purged, err := repo.PurgeExpiredClientAssertionReplays(ctx, pool, jwtExp)
+	require.NoError(t, err)
+	require.Zero(t, purged)
+	var alive int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM oauth_client_assertion_replays WHERE id=$1`, row.ID).Scan(&alive))
+	require.Equal(t, 1, alive)
+
+	// Conflict still denied while retained.
+	_, err = repo.RecordClientAssertionReplay(ctx, pool, domain.ClientAssertionReplay{
+		OAuthClientID: client.ID, EndpointKind: domain.AssertionEndpointToken,
+		JTIHash: jti, Audience: "https://identity.example/oauth/token",
+		IssuedAt: iat, ExpiresAt: retention, ConsumedAt: retention,
+	})
+	require.ErrorIs(t, err, domain.ErrConflict)
+
+	// After retention + ε, purge removes the row.
+	purged, err = repo.PurgeExpiredClientAssertionReplays(ctx, pool, retention.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), purged)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM oauth_client_assertion_replays WHERE id=$1`, row.ID).Scan(&alive))
+	require.Zero(t, alive)
+}
+
 func TestIB2ClaimAuthorizationCodeExactBindingAndConcurrentOneSuccess(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.DB(t)

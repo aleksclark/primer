@@ -139,11 +139,27 @@ absolute. Rotation/reuse/revoke remain IB6.
 ### `oauth_client_assertion_replays`
 
 Durable `(oauth_client_id,endpoint_kind,jti_hash)` ledger with audience, iat,
-and exp. TTL is `0 < exp-iat ≤ 5m`. Expired rows are purgeable.
+and retention expiry. JWT claim lifetime remains `0 < exp-iat ≤ 5m`; the
+stored `expires_at` is retention through JWT exp + 60s clock skew (see
+`00009`). Rows are purgeable only after that retention timestamp.
+`consumed_at` may equal retention at the skew boundary.
 
 ### `token_issuance_audit`
 
 Copied `authorization_code_hash`, subject, public `client_id`, resource,
 audience, scope, jti, kid, and times. `authorization_code_id` is nullable
 `ON DELETE SET NULL` so 24h code purge keeps 400-day evidence. No raw JWT,
-refresh, code, PII, or provider payload. No `signing_keys` FK.
+refresh, code, PII, or provider payload. `signing_key_id` FK added in
+`00008_ib2_audit_signing_key_fk` (`NOT NULL`, `ON DELETE RESTRICT`).
+
+## 00008_ib2_audit_signing_key_fk
+
+Adds `token_issuance_audit.signing_key_id uuid NOT NULL` with
+`token_issuance_audit_signing_key_fk` → `signing_keys(id)` `ON DELETE RESTRICT`.
+Backfills existing rows by `kid` before enforcing NOT NULL.
+
+## 00009_ib2_assertion_replay_retention
+
+Widens `oauth_client_assertion_replays_ck` so ledger `expires_at` may extend
+to `issued_at + 5 minutes + 60 seconds` and `expires_at >= consumed_at`.
+Does not rewrite `00007` history.
