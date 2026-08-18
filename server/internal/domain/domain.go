@@ -415,18 +415,18 @@ type StudentAssignment struct {
 
 // StudentDevice is a paired student workstation.
 type StudentDevice struct {
-	ID                      string         `json:"id" db:"id" format:"uuid"`
-	StudentID               string         `json:"studentId" db:"student_id" format:"uuid"`
-	Name                    string         `json:"name" db:"name"`
-	TokenHash               string         `json:"-" db:"token_hash"`
-	LastSeenAt              *time.Time     `json:"lastSeenAt,omitempty" db:"last_seen_at"`
-	RevokedAt               *time.Time     `json:"revokedAt,omitempty" db:"revoked_at"`
+	ID         string     `json:"id" db:"id" format:"uuid"`
+	StudentID  string     `json:"studentId" db:"student_id" format:"uuid"`
+	Name       string     `json:"name" db:"name"`
+	TokenHash  string     `json:"-" db:"token_hash"`
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty" db:"last_seen_at"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty" db:"revoked_at"`
 	// Capabilities is the most recent device capability report (runtime profiles, runner flags).
 	// Diagnostic only — not an authorization boundary.
-	Capabilities            map[string]any `json:"capabilities,omitempty" db:"capabilities"`
-	CapabilitiesReportedAt  *time.Time     `json:"capabilitiesReportedAt,omitempty" db:"capabilities_reported_at"`
-	CreatedAt               time.Time      `json:"createdAt" db:"created_at"`
-	UpdatedAt               time.Time      `json:"updatedAt" db:"updated_at"`
+	Capabilities           map[string]any `json:"capabilities,omitempty" db:"capabilities"`
+	CapabilitiesReportedAt *time.Time     `json:"capabilitiesReportedAt,omitempty" db:"capabilities_reported_at"`
+	CreatedAt              time.Time      `json:"createdAt" db:"created_at"`
+	UpdatedAt              time.Time      `json:"updatedAt" db:"updated_at"`
 }
 
 // StudentDevicePairingCode is a short-lived one-use pairing code.
@@ -542,18 +542,18 @@ type PortfolioItem struct {
 
 // ApprovedFixtureBundle is an immutable parent-approved workspace input.
 type ApprovedFixtureBundle struct {
-	ID                     string         `json:"id" db:"id" format:"uuid"`
-	StudentID              string         `json:"studentId" db:"student_id" format:"uuid"`
-	SourcePortfolioItemID  *string        `json:"sourcePortfolioItemId,omitempty" db:"source_portfolio_item_id" format:"uuid"`
-	SourceArtifactID       string         `json:"sourceArtifactId" db:"source_artifact_id" format:"uuid"`
-	Digest                 string         `json:"digest" db:"digest"`
-	Label                  string         `json:"label" db:"label"`
-	Entries                []map[string]any `json:"entries,omitempty" db:"entries"`
-	StorageRoot            string         `json:"storageRoot,omitempty" db:"storage_root"`
-	ApprovedBy             *string        `json:"approvedBy,omitempty" db:"approved_by" format:"uuid"`
-	Status                 string         `json:"status" db:"status" enum:"approved,withdrawn"`
-	Provenance             map[string]any `json:"provenance,omitempty" db:"provenance"`
-	CreatedAt              time.Time      `json:"createdAt" db:"created_at"`
+	ID                    string           `json:"id" db:"id" format:"uuid"`
+	StudentID             string           `json:"studentId" db:"student_id" format:"uuid"`
+	SourcePortfolioItemID *string          `json:"sourcePortfolioItemId,omitempty" db:"source_portfolio_item_id" format:"uuid"`
+	SourceArtifactID      string           `json:"sourceArtifactId" db:"source_artifact_id" format:"uuid"`
+	Digest                string           `json:"digest" db:"digest"`
+	Label                 string           `json:"label" db:"label"`
+	Entries               []map[string]any `json:"entries,omitempty" db:"entries"`
+	StorageRoot           string           `json:"storageRoot,omitempty" db:"storage_root"`
+	ApprovedBy            *string          `json:"approvedBy,omitempty" db:"approved_by" format:"uuid"`
+	Status                string           `json:"status" db:"status" enum:"approved,withdrawn"`
+	Provenance            map[string]any   `json:"provenance,omitempty" db:"provenance"`
+	CreatedAt             time.Time        `json:"createdAt" db:"created_at"`
 }
 
 // AssignmentContinuityBinding records how an assignment materializes its workspace.
@@ -599,26 +599,26 @@ const (
 // StudentResponse is an immutable submitted conceptual response (one attempt).
 // Returned work creates a new row rather than overwriting body text.
 type StudentResponse struct {
-	ID                   string         `json:"id" db:"id" format:"uuid"`
-	SubmissionID         string         `json:"submissionId" db:"submission_id" format:"uuid"`
-	StudentID            string         `json:"studentId" db:"student_id" format:"uuid"`
-	SessionID            string         `json:"sessionId" db:"session_id" format:"uuid"`
-	AssignmentID         string         `json:"assignmentId" db:"assignment_id" format:"uuid"`
-	ActivityRevisionID   string         `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
-	TaskID               string         `json:"taskId" db:"task_id"`
-	Body                 string         `json:"body" db:"body"`
-	BodySHA256           string         `json:"bodySha256" db:"body_sha256"`
-	Status               string         `json:"status" db:"status" enum:"submitted,accepted,returned"`
-	RequestDigest        string         `json:"requestDigest" db:"request_digest"`
-	Attempt              int            `json:"attempt" db:"attempt"`
+	ID                   string           `json:"id" db:"id" format:"uuid"`
+	SubmissionID         string           `json:"submissionId" db:"submission_id" format:"uuid"`
+	StudentID            string           `json:"studentId" db:"student_id" format:"uuid"`
+	SessionID            string           `json:"sessionId" db:"session_id" format:"uuid"`
+	AssignmentID         string           `json:"assignmentId" db:"assignment_id" format:"uuid"`
+	ActivityRevisionID   string           `json:"activityRevisionId" db:"activity_revision_id" format:"uuid"`
+	TaskID               string           `json:"taskId" db:"task_id"`
+	Body                 string           `json:"body" db:"body"`
+	BodySHA256           string           `json:"bodySha256" db:"body_sha256"`
+	Status               string           `json:"status" db:"status" enum:"submitted,accepted,returned"`
+	RequestDigest        string           `json:"requestDigest" db:"request_digest"`
+	Attempt              int              `json:"attempt" db:"attempt"`
 	RubricSnapshot       []map[string]any `json:"rubricSnapshot,omitempty" db:"rubric_snapshot"`
-	ParentReviewRequired bool           `json:"parentReviewRequired" db:"parent_review_required"`
-	SubmittedAt          time.Time      `json:"submittedAt" db:"submitted_at"`
-	ReviewedAt           *time.Time     `json:"reviewedAt,omitempty" db:"reviewed_at"`
-	ReviewedBy           *string        `json:"reviewedBy,omitempty" db:"reviewed_by" format:"uuid"`
-	ReturnReason         string         `json:"returnReason,omitempty" db:"return_reason"`
-	CreatedAt            time.Time      `json:"createdAt" db:"created_at"`
-	UpdatedAt            time.Time      `json:"updatedAt" db:"updated_at"`
+	ParentReviewRequired bool             `json:"parentReviewRequired" db:"parent_review_required"`
+	SubmittedAt          time.Time        `json:"submittedAt" db:"submitted_at"`
+	ReviewedAt           *time.Time       `json:"reviewedAt,omitempty" db:"reviewed_at"`
+	ReviewedBy           *string          `json:"reviewedBy,omitempty" db:"reviewed_by" format:"uuid"`
+	ReturnReason         string           `json:"returnReason,omitempty" db:"return_reason"`
+	CreatedAt            time.Time        `json:"createdAt" db:"created_at"`
+	UpdatedAt            time.Time        `json:"updatedAt" db:"updated_at"`
 }
 
 // StudentResponseReview is one parent decision on a submitted response.

@@ -32,37 +32,37 @@ type TypingSnapshot = activities.TypingSnapshot
 
 // SessionSnapshot is a read-only view of an interactive activity session.
 type SessionSnapshot struct {
-	AssignmentID     string           `json:"assignmentId"`
-	ActivitySlug     string           `json:"activitySlug"`
-	ActivityTitle    string           `json:"activityTitle"`
-	Kind             string           `json:"kind"` // terminal | typing
-	ClientSessionID  string           `json:"clientSessionId"`
-	ServerSessionID  string           `json:"serverSessionId,omitempty"`
-	Workspace        string           `json:"workspace,omitempty"`
-	Cwd              string           `json:"cwd,omitempty"`    // absolute path (terminal)
-	RelCwd           string           `json:"relCwd,omitempty"` // path relative to workspace (terminal)
-	Objective        string           `json:"objective,omitempty"`
-	Instructions     string           `json:"instructions,omitempty"`
+	AssignmentID    string `json:"assignmentId"`
+	ActivitySlug    string `json:"activitySlug"`
+	ActivityTitle   string `json:"activityTitle"`
+	Kind            string `json:"kind"` // terminal | typing
+	ClientSessionID string `json:"clientSessionId"`
+	ServerSessionID string `json:"serverSessionId,omitempty"`
+	Workspace       string `json:"workspace,omitempty"`
+	Cwd             string `json:"cwd,omitempty"`    // absolute path (terminal)
+	RelCwd          string `json:"relCwd,omitempty"` // path relative to workspace (terminal)
+	Objective       string `json:"objective,omitempty"`
+	Instructions    string `json:"instructions,omitempty"`
 	// Blocks are student-visible instructional blocks (parent_note excluded).
 	Blocks           []contracts.InstructionBlock `json:"blocks,omitempty"`
-	Tasks            []contracts.Task `json:"tasks,omitempty"`
-	CurrentTaskIdx   int              `json:"currentTaskIdx"`
-	Checks           []CheckStatus    `json:"checks,omitempty"`
-	RequiredPassed   bool             `json:"requiredPassed"`
-	ChecksPassed     int              `json:"checksPassed"`
-	ChecksTotal      int              `json:"checksTotal"`
-	CommandsRun      int              `json:"commandsRun"`
-	LastOutput       string           `json:"lastOutput,omitempty"`
-	LastError        string           `json:"lastError,omitempty"`
-	Message          string           `json:"message,omitempty"`
-	Completed        bool             `json:"completed"`
-	CompletionQueued bool             `json:"completionQueued"`
-	CompletionAcked  bool             `json:"completionAcked"`
-	Offline          bool             `json:"offline"`
-	Sync             sync.Status      `json:"sync,omitempty"`
-	Hints            []contracts.Hint `json:"hints,omitempty"`
-	TutorHint        string           `json:"tutorHint,omitempty"`
-	Typing           *TypingSnapshot  `json:"typing,omitempty"`
+	Tasks            []contracts.Task             `json:"tasks,omitempty"`
+	CurrentTaskIdx   int                          `json:"currentTaskIdx"`
+	Checks           []CheckStatus                `json:"checks,omitempty"`
+	RequiredPassed   bool                         `json:"requiredPassed"`
+	ChecksPassed     int                          `json:"checksPassed"`
+	ChecksTotal      int                          `json:"checksTotal"`
+	CommandsRun      int                          `json:"commandsRun"`
+	LastOutput       string                       `json:"lastOutput,omitempty"`
+	LastError        string                       `json:"lastError,omitempty"`
+	Message          string                       `json:"message,omitempty"`
+	Completed        bool                         `json:"completed"`
+	CompletionQueued bool                         `json:"completionQueued"`
+	CompletionAcked  bool                         `json:"completionAcked"`
+	Offline          bool                         `json:"offline"`
+	Sync             sync.Status                  `json:"sync,omitempty"`
+	Hints            []contracts.Hint             `json:"hints,omitempty"`
+	TutorHint        string                       `json:"tutorHint,omitempty"`
+	Typing           *TypingSnapshot              `json:"typing,omitempty"`
 	// TerminalScreen is the bounded PTY scrollback when a live PTY is attached.
 	TerminalScreen string `json:"terminalScreen,omitempty"`
 	// HasTerminal is true when a PTY shell is available for this session.

@@ -145,11 +145,11 @@ func openEngineWS(t *testing.T, env *harnessEnv, dbPath, wsRoot string, offline 
 
 	cl := studentapi.New(env.BaseURL, env.DeviceToken)
 	eng, err := engine.New(engine.Options{
-		Client:                    cl,
-		Store:                     store,
-		WorkspaceRoot:             wsRoot,
-		Offline:                   offline,
-		AllowUnsandboxed:          true,
+		Client:           cl,
+		Store:            store,
+		WorkspaceRoot:    wsRoot,
+		Offline:          offline,
+		AllowUnsandboxed: true,
 		// Headless scripted RunShell produces structured command evidence.
 		StructuredCommandEvidence: true,
 	})

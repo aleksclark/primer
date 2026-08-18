@@ -5,7 +5,9 @@ package manifest
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -36,9 +38,28 @@ type Provider struct {
 // Empty reports whether no provider ID is set.
 func (p Provider) Empty() bool { return p.TMDB == 0 && p.TVDB == 0 }
 
+// DefaultMinDurationSeconds is applied when Filters.MinDurationSeconds is unset (0).
+const DefaultMinDurationSeconds = 60
+
+// VideoOverride is a per-video metadata or exclusion override keyed by YouTube id.
+type VideoOverride struct {
+	ID            string   `yaml:"id" json:"id"`
+	Title         string   `yaml:"title,omitempty" json:"title,omitempty"`
+	Class         string   `yaml:"class,omitempty" json:"class,omitempty"`
+	SubjectTags   []string `yaml:"subject_tags,omitempty" json:"subject_tags,omitempty"`
+	StandardCodes []string `yaml:"standard_codes,omitempty" json:"standard_codes,omitempty"`
+	Exclude       bool     `yaml:"exclude,omitempty" json:"exclude,omitempty"`
+}
+
 // Filters narrows a YouTube source.
+// Empty Playlists on a youtube_channel means import from /videos only
+// (not playlist-scoped). Non-empty Playlists means do not download the
+// whole channel — only the named playlists (resolved by Lane B).
 type Filters struct {
-	Playlists []string `yaml:"playlists,omitempty" json:"playlists,omitempty"`
+	Playlists          []string `yaml:"playlists,omitempty" json:"playlists,omitempty"`
+	MinDurationSeconds int      `yaml:"min_duration_seconds,omitempty" json:"min_duration_seconds,omitempty"`
+	ExcludeShorts      *bool    `yaml:"exclude_shorts,omitempty" json:"exclude_shorts,omitempty"`
+	ExcludeLive        *bool    `yaml:"exclude_live,omitempty" json:"exclude_live,omitempty"`
 }
 
 // Item is one desired-state entry in the content manifest.
@@ -55,8 +76,12 @@ type Item struct {
 	StandardCodes   []string `yaml:"standard_codes,omitempty" json:"standard_codes,omitempty"`
 	Priority        int      `yaml:"priority,omitempty" json:"priority,omitempty"`
 	ExcludeEpisodes []string `yaml:"exclude_episodes,omitempty" json:"exclude_episodes,omitempty"`
-	MaxEpisodes     int      `yaml:"max_episodes,omitempty" json:"max_episodes,omitempty"`
-	Notes           string   `yaml:"notes,omitempty" json:"notes,omitempty"`
+	// MaxEpisodes caps how many videos/episodes to import for Video+Episode
+	// sources (YouTube channel/playlist and series). It does not apply to
+	// Folder-style sources. See AppliesToYouTubeImport, CapsImports, ImportLimit.
+	MaxEpisodes int             `yaml:"max_episodes,omitempty" json:"max_episodes,omitempty"`
+	Videos      []VideoOverride `yaml:"videos,omitempty" json:"videos,omitempty"`
+	Notes       string          `yaml:"notes,omitempty" json:"notes,omitempty"`
 }
 
 // Manifest is the desired-state document.
@@ -125,6 +150,36 @@ func (m *Manifest) Validate() error {
 		if (it.Kind == KindYouTubeChannel || it.Kind == KindYouTubePlaylist) && it.URL == "" {
 			return fmt.Errorf("item %q: url is required for %s", it.ID, it.Kind)
 		}
+		if err := validateVideos(it); err != nil {
+			return err
+		}
+		if err := ValidatePlaylists(it); err != nil {
+			return err
+		}
+		if err := validateMinDuration(it); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateVideos(it Item) error {
+	seen := make(map[string]bool, len(it.Videos))
+	for i, v := range it.Videos {
+		if strings.TrimSpace(v.ID) == "" {
+			return fmt.Errorf("item %q: videos[%d]: id is required", it.ID, i)
+		}
+		if seen[v.ID] {
+			return fmt.Errorf("item %q: duplicate video id %q", it.ID, v.ID)
+		}
+		seen[v.ID] = true
+		if v.Class != "" {
+			switch v.Class {
+			case ClassEducational, ClassEntertainment, ClassMixed:
+			default:
+				return fmt.Errorf("item %q: videos[%d]: unknown class %q", it.ID, i, v.Class)
+			}
+		}
 	}
 	return nil
 }
@@ -170,16 +225,159 @@ func (m *Manifest) SortedByPriority() []Item {
 	return out
 }
 
-// Excluded reports whether episodeKey (e.g. "S01E07") is on the skip list.
-// Matching is case-insensitive.
-func (it Item) Excluded(episodeKey string) bool {
-	key := strings.ToUpper(strings.TrimSpace(episodeKey))
+// episodeKeyRE matches S##E## with optional zero-padding on the episode number.
+var episodeKeyRE = regexp.MustCompile(`(?i)^S(\d+)E(\d+)$`)
+
+// normalizeEpisodeKey returns a canonical "S{season}E{episode}" form with
+// unpadded numeric parts, or "" if key is not an episode key.
+func normalizeEpisodeKey(key string) string {
+	m := episodeKeyRE.FindStringSubmatch(strings.TrimSpace(key))
+	if m == nil {
+		return ""
+	}
+	season, err1 := strconv.Atoi(m[1])
+	episode, err2 := strconv.Atoi(m[2])
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	return fmt.Sprintf("S%dE%d", season, episode)
+}
+
+// excludeEntryMatches reports whether a single exclude_episodes entry matches key.
+// Episode keys match case-insensitively and ignore zero-padding (S01E07 == S01E007).
+// YouTube ids (and other non-episode tokens) match case-sensitively as stored.
+func excludeEntryMatches(entry, key string) bool {
+	entry = strings.TrimSpace(entry)
+	key = strings.TrimSpace(key)
+	if entry == "" || key == "" {
+		return false
+	}
+	if ek := normalizeEpisodeKey(entry); ek != "" {
+		if kk := normalizeEpisodeKey(key); kk != "" {
+			return ek == kk
+		}
+		// entry is episode form; key is not — no match
+		return false
+	}
+	// Non-episode tokens (e.g. YouTube ids): case-sensitive exact match.
+	return entry == key
+}
+
+// Excluded reports whether key is on the skip list.
+// key may be an episode key (e.g. "S01E07" / "S01E007", case-insensitive,
+// padding-insensitive) or a YouTube video id (case-sensitive as stored).
+func (it Item) Excluded(key string) bool {
 	for _, ex := range it.ExcludeEpisodes {
-		if strings.ToUpper(strings.TrimSpace(ex)) == key {
+		if excludeEntryMatches(ex, key) {
 			return true
 		}
 	}
 	return false
+}
+
+// ExcludedVideo reports whether a video should be skipped for this item.
+// True if exclude_episodes contains youtubeID or episodeKey, or videos[] has
+// that youtube id with Exclude true.
+func ExcludedVideo(it Item, youtubeID, episodeKey string) bool {
+	if youtubeID != "" && it.Excluded(youtubeID) {
+		return true
+	}
+	if episodeKey != "" && it.Excluded(episodeKey) {
+		return true
+	}
+	if ov := OverrideFor(it, youtubeID); ov != nil && ov.Exclude {
+		return true
+	}
+	return false
+}
+
+// OverrideFor returns the VideoOverride for youtubeID, or nil.
+func OverrideFor(it Item, youtubeID string) *VideoOverride {
+	if youtubeID == "" {
+		return nil
+	}
+	for i := range it.Videos {
+		if it.Videos[i].ID == youtubeID {
+			return &it.Videos[i]
+		}
+	}
+	return nil
+}
+
+// EffectiveMinDuration returns Filters.MinDurationSeconds, or DefaultMinDurationSeconds when unset (0).
+// -1 disables the duration floor (explicit shorts). Other negatives are rejected by Validate.
+func EffectiveMinDuration(f Filters) int {
+	if f.MinDurationSeconds == 0 {
+		return DefaultMinDurationSeconds
+	}
+	return f.MinDurationSeconds
+}
+
+func validateMinDuration(it Item) error {
+	if it.Filters.MinDurationSeconds < -1 {
+		return fmt.Errorf("item %q: filters.min_duration_seconds must be -1 or nonnegative", it.ID)
+	}
+	return nil
+}
+
+// EffectiveExcludeShorts returns the exclude_shorts setting; nil pointer defaults to true.
+func EffectiveExcludeShorts(f Filters) bool {
+	if f.ExcludeShorts == nil {
+		return true
+	}
+	return *f.ExcludeShorts
+}
+
+// EffectiveExcludeLive returns the exclude_live setting; nil pointer defaults to true.
+func EffectiveExcludeLive(f Filters) bool {
+	if f.ExcludeLive == nil {
+		return true
+	}
+	return *f.ExcludeLive
+}
+
+// UsesPlaylistFilter reports whether the item scopes import to named playlists.
+// Empty playlists on a youtube_channel means /videos only (no playlist filter).
+func UsesPlaylistFilter(it Item) bool {
+	return len(PlaylistNames(it)) > 0
+}
+
+// PlaylistNames returns the configured playlist name list (may be empty).
+func PlaylistNames(it Item) []string {
+	if len(it.Filters.Playlists) == 0 {
+		return nil
+	}
+	out := make([]string, len(it.Filters.Playlists))
+	copy(out, it.Filters.Playlists)
+	return out
+}
+
+// ValidatePlaylists fails closed if any required playlist name is empty/whitespace.
+// Actual yt-dlp playlist name resolution is Lane B; this only rejects blank names.
+func ValidatePlaylists(it Item) error {
+	for i, name := range it.Filters.Playlists {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("item %q: filters.playlists[%d]: playlist name is required (empty names are not silently ignored)", it.ID, i)
+		}
+	}
+	return nil
+}
+
+// AppliesToYouTubeImport reports whether MaxEpisodes is meaningful for YouTube
+// video import on this item (youtube_channel or youtube_playlist).
+func (it Item) AppliesToYouTubeImport() bool {
+	return it.Kind == KindYouTubeChannel || it.Kind == KindYouTubePlaylist
+}
+
+// CapsImports reports whether MaxEpisodes is set (> 0) and should limit imports.
+// MaxEpisodes applies to Video+Episode sources (YouTube and series), not Folder.
+func (it Item) CapsImports() bool {
+	return it.MaxEpisodes > 0
+}
+
+// ImportLimit returns MaxEpisodes (0 means uncapped).
+func (it Item) ImportLimit() int {
+	return it.MaxEpisodes
 }
 
 // NeedsResolve reports whether this item still needs a provider ID lookup.

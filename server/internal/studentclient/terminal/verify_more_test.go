@@ -99,7 +99,7 @@ func TestVerifyCheckFailureAndErrorPaths(t *testing.T) {
 
 	badShell := &terminal.ShellState{
 		Cwd: filepath.Join(root, "home", "docs"), Executable: "cat", Args: []string{"x"}, ExitCode: 1,
-		Stdout: "nope\n",
+		Stdout:                    "nope\n",
 		StructuredCommandEvidence: true,
 		Source:                    "structured",
 	}

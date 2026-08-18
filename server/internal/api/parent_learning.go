@@ -790,14 +790,14 @@ type retryAssignmentInput struct {
 
 // LearningOverviewResponse is the parent dashboard aggregate for one student.
 type LearningOverviewResponse struct {
-	Student           domain.Student                 `json:"student"`
-	Devices           []domain.StudentDevice         `json:"devices"`
-	OpenAssignments   []domain.StudentAssignment     `json:"openAssignments"`
-	RecentSessions    []domain.LearningSession       `json:"recentSessions"`
-	MasterySummary    []domain.MasteryRecord         `json:"masterySummary"`
-	EvidenceStatuses  []repo.StandardEvidenceStatus  `json:"evidenceStatuses"`
-	Tutor             TutorStatusResponse            `json:"tutor"`
-	TutorNotesDisable bool                           `json:"tutorNotesDisable"`
+	Student           domain.Student                `json:"student"`
+	Devices           []domain.StudentDevice        `json:"devices"`
+	OpenAssignments   []domain.StudentAssignment    `json:"openAssignments"`
+	RecentSessions    []domain.LearningSession      `json:"recentSessions"`
+	MasterySummary    []domain.MasteryRecord        `json:"masterySummary"`
+	EvidenceStatuses  []repo.StandardEvidenceStatus `json:"evidenceStatuses"`
+	Tutor             TutorStatusResponse           `json:"tutor"`
+	TutorNotesDisable bool                          `json:"tutorNotesDisable"`
 }
 
 type learningOverviewOutput struct {
@@ -872,9 +872,9 @@ type responseDecisionInput struct {
 
 // ResponseDecisionResult is POST /response-reviews/{id}/decision.
 type ResponseDecisionResult struct {
-	Response    domain.StudentResponse         `json:"response"`
-	Review      *domain.StudentResponseReview  `json:"review,omitempty"`
-	EvidenceIDs []string                       `json:"evidenceIds,omitempty"`
+	Response    domain.StudentResponse        `json:"response"`
+	Review      *domain.StudentResponseReview `json:"review,omitempty"`
+	EvidenceIDs []string                      `json:"evidenceIds,omitempty"`
 }
 
 type responseDecisionOutput struct {

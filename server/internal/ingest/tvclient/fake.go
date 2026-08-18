@@ -75,6 +75,10 @@ func (f *Fake) CreateMediaItem(_ context.Context, in MediaItemCreate) (*MediaIte
 		VideoCodec:     in.VideoCodec,
 		AudioCodec:     in.AudioCodec,
 		ImageTag:       in.ImageTag,
+		YouTubeVideoID: in.YouTubeVideoID,
+		ManifestSlug:   in.ManifestSlug,
+		EpisodeKey:     in.EpisodeKey,
+		UploadDate:     in.UploadDate,
 		DirectPlayOK:   true,
 	}
 	f.NextID++
@@ -83,8 +87,17 @@ func (f *Fake) CreateMediaItem(_ context.Context, in MediaItemCreate) (*MediaIte
 	return &item, nil
 }
 
-// UpdateMediaItem patches an item.
-func (f *Fake) UpdateMediaItem(_ context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+// UpdateMediaItem patches an item and applies curator lock side effects.
+func (f *Fake) UpdateMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+	return f.updateMediaItem(ctx, id, in, true)
+}
+
+// ReconcileMediaItem applies automated metadata without setting curator locks.
+func (f *Fake) ReconcileMediaItem(ctx context.Context, id string, in MediaItemUpdate) (*MediaItem, error) {
+	return f.updateMediaItem(ctx, id, in, false)
+}
+
+func (f *Fake) updateMediaItem(_ context.Context, id string, in MediaItemUpdate, lock bool) (*MediaItem, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.Err != nil {
@@ -96,18 +109,60 @@ func (f *Fake) UpdateMediaItem(_ context.Context, id string, in MediaItemUpdate)
 		}
 		if in.Title != nil {
 			f.Items[i].Title = *in.Title
+			if lock {
+				f.Items[i].TitleLocked = true
+			}
 		}
 		if in.Class != nil {
 			f.Items[i].Class = *in.Class
+			if lock {
+				f.Items[i].ClassificationLocked = true
+			}
 		}
 		if in.SubjectTags != nil {
 			f.Items[i].SubjectTags = *in.SubjectTags
+			if lock {
+				f.Items[i].ClassificationLocked = true
+			}
 		}
 		if in.StandardCodes != nil {
 			f.Items[i].StandardCodes = *in.StandardCodes
+			if lock {
+				f.Items[i].ClassificationLocked = true
+			}
 		}
 		if in.Overview != nil {
 			f.Items[i].Overview = *in.Overview
+			if lock {
+				f.Items[i].OverviewLocked = true
+			}
+		}
+		if in.YouTubeVideoID != nil {
+			f.Items[i].YouTubeVideoID = *in.YouTubeVideoID
+		}
+		if in.ManifestSlug != nil {
+			f.Items[i].ManifestSlug = *in.ManifestSlug
+		}
+		if in.EpisodeKey != nil {
+			f.Items[i].EpisodeKey = *in.EpisodeKey
+		}
+		if in.UploadDate != nil {
+			f.Items[i].UploadDate = *in.UploadDate
+		}
+		if in.SortTitle != nil {
+			f.Items[i].SortTitle = *in.SortTitle
+		}
+		if in.Container != nil {
+			f.Items[i].Container = *in.Container
+		}
+		if in.VideoCodec != nil {
+			f.Items[i].VideoCodec = *in.VideoCodec
+		}
+		if in.AudioCodec != nil {
+			f.Items[i].AudioCodec = *in.AudioCodec
+		}
+		if in.ImageTag != nil {
+			f.Items[i].ImageTag = *in.ImageTag
 		}
 		f.UpdateCalls = append(f.UpdateCalls, struct {
 			ID string

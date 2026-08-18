@@ -372,6 +372,56 @@ func TestScanRunningIdle(t *testing.T) {
 	assert.False(t, running)
 }
 
+func TestBrowsePageReportsUnfilteredTotalAndRawPageLen(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := r.URL.Query().Get("StartIndex")
+		// First unfiltered page is two non-matching movies; the matching
+		// Shows/slug video is record 3 of 3. PathContains applied after the
+		// page would otherwise make browseAll stop.
+		if start == "" || start == "0" {
+			_, _ = w.Write([]byte(`{
+				"TotalRecordCount": 3,
+				"Items": [
+					{"Id":"n1","Name":"Noise1","Type":"Movie","Path":"/media/Movies/n1.mkv"},
+					{"Id":"n2","Name":"Noise2","Type":"Movie","Path":"/media/Movies/n2.mkv"}
+				]
+			}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{
+			"TotalRecordCount": 3,
+			"Items": [
+				{"Id":"hit","Name":"Dovetails","Type":"Video","Path":"/media/tv/Primer/Shows/paul-sellers/Season 01/paul-sellers - S01E001 - Dovetails [dQw4w9wgxcQ].mkv"}
+			]
+		}`))
+	}))
+
+	page, err := client.BrowsePage(context.Background(), jellyfin.BrowseParams{
+		PathContains:     "Shows/paul-sellers",
+		IncludePath:      true,
+		IncludeItemTypes: "Movie,Episode,Video",
+		Limit:            2,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items, "client path filter drops the first page")
+	assert.Equal(t, 2, page.RawPageLen, "pagination must use the unfiltered page size")
+	assert.Equal(t, 3, page.TotalRecordCount)
+
+	next, err := client.BrowsePage(context.Background(), jellyfin.BrowseParams{
+		PathContains:     "Shows/paul-sellers",
+		IncludePath:      true,
+		IncludeItemTypes: "Movie,Episode,Video",
+		Limit:            2,
+		StartIndex:       2,
+	})
+	require.NoError(t, err)
+	require.Len(t, next.Items, 1)
+	assert.Equal(t, "hit", next.Items[0].ID)
+	assert.Equal(t, 1, next.RawPageLen)
+	assert.Equal(t, 3, next.TotalRecordCount)
+}
+
 func TestBrowseProviderAndPath(t *testing.T) {
 	t.Parallel()
 	var gotQuery url.Values

@@ -103,22 +103,40 @@ is the entire human workload** — everything downstream is exact-ID joins.
   quality profile capped at **1080p H.264/H.265** (RK3318 direct-play ceiling — this
   encodes the direct-play constraint at acquisition time instead of validating after).
   Sonarr monitors only non-excluded episodes.
-- *youtube*: yt-dlp with `--download-archive` (idempotent), output template shaped for
-  Jellyfin (`Shows/<Channel>/Season 01/...`), `--embed-metadata --write-thumbnail`,
-  format capped `bv*[height<=1080][vcodec~='(avc|hevc)']+ba`. Runs as the Nomad job's
-  periodic batch; new channel uploads are picked up on later passes automatically.
+- *youtube*: yt-dlp under the canonical Primer root (container
+  `INGEST_YTDLP_OUTPUT_DIR=/media/tv/Primer` = host `/mnt/moosefs/media/tv/Primer`).
+  On-disk contract is documented in `agent_docs/runbooks/youtube-shows.md`:
+  `{OutputDir}/Shows/<slug>/Season 01/{slug} - S01E{nnn} - {title} [{id}].mkv`
+  plus sidecar `info.json` / `nfo` / `jpg`, show-level `tvshow.nfo`,
+  `.primer-index.json`, and per-show `.ytdlp-archive.txt`. **Never** write
+  `{OutputDir}/tvshow.nfo` (poison NFO at Primer root — delete only that path).
+  Identity is the triple **youtube id + manifest slug + Jellyfin item id**; episode
+  ordinals come from the per-slug ledger (first-seen by `upload_date` then `id`),
+  never bare `playlist_index`. Path matching is boundary-safe
+  (`paul-sellers` ≠ `paul-sellers-extra`). Catalog status `present` does **not**
+  skip yt-dlp — archive/ledger still run so new uploads land. Global
+  `INGEST_YTDLP_ARCHIVE_PATH` is deprecated/unused. Cookies jar is path-only
+  (`INGEST_YTDLP_COOKIES_PATH`, host file mode 0600 outside git) with
+  `--js-runtimes node` for Gate A challenges. Format capped
+  `bv*[height<=1080][vcodec~='(avc|hevc)']+ba`. Mark Rober later lands as **three**
+  slugs (`mark-rober`, `mark-rober-science-class`, `mark-rober-shorts`), not one
+  channel dump. Nomad task `kill_timeout` ≥ `4h`. Pause/disable the existing 6h
+  periodic until one-slug success + kill_timeout are deployed (do not register a
+  second periodic).
 - *manual*: no action; emits the rip-queue section of the run report.
 
 **④ Sync.** Jellyfin `POST /Library/Refresh`, wait for scan completion, then tv-server
 `POST /jellyfin/sync` (existing endpoint) so its metadata cache sees the new items.
 
 **⑤ Import.** For each manifest item with provider IDs: find the Jellyfin item(s) via
-`/Items?hasTmdbId=...` / provider-id filter (yt-dlp content matches by path prefix
-instead — the output template embeds the manifest slug). Create/update tv-server
-media_items via the existing admin API with class/subject_tags/standard_codes from
-the manifest. Series → one media_item per episode (matching current sync behavior),
-excluded episodes skipped. Already-imported items (by `jellyfin_item_id` unique key)
-are updated only if manifest classification changed.
+`/Items?hasTmdbId=...` / provider-id filter. YouTube content matches by path
+convention under `Shows/<slug>/` (boundary-safe prefix) and joins on the youtube
+video id embedded in the basename `[id]`. Create/update tv-server media_items via
+the existing admin API with class/subject_tags/standard_codes from the manifest.
+Series → one media_item per episode (matching current sync behavior), excluded
+episodes skipped. Already-imported items (by `jellyfin_item_id` unique key) are
+updated only if manifest classification changed; youtube identity fields stay
+stable across re-imports.
 
 **⑥ Report.** One markdown file per run (and optionally a Telegram post): resolved,
 acquired, awaiting-download, imported, review-queue size, manual-rip queue. The

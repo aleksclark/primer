@@ -69,9 +69,9 @@ func InvariantsAt(checks []Check, boundary string) []Check {
 // StageCounts tallies checks by effective stage and invariant boundaries.
 func StageCounts(checks []Check) map[string]int {
 	out := map[string]int{
-		StageFixture:             0,
-		StageTask:                0,
-		StageFinal:               0,
+		StageFixture:                        0,
+		StageTask:                           0,
+		StageFinal:                          0,
 		"invariant:" + InvariantAtFixture:   0,
 		"invariant:" + InvariantAtAfterTask: 0,
 		"invariant:" + InvariantAtFinal:     0,

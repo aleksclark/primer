@@ -175,16 +175,28 @@ check_job content-ingest jobs/content-ingest.nomad.hcl image_content_ingest noma
 
 # content-ingest periodic invariants
 CI="${ROOT}/jobs/content-ingest.nomad.hcl"
+ENVF="${ROOT}/env/home.nomadvars.hcl"
 grep -q 'type[[:space:]]*=[[:space:]]*"batch"' "${CI}" || fail "content-ingest must be batch"
 grep -q 'periodic[[:space:]]*{' "${CI}" || fail "content-ingest must be periodic"
 grep -q 'prohibit_overlap[[:space:]]*=[[:space:]]*true' "${CI}" || fail "prohibit_overlap required"
 grep -q 'moosefs-media' "${CI}" || fail "content-ingest moosefs-media volume"
 grep -qi 'pause' "${ROOT}/README.md" || fail "README must document pause-before-handoff"
 grep -q 'never-from-reconciler-or-ci' "${CI}" || fail "dispatch policy meta missing"
+# YouTube root + kill_timeout (W6): container /media/tv/Primer, ≥4h dumps
+grep -qE 'default[[:space:]]*=[[:space:]]*"/media/tv/Primer"' "${CI}" \
+  || fail "content-ingest ytdlp output default must be /media/tv/Primer"
+grep -qE 'content_ingest_ytdlp_output_dir[[:space:]]*=[[:space:]]*"/media/tv/Primer"' "${ENVF}" \
+  || fail "home.nomadvars ytdlp output must be /media/tv/Primer"
+grep -qE 'kill_timeout[[:space:]]*=[[:space:]]*"4h"' "${CI}" \
+  || fail "content-ingest kill_timeout must be 4h"
+grep -q 'INGEST_YTDLP_COOKIES_PATH' "${CI}" \
+  || fail "content-ingest must declare INGEST_YTDLP_COOKIES_PATH env (path only)"
+if grep -nE '/data/media' "${CI}" "${ENVF}" "${REPO_ROOT}/deploy/.env.example" 2>/dev/null; then
+  fail "legacy /data/media path must not remain in content-ingest deploy surface"
+fi
 pass "content-ingest periodic + handoff docs"
 
 # env overlay must not hold secret keys/values
-ENVF="${ROOT}/env/home.nomadvars.hcl"
 if grep -nEi '(password|api_key|service_token|admin_key|database_url)\s*=' "${ENVF}"; then
   fail "env overlay contains secret-shaped keys"
 fi

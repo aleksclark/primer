@@ -42,6 +42,31 @@ func TestMediaItemConsumesPlay(t *testing.T) {
 	assert.False(t, domain.MediaItem{Class: domain.ClassMixed}.ConsumesPlay())
 }
 
+func TestConstructedYouTubeTitle(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "Paul Sellers S01E001 — Dovetails",
+		domain.ConstructedYouTubeTitle("Paul Sellers", "S01E001", "Dovetails"))
+	assert.Equal(t, "Paul Sellers — Dovetails",
+		domain.ConstructedYouTubeTitle("Paul Sellers", "", "Dovetails"))
+	assert.Equal(t, "S01E001 — Dovetails",
+		domain.ConstructedYouTubeTitle("", "S01E001", "Dovetails"))
+	assert.Equal(t, "Dovetails", domain.ConstructedYouTubeTitle("", "", "Dovetails"))
+	assert.Equal(t, "Paul Sellers S01E001", domain.ConstructedYouTubeTitle("Paul Sellers", "S01E001", ""))
+}
+
+func TestShowTitleFromMediaItem(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "Paul Sellers", domain.ShowTitleFromMediaItem(domain.MediaItem{
+		Title: "Paul Sellers S01E001 — Dovetails", EpisodeKey: "S01E001",
+	}))
+	assert.Equal(t, "", domain.ShowTitleFromMediaItem(domain.MediaItem{
+		Title: "Paul Sellers S01E001 — Dovetails", EpisodeKey: "",
+	}), "empty episode key must not invent a show split")
+	assert.Equal(t, "Paul Sellers", domain.ShowTitleFromMediaItem(domain.MediaItem{
+		Title: "Paul Sellers S01E001", EpisodeKey: "S01E001",
+	}))
+}
+
 func TestDevicePaired(t *testing.T) {
 	t.Parallel()
 	revoked := time.Now().UTC()

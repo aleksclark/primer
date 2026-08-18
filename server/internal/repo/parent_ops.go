@@ -159,27 +159,27 @@ func SupersedeMasteryEvidence(ctx context.Context, q Querier, evidenceID, note s
 
 // EvidenceStatus values for parent-visible mastery evidence reporting.
 const (
-	EvidenceStatusNotIntroduced          = "not_introduced"
-	EvidenceStatusActivityCompleted      = "activity_completed"
-	EvidenceStatusProceduralAccepted     = "procedural_accepted"
-	EvidenceStatusAdditionalEvidenceReq  = "additional_evidence_required"
-	EvidenceStatusFormalMastery          = "formal_mastery"
+	EvidenceStatusNotIntroduced         = "not_introduced"
+	EvidenceStatusActivityCompleted     = "activity_completed"
+	EvidenceStatusProceduralAccepted    = "procedural_accepted"
+	EvidenceStatusAdditionalEvidenceReq = "additional_evidence_required"
+	EvidenceStatusFormalMastery         = "formal_mastery"
 )
 
 // StandardEvidenceStatus is parent-visible evidence mix for one standard.
 type StandardEvidenceStatus struct {
-	StandardID            string   `json:"standardId"`
-	StandardCode          string   `json:"standardCode"`
-	MasteryRecordID       string   `json:"masteryRecordId,omitempty"`
-	MasteryStatus         string   `json:"masteryStatus"`
-	Confidence            float64  `json:"confidence"`
-	AcceptedEvidenceClasses []string `json:"acceptedEvidenceClasses"`
-	MissingEvidenceClasses  []string `json:"missingEvidenceClasses"`
-	EvidenceStatus        string   `json:"evidenceStatus"`
-	ActivityCompleted     bool     `json:"activityCompleted"`
-	ProceduralAccepted    bool     `json:"proceduralAccepted"`
-	AdditionalEvidenceRequired bool `json:"additionalEvidenceRequired"`
-	FormalMastery         bool     `json:"formalMastery"`
+	StandardID                 string   `json:"standardId"`
+	StandardCode               string   `json:"standardCode"`
+	MasteryRecordID            string   `json:"masteryRecordId,omitempty"`
+	MasteryStatus              string   `json:"masteryStatus"`
+	Confidence                 float64  `json:"confidence"`
+	AcceptedEvidenceClasses    []string `json:"acceptedEvidenceClasses"`
+	MissingEvidenceClasses     []string `json:"missingEvidenceClasses"`
+	EvidenceStatus             string   `json:"evidenceStatus"`
+	ActivityCompleted          bool     `json:"activityCompleted"`
+	ProceduralAccepted         bool     `json:"proceduralAccepted"`
+	AdditionalEvidenceRequired bool     `json:"additionalEvidenceRequired"`
+	FormalMastery              bool     `json:"formalMastery"`
 }
 
 // StudentLearningOverview aggregates parent-facing learning state for one student.

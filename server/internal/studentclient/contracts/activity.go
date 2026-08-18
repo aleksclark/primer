@@ -63,31 +63,31 @@ func DefaultTypingEvidencePolicy() EvidencePolicy {
 
 // ActivityContent is the versioned revision body stored as JSONB later.
 type ActivityContent struct {
-	Objective    string              `json:"objective" yaml:"objective"`
-	Instructions string              `json:"instructions" yaml:"instructions"`
+	Objective    string `json:"objective" yaml:"objective"`
+	Instructions string `json:"instructions" yaml:"instructions"`
 	// Blocks are ordered typed instructional material delivered with the
 	// immutable revision. Parent-note blocks are authoring/parent-only.
-	Blocks       []InstructionBlock  `json:"blocks,omitempty" yaml:"blocks,omitempty"`
-	Terminal     *TerminalContent    `json:"terminal,omitempty" yaml:"terminal,omitempty"`
-	Typing       *TypingContent      `json:"typing,omitempty" yaml:"typing,omitempty"`
-	Tasks        []Task              `json:"tasks" yaml:"tasks"`
-	Checks       []Check             `json:"checks" yaml:"checks"`
-	Hints        []Hint              `json:"hints,omitempty" yaml:"hints,omitempty"`
-	Tutor        *TutorContext       `json:"tutor,omitempty" yaml:"tutor,omitempty"`
-	Progression  *ProgressionPolicy  `json:"progression,omitempty" yaml:"progression,omitempty"`
-	Artifacts    *ArtifactPolicy     `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
+	Blocks      []InstructionBlock `json:"blocks,omitempty" yaml:"blocks,omitempty"`
+	Terminal    *TerminalContent   `json:"terminal,omitempty" yaml:"terminal,omitempty"`
+	Typing      *TypingContent     `json:"typing,omitempty" yaml:"typing,omitempty"`
+	Tasks       []Task             `json:"tasks" yaml:"tasks"`
+	Checks      []Check            `json:"checks" yaml:"checks"`
+	Hints       []Hint             `json:"hints,omitempty" yaml:"hints,omitempty"`
+	Tutor       *TutorContext      `json:"tutor,omitempty" yaml:"tutor,omitempty"`
+	Progression *ProgressionPolicy `json:"progression,omitempty" yaml:"progression,omitempty"`
+	Artifacts   *ArtifactPolicy    `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
 }
 
 // Instruction block kinds (typed teaching material, not free-form HTML).
 const (
-	BlockProse       = "prose"
-	BlockVocabulary  = "vocabulary"
-	BlockExample     = "example"
-	BlockWarning     = "warning"
-	BlockQuestion    = "question"
-	BlockPractice    = "practice"
-	BlockParentNote  = "parent_note"
-	BlockResource    = "resource"
+	BlockProse      = "prose"
+	BlockVocabulary = "vocabulary"
+	BlockExample    = "example"
+	BlockWarning    = "warning"
+	BlockQuestion   = "question"
+	BlockPractice   = "practice"
+	BlockParentNote = "parent_note"
+	BlockResource   = "resource"
 )
 
 // InstructionBlock is one ordered teaching unit inside ActivityContent.
@@ -117,7 +117,7 @@ type VocabularyTerm struct {
 // ResourceRef points at an approved content-addressed attachment.
 type ResourceRef struct {
 	// SHA256 is the hex digest of the attachment bytes.
-	SHA256   string `json:"sha256" yaml:"sha256"`
+	SHA256 string `json:"sha256" yaml:"sha256"`
 	// MediaType is a simple type such as text/plain or image/png.
 	MediaType string `json:"mediaType" yaml:"media_type"`
 	// Label is a short student-visible name.
@@ -167,9 +167,9 @@ const (
 
 // Task is one ordered learning step inside an activity.
 type Task struct {
-	ID            string    `json:"id" yaml:"id"`
-	Title         string    `json:"title" yaml:"title"`
-	Instructions  string    `json:"instructions" yaml:"instructions"`
+	ID           string `json:"id" yaml:"id"`
+	Title        string `json:"title" yaml:"title"`
+	Instructions string `json:"instructions" yaml:"instructions"`
 	// Kind selects the interaction model. Empty defaults to action.
 	Kind          string    `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Prerequisites []string  `json:"prerequisites,omitempty" yaml:"prerequisites,omitempty"`
@@ -216,13 +216,13 @@ type CheckTree struct {
 // defaults the check to StageFinal so intentional repair/initial-condition
 // checks must opt into StageFixture or StageTask explicitly.
 type Check struct {
-	ID               string         `json:"id" yaml:"id"`
-	Kind             string         `json:"kind" yaml:"kind"`
-	Optional         bool           `json:"optional,omitempty" yaml:"optional,omitempty"`
-	Params           map[string]any `json:"params" yaml:"params"`
-	Stages           []string       `json:"stages,omitempty" yaml:"stages,omitempty"`
-	EvidenceBearing  *bool          `json:"evidenceBearing,omitempty" yaml:"evidence_bearing,omitempty"`
-	InvariantAt      []string       `json:"invariantAt,omitempty" yaml:"invariant_at,omitempty"`
+	ID              string         `json:"id" yaml:"id"`
+	Kind            string         `json:"kind" yaml:"kind"`
+	Optional        bool           `json:"optional,omitempty" yaml:"optional,omitempty"`
+	Params          map[string]any `json:"params" yaml:"params"`
+	Stages          []string       `json:"stages,omitempty" yaml:"stages,omitempty"`
+	EvidenceBearing *bool          `json:"evidenceBearing,omitempty" yaml:"evidence_bearing,omitempty"`
+	InvariantAt     []string       `json:"invariantAt,omitempty" yaml:"invariant_at,omitempty"`
 }
 
 // Hint is a graduated coaching tip referenced by tasks.

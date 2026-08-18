@@ -42,10 +42,10 @@ type CourseActivityRef struct {
 
 // CoursePrerequisite is a directed prerequisite edge between activity slugs.
 type CoursePrerequisite struct {
-	Activity     string   `json:"activity"`
-	Requires     []string `json:"requires"`
-	Requirement  string   `json:"requirement,omitempty"` // completed | mastered | approaching
-	Description  string   `json:"description,omitempty"`
+	Activity    string   `json:"activity"`
+	Requires    []string `json:"requires"`
+	Requirement string   `json:"requirement,omitempty"` // completed | mastered | approaching
+	Description string   `json:"description,omitempty"`
 }
 
 // CourseGate is an evidence or parent-review gate attached to an activity.
@@ -94,8 +94,8 @@ const (
 
 // Gate kinds.
 const (
-	GateEvidence      = "evidence"
-	GateParentReview  = "parent_review"
+	GateEvidence     = "evidence"
+	GateParentReview = "parent_review"
 )
 
 // Prerequisite requirement levels.

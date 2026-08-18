@@ -19,6 +19,8 @@ func TestLoadDefaults(t *testing.T) {
 		"INGEST_JELLYFIN_BASE_URL", "INGEST_TV_BASE_URL",
 		"INGEST_RADARR_TAG", "INGEST_SONARR_TAG", "INGEST_YTDLP_PATH",
 		"INGEST_HTTP_TIMEOUT",
+		"INGEST_YTDLP_COOKIES_PATH", "INGEST_YTDLP_ARCHIVE_DIR",
+		"INGEST_YTDLP_JS_RUNTIME", "INGEST_YTDLP_ARCHIVE_PATH",
 	} {
 		t.Helper()
 		_ = os.Unsetenv(k)
@@ -32,6 +34,12 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "primer", cfg.SonarrTag)
 	assert.Equal(t, "yt-dlp", cfg.YtDlpPath)
 	assert.Equal(t, 30*time.Second, cfg.HTTPTimeout)
+	// New YouTube auth/runtime defaults (do not assume cookies file exists).
+	assert.Equal(t, "", cfg.YtDlpCookiesPath)
+	assert.Equal(t, "", cfg.YtDlpArchiveDir)
+	assert.Equal(t, "node", cfg.YtDlpJSRuntime)
+	// Deprecated global archive default retained but unused by new helpers.
+	assert.Equal(t, "curriculum/ytdlp-archive.txt", cfg.YtDlpArchivePath)
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -46,4 +54,17 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, "http://radarr.test", cfg.RadarrBaseURL)
 	assert.Equal(t, 7, cfg.RadarrQualityProfileID)
 	assert.Equal(t, 5*time.Second, cfg.HTTPTimeout)
+}
+
+func TestLoadYtDlpCookieAndRuntimeOverrides(t *testing.T) {
+	// Paths only — never require the cookies file to exist.
+	t.Setenv("INGEST_YTDLP_COOKIES_PATH", "/var/run/secrets/youtube.cookies")
+	t.Setenv("INGEST_YTDLP_ARCHIVE_DIR", "/media/tv/Primer/Shows")
+	t.Setenv("INGEST_YTDLP_JS_RUNTIME", "deno")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "/var/run/secrets/youtube.cookies", cfg.YtDlpCookiesPath)
+	assert.Equal(t, "/media/tv/Primer/Shows", cfg.YtDlpArchiveDir)
+	assert.Equal(t, "deno", cfg.YtDlpJSRuntime)
 }

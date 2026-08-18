@@ -60,8 +60,17 @@ type Config struct {
 	YtDlpPath string `envconfig:"YTDLP_PATH" default:"yt-dlp"`
 	// YtDlpOutputDir is the library root yt-dlp writes into (Jellyfin-scanned).
 	YtDlpOutputDir string `envconfig:"YTDLP_OUTPUT_DIR"`
-	// YtDlpArchivePath is the --download-archive file (idempotent downloads).
+	// YtDlpArchivePath is deprecated unused default for a global archive file.
+	// New code uses per-show archives via PerShowArchivePath / YtDlpArchiveDir.
 	YtDlpArchivePath string `envconfig:"YTDLP_ARCHIVE_PATH" default:"curriculum/ytdlp-archive.txt"`
+	// YtDlpCookiesPath is an optional Netscape cookies file for yt-dlp --cookies.
+	// Path only — never log or print the file contents.
+	YtDlpCookiesPath string `envconfig:"YTDLP_COOKIES_PATH"`
+	// YtDlpArchiveDir optionally overrides the parent for per-show archives.
+	// Empty means default {OutputDir}/Shows/<slug>/.ytdlp-archive.txt.
+	YtDlpArchiveDir string `envconfig:"YTDLP_ARCHIVE_DIR"`
+	// YtDlpJSRuntime is passed as --js-runtimes (default node).
+	YtDlpJSRuntime string `envconfig:"YTDLP_JS_RUNTIME" default:"node"`
 
 	// HTTPTimeout bounds a single upstream HTTP call.
 	HTTPTimeout time.Duration `envconfig:"HTTP_TIMEOUT" default:"30s"`

@@ -203,13 +203,13 @@ func (s *Store) SetDeviceIdentity(ctx context.Context, deviceID, studentID, devi
 
 // Work-sync meta keys (broker SQLite device_meta).
 const (
-	MetaWorkCursor           = "work_sync_cursor"
-	MetaWorkSyncMode         = "work_sync_mode" // last completed mode: snapshot|incremental
-	MetaWorkLastFullSync     = "work_sync_last_full_at"
-	MetaWorkPageCursor       = "work_sync_page_cursor" // in-progress pagination cursor
-	MetaWorkPageMode         = "work_sync_page_mode"   // snapshot|incremental for in-progress
-	MetaWorkPageSeenIDs      = "work_sync_page_seen"   // JSON []assignmentID during snapshot
-	MetaWorkInProgress       = "work_sync_in_progress" // "1" while multi-page sync runs
+	MetaWorkCursor       = "work_sync_cursor"
+	MetaWorkSyncMode     = "work_sync_mode" // last completed mode: snapshot|incremental
+	MetaWorkLastFullSync = "work_sync_last_full_at"
+	MetaWorkPageCursor   = "work_sync_page_cursor" // in-progress pagination cursor
+	MetaWorkPageMode     = "work_sync_page_mode"   // snapshot|incremental for in-progress
+	MetaWorkPageSeenIDs  = "work_sync_page_seen"   // JSON []assignmentID during snapshot
+	MetaWorkInProgress   = "work_sync_in_progress" // "1" while multi-page sync runs
 )
 
 // WorkSyncState is durable work reconciliation progress.

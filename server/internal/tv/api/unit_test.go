@@ -346,6 +346,134 @@ func TestMetadataDiff(t *testing.T) {
 			assert.Equal(t, "", notes)
 		}
 	})
+
+	t.Run("locked title is omitted even when JF name differs", func(t *testing.T) {
+		t.Parallel()
+		locked := current
+		locked.TitleLocked = true
+		locked.Title = "Curator Title"
+
+		diff := metadataDiff(locked, &jellyfin.Item{
+			Name: "Jellyfin Name", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "aac", ImageTag: "tag-1",
+		})
+		assert.NotContains(t, diff, "title", "title_locked must block JF name clobber")
+	})
+
+	t.Run("locked overview is omitted even when JF overview differs", func(t *testing.T) {
+		t.Parallel()
+		locked := current
+		locked.OverviewLocked = true
+		locked.Overview = "Curator synopsis"
+
+		diff := metadataDiff(locked, &jellyfin.Item{
+			Name: "Old", SortName: "Old", Overview: "Jellyfin synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "aac", ImageTag: "tag-1",
+		})
+		assert.NotContains(t, diff, "overview")
+	})
+
+	t.Run("unlocked YouTube constructed title kept when JF name matches right side", func(t *testing.T) {
+		t.Parallel()
+		yt := current
+		yt.ManifestSlug = "paul-sellers"
+		yt.EpisodeKey = "S01E001"
+		yt.Title = "Paul Sellers S01E001 — Dovetails"
+		yt.TitleLocked = false
+
+		diff := metadataDiff(yt, &jellyfin.Item{
+			Name: "Dovetails", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "aac", ImageTag: "tag-1",
+		})
+		assert.NotContains(t, diff, "title", "constructed form must not be clobbered by bare JF name")
+	})
+
+	t.Run("unlocked YouTube constructed title updates right side from JF name", func(t *testing.T) {
+		t.Parallel()
+		yt := current
+		yt.ManifestSlug = "paul-sellers"
+		yt.EpisodeKey = "S01E001"
+		yt.Title = "Paul Sellers S01E001 — Dovetails"
+		yt.TitleLocked = false
+
+		diff := metadataDiff(yt, &jellyfin.Item{
+			Name: "New Title", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "aac", ImageTag: "tag-1",
+		})
+		assert.Equal(t, "Paul Sellers S01E001 — New Title", diff["title"])
+	})
+
+	t.Run("locked YouTube title stays put even when constructed form would change", func(t *testing.T) {
+		t.Parallel()
+		yt := current
+		yt.ManifestSlug = "paul-sellers"
+		yt.EpisodeKey = "S01E001"
+		yt.Title = "Curator locked title"
+		yt.TitleLocked = true
+
+		diff := metadataDiff(yt, &jellyfin.Item{
+			Name: "New Title", SortName: "Old", Overview: "Old synopsis",
+			Runtime: 100 * time.Second, Container: "mkv",
+			VideoCodec: "h264", AudioCodec: "aac", ImageTag: "tag-1",
+		})
+		assert.NotContains(t, diff, "title")
+	})
+}
+
+func TestDesiredTitle(t *testing.T) {
+	t.Parallel()
+	item := domain.MediaItem{Title: "Paul Sellers S01E001 — Dovetails", ManifestSlug: "paul-sellers", EpisodeKey: "S01E001"}
+	got, ok := desiredTitle(item, &jellyfin.Item{Name: "New"})
+	require.True(t, ok)
+	assert.Equal(t, "Paul Sellers S01E001 — New", got)
+
+	plain := domain.MediaItem{Title: "Apollo 13"}
+	got, ok = desiredTitle(plain, &jellyfin.Item{Name: "Apollo Thirteen"})
+	require.True(t, ok)
+	assert.Equal(t, "Apollo Thirteen", got)
+
+	_, ok = desiredTitle(item, &jellyfin.Item{})
+	assert.False(t, ok, "empty JF name must not blank title")
+}
+
+func TestMediaItemUpdateValuesSetsLocks(t *testing.T) {
+	t.Parallel()
+	title := "Curated"
+	overview := "Synopsis"
+	class := domain.ClassEducational
+	tags := []string{"woodworking"}
+	codes := []string{"TN.1"}
+
+	vals, err := mediaItemUpdateValues(MediaItemUpdate{Title: &title})
+	require.NoError(t, err)
+	assert.Equal(t, true, vals["title_locked"])
+
+	vals, err = mediaItemUpdateValues(MediaItemUpdate{Overview: &overview})
+	require.NoError(t, err)
+	assert.Equal(t, true, vals["overview_locked"])
+
+	vals, err = mediaItemUpdateValues(MediaItemUpdate{Class: &class})
+	require.NoError(t, err)
+	assert.Equal(t, true, vals["classification_locked"])
+
+	vals, err = mediaItemUpdateValues(MediaItemUpdate{SubjectTags: &tags})
+	require.NoError(t, err)
+	assert.Equal(t, true, vals["classification_locked"])
+
+	vals, err = mediaItemUpdateValues(MediaItemUpdate{StandardCodes: &codes})
+	require.NoError(t, err)
+	assert.Equal(t, true, vals["classification_locked"])
+
+	// Locks themselves are not client-settable via the update body.
+	vals, err = mediaItemUpdateValues(MediaItemUpdate{SortTitle: &title})
+	require.NoError(t, err)
+	assert.NotContains(t, vals, "title_locked")
+	assert.NotContains(t, vals, "overview_locked")
+	assert.NotContains(t, vals, "classification_locked")
 }
 
 func TestIsUniqueViolation(t *testing.T) {

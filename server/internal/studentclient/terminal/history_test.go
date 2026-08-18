@@ -19,26 +19,26 @@ func TestHistoryTaskScopedMatch(t *testing.T) {
 	h.Append(contracts.CommandObservation{
 		Sequence: 1, TaskIndex: 0, Executable: "pwd", ArgvAvailable: true,
 		ExitCode: 0, ExitAvailable: true, Structured: true,
-		Source: contracts.SourceStructured,
-		Quality: contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true},
+		Source:   contracts.SourceStructured,
+		Quality:  contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true},
 		CwdAfter: ".", CwdAvailable: true,
 		RecordedAt: time.Now().UTC(),
 	})
 	h.Append(contracts.CommandObservation{
 		Sequence: 2, TaskIndex: 0, Executable: "ls", Argv: []string{"-la"}, ArgvAvailable: true,
 		ExitCode: 0, ExitAvailable: true, Structured: true,
-		Source: contracts.SourceObserveBash,
-		Quality: contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true},
+		Source:   contracts.SourceObserveBash,
+		Quality:  contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true},
 		CwdAfter: "docs", CwdAvailable: true,
-		Stdout: contracts.Excerpt{Text: "guide.txt\n", Trusted: false},
+		Stdout:     contracts.Excerpt{Text: "guide.txt\n", Trusted: false},
 		RecordedAt: time.Now().UTC(),
 	})
 	h.Append(contracts.CommandObservation{
 		Sequence: 3, TaskIndex: 1, Executable: "cat", Argv: []string{"guide.txt"}, ArgvAvailable: true,
 		ExitCode: 0, ExitAvailable: true, Structured: true,
-		Source: contracts.SourceStructured,
-		Quality: contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true},
-		Stdout: contracts.Excerpt{Text: "hello\n", Trusted: true},
+		Source:     contracts.SourceStructured,
+		Quality:    contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true},
+		Stdout:     contracts.Excerpt{Text: "hello\n", Trusted: true},
 		RecordedAt: time.Now().UTC(),
 	})
 
@@ -71,7 +71,7 @@ func TestHistoryRejectsScreenScrape(t *testing.T) {
 		Sequence: 1, Executable: "ls", ArgvAvailable: true,
 		ExitCode: 0, ExitAvailable: true,
 		Structured: false, Source: contracts.SourcePTYShell,
-		Stdout: contracts.Excerpt{Text: "fake from screen", Trusted: false},
+		Stdout:  contracts.Excerpt{Text: "fake from screen", Trusted: false},
 		Quality: contracts.EvidenceQuality{},
 	})
 	_, ok := h.FindMatch(0, terminal.CommandMatch{
@@ -87,9 +87,9 @@ func TestVerifyCommandPropertiesUsesHistory(t *testing.T) {
 	h.Append(contracts.CommandObservation{
 		Sequence: 1, Executable: "ls", Argv: []string{"-la"}, ArgvAvailable: true,
 		ExitCode: 0, ExitAvailable: true, Structured: true,
-		Source: contracts.SourceStructured,
-		Quality: contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true},
-		Stdout: contracts.Excerpt{Text: "a\n", Trusted: true},
+		Source:   contracts.SourceStructured,
+		Quality:  contracts.EvidenceQuality{Exit: true, Cwd: true, Argv: true, Stdout: true},
+		Stdout:   contracts.Excerpt{Text: "a\n", Trusted: true},
 		CwdAfter: ".", CwdAvailable: true,
 	})
 	// Latest shell is something else; history still has ls.
@@ -111,7 +111,7 @@ func TestVerifyRejectsScreenAsStdout(t *testing.T) {
 	root := t.TempDir()
 	shell := &terminal.ShellState{
 		Cwd: ".", Executable: "pty-shell", ExitCode: 0,
-		Stdout: "welcome.txt\n$ ",
+		Stdout:                    "welcome.txt\n$ ",
 		StructuredCommandEvidence: false, Source: contracts.SourcePTYShell,
 	}
 	obs := terminal.VerifyCheck(root, contracts.Check{

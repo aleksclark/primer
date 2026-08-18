@@ -8,6 +8,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/ingest/sonarr"
 	"github.com/aleksclark/primer/server/internal/ingest/tvclient"
 	"github.com/aleksclark/primer/server/internal/ingest/ytdlp"
+	"github.com/aleksclark/primer/server/internal/tv/domain"
 	"github.com/aleksclark/primer/server/internal/tv/jellyfin"
 )
 
@@ -40,9 +44,14 @@ type Deps struct {
 	SonarrTag              string
 
 	// YtDlpOutputDir / YtDlpArchivePath / YtDlpBinary configure downloads.
+	// YtDlpArchivePath is deprecated unused for new downloads; acquire uses
+	// PerShowArchivePath. Cookies/JSRuntime are wired onto DownloadOpts.
 	YtDlpOutputDir   string
 	YtDlpArchivePath string
+	YtDlpArchiveDir  string
 	YtDlpBinary      string
+	YtDlpCookiesPath string
+	YtDlpJSRuntime   string
 
 	// SyncWait / SyncPollInterval control Jellyfin scan waiting.
 	SyncWait         time.Duration
@@ -139,14 +148,21 @@ func (e *Engine) Run(ctx context.Context, m *manifest.Manifest, review *manifest
 			rep.Errors = append(rep.Errors, fmt.Sprintf("acquire: %v", err))
 		}
 	}
+	// JF refresh, then import constructed titles, then TV jellyfin/sync.
+	// Do not sync-before-import: that clobbers YouTube titles.
 	if !opts.SkipSync && !opts.DryRun {
-		if err := e.sync(ctx, rep); err != nil {
+		if err := e.refreshJellyfin(ctx, rep); err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("sync: %v", err))
 		}
 	}
 	if !opts.SkipImport {
 		if err := e.importItems(ctx, m, rep, opts); err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("import: %v", err))
+		}
+	}
+	if !opts.SkipSync && !opts.DryRun {
+		if err := e.syncTV(ctx, rep); err != nil {
+			rep.Errors = append(rep.Errors, fmt.Sprintf("sync: %v", err))
 		}
 	}
 
@@ -393,8 +409,14 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 			continue
 		}
 		if status == tvclient.ManifestStatusPresent {
-			// Already obtained; nothing to acquire. Import still runs later.
-			continue
+			// Movies/series already obtained skip acquire. YouTube present must
+			// still run yt-dlp so new videos on the channel are picked up.
+			switch it.Kind {
+			case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
+				// fall through to download
+			default:
+				continue
+			}
 		}
 
 		switch it.Kind {
@@ -524,20 +546,41 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s: YTDLP_OUTPUT_DIR not set", it.ID))
 				continue
 			}
+			if manifest.UsesPlaylistFilter(it) {
+				rep.Errors = append(rep.Errors, fmt.Sprintf("%s: unresolved playlist %s", it.ID, strings.Join(manifest.PlaylistNames(it), ", ")))
+				continue
+			}
 			if opts.DryRun {
 				rep.AcquiredYouTube = append(rep.AcquiredYouTube, fmt.Sprintf("%s (would download %s)", it.ID, it.URL))
 				continue
 			}
-			dlOpts := ytdlp.DownloadOpts{
-				URL:         it.URL,
-				Slug:        it.ID,
-				OutputDir:   e.deps.YtDlpOutputDir,
-				ArchivePath: e.deps.YtDlpArchivePath,
-				Binary:      e.deps.YtDlpBinary,
+			if err := ytdlp.RemoveRootShowNFO(e.deps.YtDlpOutputDir); err != nil {
+				rep.Errors = append(rep.Errors, fmt.Sprintf("%s poison nfo: %v", it.ID, err))
 			}
-			// When filters name specific playlists, pass them as extra match hints.
-			// Callers who want exact playlist URLs should put them in item.URL.
+			if _, err := ytdlp.CleanupShowDir(e.deps.YtDlpOutputDir, it.ID); err != nil {
+				rep.Errors = append(rep.Errors, fmt.Sprintf("%s cleanup: %v", it.ID, err))
+			}
+			excludeShorts := manifest.EffectiveExcludeShorts(it.Filters)
+			excludeLive := manifest.EffectiveExcludeLive(it.Filters)
+			dlOpts := ytdlp.DownloadOpts{
+				URL:                it.URL,
+				Slug:               it.ID,
+				OutputDir:          e.deps.YtDlpOutputDir,
+				ArchivePath:        ytdlp.PerShowArchivePathIn(e.deps.YtDlpOutputDir, e.deps.YtDlpArchiveDir, it.ID),
+				Binary:             e.deps.YtDlpBinary,
+				CookiesPath:        e.deps.YtDlpCookiesPath,
+				JSRuntime:          e.deps.YtDlpJSRuntime,
+				MinDurationSeconds: manifest.EffectiveMinDuration(it.Filters),
+				ExcludeShorts:      &excludeShorts,
+				ExcludeLive:        &excludeLive,
+				AllowPastLive:      !excludeLive,
+				ShowTitle:          it.Title,
+			}
 			if err := e.deps.YtDlp.Download(ctx, dlOpts); err != nil {
+				if leftoverExit1Complete(e.deps.YtDlpOutputDir, it.ID, dlOpts.ArchivePath, err) {
+					rep.AcquiredYouTube = append(rep.AcquiredYouTube, fmt.Sprintf("%s (archive complete; leftover exit 1 ignored)", it.ID))
+					continue
+				}
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s yt-dlp: %v", it.ID, err))
 				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
@@ -618,37 +661,78 @@ func (e *Engine) unmonitorExcluded(ctx context.Context, seriesID int, it manifes
 	return nil
 }
 
-// sync triggers Jellyfin library refresh, waits, then TV jellyfin/sync.
-func (e *Engine) sync(ctx context.Context, rep *Report) error {
-	if e.deps.Jellyfin != nil {
-		if err := e.deps.Jellyfin.RefreshLibrary(ctx); err != nil {
-			return fmt.Errorf("jellyfin refresh: %w", err)
-		}
-		deadline := time.Now().Add(e.deps.SyncWait)
-		for time.Now().Before(deadline) {
-			running, err := e.deps.Jellyfin.ScanRunning(ctx)
-			if err != nil {
-				e.log.Warn("scan status check failed", "error", err)
-				break
-			}
-			if !running {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(e.deps.SyncPollInterval):
-			}
-		}
-		rep.JellyfinRefreshed = true
+// refreshJellyfin triggers a library scan and waits for it to finish.
+func (e *Engine) refreshJellyfin(ctx context.Context, rep *Report) error {
+	if e.deps.Jellyfin == nil {
+		return nil
 	}
-	if e.deps.TV != nil {
-		if _, err := e.deps.TV.SyncJellyfin(ctx); err != nil {
-			return fmt.Errorf("tv jellyfin sync: %w", err)
-		}
-		rep.TVSynced = true
+	if err := e.deps.Jellyfin.RefreshLibrary(ctx); err != nil {
+		return fmt.Errorf("jellyfin refresh: %w", err)
 	}
+	deadline := time.Now().Add(e.deps.SyncWait)
+	for time.Now().Before(deadline) {
+		running, err := e.deps.Jellyfin.ScanRunning(ctx)
+		if err != nil {
+			e.log.Warn("scan status check failed", "error", err)
+			break
+		}
+		if !running {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(e.deps.SyncPollInterval):
+		}
+	}
+	rep.JellyfinRefreshed = true
 	return nil
+}
+
+// syncTV runs POST /jellyfin/sync after import so constructed titles exist first.
+func (e *Engine) syncTV(ctx context.Context, rep *Report) error {
+	if e.deps.TV == nil {
+		return nil
+	}
+	if _, err := e.deps.TV.SyncJellyfin(ctx); err != nil {
+		return fmt.Errorf("tv jellyfin sync: %w", err)
+	}
+	rep.TVSynced = true
+	return nil
+}
+
+// leftoverExit1Complete reports leftover yt-dlp exit 1 after a complete
+// per-show archive and at least one final playable file. That is not a new fail.
+func leftoverExit1Complete(outputDir, slug, archive string, err error) bool {
+	if err == nil || outputDir == "" || slug == "" {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "exit status 1") && !strings.Contains(msg, "exit code 1") {
+		return false
+	}
+	st, statErr := os.Stat(archive)
+	if statErr != nil || st.Size() == 0 {
+		return false
+	}
+	season := filepath.Join(ytdlp.ShowDir(outputDir, slug), "Season 01")
+	entries, readErr := os.ReadDir(season)
+	if readErr != nil {
+		return false
+	}
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		name := strings.ToLower(ent.Name())
+		if strings.HasSuffix(name, ".part") {
+			continue
+		}
+		if strings.HasSuffix(name, ".mkv") || strings.HasSuffix(name, ".mp4") {
+			return true
+		}
+	}
+	return false
 }
 
 // importItems matches Jellyfin items to the manifest and upserts TV media_items.
@@ -687,24 +771,95 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 			continue
 		}
 
-		// At least one Jellyfin hit means the title is present on disk.
+		youtube := it.Kind == manifest.KindYouTubeChannel || it.Kind == manifest.KindYouTubePlaylist
+		if youtube {
+			playable := make([]jellyfin.Item, 0, len(jfItems))
+			for _, jf := range jfItems {
+				if youtubeImportable(jf) {
+					playable = append(playable, jf)
+				}
+			}
+			if len(playable) == 0 {
+				rep.NotInJellyfin = append(rep.NotInJellyfin, it.ID)
+				continue
+			}
+			jfItems = playable
+		}
+
+		// At least one importable Jellyfin hit means the title is present on disk.
 		e.markPresent(ctx, it.ID, rep, opts)
 
 		imported := 0
+		seenYouTube := map[string]string{} // youtube id → first jellyfin id
 		for _, jf := range jfItems {
-			if jf.Type == "Episode" {
+			youtubeID, episodeKey, uploadDate := youtubeIdentity(jf)
+			if youtube {
+				if manifest.ExcludedVideo(it, youtubeID, episodeKey) {
+					rep.SkippedExcluded = append(rep.SkippedExcluded, fmt.Sprintf("%s %s", it.ID, firstNonEmpty(episodeKey, youtubeID)))
+					continue
+				}
+				if it.CapsImports() && imported >= it.ImportLimit() {
+					continue
+				}
+				if youtubeID != "" {
+					if first, ok := seenYouTube[youtubeID]; ok {
+						rep.Errors = append(rep.Errors, fmt.Sprintf("%s duplicate youtube id %s: %s and %s", it.ID, youtubeID, first, jf.ID))
+						continue
+					}
+					dup := false
+					for _, existingItem := range byJF {
+						if existingItem.YouTubeVideoID == youtubeID && existingItem.JellyfinItemID != jf.ID {
+							rep.Errors = append(rep.Errors, fmt.Sprintf("%s duplicate youtube id %s: %s and %s", it.ID, youtubeID, existingItem.JellyfinItemID, jf.ID))
+							dup = true
+							break
+						}
+					}
+					if dup {
+						continue
+					}
+				}
+			} else if jf.Type == "Episode" {
 				key := jf.EpisodeKey()
 				if key != "" && it.Excluded(key) {
 					rep.SkippedExcluded = append(rep.SkippedExcluded, fmt.Sprintf("%s %s", it.ID, key))
 					continue
 				}
-			}
-			if it.MaxEpisodes > 0 && jf.Type == "Episode" && imported >= it.MaxEpisodes {
-				continue
+				if it.MaxEpisodes > 0 && imported >= it.MaxEpisodes {
+					continue
+				}
 			}
 
-			title := jf.Name
-			if jf.Type == "Episode" && jf.SeriesName != "" {
+			class := it.Class
+			tags := append([]string{}, it.SubjectTags...)
+			codes := append([]string{}, it.StandardCodes...)
+			videoTitle := jf.Name
+			if youtube {
+				if ov := manifest.OverrideFor(it, youtubeID); ov != nil {
+					if ov.Title != "" {
+						videoTitle = ov.Title
+					}
+					if ov.Class != "" {
+						class = ov.Class
+					}
+					if len(ov.SubjectTags) > 0 {
+						tags = append([]string{}, ov.SubjectTags...)
+					}
+					if len(ov.StandardCodes) > 0 {
+						codes = append([]string{}, ov.StandardCodes...)
+					}
+				}
+			}
+
+			title := videoTitle
+			sortTitle := jf.SortName
+			if youtube {
+				title = domain.ConstructedYouTubeTitle(it.Title, episodeKey, videoTitle)
+				if episodeKey != "" {
+					sortTitle = it.ID + " " + episodeKey
+				} else {
+					sortTitle = it.ID
+				}
+			} else if jf.Type == "Episode" && jf.SeriesName != "" {
 				title = fmt.Sprintf("%s — %s", jf.SeriesName, jf.Name)
 				if key := jf.EpisodeKey(); key != "" {
 					title = fmt.Sprintf("%s %s — %s", jf.SeriesName, key, jf.Name)
@@ -712,58 +867,121 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 			}
 
 			if existingItem, ok := byJF[jf.ID]; ok {
-				if tvclient.ClassificationChanged(existingItem, it.Class, it.SubjectTags, it.StandardCodes) {
+				upd := tvclient.MediaItemUpdate{}
+				changed := false
+				if youtube && !existingItem.TitleLocked && existingItem.Title != title {
+					t := title
+					upd.Title = &t
+					changed = true
+				}
+				if youtube && existingItem.SortTitle != sortTitle && sortTitle != "" {
+					s := sortTitle
+					upd.SortTitle = &s
+					changed = true
+				}
+				if !existingItem.ClassificationLocked && tvclient.ClassificationChanged(existingItem, class, tags, codes) {
+					c := class
+					tg := append([]string{}, tags...)
+					cd := append([]string{}, codes...)
+					upd.Class = &c
+					upd.SubjectTags = &tg
+					upd.StandardCodes = &cd
+					changed = true
+				}
+				if youtube {
+					if youtubeID != "" && existingItem.YouTubeVideoID != youtubeID {
+						id := youtubeID
+						upd.YouTubeVideoID = &id
+						changed = true
+					}
+					if existingItem.ManifestSlug != it.ID {
+						slug := it.ID
+						upd.ManifestSlug = &slug
+						changed = true
+					}
+					if episodeKey != "" && existingItem.EpisodeKey != episodeKey {
+						k := episodeKey
+						upd.EpisodeKey = &k
+						changed = true
+					}
+					if uploadDate != "" && existingItem.UploadDate != uploadDate {
+						d := uploadDate
+						upd.UploadDate = &d
+						changed = true
+					}
+				}
+				if changed {
 					if opts.DryRun {
 						rep.Updated = append(rep.Updated, fmt.Sprintf("%s (%s) would update class", it.ID, jf.ID))
+						countsTowardCap := youtube || jf.Type == "Episode"
+						if countsTowardCap {
+							imported++
+						}
 						continue
 					}
-					class := it.Class
-					tags := append([]string{}, it.SubjectTags...)
-					codes := append([]string{}, it.StandardCodes...)
-					_, err := e.deps.TV.UpdateMediaItem(ctx, existingItem.ID, tvclient.MediaItemUpdate{
-						Class: &class, SubjectTags: &tags, StandardCodes: &codes,
-					})
+					_, err := e.deps.TV.ReconcileMediaItem(ctx, existingItem.ID, upd)
 					if err != nil {
 						rep.Errors = append(rep.Errors, fmt.Sprintf("%s update %s: %v", it.ID, jf.ID, err))
 						continue
 					}
 					rep.Updated = append(rep.Updated, fmt.Sprintf("%s (%s)", it.ID, title))
 				}
-				if jf.Type == "Episode" {
+				if youtube || jf.Type == "Episode" {
 					imported++
+				}
+				if youtube && youtubeID != "" {
+					seenYouTube[youtubeID] = jf.ID
 				}
 				continue
 			}
 
 			if opts.DryRun {
 				rep.Imported = append(rep.Imported, fmt.Sprintf("%s would import %s (%s)", it.ID, title, jf.ID))
-				if jf.Type == "Episode" {
+				if youtube || jf.Type == "Episode" {
 					imported++
+				}
+				if youtube && youtubeID != "" {
+					seenYouTube[youtubeID] = jf.ID
 				}
 				continue
 			}
-			created, err := e.deps.TV.CreateMediaItem(ctx, tvclient.MediaItemCreate{
+			create := tvclient.MediaItemCreate{
 				JellyfinItemID: jf.ID,
 				Title:          title,
-				SortTitle:      jf.SortName,
+				SortTitle:      sortTitle,
 				Overview:       jf.Overview,
-				Class:          it.Class,
+				Class:          class,
 				RuntimeSeconds: jf.RuntimeSeconds(),
-				SubjectTags:    it.SubjectTags,
-				StandardCodes:  it.StandardCodes,
+				SubjectTags:    tags,
+				StandardCodes:  codes,
 				Container:      jf.Container,
 				VideoCodec:     jf.VideoCodec,
 				AudioCodec:     jf.AudioCodec,
 				ImageTag:       jf.ImageTag,
-			})
+			}
+			if youtube {
+				create.YouTubeVideoID = youtubeID
+				create.ManifestSlug = it.ID
+				create.EpisodeKey = episodeKey
+				create.UploadDate = uploadDate
+			}
+			created, err := e.deps.TV.CreateMediaItem(ctx, create)
 			if err != nil {
+				if youtubeID != "" && isDuplicateYouTubeErr(err) {
+					other := existingYouTubeID(byJF, youtubeID)
+					rep.Errors = append(rep.Errors, fmt.Sprintf("%s duplicate youtube id %s: %s and %s", it.ID, youtubeID, firstNonEmpty(other, "?"), jf.ID))
+					continue
+				}
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s import %s: %v", it.ID, jf.ID, err))
 				continue
 			}
 			byJF[jf.ID] = *created
 			rep.Imported = append(rep.Imported, fmt.Sprintf("%s → %s (%s)", it.ID, created.ID, title))
-			if jf.Type == "Episode" {
+			if youtube || jf.Type == "Episode" {
 				imported++
+			}
+			if youtube && youtubeID != "" {
+				seenYouTube[youtubeID] = jf.ID
 			}
 		}
 	}
@@ -823,9 +1041,10 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 	case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
 		// Path-only match. Do not pass SearchTerm: yt-dlp episode titles rarely
 		// contain the channel name, and a title filter would drop real hits.
-		prefix := ytdlp.PathPrefix(it.ID)
+		// Do not rely on Browse PathContains for pagination — page unfiltered
+		// Movie,Episode,Video and filter with PathMatches so an empty first
+		// filtered page cannot hide a later hit.
 		hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
-			PathContains:     prefix,
 			IncludePath:      true,
 			IncludeItemTypes: "Movie,Episode,Video",
 		})
@@ -834,7 +1053,7 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 		}
 		out := make([]jellyfin.Item, 0, len(hits))
 		for _, h := range hits {
-			if strings.Contains(h.Path, prefix) {
+			if ytdlp.PathMatches(h.Path, it.ID) {
 				out = append(out, h)
 			}
 		}
@@ -885,31 +1104,58 @@ func (e *Engine) findSeries(ctx context.Context, it manifest.Item) (*jellyfin.It
 	}
 }
 
-// browseAll pages through Jellyfin Browse until a short page is returned.
-// Limit is applied per page; provider/path filters are applied by Browse itself.
+// browseAll pages through Jellyfin BrowsePage until the unfiltered library is
+// exhausted. Pagination uses RawPageLen / TotalRecordCount so a client-side
+// PathContains or provider filter that empties the first page cannot hide a
+// later hit. Path-scoped YouTube queries raise the 5000 ceiling.
 func (e *Engine) browseAll(ctx context.Context, p jellyfin.BrowseParams) ([]jellyfin.Item, error) {
 	const pageSize = 200
 	if p.Limit <= 0 || p.Limit > pageSize {
 		p.Limit = pageSize
 	}
+	ceiling := 5000
+	if p.PathContains != "" || p.IncludePath {
+		// Path-scoped YouTube scans must not stop at 5000 when paging a large library.
+		ceiling = 100000
+	}
 	var all []jellyfin.Item
 	for start := 0; ; start += p.Limit {
-		page := p
-		page.StartIndex = start
-		items, err := e.deps.Jellyfin.Browse(ctx, page)
+		pageParams := p
+		pageParams.StartIndex = start
+		page, err := e.browsePage(ctx, pageParams)
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, items...)
-		if len(items) < p.Limit {
+		all = append(all, page.Items...)
+		raw := page.RawPageLen
+		if raw == 0 && len(page.Items) > 0 {
+			raw = len(page.Items)
+		}
+		if raw < p.Limit {
 			break
 		}
-		// Hard ceiling so a broken filter cannot pull the whole library forever.
-		if len(all) >= 5000 {
+		if page.TotalRecordCount > 0 && start+raw >= page.TotalRecordCount {
+			break
+		}
+		if len(all) >= ceiling || start+p.Limit >= ceiling {
 			break
 		}
 	}
 	return all, nil
+}
+
+func (e *Engine) browsePage(ctx context.Context, p jellyfin.BrowseParams) (jellyfin.Page, error) {
+	type paged interface {
+		BrowsePage(context.Context, jellyfin.BrowseParams) (jellyfin.Page, error)
+	}
+	if c, ok := e.deps.Jellyfin.(paged); ok {
+		return c.BrowsePage(ctx, p)
+	}
+	items, err := e.deps.Jellyfin.Browse(ctx, p)
+	if err != nil {
+		return jellyfin.Page{}, err
+	}
+	return jellyfin.Page{Items: items, RawPageLen: len(items), TotalRecordCount: len(items)}, nil
 }
 
 // filterByProvider keeps only items whose ProviderIds satisfy expr.
@@ -936,4 +1182,125 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// youtubeImportable reports whether a Jellyfin hit is a playable YouTube
+// Episode or Video (runtime >= 60s and a YouTube identity). Folder/Series
+// and short clips never import and never markPresent.
+func youtubeImportable(jf jellyfin.Item) bool {
+	switch jf.Type {
+	case "Episode", "Video":
+	default:
+		return false
+	}
+	if jf.RuntimeSeconds() < 60 {
+		return false
+	}
+	if _, ok := ytdlp.ParseYouTubeID(jf.Path); ok {
+		return true
+	}
+	if jf.ProviderID("Youtube") != "" || jf.ProviderID("YouTube") != "" {
+		return true
+	}
+	return false
+}
+
+var filenameEpisodeKeyRE = regexp.MustCompile(`(?i)S(\d+)E(\d+)`)
+
+func youtubeIdentity(jf jellyfin.Item) (youtubeID, episodeKey, uploadDate string) {
+	if id, ok := ytdlp.ParseYouTubeID(jf.Path); ok {
+		youtubeID = id
+	} else if id := jf.ProviderID("Youtube"); id != "" {
+		youtubeID = id
+	} else if id := jf.ProviderID("YouTube"); id != "" {
+		youtubeID = id
+	}
+	if key := episodeKeyFromFilename(jf.Path); key != "" {
+		episodeKey = key
+	} else if jf.Type == "Episode" && (jf.ParentIndexNumber != 0 || jf.IndexNumber != 0) {
+		episodeKey = fmt.Sprintf("S%02dE%03d", jf.ParentIndexNumber, jf.IndexNumber)
+	}
+	uploadDate = youtubeUploadDate(jf.Path)
+	return youtubeID, episodeKey, uploadDate
+}
+
+func episodeKeyFromFilename(path string) string {
+	base := path
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	m := filenameEpisodeKeyRE.FindStringSubmatch(base)
+	if m == nil {
+		return ""
+	}
+	season, err1 := strconv.Atoi(m[1])
+	ep, err2 := strconv.Atoi(m[2])
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	return fmt.Sprintf("S%02dE%03d", season, ep)
+}
+
+func youtubeUploadDate(mediaPath string) string {
+	if mediaPath == "" {
+		return ""
+	}
+	ext := ""
+	if i := strings.LastIndex(mediaPath, "."); i >= 0 {
+		ext = mediaPath[i:]
+	}
+	nfoPath := strings.TrimSuffix(mediaPath, ext) + ".nfo"
+	raw, err := os.ReadFile(nfoPath)
+	if err != nil {
+		return ""
+	}
+	// Prefer <aired>YYYY-MM-DD</aired> written by WriteEpisodeNFO.
+	if v := xmlTag(string(raw), "aired"); v != "" {
+		return v
+	}
+	if v := xmlTag(string(raw), "premiered"); v != "" {
+		return v
+	}
+	return ""
+}
+
+func xmlTag(s, name string) string {
+	open := "<" + name + ">"
+	close := "</" + name + ">"
+	i := strings.Index(s, open)
+	if i < 0 {
+		return ""
+	}
+	i += len(open)
+	j := strings.Index(s[i:], close)
+	if j < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[i : i+j])
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func isDuplicateYouTubeErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "409") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") || strings.Contains(msg, "conflict")
+}
+
+func existingYouTubeID(byJF map[string]tvclient.MediaItem, youtubeID string) string {
+	for _, it := range byJF {
+		if it.YouTubeVideoID == youtubeID {
+			return it.JellyfinItemID
+		}
+	}
+	return ""
 }

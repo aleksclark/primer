@@ -344,15 +344,21 @@ func isStaleAutoCodecBlock(notes string) bool {
 // so allowlist changes (e.g. AC3/EAC3/DTS via Media3 FFmpeg) repair stale rows
 // even when codec strings themselves did not change — but only when the row
 // still carries a stale auto codec note, never a curator withhold.
+//
+// YouTube identity rows (manifest_slug set) keep a constructed title form
+// "{Show} {episode_key} — {JF.Name}" unless title_locked. Class/subject_tags/
+// standard_codes are never written here (curator + ingest own them).
 func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 	values := map[string]any{}
-	if remote.Name != "" && remote.Name != item.Title {
-		values["title"] = remote.Name
+	if !item.TitleLocked {
+		if desired, ok := desiredTitle(item, remote); ok && desired != item.Title {
+			values["title"] = desired
+		}
 	}
 	if remote.SortName != "" && remote.SortName != item.SortTitle {
 		values["sort_title"] = remote.SortName
 	}
-	if remote.Overview != "" && remote.Overview != item.Overview {
+	if !item.OverviewLocked && remote.Overview != "" && remote.Overview != item.Overview {
 		values["overview"] = remote.Overview
 	}
 	if seconds := remote.RuntimeSeconds(); seconds > 0 && seconds != item.RuntimeSeconds {
@@ -398,6 +404,29 @@ func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 		values["orphaned_at"] = (*time.Time)(nil)
 	}
 	return values
+}
+
+// desiredTitle picks the title sync should write for an unlocked row.
+// Non-YouTube rows take JF Name as before. YouTube rows (manifest_slug set)
+// prefer ConstructedYouTubeTitle so the show prefix cannot be dropped.
+func desiredTitle(item domain.MediaItem, remote *jellyfin.Item) (string, bool) {
+	if remote.Name == "" {
+		return "", false
+	}
+	if item.ManifestSlug == "" {
+		return remote.Name, true
+	}
+	show := domain.ShowTitleFromMediaItem(item)
+	// Without a show prefix and without episode key we cannot construct;
+	// fall back to remote name only when the current title has no structure.
+	if show == "" && item.EpisodeKey == "" {
+		return remote.Name, true
+	}
+	constructed := domain.ConstructedYouTubeTitle(show, item.EpisodeKey, remote.Name)
+	if constructed == "" {
+		return "", false
+	}
+	return constructed, true
 }
 
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint

@@ -5,7 +5,10 @@
 // map columns for pgx struct scanning and drive the repo layer's column list.
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Media item classes. Entertainment items are the ones subject to watch-once
 // enforcement; educational and mixed items are replayable and are the ones
@@ -60,29 +63,91 @@ func (d Device) Paired() bool {
 
 // MediaItem is a curated entry from the Jellyfin library.
 type MediaItem struct {
-	ID             string     `json:"id" db:"id" format:"uuid"`
-	JellyfinItemID string     `json:"jellyfinItemId" db:"jellyfin_item_id"`
-	Title          string     `json:"title" db:"title"`
-	SortTitle      string     `json:"sortTitle" db:"sort_title"`
-	Overview       string     `json:"overview" db:"overview"`
-	Class          string     `json:"class" db:"class" enum:"educational,entertainment,mixed"`
-	RuntimeSeconds int        `json:"runtimeSeconds" db:"runtime_seconds"`
-	SubjectTags    []string   `json:"subjectTags" db:"subject_tags"`
-	StandardCodes  []string   `json:"standardCodes" db:"standard_codes"`
-	QualityNotes   string     `json:"qualityNotes" db:"quality_notes"`
-	Container      string     `json:"container" db:"container"`
-	VideoCodec     string     `json:"videoCodec" db:"video_codec"`
-	AudioCodec     string     `json:"audioCodec" db:"audio_codec"`
-	DirectPlayOK   bool       `json:"directPlayOk" db:"direct_play_ok"`
-	ImageTag       string     `json:"imageTag" db:"image_tag"`
-	OrphanedAt     *time.Time `json:"orphanedAt,omitempty" db:"orphaned_at"`
-	CreatedAt      time.Time  `json:"createdAt" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updatedAt" db:"updated_at"`
+	ID                   string     `json:"id" db:"id" format:"uuid"`
+	JellyfinItemID       string     `json:"jellyfinItemId" db:"jellyfin_item_id"`
+	Title                string     `json:"title" db:"title"`
+	SortTitle            string     `json:"sortTitle" db:"sort_title"`
+	Overview             string     `json:"overview" db:"overview"`
+	Class                string     `json:"class" db:"class" enum:"educational,entertainment,mixed"`
+	RuntimeSeconds       int        `json:"runtimeSeconds" db:"runtime_seconds"`
+	SubjectTags          []string   `json:"subjectTags" db:"subject_tags"`
+	StandardCodes        []string   `json:"standardCodes" db:"standard_codes"`
+	QualityNotes         string     `json:"qualityNotes" db:"quality_notes"`
+	Container            string     `json:"container" db:"container"`
+	VideoCodec           string     `json:"videoCodec" db:"video_codec"`
+	AudioCodec           string     `json:"audioCodec" db:"audio_codec"`
+	DirectPlayOK         bool       `json:"directPlayOk" db:"direct_play_ok"`
+	ImageTag             string     `json:"imageTag" db:"image_tag"`
+	YouTubeVideoID       *string    `json:"youtubeVideoId,omitempty" db:"youtube_video_id"`
+	ManifestSlug         string     `json:"manifestSlug" db:"manifest_slug"`
+	EpisodeKey           string     `json:"episodeKey" db:"episode_key"`
+	UploadDate           *time.Time `json:"uploadDate,omitempty" db:"upload_date" format:"date"`
+	TitleLocked          bool       `json:"titleLocked" db:"title_locked"`
+	OverviewLocked       bool       `json:"overviewLocked" db:"overview_locked"`
+	ClassificationLocked bool       `json:"classificationLocked" db:"classification_locked"`
+	OrphanedAt           *time.Time `json:"orphanedAt,omitempty" db:"orphaned_at"`
+	CreatedAt            time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt            time.Time  `json:"updatedAt" db:"updated_at"`
 }
 
 // ConsumesPlay reports whether watching this item to completion should burn
 // its availability window. Only entertainment is rationed.
 func (m MediaItem) ConsumesPlay() bool { return m.Class == ClassEntertainment }
+
+// youtubeTitleSep separates the show/episode prefix from the video title in
+// constructed YouTube media titles.
+const youtubeTitleSep = " — "
+
+// ConstructedYouTubeTitle builds the curated title form used for YouTube rows:
+// "{showTitle} {episodeKey} — {videoTitle}" (e.g. "Paul Sellers S01E001 — Dovetails").
+// Empty parts are omitted rather than inventing placeholders.
+func ConstructedYouTubeTitle(showTitle, episodeKey, videoTitle string) string {
+	showTitle = strings.TrimSpace(showTitle)
+	episodeKey = strings.TrimSpace(episodeKey)
+	videoTitle = strings.TrimSpace(videoTitle)
+
+	left := showTitle
+	if episodeKey != "" {
+		if left != "" {
+			left = left + " " + episodeKey
+		} else {
+			left = episodeKey
+		}
+	}
+	switch {
+	case left != "" && videoTitle != "":
+		return left + youtubeTitleSep + videoTitle
+	case videoTitle != "":
+		return videoTitle
+	default:
+		return left
+	}
+}
+
+// ShowTitleFromMediaItem derives the show name from a constructed YouTube title
+// by stripping " {episodeKey} — {video}" when present. Empty EpisodeKey means
+// the show cannot be derived without inventing structure, so "" is returned.
+func ShowTitleFromMediaItem(item MediaItem) string {
+	if item.EpisodeKey == "" {
+		return ""
+	}
+	title := strings.TrimSpace(item.Title)
+	if title == "" {
+		return ""
+	}
+	left := title
+	if i := strings.Index(title, youtubeTitleSep); i >= 0 {
+		left = strings.TrimSpace(title[:i])
+	}
+	suffix := " " + item.EpisodeKey
+	if strings.HasSuffix(left, suffix) {
+		return strings.TrimSpace(strings.TrimSuffix(left, suffix))
+	}
+	if left == item.EpisodeKey {
+		return ""
+	}
+	return left
+}
 
 // Content-manifest acquisition statuses. missing is the default; present means
 // the title is in Jellyfin (and usually imported); failed means content-ingest
