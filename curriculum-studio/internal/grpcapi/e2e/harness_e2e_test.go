@@ -360,6 +360,35 @@ func TestE5_05_AuthMetadataRequired(t *testing.T) {
 // E5-06: Seeded published revision / graph / validation reads
 // ────────────────────────────────────────────────────────────────────────────
 
+func TestE8_04_MaterializeRequiresScope(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	key := jwttest.GenerateKey(t)
+	jwks := serveJWKS(t, key)
+	suite := newSuite2(t, jwks.URL)
+	tok := jwttest.Mint(t, key, jwttest.ValidServiceClaims(now, "primer-lms", "events:read"))
+	client := dialWithToken(t, suite.lis, tok)
+
+	c, cancel := ctx()
+	defer cancel()
+	_, err := client.Materialize(c, &v1.MaterializeRequest{
+		IdempotencyKey: "e8-04-no-materialize-scope",
+		Context:        &v1.MaterializationContext{PlanRevisionId: "prev_scope"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, grpcstatus.Code(err))
+	var found *v1.ErrorDetail
+	for _, detail := range grpcstatus.Convert(err).Details() {
+		if typed, ok := detail.(*v1.ErrorDetail); ok {
+			found = typed
+			break
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, v1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, found.GetCode())
+}
+
+// E5-06: Seeded published revision / graph / validation reads
 func TestE5_06_PublishedRevisionGraphValidation(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)

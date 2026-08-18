@@ -32,6 +32,9 @@ type Options struct {
 	// Validator verifies signed Bearer JWTs. A nil validator fails closed on
 	// protected routes; health/readiness remain available.
 	Validator TokenValidator
+	// AcceptServiceTokenAlias enables the migration-only X-Service-Token JWT
+	// alias. It is false by default and must never be enabled as an end state.
+	AcceptServiceTokenAlias bool
 	// Querier supplies the local Studio database authorization projection. New
 	// normally derives it from the pgx pool; this seam supports non-pool tests.
 	Querier repo.Querier
@@ -44,11 +47,12 @@ type Pinger interface {
 
 // Server holds shared handler dependencies.
 type Server struct {
-	pool      Pinger
-	querier   repo.Querier
-	validator TokenValidator
-	now       func() time.Time
-	reqTotal  atomic.Int64
+	pool                    Pinger
+	querier                 repo.Querier
+	validator               TokenValidator
+	acceptServiceTokenAlias bool
+	now                     func() time.Time
+	reqTotal                atomic.Int64
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -62,7 +66,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, now: now}
+	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, now: now}
 	if s.querier == nil {
 		if q, ok := pool.(repo.Querier); ok {
 			s.querier = q
@@ -85,6 +89,12 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 			Scheme:       "bearer",
 			BearerFormat: "JWT",
 			Description:  "Primer Identity JWT with aud=curriculum-studio.",
+		},
+		"serviceCredential": {
+			Type:        "apiKey",
+			In:          "header",
+			Name:        "X-Service-Token",
+			Description: "Migration-only JWT alias; disabled by default and never a static-secret production path.",
 		},
 	}
 

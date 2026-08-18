@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1"
 	"github.com/aleksclark/primer/curriculum-studio/internal/authn"
+	"github.com/aleksclark/primer/curriculum-studio/internal/authz"
 	"github.com/aleksclark/primer/curriculum-studio/internal/grpcapi/harness"
 )
 
@@ -130,6 +131,10 @@ func notFound(resource, id string) error {
 
 // Materialize starts or resumes a production run. Idempotent on idempotency_key.
 func (s *server) Materialize(ctx context.Context, req *v1.MaterializeRequest) (*v1.Materialization, error) {
+	principal, ok := authContextFrom(ctx)
+	if !ok || !authz.HasScope(principal.Scopes, "materialize:write") {
+		return nil, domainErr(codes.PermissionDenied, v1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "materialize:write scope is required")
+	}
 	if req.GetIdempotencyKey() == "" {
 		return nil, domainErr(codes.InvalidArgument, v1.ErrorCode_ERROR_CODE_INVALID_ARGUMENT, "idempotency_key is required")
 	}
@@ -252,7 +257,11 @@ func (s *server) GetResource(_ context.Context, req *v1.GetResourceRequest) (*v1
 }
 
 // PullEvents pages domain events for a consumer.
-func (s *server) PullEvents(_ context.Context, req *v1.PullEventsRequest) (*v1.PullEventsResponse, error) {
+func (s *server) PullEvents(ctx context.Context, req *v1.PullEventsRequest) (*v1.PullEventsResponse, error) {
+	principal, ok := authContextFrom(ctx)
+	if !ok || !authz.HasScope(principal.Scopes, "events:read") {
+		return nil, domainErr(codes.PermissionDenied, v1.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "events:read scope is required")
+	}
 	var pageSize int32 = 25
 	if req.GetPage() != nil && req.GetPage().GetPageSize() > 0 {
 		pageSize = req.GetPage().GetPageSize()

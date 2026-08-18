@@ -87,7 +87,7 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("configure auth validator: %w", err)
 		}
 	}
-	_, handler := api.New(pool, api.Options{Validator: validator})
+	_, handler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias})
 
 	// Bound body size for all routes (health is tiny; future writes stay capped).
 	bounded := http.MaxBytesHandler(handler, cfg.HTTPMaxBodyBytes)
