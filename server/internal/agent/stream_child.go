@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	mafagent "github.com/microsoft/agent-framework-go/agent"
 	"github.com/microsoft/agent-framework-go/message"
@@ -31,11 +32,20 @@ type StreamingChildTool struct {
 	// onComplete is invoked once when Call returns (success, error, cancel).
 	// Used by Runner to release activeChildren accounting.
 	onComplete func()
+	// onDrop is invoked by Release() when the tool is dropped without a Call.
+	// Runner.StartChild sets this to roll back direct/total/active budget.
+	// Nil when constructed outside Runner.
+	onDrop func()
 	// childRunner is the orchestrator-controlled child Runner at depth+1.
 	// Exposed for nested StartChild proofs; nil when constructed outside Runner.
 	childRunner *Runner
 	// runIDGen optional override for child run ids (tests).
 	runIDGen func() string
+
+	// mu guards callStarted and dropped for the Call/Release mutual-exclusion.
+	mu          sync.Mutex
+	callStarted bool // true once Call has been entered
+	dropped     bool // true once Release has been called
 }
 
 // NewStreamingChildTool builds a streaming child tool adapter.
@@ -100,12 +110,41 @@ func (t *StreamingChildTool) ReturnSchema() any {
 	return map[string]any{"type": "string"}
 }
 
+// Release reclaims the child budget reservation when the tool will not be
+// called. It rolls back the direct, total, and activeChildren counters
+// that Runner.StartChild reserved. Safe to call concurrently with Call;
+// idempotent after Call has been invoked or after a prior Release.
+// Returns true if the budget was reclaimed, false otherwise.
+func (t *StreamingChildTool) Release() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.callStarted || t.dropped {
+		return false
+	}
+	t.dropped = true
+	if t.onDrop != nil {
+		t.onDrop()
+	}
+	return true
+}
+
 // Call runs the child with streaming and emits attributed events.
 // Always invokes onComplete on return regardless of outcome.
+// Returns an error immediately if Release was called before Call.
 func (t *StreamingChildTool) Call(ctx context.Context, args string) (any, error) {
 	if t == nil || t.child == nil {
 		return "", fmt.Errorf("streaming child tool: nil child")
 	}
+	t.mu.Lock()
+	if t.dropped {
+		t.mu.Unlock()
+		return "", fmt.Errorf("streaming child tool: already released")
+	}
+	t.callStarted = true
+	t.mu.Unlock()
 	defer func() {
 		if t.onComplete != nil {
 			t.onComplete()

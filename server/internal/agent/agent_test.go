@@ -824,6 +824,111 @@ func TestPhase2_SlowSinkDoesNotBlockRun(t *testing.T) {
 	}
 }
 
+// ---- Phase 2: unused child reservation reclamation and multi-turn root policy --
+
+func TestPhase2_UnusedChildReservation_Reclaimed(t *testing.T) {
+	// Phase 2 BDD: a child prepared but never invoked must release
+	// direct/total/active budget so a later child can use the reclaimed capacity.
+	parent := scriptedAgent(t, "O", "p-unreserved", textUpdate("x"))
+	r := agent.NewRunner(agent.AgentSpec{
+		MaxChildren:      1,
+		MaxDepth:         1,
+		MaxTotalChildren: 1,
+	}, parent, agent.NoopSink{})
+
+	child := scriptedAgent(t, "C", "c-unreserved", textUpdate("x"))
+	st, _, err := r.StartChild(context.Background(), agent.ChildSpec{}, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct := st.(*agent.StreamingChildTool)
+
+	// Budget fully reserved after StartChild.
+	d, total, active := r.ChildBudgetSnapshot()
+	if d != 1 || total != 1 || active != 1 {
+		t.Fatalf("after StartChild: direct=%d total=%d active=%d; want 1/1/1", d, total, active)
+	}
+
+	// Release without calling: must reclaim all three counters.
+	if !ct.Release() {
+		t.Fatal("Release should return true when Call has not been invoked")
+	}
+	d, total, active = r.ChildBudgetSnapshot()
+	if d != 0 || total != 0 || active != 0 {
+		t.Fatalf("after Release: direct=%d total=%d active=%d; want 0/0/0", d, total, active)
+	}
+
+	// Release is idempotent: second call returns false.
+	if ct.Release() {
+		t.Fatal("second Release must return false")
+	}
+
+	// Call on a released tool must return an error immediately.
+	_, callErr := ct.Call(context.Background(), `{"query":"x"}`)
+	if callErr == nil || !strings.Contains(callErr.Error(), "released") {
+		t.Fatalf("call on released tool: err=%v, want 'released' error", callErr)
+	}
+
+	// Reclaimed capacity lets a replacement child be admitted.
+	child2 := scriptedAgent(t, "C2", "c2-unreserved", textUpdate("x"))
+	ct2, _, err := r.StartChild(context.Background(), agent.ChildSpec{}, child2)
+	if err != nil {
+		t.Fatalf("replacement child denied after Release: %v", err)
+	}
+	if _, err := ct2.Call(context.Background(), `{"query":"x"}`); err != nil {
+		t.Fatalf("replacement child call: %v", err)
+	}
+}
+
+func TestPhase2_MultiTurnRootPolicy_StickyAcrossTurns(t *testing.T) {
+	// Phase 2 BDD: a runner reused across sequential turns keeps the root run
+	// id from the first turn (sticky root). Run ids must be distinct.
+	sink := &agent.CollectingSink{}
+	parent := scriptedAgent(t, "O", "p-multirun", textUpdate("done"))
+	r := agent.NewRunner(agent.AgentSpec{Name: "O", MaxChildren: 0}, parent, sink)
+
+	if err := r.Run(context.Background(), "turn-one"); err != nil {
+		t.Fatal(err)
+	}
+	id1 := r.LastRunID()
+
+	if err := r.Run(context.Background(), "turn-two"); err != nil {
+		t.Fatal(err)
+	}
+	id2 := r.LastRunID()
+
+	if id1 == "" || id2 == "" || id1 == id2 {
+		t.Fatalf("run ids must be distinct non-empty: %q %q", id1, id2)
+	}
+
+	// Find the two KindStart events in order.
+	evs := sink.Snapshot()
+	var starts []agent.RunEvent
+	for _, e := range evs {
+		if e.Kind == agent.KindStart {
+			starts = append(starts, e)
+		}
+	}
+	if len(starts) < 2 {
+		t.Fatalf("expected >=2 start events, got %d: %+v", len(starts), evs)
+	}
+	turn1, turn2 := starts[0], starts[1]
+
+	if turn1.RunID != id1 {
+		t.Fatalf("turn1 run_id=%q want %q", turn1.RunID, id1)
+	}
+	if turn2.RunID != id2 {
+		t.Fatalf("turn2 run_id=%q want %q", turn2.RunID, id2)
+	}
+	// Sticky root: first turn is the root; second turn must share it.
+	if turn1.RootRunID != id1 {
+		t.Fatalf("turn1 root_run_id=%q want %q (first run is its own root)", turn1.RootRunID, id1)
+	}
+	if turn2.RootRunID != id1 {
+		t.Fatalf("turn2 root_run_id=%q want %q (sticky root from first turn)", turn2.RootRunID, id1)
+	}
+}
+
 // ---- Phase 3: SSE bridge race-safety and bounded behaviour -----------------
 
 func TestPhase3_SSEBridge_SlowWriterDoesNotBlockRunner(t *testing.T) {

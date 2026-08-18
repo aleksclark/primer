@@ -360,6 +360,7 @@ func (r *Runner) StartChild(ctx context.Context, child ChildSpec, childAgent *ma
 	st.depth = childDepth
 	st.childRunner = childRunner
 	st.onComplete = r.releaseChildSlot
+	st.onDrop = r.rollbackChildBudget
 
 	return st, childRunner, nil
 }
