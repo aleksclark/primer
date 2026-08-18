@@ -404,12 +404,7 @@ type WebhookDelivery struct {
 }
 
 // Page DTOs are transport envelopes; no domain model is hidden in them.
-type WorkspacePage struct {
-	Items      []Workspace `json:"items"`
-	TotalCount int         `json:"totalCount"`
-	Limit      int         `json:"limit"`
-	Offset     int         `json:"offset"`
-}
+
 type CurriculumPage struct {
 	Items      []Curriculum `json:"items"`
 	TotalCount int          `json:"totalCount"`
@@ -565,11 +560,6 @@ type deliveryListInput struct {
 	WebhookID string `path:"webhookId"`
 }
 
-type createWorkspaceInput struct{ Body WorkspaceCreate }
-type updateWorkspaceInput struct {
-	WorkspaceID string `path:"workspaceId"`
-	Body        WorkspaceUpdate
-}
 type createCurriculumInput struct {
 	WorkspaceID string `path:"workspaceId"`
 	Body        CurriculumCreate
@@ -652,7 +642,6 @@ type itemActionInput struct {
 	ItemID string `path:"itemId"`
 }
 
-type workspaceResponse struct{ Body Workspace }
 type curriculumResponse struct{ Body Curriculum }
 type revisionResponse struct{ Body PlanRevision }
 type nodeResponse struct{ Body PlanNode }
@@ -670,7 +659,6 @@ type eventPageResponse struct{ Body DomainEventPage }
 type webhookResponse struct{ Body WebhookEndpoint }
 type deliveryPageResponse struct{ Body WebhookDeliveryPage }
 type webhookPageResponse struct{ Body WebhookEndpointPage }
-type workspacePageResponse struct{ Body WorkspacePage }
 type curriculumPageResponse struct{ Body CurriculumPage }
 type revisionPageResponse struct{ Body PlanRevisionPage }
 type catalogPageResponse struct{ Body StandardsCatalogPage }
@@ -689,16 +677,6 @@ func emptyPage[T any]() T { var page T; return page }
 func registerAuthoringRoutes(api huma.API) {
 	// The shared registration function is called by both studio-api and
 	// openapi-gen. Handlers are intentionally fixture-only until S3+.
-	huma.Register(api, authoringOperation("list-workspaces", http.MethodGet, "/studio/v1/workspaces", "Workspaces", "List workspaces"), func(context.Context, *workspaceListInput) (*workspacePageResponse, error) {
-		return &workspacePageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-workspace", http.MethodPost, "/studio/v1/workspaces", "Workspaces", "Create a workspace"), func(context.Context, *createWorkspaceInput) (*workspaceResponse, error) {
-		return &workspaceResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("update-workspace", http.MethodPatch, "/studio/v1/workspaces/{workspaceId}", "Workspaces", "Update a workspace"), func(context.Context, *updateWorkspaceInput) (*workspaceResponse, error) {
-		return &workspaceResponse{}, nil
-	})
-
 	huma.Register(api, authoringOperation("list-curricula", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/curricula", "Curricula", "List curricula"), func(context.Context, *curriculumListInput) (*curriculumPageResponse, error) {
 		return &curriculumPageResponse{}, nil
 	})
