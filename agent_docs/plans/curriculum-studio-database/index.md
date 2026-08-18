@@ -9,6 +9,12 @@ checkpointing, materialized-item edit/lock/supersession/provenance, exports and
 object refs, transactional outbox/webhook leases/idempotency, and
 audit/retention/backup/restore with observability and operational gates.
 
+**Database track cursor:** **D4 complete** (PR #30, merged at `710e6ff`). The
+next wave is **D5 — plan graph and publication consistency**. D1–D4 evidence is
+present on the current master tip: Studio migration lifecycle and pgx
+foundation, tenant/workspace projections, and catalog/resource repositories
+with real-Postgres tests and database-authoritative scope/ownership policies.
+
 **Branch / base:** `planning/curriculum-studio-plan-db` @
 `66449725337165c2ef00f7c269633696313e0be2`
 
@@ -31,7 +37,7 @@ audit/retention/backup/restore with observability and operational gates.
 | Artifact | Evidence |
 | --- | --- |
 | Standalone service tree | `curriculum-studio/README.md` — separate boundary from LMS/TV |
-| Goose SQL migrations 00001–00004 | `curriculum-studio/db/migrations/` (identity/catalogs, plan domain, materialization/integration, invariants) |
+| Goose SQL migrations 00001–00007 | `curriculum-studio/db/migrations/` (identity/catalogs, plan domain, materialization/integration, invariants, and D4 catalog/resource policies) |
 | Schema docs + ERD | `curriculum-studio/db/SCHEMA.md`, `ERD.md` |
 | Executable schema tests (Python + Docker/psycopg2) | `curriculum-studio/db/tests/test_schema.py`; command `cd curriculum-studio/db && python3 -m pytest tests -q` |
 | Wire contracts (OpenAPI + proto) | `curriculum-studio/contracts/` |
@@ -42,18 +48,15 @@ audit/retention/backup/restore with observability and operational gates.
 
 | Item | State |
 | --- | --- |
-| Four goose migrations | Complete as a **design-time** schema; not yet frozen as immutable production history; no Studio Go migrator owns `studio_goose_db_version` |
-| Invariants | Enforced in SQL triggers/CHECK; no Go repository layer that exercises them under concurrent writers |
-| Python schema suite | Proves SQL invariants against real Postgres; does **not** prove Go repositories, UoW, leases, outbox workers, or backup drills |
+| Goose migrations 00001–00007 | The initial 00001–00004 history is frozen; D4 added forward-only 00005–00007 catalog/resource policy migrations. Studio owns the migrator and checksum policy. |
+| Invariants | Catalog scope, ownership, resource policy, and catalog-prerequisite invariants are enforced in SQL and exercised through D4 repositories. Plan-graph invariants still need repository/concurrency coverage in D5. |
+| Python schema suite | Proves SQL invariants against real Postgres; does **not** prove plan repositories, leases, outbox workers, or backup drills |
 
 ### Missing (this plan owns)
 
-- Dedicated Studio DB config, pool, migrate binary/embedded migrations, version table `studio_goose_db_version`
-- Migration freeze policy before any environment is declared live
-- Go pgx repositories, Querier/UoW, repository factories, testcontainers harness under `curriculum-studio/`
-- Tenant/workspace membership projection APIs at the persistence boundary
-- Plan graph write paths + publish/supersede consistency beyond raw SQL
-- Catalog/resource repos; validation report persistence
+- Transactional plan graph write/read paths and publish/supersede consistency beyond raw SQL
+- Outcome prerequisite acyclicity under concurrent writers and same-revision enforcement at the repository boundary
+- Validation report persistence
 - Learner profile + materialization run fingerprint/idempotency
 - Workflow stage/attempt checkpointing, retry, reclaim fencing
 - Materialized item edit/lock/supersession/provenance/assessment support repos
