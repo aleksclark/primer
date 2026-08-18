@@ -55,6 +55,29 @@ func TestRunnerConcurrentPrepareRunUsesOnePendingID(t *testing.T) {
 	}
 }
 
+func TestControllerRedactsProviderErrors(t *testing.T) {
+	secret := "provider-token=do-not-expose"
+	prov := &agent.ScriptedProvider{RunFn: func(context.Context, []*message.Message, ...mafagent.Option) iter.Seq2[*mafagent.ResponseUpdate, error] {
+		return func(yield func(*mafagent.ResponseUpdate, error) bool) { yield(nil, requireError(secret)) }
+	}}
+	root := agent.NewScriptedAgent(mafagent.Config{ID: "error-root", Name: "Overseer"}, prov)
+	controller := agent.NewController(agent.ControllerConfig{Agent: root})
+	run, err := controller.Start("fail")
+	require.NoError(t, err)
+	terminal, err := controller.Wait(context.Background(), run.ID)
+	require.NoError(t, err)
+	require.Equal(t, agent.RunFailed, terminal.State)
+	require.Equal(t, "provider_error", terminal.ErrorClass)
+	require.Equal(t, "agent provider failed", terminal.Error)
+	require.NotContains(t, terminal.Error, secret)
+}
+
+func requireError(text string) error { return &testError{text: text} }
+
+type testError struct{ text string }
+
+func (e *testError) Error() string { return e.text }
+
 func TestControllerStartIsDisabledWithoutAgent(t *testing.T) {
 	controller := agent.NewController(agent.ControllerConfig{})
 	_, err := controller.Start("hello")

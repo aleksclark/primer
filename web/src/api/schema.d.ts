@@ -4074,6 +4074,7 @@ export interface components {
             /** Format: date-time */
             endedAt?: string;
             error?: string;
+            errorClass?: string;
             rootRunId: string;
             runId: string;
             /** Format: date-time */
