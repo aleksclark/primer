@@ -4,6 +4,80 @@
  */
 
 export interface paths {
+    "/agent/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a process-local agent run
+         * @description Starts a bounded, non-durable MAF run. The returned ID may be streamed, inspected, or cancelled by the authenticated parent.
+         */
+        post: operations["start-agent-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get agent run status */
+        get: operations["get-agent-run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel an agent run */
+        post: operations["cancel-agent-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream attributed agent run events
+         * @description Streams Primer SSE events. Disconnecting this subscriber does not cancel the process-local run.
+         */
+        get: operations["stream-agent-run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assessment-attempts": {
         parameters: {
             query?: never;
@@ -214,6 +288,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assignments/{id}/continuity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind assignment continuity policy
+         * @description Default is fresh. optional_previous/required_project may reference a parent-approved fixture bundle.
+         */
+        post: operations["bind-assignment-continuity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assignments/{id}/retry": {
         parameters: {
             query?: never;
@@ -254,6 +348,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/courses/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish course document as curriculum revision
+         * @description Persists an immutable curriculum revision with ordered activity membership. Referenced activities must already be published.
+         */
+        post: operations["publish-course-document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/courses/publish-path": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish course.json from filesystem path
+         * @description Loads and validates a course.json, then publishes a curriculum revision. Activities must already be published.
+         */
+        post: operations["publish-course-path"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/curricula": {
         parameters: {
             query?: never;
@@ -263,7 +397,7 @@ export interface paths {
         };
         /**
          * List curricula
-         * @description List curricula with pagination, search (name, description), sorting (name, approach, grade_level, created_at, updated_at), and filters (approach, grade_level).
+         * @description List curricula with pagination, search (name, description, slug, subject_code), sorting (name, slug, approach, grade_level, status, created_at, updated_at), and filters (approach, grade_level, slug, status, subject_code).
          */
         get: operations["list-curricula"];
         put?: never;
@@ -295,6 +429,23 @@ export interface paths {
          * @description Partial update: only provided fields are changed.
          */
         patch: operations["update-curriculum"];
+        trace?: never;
+    };
+    "/curriculum-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List curriculum revisions */
+        get: operations["list-curriculum-revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/curriculum-standards": {
@@ -338,6 +489,46 @@ export interface paths {
          * @description Partial update: only provided fields are changed.
          */
         patch: operations["update-curriculum-standard"];
+        trace?: never;
+    };
+    "/curriculum/import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a curriculum import by planned bundle digest
+         * @description Applies standards, activities, and course revisions in one DB transaction. Rejects digest drift. Never enrolls or assigns students.
+         */
+        post: operations["curriculum-import-apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/curriculum/import/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan a guarded curriculum import
+         * @description Validates the bundle and returns a read-only diff. Does not write standards, activities, courses, enrollments, or assignments.
+         */
+        post: operations["curriculum-import-plan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/educators": {
@@ -392,7 +583,7 @@ export interface paths {
         };
         /**
          * List enrollments
-         * @description List enrollments with pagination, search (), sorting (status, started_on, ended_on, created_at, updated_at), and filters (student_id, curriculum_id, status).
+         * @description List enrollments with pagination, search (), sorting (status, priority, started_on, ended_on, created_at, updated_at), and filters (student_id, curriculum_id, curriculum_revision_id, status).
          */
         get: operations["list-enrollments"];
         put?: never;
@@ -424,6 +615,131 @@ export interface paths {
          * @description Partial update: only provided fields are changed.
          */
         patch: operations["update-enrollment"];
+        trace?: never;
+    };
+    "/enrollments/{id}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List enrollment audit events */
+        get: operations["list-enrollment-audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}/eligibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview enrollment eligibility and course map */
+        get: operations["enrollment-eligibility"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Override prerequisite for an activity
+         * @description Auditable parent override allowing an activity despite unmet prerequisites/gates.
+         */
+        post: operations["override-enrollment-prereq"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause an enrollment */
+        post: operations["pause-enrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pin next activity on enrollment
+         * @description Sets or clears (empty slug) the parent pin used by AssignNext.
+         */
+        post: operations["pin-enrollment-activity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Course map progress statuses for an enrollment */
+        get: operations["enrollment-progress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused enrollment */
+        post: operations["resume-enrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/health": {
@@ -611,7 +927,7 @@ export interface paths {
         };
         /**
          * List mastery-evidences
-         * @description List mastery-evidences with pagination, search (context, source_ref), sorting (kind, occurred_on, created_at, updated_at), and filters (mastery_record_id, kind).
+         * @description List mastery-evidences with pagination, search (context, source_ref, migration_note), sorting (kind, evidence_class, occurred_on, created_at, updated_at), and filters (mastery_record_id, kind, evidence_class).
          */
         get: operations["list-mastery-evidences"];
         put?: never;
@@ -748,6 +1064,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/portfolio/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Promote uploaded artifact to portfolio or fixture bundle
+         * @description Parent-only. Records provenance and optionally creates an approved fixture bundle for later continuity.
+         */
+        post: operations["promote-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/response-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List conceptual responses for review
+         * @description Defaults to status=submitted. Does not expose tutor chat transcripts.
+         */
+        get: operations["list-response-reviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/response-reviews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get conceptual response detail for review */
+        get: operations["get-response-review"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/response-reviews/{id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept or return a conceptual response
+         * @description Accept creates parent_attestation evidence. Return keeps prior evidence and allows a new student attempt.
+         */
+        post: operations["decide-response-review"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/standards": {
         parameters: {
             query?: never;
@@ -757,7 +1150,7 @@ export interface paths {
         };
         /**
          * List standards
-         * @description List standards with pagination, search (code, description, domain, cluster), sorting (code, source, grade_level, domain, created_at, updated_at), and filters (source, subject_id, parent_id, grade_level, domain, tcap_weight).
+         * @description List standards with pagination, search (code, description, domain, cluster), sorting (code, source, grade_level, domain, created_at, updated_at), and filters (code, source, subject_id, parent_id, grade_level, domain, tcap_weight).
          */
         get: operations["list-standards"];
         put?: never;
@@ -868,6 +1261,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/student/device/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report installed runtime profiles and runner capabilities */
+        post: operations["report-device-capabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/student/profile": {
         parameters: {
             query?: never;
@@ -919,6 +1329,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/student/sessions/{id}/artifacts/reserve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reserve session artifact upload slot
+         * @description Validates activity artifact policy and quotas, then records a reserved artifact row. Idempotent on artifactId.
+         */
+        post: operations["reserve-session-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions/{id}/artifacts/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload reserved artifact bytes
+         * @description Verifies digest and size against the reservation and activity policy, then stores bytes under the configured artifact root.
+         */
+        post: operations["upload-session-artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/student/sessions/{id}/complete": {
         parameters: {
             query?: never;
@@ -936,6 +1386,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/student/sessions/{id}/continuity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve workspace continuity for a session
+         * @description Returns fresh (default) or a parent-approved fixture bundle binding for the session assignment.
+         */
+        get: operations["get-session-continuity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/student/sessions/{id}/events": {
         parameters: {
             query?: never;
@@ -947,6 +1417,26 @@ export interface paths {
         put?: never;
         /** Ingest idempotent session event batch */
         post: operations["post-session-events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/student/sessions/{id}/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a constructed response
+         * @description Idempotent by submissionId. Creates conceptual_response evidence. Tutor clients must not call this with generated text.
+         */
+        post: operations["submit-student-response"];
         delete?: never;
         options?: never;
         head?: never;
@@ -980,7 +1470,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Work queue for the paired student */
+        /**
+         * Work queue for the paired student
+         * @description Returns assignment upserts. Empty after starts a full snapshot; a valid cursor is incremental. Paginate while hasMore is true before advancing the durable client cursor.
+         */
         get: operations["get-student-work"];
         put?: never;
         post?: never;
@@ -1070,6 +1563,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/students/{id}/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enroll student in a curriculum revision
+         * @description Creates or resumes an enrollment pointed at an explicit curriculum revision.
+         */
+        post: operations["enroll-student-course"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/students/{id}/learning-overview": {
         parameters: {
             query?: never;
@@ -1082,6 +1595,23 @@ export interface paths {
          * @description Aggregate: devices, open assignments, recent sessions, mastery summary, tutor-off flag.
          */
         get: operations["get-student-learning-overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/students/{id}/portfolio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List student portfolio items */
+        get: operations["list-student-portfolio"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1179,6 +1709,7 @@ export interface components {
     schemas: {
         ActivityContent: {
             artifacts?: components["schemas"]["ArtifactPolicy"];
+            blocks?: components["schemas"]["InstructionBlock"][] | null;
             checks: components["schemas"]["Check"][] | null;
             hints?: components["schemas"]["Hint"][] | null;
             instructions: string;
@@ -1188,6 +1719,52 @@ export interface components {
             terminal?: components["schemas"]["TerminalContent"];
             tutor?: components["schemas"]["TutorContext"];
             typing?: components["schemas"]["TypingContent"];
+        };
+        ActivityDocument: {
+            content: components["schemas"]["ActivityContent"];
+            kind: string;
+            metadata?: {
+                [key: string]: string;
+            };
+            minRunnerVersion?: string;
+            referenceSolution?: components["schemas"]["ReferenceSolution"];
+            schemaVersion: string;
+            slug: string;
+            standards: components["schemas"]["StandardRef"][] | null;
+            subjectCode: string;
+            summary: string;
+            title: string;
+        };
+        ActivityStatus: {
+            blockingReasons?: components["schemas"]["BlockReason"][] | null;
+            eligible: boolean;
+            membership: components["schemas"]["CurriculumActivity"];
+            status: string;
+        };
+        ApprovedFixtureBundle: {
+            /** Format: uuid */
+            approvedBy?: string;
+            /** Format: date-time */
+            createdAt: string;
+            digest: string;
+            entries?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            provenance?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            sourceArtifactId: string;
+            /** Format: uuid */
+            sourcePortfolioItemId?: string;
+            /** @enum {string} */
+            status: "approved" | "withdrawn";
+            storageRoot?: string;
+            /** Format: uuid */
+            studentId: string;
         };
         ArtifactMeta: {
             /**
@@ -1501,17 +2078,71 @@ export interface components {
              * @example /api/v1/schemas/AssignNextResponse.json
              */
             readonly $schema?: string;
-            assignment: components["schemas"]["StudentAssignment"];
+            assignment?: components["schemas"]["StudentAssignment"];
+            blockReason?: string;
+            candidates?: string[] | null;
             created: boolean;
             reason: string;
         };
-        Check: {
+        AssignmentCompletion: {
+            assignmentId: string;
+            sessionId: string;
+            state: string;
+            summary?: string;
+        };
+        AssignmentContinuityBinding: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/AssignmentContinuityBinding.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            assignmentId: string;
+            /** Format: uuid */
+            bundleId?: string;
+            /** @enum {string} */
+            continuityMode: "fresh" | "optional_previous" | "required_project" | "portfolio_review";
+            /** Format: date-time */
+            decidedAt: string;
+            /** Format: uuid */
+            decidedBy?: string;
+            /** Format: uuid */
             id: string;
+            notes?: string;
+            /** Format: uuid */
+            studentId: string;
+        };
+        BindContinuityInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/BindContinuityInputBody.json
+             */
+            readonly $schema?: string;
+            bundleId?: string;
+            /** @enum {string} */
+            continuityMode: "fresh" | "optional_previous" | "required_project" | "portfolio_review";
+            notes?: string;
+            studentId: string;
+        };
+        BlockReason: {
+            activity?: string;
+            code: string;
+            message: string;
+            requirement?: string;
+            requires?: string;
+        };
+        Check: {
+            evidenceBearing?: boolean;
+            id: string;
+            invariantAt?: string[] | null;
             kind: string;
             optional?: boolean;
             params: {
                 [key: string]: unknown;
             };
+            stages?: string[] | null;
         };
         CheckTree: {
             all?: components["schemas"]["CheckTree"][] | null;
@@ -1546,13 +2177,82 @@ export interface components {
              */
             readonly $schema?: string;
             accepted: boolean;
+            assignmentCompletion?: components["schemas"]["AssignmentCompletion"];
             completionId: string;
             evidenceIds?: string[] | null;
             masterySnapshot?: components["schemas"]["MasteryTransition"][] | null;
+            masteryTransitions?: components["schemas"]["MasteryTransition"][] | null;
             message?: string;
             observations: components["schemas"]["Observation"][] | null;
             requestDigest: string;
             schemaVersion: string;
+        };
+        ContinuityPolicy: {
+            mode: string;
+        };
+        CourseActivityRef: {
+            capstone?: boolean;
+            continuity?: components["schemas"]["ContinuityPolicy"];
+            file?: string;
+            metadata?: {
+                [key: string]: string;
+            };
+            module?: string;
+            /** Format: int64 */
+            order: number;
+            slug: string;
+        };
+        CourseDocument: {
+            activities: components["schemas"]["CourseActivityRef"][] | null;
+            continuityDefaults?: components["schemas"]["ContinuityPolicy"];
+            gates?: components["schemas"]["CourseGate"][] | null;
+            metadata?: {
+                [key: string]: string;
+            };
+            modules?: components["schemas"]["CourseModule"][] | null;
+            pacingReference?: components["schemas"]["CoursePacing"];
+            parentDescription?: string;
+            prerequisites?: components["schemas"]["CoursePrerequisite"][] | null;
+            remediation?: components["schemas"]["CourseRemediation"][] | null;
+            revisionPolicy?: string;
+            schemaVersion: string;
+            slug: string;
+            subjectCode: string;
+            title: string;
+            version?: string;
+        };
+        CourseGate: {
+            activity: string;
+            description?: string;
+            kind: string;
+            standards?: string[] | null;
+        };
+        CourseModule: {
+            activities?: string[] | null;
+            description?: string;
+            id: string;
+            title: string;
+        };
+        CoursePacing: {
+            masteryBased?: boolean;
+            /** Format: int64 */
+            nominalDaysPerWeek?: number;
+            /** Format: int64 */
+            nominalMinutesPerDay?: number;
+            /** Format: int64 */
+            nominalWeeks?: number;
+        };
+        CoursePrerequisite: {
+            activity: string;
+            description?: string;
+            requirement?: string;
+            requires: string[] | null;
+        };
+        CourseRemediation: {
+            branchSlug: string;
+            description?: string;
+            forActivity: string;
+            kind?: string;
         };
         CreateActivityInputBody: {
             /**
@@ -1614,8 +2314,31 @@ export interface components {
                 [key: string]: unknown;
             };
             name: string;
+            slug: string;
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            subjectCode: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        CurriculumActivity: {
+            /** Format: uuid */
+            activityRevisionId?: string;
+            activitySlug: string;
+            capstone: boolean;
+            continuityMode?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            curriculumRevisionId: string;
+            /** Format: uuid */
+            id: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            module?: string;
+            /** Format: int64 */
+            position: number;
         };
         CurriculumCreate: {
             /**
@@ -1633,6 +2356,75 @@ export interface components {
                 [key: string]: unknown;
             };
             name: string;
+            slug: string;
+            /** @enum {string} */
+            status?: "draft" | "published" | "retired";
+            subjectCode?: string;
+        };
+        CurriculumImportApplyInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CurriculumImportApplyInputBody.json
+             */
+            readonly $schema?: string;
+            bundle: components["schemas"]["ImportBundle"];
+            bundleDigest: string;
+            sourceLabel?: string;
+        };
+        CurriculumImportApplyOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/CurriculumImportApplyOutputBody.json
+             */
+            readonly $schema?: string;
+            manifest: components["schemas"]["ImportResultManifest"];
+            run: components["schemas"]["CurriculumImportRun"];
+        };
+        CurriculumImportRun: {
+            /** Format: uuid */
+            actorId?: string;
+            /** Format: date-time */
+            appliedAt?: string;
+            bundleDigest: string;
+            /** Format: date-time */
+            createdAt: string;
+            errorMessage?: string;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            mode: "plan" | "apply";
+            plan?: {
+                [key: string]: unknown;
+            };
+            resultManifest?: {
+                [key: string]: unknown;
+            };
+            sourceLabel: string;
+            /** @enum {string} */
+            status: "planned" | "applied" | "failed" | "rejected";
+        };
+        CurriculumRevision: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            curriculumId: string;
+            description: string;
+            document?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            publishedAt?: string;
+            /** Format: int64 */
+            revision: number;
+            /** @enum {string} */
+            revisionPolicy: "latest_published" | "pinned_digest";
+            subjectCode: string;
+            title: string;
+            version: string;
         };
         CurriculumStandard: {
             /**
@@ -1700,6 +2492,28 @@ export interface components {
                 [key: string]: unknown;
             };
             name?: string;
+            slug?: string;
+            /** @enum {string} */
+            status?: "draft" | "published" | "retired";
+            subjectCode?: string;
+        };
+        DeviceCapabilitiesBody: {
+            capabilities?: string[] | null;
+            profileDigests?: {
+                [key: string]: string;
+            };
+            runnerVersion?: string;
+            runtimeProfiles?: string[] | null;
+        };
+        DocumentResult: {
+            code?: string;
+            digest?: string;
+            id?: string;
+            kind: string;
+            message?: string;
+            retryable?: boolean;
+            slug?: string;
+            status: string;
         };
         Educator: {
             /**
@@ -1749,6 +2563,34 @@ export interface components {
             /** @enum {string} */
             role?: "parent" | "admin" | "tutor";
         };
+        EligibilityPreview: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/EligibilityPreview.json
+             */
+            readonly $schema?: string;
+            activities: components["schemas"]["ActivityStatus"][] | null;
+            blockingSummary?: components["schemas"]["BlockReason"][] | null;
+            eligible: components["schemas"]["ActivityStatus"][] | null;
+            enrollment: components["schemas"]["Enrollment"];
+            revision: components["schemas"]["CurriculumRevision"];
+        };
+        EnrollStudentInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/EnrollStudentInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: uuid */
+            curriculumId?: string;
+            /** Format: uuid */
+            curriculumRevisionId?: string;
+            curriculumSlug?: string;
+            /** Format: int64 */
+            priority?: number;
+        };
         Enrollment: {
             /**
              * Format: uri
@@ -1756,14 +2598,30 @@ export interface components {
              * @example /api/v1/schemas/Enrollment.json
              */
             readonly $schema?: string;
+            blockingReasons?: unknown[] | null;
+            constraints?: {
+                [key: string]: unknown;
+            };
             /** Format: date-time */
             createdAt: string;
             /** Format: uuid */
             curriculumId: string;
+            /** Format: uuid */
+            curriculumRevisionId?: string;
             /** Format: date-time */
             endedOn?: string;
             /** Format: uuid */
             id: string;
+            overrideReason?: string;
+            overrideSlugs?: string[] | null;
+            pinnedActivitySlug?: string;
+            /** Format: date-time */
+            pinnedAt?: string;
+            /** Format: uuid */
+            pinnedBy?: string;
+            pinnedReason?: string;
+            /** Format: int64 */
+            priority: number;
             /** Format: date-time */
             startedOn: string;
             /** @enum {string} */
@@ -1772,6 +2630,39 @@ export interface components {
             studentId: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        EnrollmentActionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/EnrollmentActionInputBody.json
+             */
+            readonly $schema?: string;
+            reason?: string;
+        };
+        EnrollmentAuditEvent: {
+            action: string;
+            /** Format: date-time */
+            createdAt: string;
+            detail?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            educatorId?: string;
+            /** Format: uuid */
+            enrollmentId: string;
+            /** Format: uuid */
+            id: string;
+            reason?: string;
+        };
+        EnrollmentAuditList: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/EnrollmentAuditList.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["EnrollmentAuditEvent"][] | null;
         };
         EnrollmentCreate: {
             /**
@@ -1782,6 +2673,10 @@ export interface components {
             readonly $schema?: string;
             /** Format: uuid */
             curriculumId: string;
+            /** Format: uuid */
+            curriculumRevisionId?: string;
+            /** Format: int64 */
+            priority?: number;
             /** Format: date-time */
             startedOn?: string;
             /** @enum {string} */
@@ -1796,8 +2691,12 @@ export interface components {
              * @example /api/v1/schemas/EnrollmentUpdate.json
              */
             readonly $schema?: string;
+            /** Format: uuid */
+            curriculumRevisionId?: string;
             /** Format: date-time */
             endedOn?: string;
+            /** Format: int64 */
+            priority?: number;
             /** Format: date-time */
             startedOn?: string;
             /** @enum {string} */
@@ -1860,6 +2759,13 @@ export interface components {
             /** Format: int64 */
             acknowledgedSequence: number;
         };
+        EvidencePolicy: {
+            statusRequirements: {
+                [key: string]: string[] | null;
+            };
+            /** Format: int64 */
+            version: number;
+        };
         FixtureEntry: {
             content?: string;
             mode?: string;
@@ -1881,6 +2787,55 @@ export interface components {
             /** Format: int64 */
             level: number;
             text: string;
+        };
+        ImportBundle: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ImportBundle.json
+             */
+            readonly $schema?: string;
+            activities?: components["schemas"]["ActivityDocument"][] | null;
+            course?: components["schemas"]["CourseDocument"];
+            schemaVersion: string;
+            sourceLabel?: string;
+            standards?: components["schemas"]["StandardSeed"][] | null;
+            version?: string;
+        };
+        ImportPlan: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ImportPlan.json
+             */
+            readonly $schema?: string;
+            actions: components["schemas"]["PlanAction"][] | null;
+            bundleDigest: string;
+            errors?: string[] | null;
+            sourceLabel?: string;
+            valid: boolean;
+            warnings?: string[] | null;
+        };
+        ImportResultManifest: {
+            /** Format: date-time */
+            appliedAt: string;
+            assignedStudents: string[] | null;
+            bundleDigest: string;
+            documents: components["schemas"]["DocumentResult"][] | null;
+            enrolledStudents: string[] | null;
+            idempotentReplay?: boolean;
+            sourceLabel?: string;
+        };
+        InstructionBlock: {
+            explanation?: string;
+            id: string;
+            input?: string;
+            kind: string;
+            output?: string;
+            resource?: components["schemas"]["ResourceRef"];
+            terms?: components["schemas"]["VocabularyTerm"][] | null;
+            text?: string;
+            title?: string;
         };
         InstructionLog: {
             /**
@@ -2112,6 +3067,7 @@ export interface components {
              */
             readonly $schema?: string;
             devices: components["schemas"]["StudentDevice"][] | null;
+            evidenceStatuses: components["schemas"]["StandardEvidenceStatus"][] | null;
             masterySummary: components["schemas"]["MasteryRecord"][] | null;
             openAssignments: components["schemas"]["StudentAssignment"][] | null;
             recentSessions: components["schemas"]["LearningSession"][] | null;
@@ -2161,19 +3117,29 @@ export interface components {
              */
             readonly $schema?: string;
             /** Format: uuid */
+            activityRevisionId?: string;
+            /** Format: uuid */
             artifactId: string;
             /** Format: int64 */
             byteSize: number;
+            bytesStored: boolean;
             /** Format: date-time */
             createdAt: string;
             filename: string;
             /** Format: uuid */
             id: string;
             mediaType: string;
+            /** Format: date-time */
+            retentionUntil?: string;
             /** Format: uuid */
             sessionId: string;
             sha256: string;
+            status?: string;
             storagePath?: string;
+            /** Format: uuid */
+            studentId?: string;
+            /** Format: date-time */
+            updatedAt?: string;
         };
         LoginRequest: {
             /**
@@ -2209,14 +3175,22 @@ export interface components {
             context: string;
             /** Format: date-time */
             createdAt: string;
+            /** @enum {string} */
+            evidenceClass: "procedural_continuous" | "conceptual_response" | "parent_attestation" | "formal_assessment" | "portfolio";
             /** Format: uuid */
             id: string;
             /** @enum {string} */
             kind: "continuous" | "formal" | "project" | "portfolio";
             /** Format: uuid */
             masteryRecordId: string;
+            migrationNote?: string;
             /** Format: date-time */
             occurredOn: string;
+            /** Format: int64 */
+            policyVersion: number;
+            provenance?: {
+                [key: string]: unknown;
+            };
             sourceRef: string;
             /** Format: date-time */
             updatedAt: string;
@@ -2230,11 +3204,18 @@ export interface components {
             readonly $schema?: string;
             context?: string;
             /** @enum {string} */
+            evidenceClass?: "procedural_continuous" | "conceptual_response" | "parent_attestation" | "formal_assessment" | "portfolio";
+            /** @enum {string} */
             kind: "continuous" | "formal" | "project" | "portfolio";
             /** Format: uuid */
             masteryRecordId: string;
             /** Format: date-time */
             occurredOn?: string;
+            /** Format: int64 */
+            policyVersion?: number;
+            provenance?: {
+                [key: string]: unknown;
+            };
             sourceRef?: string;
         };
         MasteryEvidenceUpdate: {
@@ -2246,9 +3227,16 @@ export interface components {
             readonly $schema?: string;
             context?: string;
             /** @enum {string} */
+            evidenceClass?: "procedural_continuous" | "conceptual_response" | "parent_attestation" | "formal_assessment" | "portfolio";
+            /** @enum {string} */
             kind?: "continuous" | "formal" | "project" | "portfolio";
             /** Format: date-time */
             occurredOn?: string;
+            /** Format: int64 */
+            policyVersion?: number;
+            provenance?: {
+                [key: string]: unknown;
+            };
             sourceRef?: string;
         };
         MasteryRecord: {
@@ -2326,11 +3314,16 @@ export interface components {
             status?: "not_introduced" | "in_progress" | "approaching" | "mastered";
         };
         MasteryTransition: {
+            acceptedEvidence?: string[] | null;
             /** Format: double */
             confidence?: number;
+            evidenceClass?: string;
             fromStatus: string;
+            missingEvidence?: string[] | null;
+            policySatisfied?: boolean;
             reason?: string;
             standardCode: string;
+            statusChanged?: boolean;
             toStatus: string;
         };
         Observation: {
@@ -2345,6 +3338,16 @@ export interface components {
             optional?: boolean;
             passed: boolean;
             schemaVersion: string;
+        };
+        OverrideEnrollmentInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/OverrideEnrollmentInputBody.json
+             */
+            readonly $schema?: string;
+            reason: string;
+            slug: string;
         };
         PageBodyAssessment: {
             /**
@@ -2426,6 +3429,24 @@ export interface components {
              */
             readonly $schema?: string;
             items: components["schemas"]["Curriculum"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
+        PageBodyCurriculumRevision: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyCurriculumRevision.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["CurriculumRevision"][] | null;
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -2616,6 +3637,24 @@ export interface components {
              */
             totalCount: number;
         };
+        PageBodyPortfolioItem: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyPortfolioItem.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["PortfolioItem"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
         PageBodyStandard: {
             /**
              * Format: uri
@@ -2745,6 +3784,56 @@ export interface components {
             /** Format: uuid */
             studentId: string;
         };
+        PinEnrollmentInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PinEnrollmentInputBody.json
+             */
+            readonly $schema?: string;
+            reason?: string;
+            slug: string;
+        };
+        PlanAction: {
+            action: string;
+            code?: string;
+            conflict?: boolean;
+            detail?: string;
+            digest?: string;
+            kind: string;
+            slug?: string;
+        };
+        PortfolioItem: {
+            /** Format: uuid */
+            activityRevisionId: string;
+            /** Format: int64 */
+            byteSize: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** @enum {string} */
+            destination: "portfolio" | "fixture_bundle";
+            /** Format: uuid */
+            id: string;
+            mediaType: string;
+            /** Format: uuid */
+            promotedBy?: string;
+            provenance?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            sessionId: string;
+            sha256: string;
+            /** Format: uuid */
+            sourceArtifactId: string;
+            /** @enum {string} */
+            status: "active" | "withdrawn";
+            storagePath?: string;
+            /** Format: uuid */
+            studentId: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         PostEventsInputBody: {
             /**
              * Format: uri
@@ -2761,6 +3850,59 @@ export interface components {
             requireInOrder: boolean;
             resumeFromTask: boolean;
         };
+        PromoteArtifactInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PromoteArtifactInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Client artifact UUID */
+            artifactId: string;
+            /** @enum {string} */
+            destination?: "portfolio" | "fixture_bundle";
+            title?: string;
+        };
+        PromoteArtifactOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PromoteArtifactOutputBody.json
+             */
+            readonly $schema?: string;
+            bundle?: components["schemas"]["ApprovedFixtureBundle"];
+            item: components["schemas"]["PortfolioItem"];
+        };
+        PublishCourseInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PublishCourseInputBody.json
+             */
+            readonly $schema?: string;
+            document: components["schemas"]["CourseDocument"];
+        };
+        PublishCoursePathInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PublishCoursePathInputBody.json
+             */
+            readonly $schema?: string;
+            path: string;
+        };
+        PublishCourseResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PublishCourseResponse.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            activities: number;
+            curriculum: components["schemas"]["Curriculum"];
+            revision: components["schemas"]["CurriculumRevision"];
+        };
         PublishRevisionInputBody: {
             /**
              * Format: uri
@@ -2771,6 +3913,127 @@ export interface components {
             content: components["schemas"]["ActivityContent"];
             schemaVersion?: string;
             standards?: components["schemas"]["StandardRef"][] | null;
+        };
+        ReferenceSolution: {
+            description?: string;
+            deterministic?: boolean;
+            steps: components["schemas"]["ReferenceStep"][] | null;
+        };
+        ReferenceStep: {
+            argv: string[] | null;
+            stdin?: string;
+            workDir?: string;
+        };
+        ReportCapabilitiesInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ReportCapabilitiesInputBody.json
+             */
+            readonly $schema?: string;
+            deviceCapabilities: components["schemas"]["DeviceCapabilitiesBody"];
+        };
+        ResourceRef: {
+            /** Format: int64 */
+            byteSize?: number;
+            label: string;
+            mediaType: string;
+            sha256: string;
+        };
+        ResponseDecisionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ResponseDecisionInputBody.json
+             */
+            readonly $schema?: string;
+            criteria?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** @enum {string} */
+            decision: "accept" | "return";
+            reason?: string;
+        };
+        ResponseDecisionResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ResponseDecisionResult.json
+             */
+            readonly $schema?: string;
+            evidenceIds?: string[] | null;
+            response: components["schemas"]["StudentResponse"];
+            review?: components["schemas"]["StudentResponseReview"];
+        };
+        ResponseDetail: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ResponseDetail.json
+             */
+            readonly $schema?: string;
+            activitySlug: string;
+            activityTitle: string;
+            parentNotes?: components["schemas"]["InstructionBlock"][] | null;
+            response: components["schemas"]["StudentResponse"];
+            reviews: components["schemas"]["StudentResponseReview"][] | null;
+            student: components["schemas"]["Student"];
+            studentBlocks?: components["schemas"]["InstructionBlock"][] | null;
+            task?: components["schemas"]["Task"];
+        };
+        ResponseListItem: {
+            activitySlug: string;
+            activityTitle: string;
+            response: components["schemas"]["StudentResponse"];
+            reviewRequired: boolean;
+            studentName: string;
+            taskTitle?: string;
+        };
+        ResponseReviewList: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ResponseReviewList.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["ResponseListItem"][] | null;
+        };
+        ResponseSubmission: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ResponseSubmission.json
+             */
+            readonly $schema?: string;
+            body: string;
+            /** Format: date-time */
+            clientTime?: string;
+            requestDigest?: string;
+            schemaVersion: string;
+            submissionId: string;
+            taskId: string;
+        };
+        ResponseSubmissionResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ResponseSubmissionResult.json
+             */
+            readonly $schema?: string;
+            evidenceIds?: string[] | null;
+            message?: string;
+            responseId: string;
+            reviewRequired?: boolean;
+            schemaVersion: string;
+            status: string;
+            submissionId: string;
+        };
+        ResponseTaskSpec: {
+            /** Format: int64 */
+            maxChars?: number;
+            parentReviewRequired?: boolean;
+            prompt: string;
+            rubric: components["schemas"]["RubricCriterion"][] | null;
         };
         RetryAssignmentInputBody: {
             /**
@@ -2795,6 +4058,37 @@ export interface components {
             expiresAt: string;
             /** Format: uuid */
             pairingId: string;
+        };
+        RubricCriterion: {
+            description: string;
+            id: string;
+            required?: boolean;
+        };
+        RunSnapshot: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/RunSnapshot.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            endedAt?: string;
+            error?: string;
+            rootRunId: string;
+            runId: string;
+            /** Format: date-time */
+            startedAt: string;
+            state: string;
+        };
+        SessionContinuityOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/SessionContinuityOutputBody.json
+             */
+            readonly $schema?: string;
+            bundle?: components["schemas"]["ApprovedFixtureBundle"];
+            mode: string;
         };
         SessionEvent: {
             /** Format: date-time */
@@ -2872,11 +4166,38 @@ export interface components {
             /** @enum {string} */
             tcapWeight?: "low" | "medium" | "high";
         };
+        StandardEvidenceStatus: {
+            acceptedEvidenceClasses: string[] | null;
+            activityCompleted: boolean;
+            additionalEvidenceRequired: boolean;
+            /** Format: double */
+            confidence: number;
+            evidenceStatus: string;
+            formalMastery: boolean;
+            masteryRecordId?: string;
+            masteryStatus: string;
+            missingEvidenceClasses: string[] | null;
+            proceduralAccepted: boolean;
+            standardCode: string;
+            standardId: string;
+        };
         StandardRef: {
             code: string;
+            evidencePolicy?: components["schemas"]["EvidencePolicy"];
             role: string;
             /** Format: double */
             weight?: number;
+        };
+        StandardSeed: {
+            cluster?: string;
+            code: string;
+            description?: string;
+            domain?: string;
+            /** Format: int64 */
+            gradeLevel?: number;
+            masteryCriteria?: string[] | null;
+            source?: string;
+            subjectCode?: string;
         };
         StandardUpdate: {
             /**
@@ -2903,6 +4224,15 @@ export interface components {
             /** @enum {string} */
             tcapWeight?: "low" | "medium" | "high";
         };
+        StartAgentRunInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/StartAgentRunInputBody.json
+             */
+            readonly $schema?: string;
+            text: string;
+        };
         StartSessionInputBody: {
             /**
              * Format: uri
@@ -2912,7 +4242,10 @@ export interface components {
             readonly $schema?: string;
             /** Format: uuid */
             assignmentId: string;
+            /** @description Runner capability flags such as structured_command_evidence. */
+            capabilities?: string[] | null;
             clientSessionId: string;
+            deviceCapabilities?: components["schemas"]["DeviceCapabilitiesBody"];
         };
         Student: {
             /**
@@ -2953,6 +4286,8 @@ export interface components {
             };
             /** Format: date-time */
             createdAt: string;
+            /** Format: uuid */
+            curriculumActivityId?: string;
             /** Format: date-time */
             dueAt?: string;
             /** Format: uuid */
@@ -2962,6 +4297,7 @@ export interface components {
             /** Format: int64 */
             priority: number;
             reason: string;
+            selectionReason?: string;
             /** @enum {string} */
             state: "available" | "in_progress" | "completed" | "cancelled";
             /** Format: uuid */
@@ -2991,6 +4327,11 @@ export interface components {
              * @example /api/v1/schemas/StudentDevice.json
              */
             readonly $schema?: string;
+            capabilities?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            capabilitiesReportedAt?: string;
             /** Format: date-time */
             createdAt: string;
             /** Format: uuid */
@@ -3037,6 +4378,59 @@ export interface components {
             deviceName: string;
             student: components["schemas"]["Student"];
         };
+        StudentResponse: {
+            /** Format: uuid */
+            activityRevisionId: string;
+            /** Format: uuid */
+            assignmentId: string;
+            /** Format: int64 */
+            attempt: number;
+            body: string;
+            bodySha256: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            parentReviewRequired: boolean;
+            requestDigest: string;
+            returnReason?: string;
+            /** Format: date-time */
+            reviewedAt?: string;
+            /** Format: uuid */
+            reviewedBy?: string;
+            rubricSnapshot?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Format: uuid */
+            sessionId: string;
+            /** @enum {string} */
+            status: "submitted" | "accepted" | "returned";
+            /** Format: uuid */
+            studentId: string;
+            /** Format: uuid */
+            submissionId: string;
+            /** Format: date-time */
+            submittedAt: string;
+            taskId: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        StudentResponseReview: {
+            /** Format: date-time */
+            createdAt: string;
+            criteria?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** @enum {string} */
+            decision: "accept" | "return";
+            /** Format: uuid */
+            educatorId: string;
+            /** Format: uuid */
+            id: string;
+            reason: string;
+            /** Format: uuid */
+            responseId: string;
+        };
         StudentUpdate: {
             /**
              * Format: uri
@@ -3065,7 +4459,14 @@ export interface components {
              */
             readonly $schema?: string;
             cursor?: string;
+            /** @description True when another page follows; do not advance durable cursor until false. */
+            hasMore?: boolean;
             items: components["schemas"]["StudentWorkItem"][] | null;
+            /**
+             * @description snapshot when after was empty; incremental for cursor walks.
+             * @enum {string}
+             */
+            mode?: "snapshot" | "incremental";
         };
         Subject: {
             /**
@@ -3131,8 +4532,10 @@ export interface components {
             hintIds?: string[] | null;
             id: string;
             instructions: string;
+            kind?: string;
             optional?: boolean;
             prerequisites?: string[] | null;
+            response?: components["schemas"]["ResponseTaskSpec"];
             title: string;
         };
         TerminalContent: {
@@ -3197,6 +4600,22 @@ export interface components {
             id: string;
             text: string;
         };
+        UploadArtifactInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/UploadArtifactInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Client artifact UUID from reservation */
+            artifactId: string;
+            contentBase64: string;
+            sha256?: string;
+        };
+        VocabularyTerm: {
+            definition: string;
+            term: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -3206,6 +4625,240 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "start-agent-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartAgentRunInputBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSnapshot"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-agent-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSnapshot"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "cancel-agent-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSnapshot"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stream-agent-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-assessment-attempts": {
         parameters: {
             query?: {
@@ -4086,6 +5739,69 @@ export interface operations {
             };
         };
     };
+    "bind-assignment-continuity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Assignment ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindContinuityInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentContinuityBinding"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "retry-assignment": {
         parameters: {
             query?: never;
@@ -4172,6 +5888,126 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "publish-course-document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishCourseInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishCourseResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "publish-course-path": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishCoursePathInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishCourseResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4372,6 +6208,75 @@ export interface operations {
             };
         };
     };
+    "list-curriculum-revisions": {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description Rows to skip. */
+                offset?: number;
+                /** @description Free-text search across the resource's searchable columns. */
+                q?: string;
+                /** @description Column to sort by (whitelisted per resource). */
+                sort?: string;
+                /** @description Sort direction. */
+                dir?: "asc" | "desc";
+                /** @description Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable. */
+                filter?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyCurriculumRevision"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-curriculum-standards": {
         parameters: {
             query?: {
@@ -4536,6 +6441,126 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "curriculum-import-apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurriculumImportApplyInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurriculumImportApplyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "curriculum-import-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportBundle"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPlan"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4882,6 +6907,431 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-enrollment-audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentAuditList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "enrollment-eligibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EligibilityPreview"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "override-enrollment-prereq": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideEnrollmentInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Enrollment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "pause-enrollment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentActionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Enrollment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "pin-enrollment-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinEnrollmentInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Enrollment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "enrollment-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EligibilityPreview"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "resume-enrollment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentActionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Enrollment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6160,6 +8610,247 @@ export interface operations {
             };
         };
     };
+    "promote-artifact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteArtifactInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromoteArtifactOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-response-reviews": {
+        parameters: {
+            query?: {
+                studentId?: string;
+                status?: "submitted" | "accepted" | "returned";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResponseReviewList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-response-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResponseDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "decide-response-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResponseDecisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResponseDecisionResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-standards": {
         parameters: {
             query?: {
@@ -6561,6 +9252,55 @@ export interface operations {
             };
         };
     };
+    "report-device-capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportCapabilitiesInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-student-profile": {
         parameters: {
             query?: never;
@@ -6703,6 +9443,114 @@ export interface operations {
             };
         };
     };
+    "reserve-session-artifact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactMeta"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningSessionArtifact"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "upload-session-artifact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadArtifactInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningSessionArtifact"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "complete-student-session": {
         parameters: {
             query?: never;
@@ -6756,6 +9604,55 @@ export interface operations {
             };
         };
     };
+    "get-session-continuity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionContinuityOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-session-events": {
         parameters: {
             query?: never;
@@ -6778,6 +9675,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventsAck"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "submit-student-response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResponseSubmission"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResponseSubmissionResult"];
                 };
             };
             /** @description Unauthorized */
@@ -6865,7 +9815,7 @@ export interface operations {
     "get-student-work": {
         parameters: {
             query?: {
-                /** @description Cursor from a previous work response. */
+                /** @description Cursor from a previous work response. Empty requests a full snapshot. */
                 after?: string;
                 limit?: number;
             };
@@ -7207,6 +10157,68 @@ export interface operations {
             };
         };
     };
+    "enroll-student-course": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollStudentInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Enrollment"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-student-learning-overview": {
         parameters: {
             query?: never;
@@ -7226,6 +10238,65 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LearningOverviewResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-student-portfolio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Student ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyPortfolioItem"];
                 };
             };
             /** @description Unauthorized */

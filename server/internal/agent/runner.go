@@ -123,6 +123,8 @@ func (r *Runner) PrepareRun() string {
 	if r == nil {
 		return ""
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if v := r.pendingRunID.Load(); v != nil {
 		if s, ok := v.(string); ok && s != "" {
 			return s
@@ -143,6 +145,8 @@ func (r *Runner) PrepareRun() string {
 
 // consumeRunID returns the pending prepared id or a fresh one, and clears pending.
 func (r *Runner) consumeRunID() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if v := r.pendingRunID.Swap(""); v != nil {
 		if s, ok := v.(string); ok && s != "" {
 			r.lastRunID.Store(s)

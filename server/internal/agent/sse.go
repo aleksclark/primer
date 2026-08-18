@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -296,6 +297,12 @@ func (b *SSEBridge) WriteDone() <-chan struct{} {
 // On stream cancel or write error: exits promptly; drops remaining queued events
 // without attempting further synchronous writes.
 func (b *SSEBridge) WriteTo(ctx context.Context, w http.ResponseWriter, f http.Flusher) {
+	b.WriteToWriter(ctx, w, f)
+}
+
+// WriteToWriter drains events to an arbitrary stream writer. It is used by
+// Huma StreamResponse, where the framework owns the ResponseWriter wrapper.
+func (b *SSEBridge) WriteToWriter(ctx context.Context, w io.Writer, f http.Flusher) {
 	defer b.onceDone.Do(func() { close(b.writeDone) })
 	for {
 		select {
@@ -331,7 +338,7 @@ func (b *SSEBridge) dropQueued() {
 	}
 }
 
-func writeSSEEvent(w http.ResponseWriter, f http.Flusher, e RunEvent) error {
+func writeSSEEvent(w io.Writer, f http.Flusher, e RunEvent) error {
 	if e.At.IsZero() {
 		e.At = time.Now().UTC()
 	}

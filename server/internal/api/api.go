@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/aleksclark/primer/server/internal/agent"
 	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tutor"
@@ -31,6 +32,9 @@ type Options struct {
 	// ArtifactStore holds session evidence bytes and approved fixture bundles.
 	// Nil disables byte upload endpoints (metadata-only still works).
 	ArtifactStore *artifacts.Store
+	// AgentController enables the authenticated, process-local MAF runtime
+	// boundary. Nil keeps the preview runtime disabled.
+	AgentController *agent.Controller
 }
 
 // New builds the Huma API and its HTTP handler. The Querier may be nil when
