@@ -344,8 +344,8 @@ func TestP3E1_GetAndUpdateWorkspace(t *testing.T) {
 	rr3 := doJSON(t, handler, http.MethodGet, "/studio/v1/workspaces/"+foreignWS.ID.String(), nil, tok)
 	assert.Equal(t, http.StatusNotFound, rr3.Code)
 
-	// PUT update workspace name.
-	rr4 := doJSON(t, handler, http.MethodPut, "/studio/v1/workspaces/"+ws.ID.String(),
+	// PATCH update workspace name.
+	rr4 := doJSON(t, handler, http.MethodPatch, "/studio/v1/workspaces/"+ws.ID.String(),
 		map[string]string{"name": "Renamed Workspace", "status": "active"}, tok)
 	assert.Equal(t, http.StatusOK, rr4.Code)
 	var updated api.WorkspaceView
@@ -356,7 +356,7 @@ func TestP3E1_GetAndUpdateWorkspace(t *testing.T) {
 	authorSub := uuid.New()
 	factory.SeedMembership(t, pool, ws.ID, domain.HumanSubjectRef(authorSub), domain.MembershipRoleAuthor)
 	authorTok := mintHuman(t, key, now, authorSub)
-	rr5 := doJSON(t, handler, http.MethodPut, "/studio/v1/workspaces/"+ws.ID.String(),
+	rr5 := doJSON(t, handler, http.MethodPatch, "/studio/v1/workspaces/"+ws.ID.String(),
 		map[string]string{"name": "Should Fail"}, authorTok)
 	assert.Equal(t, http.StatusForbidden, rr5.Code)
 

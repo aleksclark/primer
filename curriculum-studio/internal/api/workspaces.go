@@ -18,6 +18,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/authz"
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
@@ -198,6 +199,9 @@ LIMIT 1`, canon.String()).Scan(&existingTenantID)
 	if err == nil {
 		return existingTenantID, nil
 	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, fmt.Errorf("find existing tenant: %w", err)
+	}
 	// pgx.ErrNoRows means the subject has no workspaces yet — create a tenant.
 
 	// Derive a collision-resistant slug from the canonical subject ID.
@@ -296,6 +300,8 @@ func (s *Server) registerListWorkspaces(api huma.API) {
 type createWorkspaceBody struct {
 	// Name is the required human-readable workspace name.
 	Name string `json:"name" minLength:"1" maxLength:"200" doc:"Workspace display name (required)."`
+	// Slug is optional; a generated URL-safe slug is used when omitted.
+	Slug string `json:"slug,omitempty" maxLength:"63" doc:"Optional URL-safe workspace slug."`
 	// Kind is the workspace type. Defaults to teacher.
 	Kind string `json:"kind,omitempty" doc:"Workspace kind: school, family, coop, teacher (default), organization."`
 }
@@ -344,7 +350,15 @@ func (s *Server) registerCreateWorkspace(api huma.API) {
 				return fmt.Errorf("resolve tenant: %w", err)
 			}
 
-			slug := generateSlug(name)
+			slug := strings.TrimSpace(in.Body.Slug)
+			if slug == "" {
+				slug = generateSlug(name)
+			} else {
+				slug = slugify(slug)
+				if slug == "" {
+					return huma.Error422UnprocessableEntity("slug must contain letters or digits")
+				}
+			}
 			ws, err := repo.NewWorkspaceRepo(q).Create(ctx, &domain.Workspace{
 				TenantID: tenantID,
 				Slug:     slug,
@@ -455,7 +469,8 @@ func (s *Server) registerGetWorkspace(api huma.API) {
 // ─── updateWorkspace ─────────────────────────────────────────────────────────
 
 type updateWorkspaceBody struct {
-	Name   string `json:"name"   minLength:"1" maxLength:"200" doc:"New display name."`
+	Name   string `json:"name,omitempty" minLength:"1" maxLength:"200" doc:"New display name."`
+	Slug   string `json:"slug,omitempty" maxLength:"63" doc:"New URL-safe workspace slug."`
 	Status string `json:"status,omitempty" doc:"New status: active or archived."`
 }
 
@@ -471,7 +486,7 @@ type updateWorkspaceOutput struct {
 func (s *Server) registerUpdateWorkspace(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "updateWorkspace",
-		Method:      http.MethodPut,
+		Method:      http.MethodPatch,
 		Path:        "/studio/v1/workspaces/{workspaceID}",
 		Summary:     "Update workspace name or status (owner/admin only)",
 		Tags:        []string{"Workspaces"},
@@ -497,9 +512,16 @@ func (s *Server) registerUpdateWorkspace(api huma.API) {
 		}
 
 		name := strings.TrimSpace(in.Body.Name)
+		slug := strings.TrimSpace(in.Body.Slug)
 		status := strings.TrimSpace(in.Body.Status)
-		if name == "" {
-			return nil, huma.Error422UnprocessableEntity("name is required")
+		if name == "" && slug == "" && status == "" {
+			return nil, huma.Error422UnprocessableEntity("at least one workspace field is required")
+		}
+		if slug != "" {
+			slug = slugify(slug)
+			if slug == "" {
+				return nil, huma.Error422UnprocessableEntity("slug must contain letters or digits")
+			}
 		}
 		if status != "" && status != domain.WorkspaceStatusActive && status != domain.WorkspaceStatusArchived {
 			return nil, huma.Error422UnprocessableEntity("status must be active or archived")
@@ -511,24 +533,32 @@ func (s *Server) registerUpdateWorkspace(api huma.API) {
 			return nil, huma.Error404NotFound("not found")
 		}
 
-		ws, err := repo.NewWorkspaceRepo(s.querier).Update(ctx, existing.TenantID, wsID, name, status)
+		var ws *domain.Workspace
+		err = repo.WithTx(ctx, s.querier, func(q repo.Querier) error {
+			var err error
+			ws, err = repo.NewWorkspaceRepo(q).UpdateFields(ctx, existing.TenantID, wsID, name, slug, status)
+			if err != nil {
+				return err
+			}
+
+			afterJSON, _ := json.Marshal(map[string]string{"name": ws.Name, "slug": ws.Slug, "status": ws.Status})
+			wsIDCopy := ws.ID
+			_, err = repo.NewAuditRepo(q).Insert(ctx, &repo.AuditEvent{
+				WorkspaceID:     &wsIDCopy,
+				ActorSubjectRef: principal.SubjectRef,
+				Action:          "workspace.update",
+				EntityKind:      "workspace",
+				EntityID:        &wsIDCopy,
+				After:           json.RawMessage(afterJSON),
+			})
+			return err
+		})
 		if err != nil {
 			if errors.Is(err, repo.ErrNotFound) {
 				return nil, huma.Error404NotFound("not found")
 			}
 			return nil, huma.Error503ServiceUnavailable("update failed")
 		}
-
-		afterJSON, _ := json.Marshal(map[string]string{"name": ws.Name, "status": ws.Status})
-		wsIDCopy := ws.ID
-		_, _ = repo.NewAuditRepo(s.querier).Insert(ctx, &repo.AuditEvent{
-			WorkspaceID:     &wsIDCopy,
-			ActorSubjectRef: principal.SubjectRef,
-			Action:          "workspace.update",
-			EntityKind:      "workspace",
-			EntityID:        &wsIDCopy,
-			After:           json.RawMessage(afterJSON),
-		})
 
 		out := &updateWorkspaceOutput{}
 		out.Body = workspaceToView(ws)

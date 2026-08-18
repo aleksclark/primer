@@ -133,6 +133,12 @@ func escapeLike(s string) string {
 // Update sets name and status for the tenant-scoped workspace. Empty string
 // values are ignored (the existing column value is kept).
 func (r *WorkspaceRepo) Update(ctx context.Context, tenantID, workspaceID uuid.UUID, name, status string) (*domain.Workspace, error) {
+	return r.UpdateFields(ctx, tenantID, workspaceID, name, "", status)
+}
+
+// UpdateFields updates the mutable workspace fields. Empty values preserve the
+// existing column, allowing PATCH semantics without read-modify-write races.
+func (r *WorkspaceRepo) UpdateFields(ctx context.Context, tenantID, workspaceID uuid.UUID, name, slug, status string) (*domain.Workspace, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
@@ -143,11 +149,12 @@ func (r *WorkspaceRepo) Update(ctx context.Context, tenantID, workspaceID uuid.U
 UPDATE curriculum_studio.workspaces
 SET
     name       = CASE WHEN $3 <> '' THEN $3 ELSE name END,
-    status     = CASE WHEN $4 <> '' THEN $4 ELSE status END,
+    slug       = CASE WHEN $4 <> '' THEN $4 ELSE slug END,
+    status     = CASE WHEN $5 <> '' THEN $5 ELSE status END,
     updated_at = now()
 WHERE id = $1 AND tenant_id = $2
 RETURNING id, tenant_id, slug, name, kind, status, created_at, updated_at`
-	out, err := scanWorkspace(r.Q.QueryRow(ctx, q, workspaceID, tenantID, name, status))
+	out, err := scanWorkspace(r.Q.QueryRow(ctx, q, workspaceID, tenantID, name, slug, status))
 	if err != nil {
 		return nil, MapError(err)
 	}
