@@ -73,7 +73,7 @@ jobs:
         run: cd curriculum-studio && go test ./... -count=1
 
       - name: F0 foundation check
-        run: make foundation-check
+        run: GOFLAGS=-count=1 make foundation-check
 
       - name: Studio module tests
         run: make studio-test
