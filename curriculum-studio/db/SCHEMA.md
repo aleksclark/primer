@@ -149,7 +149,7 @@ closed sets below are the contract:
 | --- | --- |
 | `learner_profiles` | Generic learner or class profile |
 | `materialization_runs` | Production run + complete input snapshot + fingerprint |
-| `workflow_stages` | Resumable generation stages |
+| `workflow_stages` | Resumable generation stages with DB lease/fencing state |
 | `workflow_attempts` | Per-stage attempts |
 | `materialized_items` | Generated lessons / assessments / guides |
 | `materialized_item_edits` | Author edit history |
@@ -214,3 +214,4 @@ Goose SQL, numbered:
 7. `00007_catalog_ownership_immutability.sql`
 8. `00008_outcome_prerequisite_concurrency.sql`
 9. `00009_materialization_fingerprint_unique.sql`
+10. `00010_workflow_leases.sql`

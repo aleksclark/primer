@@ -22,6 +22,7 @@ var (
 	ErrPayloadTooLarge   = errors.New("studio repo: payload too large")
 	ErrImmutable         = errors.New("studio repo: immutable")
 	ErrInvalidTransition = errors.New("studio repo: invalid status transition")
+	ErrLeaseLost         = errors.New("studio repo: workflow lease lost")
 )
 
 // MapError converts pgx/pgconn errors into stable package sentinels when possible.

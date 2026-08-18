@@ -184,6 +184,7 @@ def test_migrations_are_goose_paired():
         "00007_catalog_ownership_immutability.sql",
         "00008_outcome_prerequisite_concurrency.sql",
         "00009_materialization_fingerprint_unique.sql",
+        "00010_workflow_leases.sql",
     ]
     for path in MIGRATIONS:
         text = path.read_text()
