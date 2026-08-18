@@ -166,11 +166,10 @@ func TestP4S4GeneratedSourcesRemainUntracked(t *testing.T) {
 		}
 	}
 
-	gate := filepath.Join(studioRoot(t), "tools/contract-gates/check_no_tracked_generated.sh")
-	out2, err := runIn(t, repo, "bash", gate)
-	if err != nil {
-		t.Fatalf("check_no_tracked_generated.sh failed: %v\n%s", err, out2)
-	}
+	// The standalone gate (and its index-mutating --self-test) runs in CI and
+	// make contracts-gates. Do not invoke it here: `go test ./...` executes
+	// package tests concurrently, and the foundation package's self-test
+	// temporarily stages planted paths in the shared git index.
 }
 
 func TestMakefileWiresGenerateAndClientBuild(t *testing.T) {
