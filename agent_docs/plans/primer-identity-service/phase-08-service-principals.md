@@ -1,6 +1,6 @@
 # 08: IB4 / signed webhook and two-plane revocation
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: READY — IB0 exact-tip dependency passed at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical/Important/Minor findings.** The prior STOP is cleared; dispatch IB4/I8 from current master. The fresh IB4 exact-tip specification and quality/security approval remains required before any production BFF/MCP claim.
 
 ## Goal
 
