@@ -7,8 +7,9 @@ file as the wave cursor. Detailed BDD scenarios and E2E IDs live in the four
 source plans; this file maps them 1:N to master waves.
 
 **Current status:** IB2/I6 dual-reviewed at `f5d5b5b` on `impl/IB2-hardening-remed`; coverage 82.4% (≥80%); parent gates green; opt-in `make identity-live-stytch` green against Stytch test project (not IB8-E10). Resume handoff: [`../identity-ib2-resume.md`](../identity-ib2-resume.md).
-**Post-merge cursor:** **PROCEED to IB3 / I7 BFF cookie/CSRF/PKCE.** Do not claim production BFF or MCP authorization from this status.
+**Studio platform status:** S1, S2, and S3 are complete on master/this delivery branch; S2 landed in PR #29 (`79ab153`) and S3 is being rebased for PR #33. Residual production-auth promotion and live BFF work remain gated on I8 and applicable I12/I7 milestones; this is not a production BFF claim.
 **Contracts status:** C1–C4 complete; C4 landed in PR #28 at `db587ed`. **Contracts cursor: C5** (gRPC integration service harness).
+**Post-merge cursor:** **PROCEED to IB3 / I7 BFF cookie/CSRF/PKCE.** **Studio platform cursor:** **PROCEED to S4 Standards Catalog API** (S5 may proceed in parallel after S3 integration).
 
 **Legend**
 
