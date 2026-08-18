@@ -18,8 +18,9 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 	contracts-validate \
 	contracts-ownership \
 	contracts-buf-generate \
-	clients-go-grpc-build \
+	clients-go-grpc-build clients-go-rest-generate clients-go-rest-build \
 	contracts-openapi-emit \
+	clients-ts-rest-generate clients-ts-rest-build \
 	clients-generate \
 	contracts-parity \
 	contracts-gates \
@@ -39,7 +40,9 @@ help:
 	@echo "  contracts-buf-generate  buf generate via local pinned plugins (C4)"
 	@echo "  clients-go-grpc-build   generate stubs then go test clients/go-grpc (C4)"
 	@echo "  contracts-openapi-emit  openapi-gen offline emit to contracts/.tmp (C6)"
-	@echo "  clients-generate        fan-out client generation (C4/C7)"
+	@echo "  clients-go-rest-build   generate ogen client then go test clients/go-rest (C7)"
+	@echo "  clients-ts-rest-build   generate openapi-fetch types then strict tsc (C7)"
+	@echo "  clients-generate        emit + fan-out all client generation (C4/C7)"
 	@echo "  contracts-parity        closed-enum parity gate (C2)"
 	@echo "  contracts-gates         policy gates incl. no-tracked-gen (C1/C10)"
 	@echo "  contracts-spikes        hard-type qualification spikes (C3)"
@@ -95,24 +98,37 @@ contracts-ownership:
 contracts-buf-generate:
 	cd "$(CONTRACTS)" && ./scripts/generate.sh
 
-clients-go-grpc-build: contracts-buf-generate
+clients-go-rest-generate: contracts-openapi-emit
+	bash "$(STUDIO_ROOT)/clients/go-rest/scripts/generate.sh"
+
+clients-go-rest-build: clients-go-rest-generate
+	cd "$(STUDIO_ROOT)" && GOWORK=off go test ./clients/go-rest/... -count=1
+
+clients-ts-rest-generate: contracts-openapi-emit
+	bash "$(STUDIO_ROOT)/clients/ts-rest/scripts/generate.sh"
+
+clients-ts-rest-build: clients-ts-rest-generate
+	cd "$(STUDIO_ROOT)/clients/ts-rest" && npm ci --ignore-scripts --no-audit --no-fund && npm run build
+
+clients-go-grpc-build: contracts-buf-generate clients-go-rest-generate
 	cd "$(STUDIO_ROOT)" && GOWORK=off go test ./clients/go-grpc/... -count=1
 
-# Filled in C6 — keep name stable.
+# C6: offline Huma emission.
 contracts-openapi-emit:
 	mkdir -p "$(CONTRACTS)/.tmp"
 	go run ./cmd/openapi-gen -out "$(CONTRACTS)/.tmp/openapi.emitted.yaml"
 	python3 -m openapi_spec_validator "$(CONTRACTS)/.tmp/openapi.emitted.yaml"
 
-# C4 fills go-grpc generate; C7 fills REST clients.
-clients-generate: contracts-buf-generate
-	@echo "OK: clients-generate (go-grpc via contracts-buf-generate; REST deferred to C7)"
+# C7: emitted OpenAPI is the only REST client generation input.
+clients-generate: contracts-openapi-emit contracts-buf-generate clients-go-rest-build clients-ts-rest-build
+	@echo "OK: clients-generate (protobuf + Go REST + TypeScript REST)"
 
 # Filled in C2 — keep name stable.
 contracts-parity:
 	bash "$(CONTRACTS)/scripts/parity.sh"
 
 contracts-gates: contracts-ownership
+	bash "$(CONTRACTS)/scripts/check-baseline.sh"
 	bash "$(GATES)/check_no_tracked_generated.sh"
 	bash "$(GATES)/check_no_tracked_generated.sh" --self-test
 	bash "$(CONTRACTS)/scripts/bootstrap_local_plugins.sh" --self-test
