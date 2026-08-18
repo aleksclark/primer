@@ -113,10 +113,6 @@ assert_allowed_not_flagged() {
 self_test() {
   assert_allowed_not_flagged
 
-  local stamp plant_dir
-  stamp="planted-gen-scan-$$"
-  plant_dir="$(mktemp -d "${TMPDIR:-/tmp}/${stamp}.XXXXXX")"
-
   local plants=(
     "curriculum-studio/openapi.emitted.yaml"
     "curriculum-studio/contracts/openapi/v1/openapi.emitted.yaml"
@@ -139,40 +135,22 @@ self_test() {
   export GIT_INDEX_FILE="$self_index"
 
   cleanup() {
-    local p d
+    local p
     for p in "${plants[@]}"; do
-      git rm -f --cached --quiet -- "$p" 2>/dev/null || true
-      rm -f -- "$p" 2>/dev/null || true
+      # Entries are planted directly into the isolated index. This avoids
+      # touching the worktree, so concurrent package generation cannot race
+      # the self-test's fixture files.
+      git update-index --force-remove -- "$p" 2>/dev/null || true
     done
-    # Best-effort remove empty planted parents created under curriculum-studio.
-    for d in \
-      curriculum-studio/contracts/gen/go/curriculumstudio/v1 \
-      curriculum-studio/contracts/gen/go/curriculumstudio \
-      curriculum-studio/contracts/gen/go \
-      curriculum-studio/contracts/gen \
-      curriculum-studio/contracts/.tmp \
-      curriculum-studio/clients/ts-rest/generated \
-      curriculum-studio/clients/go-grpc/generated \
-      curriculum-studio/tools/contract-gates/spikes/.tmp/proto-gen \
-      curriculum-studio/tools/contract-gates/spikes/.tmp
-    do
-      rmdir "$d" 2>/dev/null || true
-    done
-    rm -rf -- "$plant_dir"
     unset GIT_INDEX_FILE
     rm -f -- "$self_index"
   }
   trap cleanup EXIT
 
-  local p parent
+  local p blob
   for p in "${plants[@]}"; do
-    parent="$(dirname -- "$p")"
-    mkdir -p "$parent"
-    printf 'planted %s\n' "$p" >"$p"
-    git add -f -- "$p"
-    # Keep the index entry, but remove the worktree file immediately. This
-    # prevents concurrent Go package tests from compiling planted junk.
-    rm -f -- "$p"
+    blob="$(printf 'planted %s\n' "$p" | git hash-object -w --stdin)"
+    git update-index --add --cacheinfo "100644,$blob,$p"
   done
 
   local out ec=0
