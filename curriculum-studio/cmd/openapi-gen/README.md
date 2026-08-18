@@ -2,7 +2,19 @@
 
 Offline OpenAPI emitter for Curriculum Studio authoring REST.
 
-**Wave ownership:** Contracts C6 fills this binary. C1 only reserves the path.
+**Wave ownership:** Contracts C6 owns this binary and the shared Huma
+registration path. C1 only reserved the path.
+
+Run it from `curriculum-studio/` with:
+
+```bash
+go run ./cmd/openapi-gen -out contracts/.tmp/openapi.emitted.yaml
+# or: make contracts-openapi-emit
+```
+
+The command constructs `internal/api.NewWithPinger(nil, ...)`; it never binds a
+listener or opens a database connection. The output path is build-only and
+ignored by git.
 
 ## Purpose
 
