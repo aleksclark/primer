@@ -21,6 +21,10 @@ duplicate SQL).
 - Primer learner, class, educator, and auth-subject identifiers are stored only
   as opaque `TEXT` (`subject_ref`, `external_ref`) plus optional JSON snapshots.
 - Memberships are authorization projections. Credentials are never stored here.
+- Workspace-owned framework/catalog-standard/crosswalk/prerequisite/resource
+  access is always filtered by the requested workspace. Global frameworks remain
+  visible to every requested workspace; tenant-global resources are likewise
+  visible only through an explicit workspace-scoped read.
 
 ## Subject and external identity conventions
 
@@ -118,7 +122,7 @@ closed sets below are the contract:
 | `catalog_standards` | Hierarchical standards inside a framework |
 | `standard_crosswalks` | Cross-framework mappings |
 | `catalog_standard_prerequisites` | Catalog-level prerequisite DAG |
-| `resources` | Book / media / tool / URL metadata (no file blobs) |
+| `resources` | Book / media / tool / URL metadata (no file blobs); explicit bounded metadata and object-reference policy |
 
 ### Plan domain
 
@@ -163,7 +167,13 @@ closed sets below are the contract:
 | Separate database / no LMS FKs | Dedicated `curriculum_studio` schema; no objects outside it; opaque text refs only |
 | Published plan immutability | `plan_revisions` trigger blocks UPDATE/DELETE except `published → superseded`; child-table triggers block INSERT/UPDATE/DELETE |
 | Acyclic outcome prerequisites | BEFORE INSERT/UPDATE recursive walk on `outcome_prerequisites` |
-| Acyclic catalog prerequisites | BEFORE INSERT/UPDATE recursive walk on `catalog_standard_prerequisites` |
+| Acyclic catalog prerequisites | BEFORE INSERT/UPDATE recursive walk on `catalog_standard_prerequisites`, serialized with transaction-scoped advisory locks |
+| Catalog edge workspace compatibility | Crosswalk and prerequisite triggers reject two non-global endpoint frameworks from different workspaces; global endpoints remain compatible |
+| Catalog ownership reassignment | Framework workspace ownership and standard framework assignment are immutable after creation |
+| Workspace tenant reassignment | Workspace tenant ownership is immutable after creation, protecting dependent resources |
+| Catalog parent framework | Trigger requires `catalog_standards.parent_id` to belong to the same framework |
+| Resource workspace tenant | Trigger requires a resource workspace to belong to the resource tenant |
+| Resource bytes | Explicit metadata key/type allowlist, 16KiB stored-octet limit, and `obj:`/`urn:` reference format; no file bytes or base64 payload document is accepted |
 | Prerequisites stay in-revision | Trigger compares both outcomes' `plan_revision_id` |
 | Locked content protection | Trigger on `materialized_items` + insert block on `materialized_item_edits` |
 | Referential integrity | Foreign keys throughout; `ON DELETE RESTRICT` on published-adjacent catalog/resource refs |
@@ -199,3 +209,6 @@ Goose SQL, numbered:
 2. `00002_plan_domain.sql`
 3. `00003_materialization_and_integration.sql`
 4. `00004_invariants.sql`
+5. `00005_catalog_scope_and_resource_policy.sql`
+6. `00006_catalog_edge_scope_and_resource_updates.sql`
+7. `00007_catalog_ownership_immutability.sql`

@@ -102,7 +102,7 @@ func TestP1E1_FreshMigrateFullInventory(t *testing.T) {
 	var n int
 	err = pool.QueryRow(ctx, `SELECT count(*) FROM `+studiodb.VersionTable+` WHERE version_id > 0 AND is_applied`).Scan(&n)
 	require.NoError(t, err)
-	require.Equal(t, 4, n, "expected 4 applied goose versions")
+	require.Equal(t, 7, n, "expected 7 applied goose versions")
 
 	// No Studio domain tables in public.
 	var publicStudio int
@@ -140,7 +140,7 @@ func TestP1E2_SecondUpIdempotent(t *testing.T) {
 	v2, err := studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
 	require.Equal(t, v1, v2)
-	require.Equal(t, int64(4), v2)
+	require.Equal(t, int64(7), v2)
 }
 
 // P1-E3: freeze inventory matches committed manifest and embedded FS.
@@ -197,7 +197,7 @@ func TestP1E5_DownPolicyLiveVsNonLive(t *testing.T) {
 	require.NoError(t, studiodb.Studio.DownWithPolicy(ctx, url, nonLive))
 	v, err := studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), v, "down should roll back exactly one version (00004)")
+	require.Equal(t, int64(6), v, "down should roll back exactly one version (00007)")
 
 	// Re-up then refuse live down.
 	require.NoError(t, studiodb.Migrate(ctx, url))
@@ -207,14 +207,14 @@ func TestP1E5_DownPolicyLiveVsNonLive(t *testing.T) {
 	require.Contains(t, strings.ToLower(err.Error()), "live")
 	v, err = studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, int64(4), v)
+	require.Equal(t, int64(7), v)
 
 	// Break-glass allows down.
 	live.BreakGlassDown = true
 	require.NoError(t, studiodb.Studio.DownWithPolicy(ctx, url, live))
 	v, err = studiodb.Studio.CurrentVersion(ctx, url)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), v)
+	require.Equal(t, int64(6), v)
 }
 
 // P1-E6: config refuses missing STUDIO_DATABASE_URL and LMS DB names; no DATABASE_URL fallback.

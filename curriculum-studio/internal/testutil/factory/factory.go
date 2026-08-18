@@ -100,3 +100,69 @@ func IntegrationIdentity(t *testing.T, q repo.Querier, overrides ...func(*domain
 	require.NoError(t, err)
 	return out
 }
+
+// Framework creates a global standards framework unless WorkspaceID is set.
+func Framework(t *testing.T, q repo.Querier, overrides ...func(*domain.StandardFramework)) *domain.StandardFramework {
+	t.Helper()
+	i := n()
+	in := &domain.StandardFramework{
+		Code:         fmt.Sprintf("FW-%d-%s", i, uuid.NewString()[:8]),
+		Name:         fmt.Sprintf("Framework %d", i),
+		Jurisdiction: "TN",
+	}
+	for _, o := range overrides {
+		o(in)
+	}
+	out, err := repo.NewFrameworkRepo(q).Create(context.Background(), in)
+	require.NoError(t, err)
+	return out
+}
+
+// CatalogStandard creates a catalog standard. Creates a framework unless set.
+func CatalogStandard(t *testing.T, q repo.Querier, overrides ...func(*domain.CatalogStandard)) *domain.CatalogStandard {
+	t.Helper()
+	i := n()
+	in := &domain.CatalogStandard{
+		Code:        fmt.Sprintf("STD.%d", i),
+		Description: fmt.Sprintf("Standard %d", i),
+	}
+	for _, o := range overrides {
+		o(in)
+	}
+	if in.FrameworkID == uuid.Nil {
+		in.FrameworkID = Framework(t, q).ID
+	}
+	// Catalog repository operations require a requested workspace scope. Global
+	// frameworks are visible to any workspace; custom frameworks use their
+	// owning workspace.
+	var frameworkWorkspace *uuid.UUID
+	err := q.QueryRow(context.Background(), `
+SELECT workspace_id FROM curriculum_studio.standard_frameworks WHERE id = $1`, in.FrameworkID).Scan(&frameworkWorkspace)
+	require.NoError(t, err)
+	scope := Workspace(t, q).ID
+	if frameworkWorkspace != nil {
+		scope = *frameworkWorkspace
+	}
+	out, err := repo.NewCatalogStandardRepo(q).Create(context.Background(), scope, in)
+	require.NoError(t, err)
+	return out
+}
+
+// Resource creates resource metadata. Creates a tenant unless TenantID is set.
+func Resource(t *testing.T, q repo.Querier, overrides ...func(*domain.Resource)) *domain.Resource {
+	t.Helper()
+	i := n()
+	in := &domain.Resource{
+		Kind:  domain.ResourceKindBook,
+		Title: fmt.Sprintf("Resource %d", i),
+	}
+	for _, o := range overrides {
+		o(in)
+	}
+	if in.TenantID == uuid.Nil {
+		in.TenantID = Tenant(t, q).ID
+	}
+	out, err := repo.NewResourceRepo(q).Create(context.Background(), in)
+	require.NoError(t, err)
+	return out
+}
