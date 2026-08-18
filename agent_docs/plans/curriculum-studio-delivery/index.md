@@ -8,6 +8,8 @@ ownership, no lowered gates, and realistic interleaving of platform / contracts 
 database / identity work.
 
 **Status:** IB0 design freeze + IB1 + IB2 (master `f31559d`) are history; **IB2 hardening tip `f5d5b5b` is the current dual-reviewed tip.** Resume handoff: [`../identity-ib2-resume.md`](../identity-ib2-resume.md). Post-merge cursor: **IB3/I7**. No production BFF/MCP claim.
+
+**Studio platform cursor:** S1 and S2 are complete on master; S2 landed in PR #29 (`79ab153`). Residual production-auth promotion and live BFF work remain gated on I8 and applicable I12/I7 milestones. **Next platform wave: S3 Workspaces API.**
 **Plan directory:** `agent_docs/plans/curriculum-studio-delivery/`
 **Branch:** `planning/curriculum-studio-integration`
 **Plans are local-only.** Implementation agents may create branches/commits and
