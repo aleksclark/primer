@@ -1,6 +1,6 @@
 # 07: IB3 / product BFF cookie, CSRF, and PKCE contract
 
-**Status: NEXT — dispatch from master after IB2 hardening tip `f5d5b5b` is merged. Do not start from superseded tip `f31559d` alone. See [`../identity-ib2-resume.md`](../identity-ib2-resume.md).**
+**Status: COMPLETE for the credential-free BFF package on master via PR #26 (`81b3302`).** The package tests cover the static registration, server-side PKCE exchange, host-only cookie, CSRF/Origin, callback, host-poisoning, and token-secrecy contract. **IB3-E01..E06 real-browser/process/artifact evidence remains residual**: no browser harness or independent browser artifact scan is present in this package, so this phase does not claim those scenarios green. Production BFF/MCP remains gated by IB4/I8.
 
 ## Goal
 
@@ -38,6 +38,7 @@ No localStorage, browser-readable token cookie, parent Domain cookie, frontend t
 
 ## Completion Gate
 
-- [ ] IB3-S* and IB3-E01..E06 green.
-- [ ] Production product/MCP remains blocked until IB4.
-- [ ] Browser artifact scan and independent security review pass.
+- [x] IB3-S* credential-free BFF package behavior is implemented and package tests are green on master PR #26.
+- [ ] IB3-E01..E06 real browser + BFF + Identity process evidence and browser artifact scan remain residual.
+- [x] Production product/MCP remains blocked until IB4.
+- [ ] Independent security review of the browser/process evidence remains required.

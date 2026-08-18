@@ -1,6 +1,6 @@
 # 08: IB4 / signed webhook and two-plane revocation
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: IMPLEMENTATION PRESENT — PR #37, commit `313ae56`.** IB0 exact-tip dependency passed at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical/Important/Minor findings, clearing the prior STOP. Credential-free receipt/collision/lease/revocation code and migration are present; the fresh IB4-E01..E11 exact-tip specification and quality/security approval remains pending and production BFF/MCP must not be claimed.
 
 ## Goal
 

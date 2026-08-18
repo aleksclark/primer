@@ -144,7 +144,7 @@ SELECT EXISTS (
 
 	// Roll down IB2, IB1, and baseline migrations one at a time; each is reversible.
 	// 00002..00009 = 8 downs leave foundation (00001) in place.
-	for range 8 {
+	for range 9 {
 		require.NoError(t, db.MigrateDown(ctx, url))
 	}
 	var stytchMappings bool

@@ -50,7 +50,7 @@ func TestIB2TokenGrantsMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	}
 	assertTable(t, pool, "signing_keys")
 
-	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to IB2 token-grants tip")
+	require.NoError(t, db.MigrateTo(ctx, url, 9), "fresh/upgrade to IB2 token-grants tip")
 	for _, table := range []string{
 		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
 		"oauth_client_assertion_replays", "token_issuance_audit", "signing_keys",
@@ -126,7 +126,7 @@ WHERE tgname='oauth_refresh_family_lifecycle_ck'`).Scan(&trigger))
 	assertTable(t, pool, "oauth_authorization_codes")
 	assertTable(t, pool, "oauth_clients")
 
-	require.NoError(t, db.Migrate(ctx, url))
+	require.NoError(t, db.MigrateTo(ctx, url, 9))
 	assertTable(t, pool, "oauth_refresh_families")
 	assertNamedFKSetNull(t, pool, "token_issuance_audit", "token_issuance_audit_code_fk")
 	assertIB2ConstraintRejects(t, pool)
@@ -153,7 +153,7 @@ func TestIB2TokenGrantsMigrationSQLHasNoRawTokensOrLaterTables(t *testing.T) {
 		"00007_ib2_token_grants.sql",
 		"00008_ib2_audit_signing_key_fk.sql",
 		"00009_ib2_assertion_replay_retention.sql",
-	}, names, "old migrations inventory may grow only by the expected IB2 versions")
+	}, names[:9], "old migrations inventory may grow only by the expected IB2 versions")
 	body, err := os.ReadFile(filepath.Join("migrations", "00007_ib2_token_grants.sql"))
 	require.NoError(t, err)
 	lower := strings.ToLower(string(body))

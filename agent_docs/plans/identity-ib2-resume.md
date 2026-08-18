@@ -52,8 +52,8 @@ Optional session happy path needs `IDENTITY_LIVE_STYTCH_SESSION_TOKEN`.
 
 | Item | Owner | Notes |
 |------|-------|-------|
-| IB3 / I7 product BFF cookie, CSRF, PKCE | **Next wave** | Branch `impl/I7-bff-contract` |
-| IB4 signed webhook / two-plane revocation | Later | Hard gate for production BFF/MCP |
+| IB3 / I7 product BFF cookie, CSRF, PKCE | **Complete on master via PR #26 (`81b3302`)** | Credential-free package/tests green; real-browser IB3-E01..E06 process/artifact proof remains residual |
+| IB4 signed webhook / two-plane revocation | **Current wave** | Hard gate for production BFF/MCP; IB0 exact-tip STOP cleared |
 | IB5 service principals / client_credentials | Later | Token still rejects CC grant |
 | IB6 refresh rotation/reuse/logout lifecycle | Later | Initial refresh family only |
 | IB7 full key retire/destroy | Later | At-most-one active/next only |
@@ -65,9 +65,11 @@ Optional session happy path needs `IDENTITY_LIVE_STYTCH_SESSION_TOKEN`.
 ## 3. Resume checklist (new worktree)
 
 1. Branch from current `master` after IB2 hardening is merged.
-2. Next implementation wave: **IB3 / I7** —
-   `agent_docs/plans/primer-identity-service/phase-07-product-bff-contract.md`  
-   branch name `impl/I7-bff-contract`.
+2. Current implementation wave: **IB4 / I8** —
+   `agent_docs/plans/primer-identity-service/phase-08-service-principals.md`
+   branch name `impl/I8-webhook-revocation`. IB0 exact-tip review passed at
+   `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e`; the former Phase 08 STOP is
+   cleared. Do not claim the residual I7 browser E2E green.
 3. Re-run parent identity gates before claiming green on a new tip.
 4. TMPDIR: `/var/tmp/primer-ib2-*` (never `/tmp`). No live production Stytch.
    Test credentials: `IDENTITY_LIVE_STYTCH=1` +
