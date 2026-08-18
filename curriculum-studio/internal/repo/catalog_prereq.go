@@ -67,7 +67,11 @@ SELECT p.standard_id, p.prerequisite_id
 FROM curriculum_studio.catalog_standard_prerequisites p
 JOIN curriculum_studio.catalog_standards s ON s.id = p.standard_id
 JOIN curriculum_studio.standard_frameworks f ON f.id = s.framework_id
-WHERE p.standard_id = $1 AND (f.workspace_id IS NULL OR f.workspace_id = $2)
+JOIN curriculum_studio.catalog_standards pre ON pre.id = p.prerequisite_id
+JOIN curriculum_studio.standard_frameworks pre_f ON pre_f.id = pre.framework_id
+WHERE p.standard_id = $1
+  AND (f.workspace_id IS NULL OR f.workspace_id = $2)
+  AND (pre_f.workspace_id IS NULL OR pre_f.workspace_id = $2)
 ORDER BY p.prerequisite_id`
 	rows, err := r.Q.Query(ctx, q, standardID, workspaceID)
 	if err != nil {

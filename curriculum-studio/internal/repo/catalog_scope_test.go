@@ -3,6 +3,8 @@ package repo_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -82,8 +84,21 @@ func TestCatalogWorkspaceScopeAndDatabasePolicies(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, foreignPrereqs)
 
-	// The parent framework check is database-owned and catches direct SQL too.
+	// The database rejects cross-workspace endpoint pairs even when callers
+	// bypass the repository's visibility predicates.
 	sp := testutil.NewSavepointQuerier(tx)
+	_, err = sp.Exec(ctx, `
+INSERT INTO curriculum_studio.standard_crosswalks
+    (from_standard_id, to_standard_id)
+VALUES ($1, $2)`, a.ID, parentB.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+	_, err = sp.Exec(ctx, `
+INSERT INTO curriculum_studio.catalog_standard_prerequisites
+    (standard_id, prerequisite_id)
+VALUES ($1, $2)`, a.ID, parentB.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+
+	// The parent framework check is database-owned and catches direct SQL too.
 	_, err = sp.Exec(ctx, `
 INSERT INTO curriculum_studio.catalog_standards
     (framework_id, parent_id, code, description)
@@ -118,6 +133,17 @@ INSERT INTO curriculum_studio.resources
     (tenant_id, kind, title, artifact_ref)
 VALUES ($1, 'document', 'data URL', 'data:application/octet-stream;base64,SGVsbG8=')`, tenA.ID)
 	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+
+	globalResource, err := f.Resources().Create(ctx, &domain.Resource{
+		TenantID: tenA.ID, Kind: domain.ResourceKindBook, Title: "tenant global",
+	})
+	require.NoError(t, err)
+	_, err = f.Resources().Get(ctx, tenA.ID, wsA.ID, globalResource.ID)
+	require.NoError(t, err)
+	_, err = f.Resources().Get(ctx, tenA.ID, wsB.ID, globalResource.ID)
+	require.ErrorIs(t, err, repo.ErrNotFound)
+	_, err = f.Resources().Get(ctx, tenA.ID, uuid.New(), globalResource.ID)
+	require.ErrorIs(t, err, repo.ErrNotFound)
 }
 
 func TestResourcePolicyAcceptsOnlyReferencesAndMetadata(t *testing.T) {
@@ -147,4 +173,38 @@ func TestResourcePolicyAcceptsOnlyReferencesAndMetadata(t *testing.T) {
 	// scope-bearing getter cannot be called with an empty requested workspace.
 	_, err = r.Get(ctx, ten.ID, uuid.Nil, uuid.New())
 	require.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+func TestResourcePolicyDirectSQLUpdatesAndOctetLimit(t *testing.T) {
+	ctx := context.Background()
+	tx := testutil.Tx(t)
+	ten := factory.Tenant(t, tx)
+	r := repo.NewResourceRepo(tx)
+	resource, err := r.Create(ctx, &domain.Resource{
+		TenantID: ten.ID, Kind: domain.ResourceKindDocument, Title: "mutable",
+		URL: "https://example.test/document",
+	})
+	require.NoError(t, err)
+	sp := testutil.NewSavepointQuerier(tx)
+
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.resources
+SET artifact_ref = 'data:application/octet-stream;base64,SGVsbG8='
+WHERE id = $1`, resource.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.resources
+SET url = 'data:text/plain;base64,SGVsbG8='
+WHERE id = $1`, resource.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+
+	// Every individual field is valid, but the canonical JSONB representation
+	// exceeds the 16KiB stored-octet invariant.
+	large := fmt.Sprintf(`{"description":%q,"publisher":%q,"language":%q,"license":%q,"note":%q}`,
+		strings.Repeat("x", 3500), strings.Repeat("x", 3500), strings.Repeat("x", 3500),
+		strings.Repeat("x", 3500), strings.Repeat("x", 3500))
+	_, err = sp.Exec(ctx, `
+INSERT INTO curriculum_studio.resources (tenant_id, kind, title, metadata)
+VALUES ($1, 'document', 'too much metadata', $2::jsonb)`, ten.ID, large)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
 }

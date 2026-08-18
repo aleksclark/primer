@@ -94,9 +94,11 @@ func (r *ResourceRepo) Get(ctx context.Context, tenantID, workspaceID, id uuid.U
 		return nil, fmt.Errorf("%w", ErrNotFound)
 	}
 	const q = `
-SELECT id, tenant_id, workspace_id, kind, title, authors, isbn, url, artifact_ref, metadata, created_at, updated_at
-FROM curriculum_studio.resources
-WHERE id = $1 AND tenant_id = $2 AND (workspace_id IS NULL OR workspace_id = $3)`
+SELECT r.id, r.tenant_id, r.workspace_id, r.kind, r.title, r.authors, r.isbn, r.url, r.artifact_ref, r.metadata, r.created_at, r.updated_at
+FROM curriculum_studio.resources r
+JOIN curriculum_studio.workspaces requested_workspace
+  ON requested_workspace.id = $3 AND requested_workspace.tenant_id = $2
+WHERE r.id = $1 AND r.tenant_id = $2 AND (r.workspace_id IS NULL OR r.workspace_id = $3)`
 	out, err := scanResource(r.Q.QueryRow(ctx, q, id, tenantID, workspaceID))
 	if err != nil {
 		return nil, MapError(err)

@@ -168,9 +168,10 @@ closed sets below are the contract:
 | Published plan immutability | `plan_revisions` trigger blocks UPDATE/DELETE except `published → superseded`; child-table triggers block INSERT/UPDATE/DELETE |
 | Acyclic outcome prerequisites | BEFORE INSERT/UPDATE recursive walk on `outcome_prerequisites` |
 | Acyclic catalog prerequisites | BEFORE INSERT/UPDATE recursive walk on `catalog_standard_prerequisites`, serialized with transaction-scoped advisory locks |
+| Catalog edge workspace compatibility | Crosswalk and prerequisite triggers reject two non-global endpoint frameworks from different workspaces; global endpoints remain compatible |
 | Catalog parent framework | Trigger requires `catalog_standards.parent_id` to belong to the same framework |
 | Resource workspace tenant | Trigger requires a resource workspace to belong to the resource tenant |
-| Resource bytes | Explicit metadata key/type allowlist and `obj:`/`urn:` reference format; no file bytes or base64 payload document is accepted |
+| Resource bytes | Explicit metadata key/type allowlist, 16KiB stored-octet limit, and `obj:`/`urn:` reference format; no file bytes or base64 payload document is accepted |
 | Prerequisites stay in-revision | Trigger compares both outcomes' `plan_revision_id` |
 | Locked content protection | Trigger on `materialized_items` + insert block on `materialized_item_edits` |
 | Referential integrity | Foreign keys throughout; `ON DELETE RESTRICT` on published-adjacent catalog/resource refs |
@@ -207,3 +208,4 @@ Goose SQL, numbered:
 3. `00003_materialization_and_integration.sql`
 4. `00004_invariants.sql`
 5. `00005_catalog_scope_and_resource_policy.sql`
+6. `00006_catalog_edge_scope_and_resource_updates.sql`
