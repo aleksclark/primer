@@ -7,10 +7,10 @@ file as the wave cursor. Detailed BDD scenarios and E2E IDs live in the four
 source plans; this file maps them 1:N to master waves.
 
 **Current status:** IB2/I6 dual-reviewed at `f5d5b5b`; **IB3/I7 credential-free BFF package merged on master via PR #26 (`81b3302`)** and its package tests are green. Real-browser IB3-E01..E06 process/artifact proof remains residual. IB0 exact-tip review `4bfd6d5c` passed with 0 Critical/Important/Minor, clearing the former Phase 08 STOP.
-**Studio platform status:** S1, S2, and S3 are complete on current master. Residual production-auth promotion and live BFF work remain gated on I8 and applicable I12/I7 milestones; this is not a production BFF claim.
+**Studio platform status:** S1–S4 are complete on the current Studio delivery branch; S2 landed in PR #29 (`79ab153`), S3 in PR #33, and S4 is being rebased for PR #39. Residual production-auth promotion and live BFF work remain gated on I8 and applicable I12/I7 milestones; this is not a production BFF claim.
 **Post-merge cursor:** **PROCEED to IB4 / I8 signed webhook and two-plane revocation.** Do not claim production BFF or MCP authorization until the fresh IB4 exact-tip gate passes; full IB8-E10 browser/webhook proof remains **BLOCKED**.
-**Contracts status:** C1–C5 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`. **Contracts cursor: C6** (Huma boundary DTOs and offline OpenAPI emission).
-**Studio platform cursor:** **PROCEED to S4 Standards Catalog API** (S5 may proceed in parallel after S3 integration).
+**Contracts status:** C1–C6 are complete on current master; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`, and C6 in PR #36. **Contracts cursor: C7** (OpenAPI handoff and REST clients).
+**Studio platform cursor:** **PROCEED to S5 Resource Catalog API** (S4 and S5 were the parallel catalog wave).
 
 **Legend**
 

@@ -89,6 +89,80 @@ WHERE s.id = $1 AND (f.workspace_id IS NULL OR f.workspace_id = $2)`
 	return out, nil
 }
 
+// StandardListOptions controls server-side filtering and pagination.
+type StandardListOptions struct {
+	Q        string
+	Subject  string
+	Grade    string
+	ParentID *uuid.UUID
+	Limit    int
+	Offset   int
+}
+
+// ListPage returns visible standards with SQL-side filters and total count.
+func (r *CatalogStandardRepo) ListPage(ctx context.Context, workspaceID, frameworkID uuid.UUID, opts StandardListOptions) ([]domain.CatalogStandard, int, error) {
+	if r == nil || r.Q == nil {
+		return nil, 0, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil || frameworkID == uuid.Nil {
+		return []domain.CatalogStandard{}, 0, nil
+	}
+	limit := opts.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	args := []any{frameworkID, workspaceID}
+	filters := []string{"s.framework_id = $1", "(f.workspace_id IS NULL OR f.workspace_id = $2)"}
+	if q := strings.TrimSpace(opts.Q); q != "" {
+		args = append(args, "%"+escapeCatalogLike(q)+"%")
+		filters = append(filters, fmt.Sprintf("(s.code ILIKE $%d ESCAPE E'\\\\' OR s.description ILIKE $%d ESCAPE E'\\\\')", len(args), len(args)))
+	}
+	if subject := strings.TrimSpace(opts.Subject); subject != "" {
+		args = append(args, subject)
+		filters = append(filters, fmt.Sprintf("s.subject_code = $%d", len(args)))
+	}
+	if grade := strings.TrimSpace(opts.Grade); grade != "" {
+		args = append(args, grade)
+		filters = append(filters, fmt.Sprintf("s.grade_band = $%d", len(args)))
+	}
+	if opts.ParentID != nil {
+		args = append(args, *opts.ParentID)
+		filters = append(filters, fmt.Sprintf("s.parent_id = $%d", len(args)))
+	}
+	args = append(args, limit, offset)
+	limitPos, offsetPos := len(args)-1, len(args)
+	query := fmt.Sprintf(`
+SELECT s.id, s.framework_id, s.parent_id, s.code, s.subject_code, s.grade_band, s.domain, s.cluster, s.description, s.metadata, s.created_at, s.updated_at,
+       COUNT(*) OVER() AS total_count
+FROM curriculum_studio.catalog_standards s
+JOIN curriculum_studio.standard_frameworks f ON f.id = s.framework_id
+WHERE %s
+ORDER BY s.code ASC
+LIMIT $%d OFFSET $%d`, strings.Join(filters, " AND "), limitPos, offsetPos)
+	rows, err := r.Q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, MapError(err)
+	}
+	defer rows.Close()
+	out := []domain.CatalogStandard{}
+	total := 0
+	for rows.Next() {
+		var standard domain.CatalogStandard
+		if err := rows.Scan(&standard.ID, &standard.FrameworkID, &standard.ParentID, &standard.Code, &standard.SubjectCode, &standard.GradeBand, &standard.Domain, &standard.Cluster, &standard.Description, &standard.Metadata, &standard.CreatedAt, &standard.UpdatedAt, &total); err != nil {
+			return nil, 0, MapError(err)
+		}
+		out = append(out, standard)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, MapError(err)
+	}
+	return out, total, nil
+}
+
 // ListByFramework returns all visible standards in a framework ordered by code.
 func (r *CatalogStandardRepo) ListByFramework(ctx context.Context, workspaceID, frameworkID uuid.UUID) ([]domain.CatalogStandard, error) {
 	if r == nil || r.Q == nil {
@@ -146,6 +220,13 @@ func (r *CatalogStandardRepo) Import(ctx context.Context, workspaceID, framework
 		out = append(out, *created)
 	}
 	return out, nil
+}
+
+func escapeCatalogLike(s string) string {
+	s = strings.ReplaceAll(s, `\\`, `\\\\`)
+	s = strings.ReplaceAll(s, `%`, `\\%`)
+	s = strings.ReplaceAll(s, `_`, `\\_`)
+	return s
 }
 
 func listCatalogStandards(ctx context.Context, q Querier, sql string, args ...any) ([]domain.CatalogStandard, error) {
