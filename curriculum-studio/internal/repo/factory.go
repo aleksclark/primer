@@ -45,6 +45,14 @@ func (f *Factory) PlanGraph() *PlanGraphRepo { return NewPlanGraphRepo(f.Q) }
 // ValidationReports returns the durable validation output repository.
 func (f *Factory) ValidationReports() *ValidationReportRepo { return NewValidationReportRepo(f.Q) }
 
+// LearnerProfiles returns the workspace-scoped profile repository.
+func (f *Factory) LearnerProfiles() *LearnerProfileRepo { return NewLearnerProfileRepo(f.Q) }
+
+// MaterializationRuns returns the durable run repository.
+func (f *Factory) MaterializationRuns() *MaterializationRunRepo {
+	return NewMaterializationRunRepo(f.Q)
+}
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}

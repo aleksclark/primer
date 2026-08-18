@@ -179,7 +179,7 @@ closed sets below are the contract:
 | Referential integrity | Foreign keys throughout; `ON DELETE RESTRICT` on published-adjacent catalog/resource refs |
 | Idempotent webhook delivery | `UNIQUE (endpoint_id, event_id)` and `UNIQUE (idempotency_key)` |
 | Inbound idempotency | `UNIQUE (workspace_id, scope, key)` on `idempotency_keys` |
-| Complete materialization input | `input_snapshot` NOT NULL object + `input_fingerprint` NOT NULL; index on `(plan_revision_id, input_fingerprint)` |
+| Complete materialization input | `input_snapshot` NOT NULL object + `input_fingerprint` NOT NULL; unique index on `(plan_revision_id, input_fingerprint)` |
 | Assessment publication requires rubric/key | Trigger on `materialized_items` when `kind=assessment` and `status=published`; `assessment_supports` kind check |
 | Memberships are not credentials | No password/token/hash columns; only `subject_ref` + role |
 | Generated items trace to a plan node | `plan_revision_id` NOT NULL + optional `unit_id` / `project_id` / `outcome_id`; run/revision match trigger |
@@ -213,3 +213,4 @@ Goose SQL, numbered:
 6. `00006_catalog_edge_scope_and_resource_updates.sql`
 7. `00007_catalog_ownership_immutability.sql`
 8. `00008_outcome_prerequisite_concurrency.sql`
+9. `00009_materialization_fingerprint_unique.sql`
