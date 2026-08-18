@@ -1,0 +1,16 @@
+{
+  "name": "@primer/curriculum-studio-ts-rest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "bash scripts/generate.sh",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.2"
+  }
+}

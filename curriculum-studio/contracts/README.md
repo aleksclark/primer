@@ -17,7 +17,8 @@ One non-duplicative rule:
 
 | Surface | Source of truth | Audience |
 | --- | --- | --- |
-| `openapi/v1/curriculum-studio.yaml` | Hand-authored OpenAPI 3.1 | Browser / public authoring REST |
+| Authoring REST | Huma handler signatures via `cmd/openapi-gen` | Browser / public authoring REST |
+| `openapi/v1/curriculum-studio.yaml` | Frozen compatibility baseline (C7; not live SoT) | Breaking-change comparison only |
 | `proto/curriculumstudio/v1/*.proto` | Hand-authored protobuf | Primer and other services (gRPC) |
 | Studio MCP `/mcp` | Pinned official MCP spec + **code-defined tool schemas** beside `internal/mcp` | Curriculum-planning agents |
 
@@ -35,9 +36,11 @@ type names, error codes) must match across OpenAPI, protobuf (suffix after
 enum prefix), and DB CHECK constraints. Documented in the foundation
 crosswalk.
 
-When a Huma server exists, authoring OpenAPI should be *regenerated from
-handler signatures* and this YAML becomes the compatibility baseline, not a
-second live source. Until then this file is the authoring contract.
+Authoring OpenAPI is now regenerated from Huma handler signatures with
+`make contracts-openapi-emit`; the emitted document is the live generation
+input. This YAML is retained only as the frozen compatibility baseline. Verify
+it with `./scripts/check-baseline.sh`; an intentional baseline refresh must use
+the explicit `BASELINE_BOOTSTRAP=1` procedure and commit the digest change.
 
 LMS `web/openapi.yaml` / `tv-web/openapi.yaml` remain Huma-generated LMS/TV
 contracts. They are not Studio contracts.
@@ -151,16 +154,18 @@ npx --yes @stoplight/spectral-cli@6.15.0 lint \
   --ruleset lint/.spectral.yaml
 ```
 
-Generate language stubs via the **production-intended** pinned **local** plugin
-path (no BSR remote plugins — remote execution hit `resource_exhausted` rate
-limits and is not reproducible):
+Generate language stubs and REST clients via the production-intended pinned
+local paths (no BSR remote plugins — remote execution hit `resource_exhausted`
+rate limits and is not reproducible):
 
 ```bash
 # from curriculum-studio/
-make contracts-buf-generate
-make clients-go-grpc-build
+make contracts-openapi-emit
+make clients-generate
+make clients-ts-rest-build
+make clients-go-rest-build
 
-# or from curriculum-studio/contracts/
+# or from curriculum-studio/contracts/ for protobuf only
 ./scripts/generate.sh
 ./scripts/generate.sh --twice
 ```

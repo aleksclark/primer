@@ -1,3 +1,6 @@
+# COMPATIBILITY BASELINE — do not edit as live source.
+# Live authoring contract: Huma handler signatures via cmd/openapi-gen.
+# Frozen at C7 handoff; update only through contracts/scripts/bootstrap-baseline.sh.
 openapi: 3.1.0
 info:
   title: Curriculum Studio Authoring API

@@ -712,19 +712,9 @@ func registerAuthoringRoutes(api huma.API) {
 	huma.Register(api, authoringOperation("create-plan-edge", http.MethodPost, "/studio/v1/revisions/{revisionId}/edges", "Graph", "Create a plan edge"), func(context.Context, *edgeWriteInput) (*edgeResponse, error) { return &edgeResponse{}, nil })
 	huma.Register(api, authoringOperation("delete-plan-edge", http.MethodDelete, "/studio/v1/revisions/{revisionId}/edges/{edgeId}", "Graph", "Delete a plan edge"), func(context.Context, *edgePath) (*struct{}, error) { return &struct{}{}, nil })
 
-	huma.Register(api, authoringOperation("list-standards-catalogs", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/standards-catalogs", "Standards", "List standards catalogs"), func(context.Context, *catalogListInput) (*catalogPageResponse, error) {
-		return &catalogPageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-standards-catalog", http.MethodPost, "/studio/v1/workspaces/{workspaceId}/standards-catalogs", "Standards", "Import a standards catalog"), func(context.Context, *catalogImportInput) (*catalogResponse, error) { return &catalogResponse{}, nil })
-	huma.Register(api, authoringOperation("get-standards-catalog", http.MethodGet, "/studio/v1/standards-catalogs/{catalogId}", "Standards", "Get a standards catalog"), func(context.Context, *catalogPath) (*catalogResponse, error) { return &catalogResponse{}, nil })
-	huma.Register(api, authoringOperation("list-standards", http.MethodGet, "/studio/v1/standards-catalogs/{catalogId}/standards", "Standards", "List standards"), func(context.Context, *standardListInput) (*standardPageResponse, error) {
-		return &standardPageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-standard", http.MethodPost, "/studio/v1/standards-catalogs/{catalogId}/standards", "Standards", "Create a standard"), func(context.Context, *standardWriteInput) (*standardResponse, error) { return &standardResponse{}, nil })
-	huma.Register(api, authoringOperation("get-standard", http.MethodGet, "/studio/v1/standards/{standardId}", "Standards", "Get a standard"), func(context.Context, *standardPath) (*standardResponse, error) { return &standardResponse{}, nil })
-	huma.Register(api, authoringOperation("list-crosswalks", http.MethodGet, "/studio/v1/standards-catalogs/{catalogId}/crosswalks", "Standards", "List standard crosswalks"), func(context.Context, *standardListInput) (*crosswalkPageResponse, error) {
-		return &crosswalkPageResponse{}, nil
-	})
+	// Standards routes are registered by the S4 catalog handlers. C6 consumes
+	// that shared registration rather than shadowing durable handlers with
+	// fixture routes.
 
 	huma.Register(api, authoringOperation("list-resources", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/resources", "Resources", "List resources"), func(context.Context, *resourceListInput) (*resourcePageResponse, error) {
 		return &resourcePageResponse{}, nil

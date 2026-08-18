@@ -2,7 +2,8 @@
 
 `cmd/openapi-gen` emits the authoring surface from `internal/api.NewWithPinger`
 without binding a listener or opening PostgreSQL. The hand document
-`curriculum-studio.yaml` remains the compatibility baseline until C7.
+`curriculum-studio.yaml` is now a frozen compatibility baseline; generated REST
+clients consume the emitted document.
 
 ## Current evidence
 
@@ -15,7 +16,7 @@ without binding a listener or opening PostgreSQL. The hand document
 - The ownership scanner reports all authoring subset components and no
   `MaterializationContext`, `MaterializationBundle`, or `SessionSpec` schema.
 
-## Known deltas carried into C7
+## Known deltas carried into later compatibility work
 
 1. C6 handlers return empty fixture values. Persistence, authorization policy,
    idempotency behavior, and domain workflow semantics remain platform/database
@@ -30,5 +31,5 @@ without binding a listener or opening PostgreSQL. The hand document
    Materialization context, bundle sessions, and event payload details remain
    protobuf-owned.
 
-Do not replace the emitter with the hand YAML. C7 may promote the emitted
-artifact after the documented compatibility diff is green.
+Do not replace the emitter with the hand YAML. Future baseline updates must
+use the explicit bootstrap procedure and a reviewed compatibility diff.
