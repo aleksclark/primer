@@ -14,15 +14,18 @@ import (
 
 // Sentinel-mapped error classes for persistence callers.
 var (
-	ErrNotFound          = errors.New("studio repo: not found")
-	ErrConflict          = errors.New("studio repo: conflict")
-	ErrForeignKey        = errors.New("studio repo: foreign key violation")
-	ErrCheckViolation    = errors.New("studio repo: check violation")
-	ErrPrerequisiteCycle = errors.New("studio repo: prerequisite cycle")
-	ErrPayloadTooLarge   = errors.New("studio repo: payload too large")
-	ErrImmutable         = errors.New("studio repo: immutable")
-	ErrInvalidTransition = errors.New("studio repo: invalid status transition")
-	ErrLeaseLost         = errors.New("studio repo: workflow lease lost")
+	ErrNotFound                  = errors.New("studio repo: not found")
+	ErrConflict                  = errors.New("studio repo: conflict")
+	ErrForeignKey                = errors.New("studio repo: foreign key violation")
+	ErrCheckViolation            = errors.New("studio repo: check violation")
+	ErrPrerequisiteCycle         = errors.New("studio repo: prerequisite cycle")
+	ErrPayloadTooLarge           = errors.New("studio repo: payload too large")
+	ErrImmutable                 = errors.New("studio repo: immutable")
+	ErrInvalidTransition         = errors.New("studio repo: invalid status transition")
+	ErrLeaseLost                 = errors.New("studio repo: workflow lease lost")
+	ErrLocked                    = errors.New("studio repo: materialized item locked")
+	ErrAssessmentSupportRequired = errors.New("studio repo: assessment support required")
+	ErrRunRevisionMismatch       = errors.New("studio repo: run revision mismatch")
 )
 
 // MapError converts pgx/pgconn errors into stable package sentinels when possible.
@@ -45,9 +48,20 @@ func MapError(err error) error {
 		case "23514": // check_violation
 			return fmt.Errorf("%w: %s", ErrCheckViolation, pgErr.ConstraintName)
 		case "23001": // restrict_violation (published plan/item immutability)
+			message := strings.ToLower(pgErr.Message)
+			if strings.Contains(message, "locked materialized item") || strings.Contains(message, "locked item") {
+				return fmt.Errorf("%w: %s", ErrLocked, pgErr.Message)
+			}
 			return fmt.Errorf("%w: %s", ErrImmutable, pgErr.Message)
-		case "23000": // integrity_constraint_violation (catalog/outcome cycle triggers)
-			if strings.Contains(strings.ToLower(pgErr.Message), "cycle") {
+		case "23000": // integrity_constraint_violation (catalog/outcome/item triggers)
+			message := strings.ToLower(pgErr.Message)
+			if strings.Contains(message, "assessment") && strings.Contains(message, "without") {
+				return fmt.Errorf("%w: %s", ErrAssessmentSupportRequired, pgErr.Message)
+			}
+			if strings.Contains(message, "revision") && strings.Contains(message, "match") {
+				return fmt.Errorf("%w: %s", ErrRunRevisionMismatch, pgErr.Message)
+			}
+			if strings.Contains(message, "cycle") {
 				return fmt.Errorf("%w: %s", ErrPrerequisiteCycle, pgErr.Message)
 			}
 			return fmt.Errorf("%w: %s", ErrCheckViolation, pgErr.Message)

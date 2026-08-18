@@ -56,6 +56,12 @@ func (f *Factory) MaterializationRuns() *MaterializationRunRepo {
 // Workflow returns the durable stage/attempt checkpoint repository.
 func (f *Factory) Workflow() *WorkflowRepo { return NewWorkflowRepo(f.Q) }
 
+// MaterializedItems returns the generated-item lifecycle repository.
+func (f *Factory) MaterializedItems() *MaterializedItemRepo { return NewMaterializedItemRepo(f.Q) }
+
+// AssessmentSupports returns assessment support-link persistence.
+func (f *Factory) AssessmentSupports() *AssessmentSupportRepo { return NewAssessmentSupportRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}
