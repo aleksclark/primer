@@ -109,7 +109,7 @@ WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&tri
 	assertNoTable(t, pool, "signing_keys")
 	assertNamedFK(t, pool, "stytch_mappings", "stytch_mappings_account_id_fkey", "RESTRICT", false)
 
-	require.NoError(t, db.Migrate(ctx, url), "fresh/upgrade to current Identity tip")
+	require.NoError(t, db.MigrateTo(ctx, url, 9), "fresh/upgrade to IB2 Identity tip")
 	assertTable(t, pool, "signing_keys")
 	for _, table := range []string{
 		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
@@ -132,7 +132,7 @@ WHERE tgname='provider_session_associations_stytch_mapping_tuple_ck'`).Scan(&tri
 	assertNoTable(t, pool, "signing_keys")
 	assertTable(t, pool, "broker_transactions")
 
-	require.NoError(t, db.Migrate(ctx, url))
+	require.NoError(t, db.MigrateTo(ctx, url, 9))
 	assertTable(t, pool, "broker_transactions")
 	assertTable(t, pool, "signing_keys")
 	assertTable(t, pool, "oauth_refresh_families")

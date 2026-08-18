@@ -104,7 +104,8 @@ func TestStytchMappingMigrationConstraintsAndDownAreAdditive(t *testing.T) {
 	require.Equal(t, 1, mappingCount, "restricted account deletion preserves mapping evidence")
 	require.NoError(t, tx.Rollback(ctx))
 
-	// Tip is 00009; seven downs leave foundation + accounts, drop stytch_mappings.
+	// Tip is 00010; eight downs leave foundation + accounts, drop stytch_mappings.
+	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))

@@ -20,6 +20,7 @@ import (
 	"github.com/aleksclark/primer/identity/internal/broker"
 	"github.com/aleksclark/primer/identity/internal/domain"
 	"github.com/aleksclark/primer/identity/internal/oauth"
+	"github.com/aleksclark/primer/identity/internal/webhook"
 )
 
 // Options configures Identity API construction.
@@ -39,6 +40,8 @@ type Options struct {
 	JWKS JWKSProvider
 	// OAuth, when set, registers the IB2 authorization-code token endpoint.
 	OAuth *oauth.Service
+	// Webhook, when set, registers the signed Stytch receipt endpoint.
+	Webhook *webhook.Handler
 	// BrokerHTTP configures cookie and CSRF origin policy for broker routes.
 	BrokerHTTP BrokerHTTPOptions
 }
@@ -95,6 +98,7 @@ type Server struct {
 	issuer                  string
 	jwks                    JWKSProvider
 	oauth                   *oauth.Service
+	webhook                 *webhook.Handler
 	brokerHTTP              BrokerHTTPOptions
 	registerBrokerInventory bool
 	registerMetadata        bool
@@ -125,6 +129,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 		issuer:        opts.Issuer,
 		jwks:          opts.JWKS,
 		oauth:         opts.OAuth,
+		webhook:       opts.Webhook,
 		brokerHTTP:    opts.BrokerHTTP,
 	}
 	return s.build()
@@ -170,6 +175,9 @@ func (s *Server) build() (huma.API, http.Handler) {
 	humaAPI := humachi.New(router, cfg)
 	s.RegisterRoutes(humaAPI)
 	s.registerTokenRoutes(humaAPI, router)
+	if s.webhook != nil {
+		router.Post("/webhooks/stytch", s.webhook.ServeHTTP)
+	}
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)

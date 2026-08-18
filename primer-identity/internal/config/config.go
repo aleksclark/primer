@@ -29,7 +29,9 @@ type StytchConfig struct {
 	// split_words (without envconfig alt) yields IDENTITY_STYTCH_* only;
 	// envconfig's Alt fallback would otherwise inherit bare SECRET, PROJECT_ID,
 	// ENABLED, ENV, BASE_URI, and cache/timeout names.
-	Enabled bool `split_words:"true" default:"false"`
+	Enabled        bool   `split_words:"true" default:"false"`
+	WebhookEnabled bool   `split_words:"true" default:"false"`
+	WebhookSecret  string `split_words:"true"`
 
 	ProjectID string `split_words:"true"`
 	Secret    string `split_words:"true"`
@@ -62,6 +64,7 @@ func (c StytchConfig) Format(state fmt.State, _ rune) {
 func (c StytchConfig) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Enabled               bool          `json:"enabled"`
+		WebhookEnabled        bool          `json:"webhook_enabled"`
 		ProjectID             string        `json:"project_id"`
 		Env                   string        `json:"env"`
 		RequestTimeout        time.Duration `json:"request_timeout"`
@@ -70,7 +73,7 @@ func (c StytchConfig) MarshalJSON() ([]byte, error) {
 		PositiveCacheCapacity int           `json:"positive_cache_capacity"`
 		NegativeCacheCapacity int           `json:"negative_cache_capacity"`
 	}{
-		Enabled: c.Enabled, ProjectID: c.ProjectID, Env: c.Env,
+		Enabled: c.Enabled, WebhookEnabled: c.WebhookEnabled, ProjectID: c.ProjectID, Env: c.Env,
 		RequestTimeout: c.RequestTimeout, PositiveCacheTTL: c.PositiveCacheTTL,
 		NegativeCacheTTL: c.NegativeCacheTTL, PositiveCacheCapacity: c.PositiveCacheCapacity,
 		NegativeCacheCapacity: c.NegativeCacheCapacity,
@@ -81,14 +84,21 @@ func (c StytchConfig) MarshalJSON() ([]byte, error) {
 func (c *StytchConfig) Validate() error {
 	c.ProjectID = strings.TrimSpace(c.ProjectID)
 	c.Secret = strings.TrimSpace(c.Secret)
+	c.WebhookSecret = strings.TrimSpace(c.WebhookSecret)
 	c.Env = strings.ToLower(strings.TrimSpace(c.Env))
 	c.BaseURI = strings.TrimSpace(c.BaseURI)
 
-	if (c.ProjectID == "") != (c.Secret == "") {
+	if !c.WebhookEnabled && (c.ProjectID == "") != (c.Secret == "") {
 		return fmt.Errorf("identity stytch config: credentials project id and secret must be provided together")
+	}
+	if c.WebhookEnabled && c.ProjectID == "" {
+		return fmt.Errorf("identity stytch config: webhook project id is required when enabled")
 	}
 	if c.Enabled && (c.ProjectID == "" || c.Secret == "") {
 		return fmt.Errorf("identity stytch config: credentials are required when enabled")
+	}
+	if c.WebhookEnabled && (c.ProjectID == "" || c.WebhookSecret == "") {
+		return fmt.Errorf("identity stytch config: webhook project id and secret are required when enabled")
 	}
 	if c.Env != "test" && c.Env != "live" {
 		return fmt.Errorf("identity stytch config: env must be test|live, got %q", c.Env)

@@ -32,6 +32,7 @@ import (
 	"github.com/aleksclark/primer/identity/internal/stytch"
 	"github.com/aleksclark/primer/identity/internal/stytchcache"
 	"github.com/aleksclark/primer/identity/internal/token"
+	"github.com/aleksclark/primer/identity/internal/webhook"
 )
 
 // Options customizes process bootstrap for tests.
@@ -168,6 +169,13 @@ func Run(ctx context.Context, opts Options) error {
 			PublicToken:           cfg.StytchPublicToken,
 			PublicHost:            officialPublicHost(cfg),
 		},
+	}
+	if cfg.Stytch.WebhookEnabled {
+		wh, err := webhook.NewHandler(webhook.Config{Pool: pool, Secret: cfg.Stytch.WebhookSecret, ProjectID: cfg.Stytch.ProjectID})
+		if err != nil {
+			return fmt.Errorf("webhook composition: %w", err)
+		}
+		apiOpts.Webhook = wh
 	}
 	if composeBroker {
 		svc, err := broker.NewService(broker.ServiceConfig{
