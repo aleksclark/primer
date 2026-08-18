@@ -6,7 +6,7 @@ browser/public authoring; generated clients are the exclusive consumption path;
 generated outputs are never committed; compatibility and conformance gates are
 deterministic from a clean checkout.
 
-**Status:** C1–C4 complete; C4 landed in PR #28 at `db587ed`. **Current contracts cursor: C5** (gRPC integration service harness).
+**Status:** C1–C5 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`. **Current contracts cursor: C6** (Huma boundary DTOs and offline OpenAPI emission).
 **Plan directory:** `agent_docs/plans/curriculum-studio-contracts/`
 **Branch base:** `66449725337165c2ef00f7c269633696313e0be2`
 **Must-cite:** [foundation crosswalk](../curriculum-studio-foundation-crosswalk.md),
