@@ -14,6 +14,19 @@ func CanMutate(role string) bool {
 	}
 }
 
+// CanManageMembers reports whether role may add, update, or revoke workspace
+// memberships and change workspace metadata such as name and status. This is
+// stricter than CanMutate: authors can create/edit curriculum content but may
+// not change who belongs to the workspace.
+func CanManageMembers(role string) bool {
+	switch role {
+	case domain.MembershipRoleOwner, domain.MembershipRoleAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
 // HasScope reports whether the validated JWT scopes include required.
 func HasScope(scopes []string, required string) bool {
 	if required == "" {

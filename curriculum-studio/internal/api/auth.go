@@ -50,6 +50,17 @@ func MembershipsFromContext(ctx context.Context) []MembershipView {
 	return got
 }
 
+// isMembershipExemptPath reports whether the validated subject may reach the
+// handler even with zero active workspace memberships. Only the workspace
+// collection endpoints (list + create) are exempt so that a brand-new user can
+// create their first workspace (P3-S1). Every workspace-specific sub-path
+// (/workspaces/{id} and below) is NOT exempt and still requires an active
+// membership loaded into context by the middleware.
+func isMembershipExemptPath(method, path string) bool {
+	return path == "/studio/v1/workspaces" &&
+		(method == http.MethodGet || method == http.MethodPost)
+}
+
 func isPublicPath(method, path string) bool {
 	// Authentication is deliberately limited to the signed Bearer path. BFF
 	// login/session/cookie routes belong to I7 and are not mounted by Studio.
@@ -104,6 +115,18 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
+
+		// Workspace collection endpoints allow through with zero memberships so
+		// a brand-new subject can create their first workspace (P3-S1). The
+		// handler itself enforces any further per-workspace checks. All
+		// workspace-specific sub-paths still require at least one membership.
+		if isMembershipExemptPath(r.Method, r.URL.Path) {
+			views, _ := s.loadMemberships(ctx, principal.SubjectRef)
+			ctx = context.WithValue(ctx, membershipsKey{}, views)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
 		views, err := s.loadMemberships(r.Context(), principal.SubjectRef)
 		if err != nil || len(views) == 0 {
 			writeAuthProblem(w, http.StatusForbidden, "forbidden")
@@ -181,39 +204,8 @@ func (s *Server) registerAuthRoutes(api huma.API) {
 		return out, nil
 	})
 
-	type workspaceGetIn struct {
-		WorkspaceID uuid.UUID `path:"workspaceID"`
-	}
-	type workspaceGetOut struct {
-		Body struct {
-			ID   uuid.UUID `json:"id"`
-			Name string    `json:"name"`
-			Slug string    `json:"slug"`
-		}
-	}
-	huma.Register(api, huma.Operation{
-		OperationID: "getWorkspaceProbe",
-		Method:      http.MethodGet,
-		Path:        "/studio/v1/workspaces/{workspaceID}",
-		Summary:     "Workspace isolation probe",
-		Tags:        []string{"Authz"},
-	}, func(ctx context.Context, in *workspaceGetIn) (*workspaceGetOut, error) {
-		if _, ok := s.membershipFor(ctx, in.WorkspaceID); !ok {
-			return nil, huma.Error404NotFound("not found")
-		}
-		if s.querier == nil {
-			return nil, huma.Error404NotFound("not found")
-		}
-		ws, err := repo.NewWorkspaceRepo(s.querier).GetByID(ctx, in.WorkspaceID)
-		if err != nil || ws == nil {
-			return nil, huma.Error404NotFound("not found")
-		}
-		out := &workspaceGetOut{}
-		out.Body.ID = ws.ID
-		out.Body.Name = ws.Name
-		out.Body.Slug = ws.Slug
-		return out, nil
-	})
+	// getWorkspace (GET /studio/v1/workspaces/{workspaceID}) is now registered
+	// by RegisterWorkspaceRoutes (S3). The S2 probe is superseded.
 
 	type mutateIn struct {
 		WorkspaceID uuid.UUID `path:"workspaceID"`

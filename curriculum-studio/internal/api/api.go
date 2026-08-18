@@ -96,6 +96,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 // RegisterRoutes wires health and readiness into the Huma API under /studio/v1.
 func (s *Server) RegisterRoutes(api huma.API) {
 	s.registerAuthRoutes(api)
+	s.RegisterWorkspaceRoutes(api)
 
 	type healthOut struct {
 		Body struct {
