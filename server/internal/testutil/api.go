@@ -5,6 +5,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2/humatest"
 
+	"github.com/aleksclark/primer/server/internal/agent"
 	"github.com/aleksclark/primer/server/internal/api"
 	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/repo"
@@ -24,6 +25,8 @@ type Options struct {
 	// ArtifactStoreDir configures filesystem artifact storage for tests.
 	// When empty, a temporary directory is used automatically.
 	ArtifactStoreDir string
+	// AgentController enables the authenticated runtime boundary in API tests.
+	AgentController *agent.Controller
 }
 
 // API returns a humatest API wired to the full route set, plus the
@@ -38,7 +41,7 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, repo.Querier) {
 	}
 	q := NewSavepointQuerier(Tx(t))
 	_, testAPI := humatest.New(t)
-	apiOpts := api.Options{ServiceToken: o.ServiceToken}
+	apiOpts := api.Options{ServiceToken: o.ServiceToken, AgentController: o.AgentController}
 	if o.Tutor != nil {
 		apiOpts.Tutor = o.Tutor
 		apiOpts.TutorProviderName = o.TutorProviderName

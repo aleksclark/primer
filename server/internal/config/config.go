@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/kelseyhightower/envconfig"
 )
@@ -39,6 +40,16 @@ type Config struct {
 	// ArtifactStoreDir is the filesystem root for session evidence bytes and
 	// approved fixture bundles. Empty disables byte upload (metadata-only).
 	ArtifactStoreDir string `envconfig:"ARTIFACT_STORE_DIR" default:""`
+
+	// AgentRuntimeEnabled enables the authenticated, process-local MAF preview
+	// runtime. It is disabled by default and is not a durability guarantee.
+	AgentRuntimeEnabled bool `envconfig:"AGENT_RUNTIME_ENABLED" default:"false"`
+	// AgentRuntimeBaseURL is an OpenAI-compatible endpoint. It is required when
+	// AgentRuntimeEnabled is true; no billable endpoint is assumed by default.
+	AgentRuntimeBaseURL   string        `envconfig:"AGENT_RUNTIME_BASE_URL" default:""`
+	AgentRuntimeAPIKey    string        `envconfig:"AGENT_RUNTIME_API_KEY" default:""`
+	AgentRuntimeModel     string        `envconfig:"AGENT_RUNTIME_MODEL" default:""`
+	AgentRuntimeRunBudget time.Duration `envconfig:"AGENT_RUNTIME_RUN_BUDGET" default:"2m"`
 }
 
 // Load reads configuration from the environment.

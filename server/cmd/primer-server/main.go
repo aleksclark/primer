@@ -12,12 +12,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aleksclark/primer/server/internal/agent"
 	"github.com/aleksclark/primer/server/internal/api"
 	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/config"
 	"github.com/aleksclark/primer/server/internal/db"
 	"github.com/aleksclark/primer/server/internal/spa"
 	"github.com/aleksclark/primer/server/internal/tutor"
+	mafagent "github.com/microsoft/agent-framework-go/agent"
+	"github.com/microsoft/agent-framework-go/provider/openaiprovider"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 func main() {
@@ -66,6 +71,29 @@ func run() error {
 	}
 	slog.Info("tutor configured", "provider", tutorSvc.ProviderName(), "enabled", tutorSvc.Enabled())
 
+	var agentController *agent.Controller
+	if cfg.AgentRuntimeEnabled {
+		if cfg.AgentRuntimeBaseURL == "" || cfg.AgentRuntimeAPIKey == "" || cfg.AgentRuntimeModel == "" {
+			return fmt.Errorf("agent runtime enabled but AGENT_RUNTIME_BASE_URL, AGENT_RUNTIME_API_KEY, and AGENT_RUNTIME_MODEL are required")
+		}
+		client := openai.NewClient(
+			option.WithBaseURL(cfg.AgentRuntimeBaseURL),
+			option.WithAPIKey(cfg.AgentRuntimeAPIKey),
+		)
+		root := openaiprovider.NewChatCompletionsAgent(client, openaiprovider.AgentConfig{
+			Config: mafagent.Config{ID: "primer-overseer", Name: "Overseer", Description: "Primer session overseer"},
+			Model:  cfg.AgentRuntimeModel,
+		})
+		agentController = agent.NewController(agent.ControllerConfig{
+			Agent:     root,
+			Spec:      agent.AgentSpec{Type: "overseer", Name: "Overseer", MaxChildren: 0},
+			RunBudget: cfg.AgentRuntimeRunBudget,
+		})
+		slog.Info("agent runtime enabled", "maf_commit", "00ffc8c3648c547997eae3a3f2a3b00c28daea09", "budget", cfg.AgentRuntimeRunBudget)
+	} else {
+		slog.Info("agent runtime disabled")
+	}
+
 	var artStore *artifacts.Store
 	if cfg.ArtifactStoreDir != "" {
 		s, err := artifacts.NewStore(cfg.ArtifactStoreDir)
@@ -85,6 +113,7 @@ func run() error {
 		TutorProviderName: tutorSvc.ProviderName(),
 		TutorEnabled:      tutorSvc.Enabled(),
 		ArtifactStore:     artStore,
+		AgentController:   agentController,
 	})
 
 	mux := http.NewServeMux()
@@ -111,6 +140,11 @@ func run() error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if agentController != nil {
+			if err := agentController.Shutdown(shutdownCtx); err != nil {
+				return fmt.Errorf("agent runtime shutdown: %w", err)
+			}
+		}
 		return srv.Shutdown(shutdownCtx)
 	}
 }
