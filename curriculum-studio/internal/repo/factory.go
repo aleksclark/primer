@@ -42,6 +42,9 @@ func (f *Factory) PlanRevisions() *PlanRevisionRepo { return NewPlanRevisionRepo
 // PlanGraph returns the revision-scoped graph write/read facade.
 func (f *Factory) PlanGraph() *PlanGraphRepo { return NewPlanGraphRepo(f.Q) }
 
+// ValidationReports returns the durable validation output repository.
+func (f *Factory) ValidationReports() *ValidationReportRepo { return NewValidationReportRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}
