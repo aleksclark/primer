@@ -27,6 +27,7 @@ const (
 	e10ConfirmTool    = "studio.publish.confirm"
 	e10MaxIDBytes     = 128
 	e10MaxJWKSBytes   = 64 * 1024
+	e10StudioClientID = "studio-bff"
 )
 
 // E10ConfirmRequest is one Studio-like confirm attempt used as IB2-E10
@@ -91,7 +92,15 @@ func NewE10StudioMRTR(ctx context.Context, client *http.Client, jwksURL, issuer,
 	if err := keyset.Refresh(ctx); err != nil {
 		return nil, errors.New("e10: jwks fetch required")
 	}
-	verifier, err := token.NewVerifier(keyset, issuer, audience, clock, nil)
+	verifier, err := token.NewVerifier(keyset, issuer, audience, clock, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		if clientID != e10StudioClientID {
+			return token.ClientRegistration{}, token.ErrInvalid
+		}
+		return token.ClientRegistration{
+			ClientID: clientID, Audience: audience, SubjectClass: token.KindHuman,
+			Scope: "openid studio:read",
+		}, nil
+	})
 	if err != nil {
 		return nil, errors.New("e10: verifier unavailable")
 	}

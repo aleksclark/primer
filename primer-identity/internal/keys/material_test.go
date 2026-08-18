@@ -2,6 +2,7 @@ package keys_test
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -91,7 +92,7 @@ func TestMaterialSignsThroughCryptoSignerAndPublicIsACopy(t *testing.T) {
 	t.Cleanup(func() { _ = mat.Destroy() })
 
 	message := sha256.Sum256([]byte("identity signing test"))
-	sig, err := mat.Sign(rand.Reader, message[:], nil)
+	sig, err := mat.Sign(rand.Reader, message[:], crypto.SHA256)
 	require.NoError(t, err)
 	pub, ok := mat.Public().(*ecdsa.PublicKey)
 	require.True(t, ok)
@@ -102,6 +103,31 @@ func TestMaterialSignsThroughCryptoSignerAndPublicIsACopy(t *testing.T) {
 	fresh, ok := mat.Public().(*ecdsa.PublicKey)
 	require.True(t, ok)
 	assert.Equal(t, originalX, fresh.X)
+}
+
+func TestMaterialRequiresSHA256OptionsAndDigest(t *testing.T) {
+	t.Parallel()
+	mat, err := keys.Generate()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mat.Destroy() })
+
+	message := sha256.Sum256([]byte("strict signer profile"))
+	for name, tc := range map[string]struct {
+		opts   crypto.SignerOpts
+		digest []byte
+	}{
+		"nil options":  {opts: nil, digest: message[:]},
+		"wrong hash":   {opts: crypto.SHA512, digest: message[:]},
+		"short digest": {opts: crypto.SHA256, digest: message[:31]},
+		"long digest":  {opts: crypto.SHA256, digest: append(message[:], 0)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sig, signErr := mat.Sign(rand.Reader, tc.digest, tc.opts)
+			require.Error(t, signErr)
+			require.ErrorIs(t, signErr, keys.ErrInvalidMaterial)
+			assert.Nil(t, sig)
+		})
+	}
 }
 
 func TestSealUnsealRoundTrip(t *testing.T) {
@@ -125,7 +151,7 @@ func TestSealUnsealRoundTrip(t *testing.T) {
 	assert.Equal(t, pub, gotPub)
 
 	message := sha256.Sum256([]byte("round trip"))
-	sig, err := got.Sign(rand.Reader, message[:], nil)
+	sig, err := got.Sign(rand.Reader, message[:], crypto.SHA256)
 	require.NoError(t, err)
 	publicKey, ok := got.Public().(*ecdsa.PublicKey)
 	require.True(t, ok)
@@ -220,7 +246,7 @@ func TestMaterialRejectsUseAfterDestroyAndNeverFormatsPrivateMaterial(t *testing
 	_, err = mat.PublicJWK()
 	assert.ErrorIs(t, err, keys.ErrMaterialDestroyed)
 	assert.Nil(t, mat.Public())
-	_, err = mat.Sign(rand.Reader, make([]byte, 32), nil)
+	_, err = mat.Sign(rand.Reader, make([]byte, 32), crypto.SHA256)
 	assert.ErrorIs(t, err, keys.ErrMaterialDestroyed)
 	_, err = keys.Seal(mat, testSealKey(t))
 	assert.ErrorIs(t, err, keys.ErrMaterialDestroyed)
@@ -249,7 +275,7 @@ func TestMaterialSignAndDestroyIsRaceSafe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				_, _ = mat.Sign(rand.Reader, message[:], nil)
+				_, _ = mat.Sign(rand.Reader, message[:], crypto.SHA256)
 			}
 		}()
 	}

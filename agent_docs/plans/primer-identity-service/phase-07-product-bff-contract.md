@@ -1,6 +1,6 @@
 # 07: IB3 / product BFF cookie, CSRF, and PKCE contract
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: NEXT — dispatch from master after IB2 hardening tip `f5d5b5b` is merged. Do not start from superseded tip `f31559d` alone. See [`../identity-ib2-resume.md`](../identity-ib2-resume.md).**
 
 ## Goal
 

@@ -93,10 +93,6 @@ func (s *Server) jwksDocument(ctx context.Context) (cachedDocument, error) {
 	if err != nil {
 		return cachedDocument{}, genericUnavailable()
 	}
-	etag, err := s.jwks.PublicSetETag(ctx)
-	if err != nil {
-		return cachedDocument{}, genericUnavailable()
-	}
 	body, err := encodeJWKS(pubs)
 	if err != nil {
 		return cachedDocument{}, genericUnavailable()
@@ -104,7 +100,7 @@ func (s *Server) jwksDocument(ctx context.Context) (cachedDocument, error) {
 	return cachedDocument{
 		status:      http.StatusOK,
 		contentType: "application/jwk-set+json",
-		etag:        etag,
+		etag:        metadataETag(body),
 		body:        body,
 	}, nil
 }
@@ -173,11 +169,7 @@ func issuerBase(raw string) (string, error) {
 	if err != nil || !u.IsAbs() || u.Host == "" {
 		return "", genericUnavailable()
 	}
-	base := u.Scheme + "://" + u.Host
-	if path := strings.TrimSuffix(u.Path, "/"); path != "" && path != "/" {
-		base += path
-	}
-	return base, nil
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func issuerWellKnownSuffix(raw string) string {

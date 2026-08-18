@@ -524,11 +524,16 @@ func (s *Service) ActiveSigner(ctx context.Context) (*ManagedSigner, *domain.Sig
 
 // TransactionSigner is a one-transaction signing authority. It never opens a
 // database connection. Close permanently disables it; the value must not be
-// reused after the owning transaction ends.
+// reused after the owning transaction ends. Copies share the holder state.
 type TransactionSigner struct {
-	mat    *Material
 	public domain.PublicJWK
-	closed atomic.Bool
+	state  *transactionSignerState
+}
+
+type transactionSignerState struct {
+	mu     sync.RWMutex
+	mat    *Material
+	closed bool
 }
 
 var (
@@ -567,11 +572,6 @@ func (s *Service) ActiveSignerForTx(ctx context.Context, tx pgx.Tx) (*Transactio
 		return nil, nil, domain.ErrCorruptSigner
 	}
 	rec := active[0]
-	// Admission instant is sampled after the locked durable read.
-	now := s.now().UTC()
-	if err := temporalUsable(rec, now); err != nil {
-		return nil, nil, err
-	}
 
 	next, err := repo.ListSigningKeysByStatusForShare(ctx, tx, domain.SigningKeyStatusNext)
 	if err != nil {
@@ -580,6 +580,14 @@ func (s *Service) ActiveSignerForTx(ctx context.Context, tx pgx.Tx) (*Transactio
 	if len(next) > 1 {
 		return nil, nil, domain.ErrCorruptSigner
 	}
+	// Sample one admission instant only after both locked durable reads. A
+	// next row committed between the two reads must be evaluated at the same
+	// custody instant as the active row, not at a stale pre-next-read instant.
+	now := s.now().UTC()
+	if err := temporalUsable(rec, now); err != nil {
+		return nil, nil, err
+	}
+
 	pubs := make([]domain.PublicJWK, 0, 1+len(next))
 	if err := s.authenticateRecord(rec); err != nil {
 		return nil, nil, err
@@ -602,36 +610,46 @@ func (s *Service) ActiveSignerForTx(ctx context.Context, tx pgx.Tx) (*Transactio
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", domain.ErrCorruptSigner, ErrUnsealFailed)
 	}
-	holder := &TransactionSigner{mat: mat, public: rec.PublicJWK}
+	holder := &TransactionSigner{
+		state:  &transactionSignerState{mat: mat},
+		public: rec.PublicJWK,
+	}
 	pub := rec.Public()
 	return holder, &pub, nil
 }
 
-func (t *TransactionSigner) acquire() error {
-	if t == nil || t.mat == nil || t.closed.Load() {
-		return ErrSignerRevoked
-	}
-	return nil
-}
-
-// Close permanently disables the transaction-scoped signer and destroys material.
 func (t *TransactionSigner) Close() error {
-	if t == nil {
+	if t == nil || t.state == nil {
 		return nil
 	}
-	t.closed.Store(true)
-	if t.mat != nil {
-		_ = t.mat.Destroy()
-		t.mat = nil
+	state := t.state
+	state.mu.Lock()
+	if state.closed {
+		state.mu.Unlock()
+		return nil
+	}
+	state.closed = true
+	mat := state.mat
+	state.mat = nil
+	state.mu.Unlock()
+	if mat != nil {
+		_ = mat.Destroy()
 	}
 	return nil
 }
 
 func (t *TransactionSigner) Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	if err := t.acquire(); err != nil {
-		return nil, err
+	if t == nil || t.state == nil {
+		return nil, ErrSignerRevoked
 	}
-	signature, err := t.mat.Sign(random, digest, opts)
+	state := t.state
+	state.mu.RLock()
+	if state.closed || state.mat == nil {
+		state.mu.RUnlock()
+		return nil, ErrSignerRevoked
+	}
+	signature, err := state.mat.Sign(random, digest, opts)
+	state.mu.RUnlock()
 	if err != nil {
 		_ = t.Close()
 		return nil, ErrSignerRevoked
@@ -640,33 +658,46 @@ func (t *TransactionSigner) Sign(random io.Reader, digest []byte, opts crypto.Si
 }
 
 func (t *TransactionSigner) Public() crypto.PublicKey {
-	if err := t.acquire(); err != nil {
+	if t == nil || t.state == nil {
 		return nil
 	}
-	return t.mat.Public()
+	state := t.state
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.closed || state.mat == nil {
+		return nil
+	}
+	return state.mat.Public()
 }
 
 func (t *TransactionSigner) PublicJWK() (domain.PublicJWK, error) {
-	if err := t.acquire(); err != nil {
-		return domain.PublicJWK{}, err
+	if t == nil || t.state == nil {
+		return domain.PublicJWK{}, ErrSignerRevoked
 	}
-	return t.mat.PublicJWK()
+	state := t.state
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.closed || state.mat == nil {
+		return domain.PublicJWK{}, ErrSignerRevoked
+	}
+	return state.mat.PublicJWK()
 }
 
-func (t *TransactionSigner) String() string {
-	if t == nil {
-		return "transaction-signer <nil>"
-	}
+func (t TransactionSigner) String() string {
 	return fmt.Sprintf("transaction-signer kid=%s", t.public.Kid)
 }
 
-func (t *TransactionSigner) GoString() string { return t.String() }
+func (t TransactionSigner) GoString() string { return t.String() }
 
-func (t *TransactionSigner) Format(state fmt.State, _ rune) {
+// Format intentionally ignores the requested verb and flags so copied values
+// and pointers cannot fall back to fmt's raw struct/public-key formatting.
+func (t TransactionSigner) Format(state fmt.State, _ rune) {
 	_, _ = io.WriteString(state, t.String())
 }
 
-func (*TransactionSigner) MarshalJSON() ([]byte, error) {
+// MarshalJSON refuses serialization rather than risking accidental custody
+// representation. Call PublicJWK when a public representation is required.
+func (TransactionSigner) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("transaction signer JSON serialization refused; use PublicJWK")
 }
 
@@ -743,7 +774,13 @@ func (s *Service) publicJWKSUnlocked(ctx context.Context) ([]domain.PublicJWK, e
 }
 
 func (s *Service) loadPublishedRecords(ctx context.Context) ([]repo.SigningKeyRecord, error) {
-	active, err := repo.ListSigningKeysByStatus(ctx, s.pool, domain.SigningKeyStatusActive, false)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return nil, fmt.Errorf("load published signing keys: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	active, err := repo.ListSigningKeysByStatus(ctx, tx, domain.SigningKeyStatusActive, false)
 	if err != nil {
 		return nil, err
 	}
@@ -753,7 +790,7 @@ func (s *Service) loadPublishedRecords(ctx context.Context) ([]repo.SigningKeyRe
 	if len(active) != 1 {
 		return nil, domain.ErrCorruptSigner
 	}
-	next, err := repo.ListSigningKeysByStatus(ctx, s.pool, domain.SigningKeyStatusNext, false)
+	next, err := repo.ListSigningKeysByStatus(ctx, tx, domain.SigningKeyStatusNext, false)
 	if err != nil {
 		return nil, err
 	}
@@ -763,6 +800,9 @@ func (s *Service) loadPublishedRecords(ctx context.Context) ([]repo.SigningKeyRe
 	out := make([]repo.SigningKeyRecord, 0, 1+len(next))
 	out = append(out, active...)
 	out = append(out, next...)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("load published signing keys: commit: %w", err)
+	}
 	return out, nil
 }
 

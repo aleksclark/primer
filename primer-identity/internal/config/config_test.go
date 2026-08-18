@@ -214,6 +214,21 @@ func TestValidatePortZeroAllowed(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 }
 
+func TestValidateCanonicalizesIssuerTrailingSlash(t *testing.T) {
+	cfg := &config.Config{
+		DatabaseURL:           "postgres://identity:***@localhost:5432/primer_identity?sslmode=disable",
+		Host:                  "127.0.0.1",
+		Port:                  0,
+		Env:                   "test",
+		Issuer:                "https://id.example.test/",
+		ShutdownTimeout:       time.Second,
+		HTTPReadHeaderTimeout: time.Second,
+		HTTPMaxBodyBytes:      1,
+	}
+	require.NoError(t, cfg.Validate())
+	assert.Equal(t, "https://id.example.test", cfg.Issuer)
+}
+
 func TestValidateRejectsNegativePort(t *testing.T) {
 	cfg := &config.Config{
 		DatabaseURL:           "postgres://identity:pw@localhost:5432/primer_identity?sslmode=disable",

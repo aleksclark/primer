@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -178,6 +179,10 @@ func Run(ctx context.Context, opts Options) error {
 		apiOpts.Broker = svc
 	}
 	if composeToken {
+		endpointBase, err := issuerBase(cfg.Issuer)
+		if err != nil {
+			return errTokenUnavailable
+		}
 		keySvc := keys.NewService(pool, cfg.Key, cfg.Env)
 		if opts.Signer == nil && opts.JWKS == nil {
 			if err := prepareTokenAuthorityKey(ctx, keySvc, cfg); err != nil {
@@ -213,8 +218,8 @@ func Run(ctx context.Context, opts Options) error {
 			},
 			Config: oauth.Config{
 				Issuer:             cfg.Issuer,
-				TokenEndpoint:      strings.TrimRight(cfg.Issuer, "/") + "/oauth/token",
-				RevocationEndpoint: strings.TrimRight(cfg.Issuer, "/") + "/oauth/revoke",
+				TokenEndpoint:      endpointBase + "/oauth/token",
+				RevocationEndpoint: endpointBase + "/oauth/revoke",
 				AccessTTL:          domain.MaxAccessTTL,
 			},
 		})
@@ -340,6 +345,14 @@ func prepareTokenAuthorityKey(ctx context.Context, keySvc *keys.Service, cfg *co
 		return errTokenUnavailable
 	}
 	return nil
+}
+
+func issuerBase(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !u.IsAbs() || u.Host == "" {
+		return "", errTokenUnavailable
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func officialPublicHost(cfg *config.Config) string {

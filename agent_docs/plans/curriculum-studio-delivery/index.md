@@ -1,13 +1,13 @@
 # Curriculum Studio — Authoritative Delivery Roadmap
 
-**IB2/I6 status: COMPLETE — reviewed credential-free implementation at code tip `f31559db92445826aabd98bbc0903a22d80d6e80` (`fix(identity): harden IB2 replay and clock semantics`).** Spec PASS 0C/0I/0M; quality/security APPROVED 0C/0I (1 nonblocking minor: unbounded X-Request-ID echo). Live Stytch remains **BLOCKED**.
+**IB2/I6 status: COMPLETE — dual-reviewed hardening tip `f5d5b5b372dc6988a65d082f948b96e7de9f432b` (+ harness `e8ecd18`).** Supersedes earlier master tip `f31559d` (PR #24). Full IB8-E10 browser/webhook remains **BLOCKED**.
 
 **Outcome:** A single cursor that implementation orchestrators must follow to deliver
 Curriculum Studio + Primer Identity as two separate deployables, with no duplicated
 ownership, no lowered gates, and realistic interleaving of platform / contracts /
 database / identity work.
 
-**Status:** IA-R’s historical credential-free foundation record remains separate; **IB0/I4 is the independently reviewed design freeze** in [`../stytch-identity-ib0/`](../stytch-identity-ib0/), and credential-free **IB1/I5 is complete and reviewed**. **IB2/I6 is now complete and reviewed** at the exact code tip recorded above. The post-merge cursor is IB3/I7 only after reviewed IB2 reaches `master`; live Stytch credentials/browser proof remains **BLOCKED**. This status does not claim production BFF or MCP authorization.
+**Status:** IB0 design freeze + IB1 + IB2 (master `f31559d`) are history; **IB2 hardening tip `f5d5b5b` is the current dual-reviewed tip.** Resume handoff: [`../identity-ib2-resume.md`](../identity-ib2-resume.md). Post-merge cursor: **IB3/I7**. No production BFF/MCP claim.
 **Plan directory:** `agent_docs/plans/curriculum-studio-delivery/`
 **Branch:** `planning/curriculum-studio-integration`
 **Plans are local-only.** Implementation agents may create branches/commits and
@@ -33,7 +33,7 @@ or merge `master` without explicit user authorization.
 | Identity IB0 contract | **Independently reviewed design PASS; runtime unimplemented** | [`../stytch-identity-ib0/`](../stytch-identity-ib0/) |
 | MCP design | **Candidate/STOP; not runtime or dispatch authority until exact-tip review passes** | [`../curriculum-studio-mcp-design.md`](../curriculum-studio-mcp-design.md) |
 | Studio Go runtime / SPA | Partial / missing product surfaces | `curriculum-studio/` foundation present; MCP not implemented |
-| Identity Go runtime | IB2 credential-free hardening complete and reviewed at `f31559db92445826aabd98bbc0903a22d80d6e80`; live Stytch remains **BLOCKED** | — |
+| Identity Go runtime | IB2 dual-reviewed hardening tip `f5d5b5b` (supersedes `f31559d`); opt-in test-project live harness; IB3+ WIP; IB8-E10 **BLOCKED** | [`../identity-ib2-resume.md`](../identity-ib2-resume.md) |
 
 **This roadmap does not implement production code.** It assigns waves, ownership,
 dependencies, acceptance commands, review protocol, and stop gates.

@@ -164,8 +164,19 @@ func TestLoadedSigningKeyRejectsMalformedPublicCoordinates(t *testing.T) {
 
 func TestSigningKeyRecordFormattingOmitsSealedPrivateBytes(t *testing.T) {
 	rec := sealedRecord(t, domain.SigningKeyStatusActive)
-	formatted := fmt.Sprintf("%v %#v %+v", rec, rec, rec)
-	assert.NotContains(t, formatted, string(rec.SealedPrivateKey))
-	assert.NotContains(t, formatted, fmt.Sprintf("%x", rec.SealedPrivateKey))
-	assert.NotContains(t, strings.ToLower(formatted), "private key")
+	for _, value := range []any{rec, &rec} {
+		baseline := fmt.Sprintf("%v", value)
+		for _, format := range []string{"%v", "%+v", "%#v", "%s", "%d", "%x"} {
+			formatted := fmt.Sprintf(format, value)
+			assert.Equal(t, baseline, formatted, "format %s", format)
+			assert.NotContains(t, formatted, string(rec.SealedPrivateKey))
+			assert.NotContains(t, formatted, fmt.Sprintf("%x", rec.SealedPrivateKey))
+			assert.NotContains(t, strings.ToLower(formatted), "private key")
+		}
+
+		blob, err := json.Marshal(value)
+		require.NoError(t, err)
+		assert.NotContains(t, string(blob), string(rec.SealedPrivateKey))
+		assert.NotContains(t, strings.ToLower(string(blob)), "sealed_private")
+	}
 }

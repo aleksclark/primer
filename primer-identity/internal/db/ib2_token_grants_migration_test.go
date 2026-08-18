@@ -83,6 +83,7 @@ func TestIB2TokenGrantsMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	assertColumn(t, pool, "token_issuance_audit", "client_id", "character varying", false)
 	assertColumn(t, pool, "token_issuance_audit", "resource_uri", "character varying", false)
 	assertColumn(t, pool, "token_issuance_audit", "kid", "character varying", false)
+	assertColumn(t, pool, "token_issuance_audit", "signing_key_id", "uuid", false)
 
 	assertNamedFK(t, pool, "oauth_client_keys", "oauth_client_keys_oauth_client_fk", "RESTRICT", false)
 	assertNamedFK(t, pool, "oauth_refresh_families", "oauth_refresh_families_grant_fk", "RESTRICT", false)
@@ -92,6 +93,7 @@ func TestIB2TokenGrantsMigrationFreshUpgradeDownAndExactContract(t *testing.T) {
 	assertNamedFK(t, pool, "oauth_client_assertion_replays", "oauth_client_assertion_replays_oauth_client_fk", "RESTRICT", false)
 	assertNamedFK(t, pool, "token_issuance_audit", "token_issuance_audit_grant_fk", "RESTRICT", false)
 	assertNamedFKSetNull(t, pool, "token_issuance_audit", "token_issuance_audit_code_fk")
+	assertNamedFK(t, pool, "token_issuance_audit", "token_issuance_audit_signing_key_fk", "RESTRICT", false)
 
 	assertIndex(t, pool, "oauth_client_keys_client_kid_uq")
 	assertIndex(t, pool, "oauth_refresh_tokens_hash_uq")
@@ -110,6 +112,9 @@ SELECT tgname FROM pg_trigger
 WHERE tgname='oauth_refresh_family_lifecycle_ck'`).Scan(&trigger))
 	require.Equal(t, "oauth_refresh_family_lifecycle_ck", trigger)
 
+	// Tip is 00009 → down retention, audit FK, then token-grants tables.
+	require.NoError(t, db.MigrateDown(ctx, url))
+	require.NoError(t, db.MigrateDown(ctx, url))
 	require.NoError(t, db.MigrateDown(ctx, url))
 	for _, table := range []string{
 		"oauth_client_keys", "oauth_refresh_families", "oauth_refresh_tokens",
@@ -146,6 +151,8 @@ func TestIB2TokenGrantsMigrationSQLHasNoRawTokensOrLaterTables(t *testing.T) {
 		"00005_ib1_broker_exchange.sql",
 		"00006_ib2_signing_keys.sql",
 		"00007_ib2_token_grants.sql",
+		"00008_ib2_audit_signing_key_fk.sql",
+		"00009_ib2_assertion_replay_retention.sql",
 	}, names, "old migrations inventory may grow only by the expected IB2 versions")
 	body, err := os.ReadFile(filepath.Join("migrations", "00007_ib2_token_grants.sql"))
 	require.NoError(t, err)
@@ -161,6 +168,13 @@ func TestIB2TokenGrantsMigrationSQLHasNoRawTokensOrLaterTables(t *testing.T) {
 	require.NotContains(t, lower, "oauth_service_principals")
 	require.NotContains(t, lower, "findorcreatebyemail")
 	require.NotContains(t, filepath.Base("00007_ib2_token_grants.sql"), "00006")
+
+	retain, err := os.ReadFile(filepath.Join("migrations", "00009_ib2_assertion_replay_retention.sql"))
+	require.NoError(t, err)
+	retainLower := strings.ToLower(string(retain))
+	require.Contains(t, retainLower, "oauth_client_assertion_replays_ck")
+	require.Contains(t, retainLower, "interval '60 seconds'")
+	require.Contains(t, retainLower, "expires_at >= consumed_at")
 }
 
 func assertNamedFKSetNull(t *testing.T, pool *pgxpool.Pool, table, name string) {

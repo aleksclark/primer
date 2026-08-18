@@ -28,7 +28,12 @@ const (
 	MaxRefreshAbsolute = 90 * 24 * time.Hour
 	MaxAccessTTL       = 15 * time.Minute
 	MaxAssertionTTL    = 5 * time.Minute
-	MaxClientIDLen     = 128
+	// AssertionClockSkew is the private_key_jwt accept/replay retention skew.
+	// Parser accepts through exp+skew; the durable ledger retains until then.
+	AssertionClockSkew = 60 * time.Second
+	// MaxAssertionReplayRetention is JWT exp-iat ceiling plus clock skew.
+	MaxAssertionReplayRetention = MaxAssertionTTL + AssertionClockSkew
+	MaxClientIDLen              = 128
 )
 
 type OAuthClientKey struct {
@@ -148,11 +153,20 @@ func ValidateClientAssertionReplay(in ClientAssertionReplay) error {
 	if err := validateBoundedText("audience", in.Audience, 2048); err != nil {
 		return err
 	}
-	if in.IssuedAt.IsZero() || !in.ExpiresAt.After(in.IssuedAt) || in.ExpiresAt.After(in.IssuedAt.Add(MaxAssertionTTL)) {
-		return invalidf("expires_at", "must be within five minutes of iat")
+	// ExpiresAt is the ledger retention timestamp (JWT exp + clock skew), not
+	// bare JWT exp. It must outlive iat and stay within MaxAssertionReplayRetention.
+	if in.IssuedAt.IsZero() || !in.ExpiresAt.After(in.IssuedAt) || in.ExpiresAt.After(in.IssuedAt.Add(MaxAssertionReplayRetention)) {
+		return invalidf("expires_at", "must be within assertion retention of iat")
 	}
-	if !in.ConsumedAt.IsZero() && in.ExpiresAt.Before(in.ConsumedAt) && !in.ExpiresAt.Equal(in.ConsumedAt) {
-		return invalidf("expires_at", "must be after consumed_at")
+	if in.ConsumedAt.IsZero() {
+		return nil
+	}
+	// Align with parser accept window: consumed_at ∈ [iat-skew, retention].
+	if in.ConsumedAt.Before(in.IssuedAt.Add(-AssertionClockSkew)) {
+		return invalidf("consumed_at", "must be within assertion clock skew of iat")
+	}
+	if in.ConsumedAt.After(in.ExpiresAt) {
+		return invalidf("expires_at", "must not precede consumed_at")
 	}
 	return nil
 }

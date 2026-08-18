@@ -64,6 +64,52 @@ func TestIB2RecordClientAssertionReplayAtomicAndPurgeExpired(t *testing.T) {
 	require.Zero(t, leftover)
 }
 
+func TestIB2AssertionReplayRetentionSurvivesJWTExpSkewWindow(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	client := confidentialJWTClient(t)
+
+	// JWT exp is "now"; parser still accepts through exp+AssertionClockSkew.
+	// Ledger must retain until at least that extended timestamp.
+	iat := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	jwtExp := iat.Add(2 * time.Minute)
+	consumed := jwtExp.Add(59 * time.Second)
+	retention := jwtExp.Add(domain.AssertionClockSkew)
+	jti := uniqueHash("jti-skew-retain")
+
+	row, err := repo.RecordClientAssertionReplay(ctx, pool, domain.ClientAssertionReplay{
+		OAuthClientID: client.ID, EndpointKind: domain.AssertionEndpointToken,
+		JTIHash: jti, Audience: "https://identity.example/oauth/token",
+		IssuedAt: iat, ExpiresAt: retention, ConsumedAt: consumed,
+	})
+	require.NoError(t, err)
+	require.True(t, row.ExpiresAt.Equal(retention), "ledger stores retention past JWT exp")
+	require.True(t, row.ExpiresAt.After(jwtExp))
+
+	// Purge at JWT exp must NOT drop the row — still inside skew accept window.
+	purged, err := repo.PurgeExpiredClientAssertionReplays(ctx, pool, jwtExp)
+	require.NoError(t, err)
+	require.Zero(t, purged)
+	var alive int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM oauth_client_assertion_replays WHERE id=$1`, row.ID).Scan(&alive))
+	require.Equal(t, 1, alive)
+
+	// Conflict still denied while retained.
+	_, err = repo.RecordClientAssertionReplay(ctx, pool, domain.ClientAssertionReplay{
+		OAuthClientID: client.ID, EndpointKind: domain.AssertionEndpointToken,
+		JTIHash: jti, Audience: "https://identity.example/oauth/token",
+		IssuedAt: iat, ExpiresAt: retention, ConsumedAt: retention,
+	})
+	require.ErrorIs(t, err, domain.ErrConflict)
+
+	// After retention + ε, purge removes the row.
+	purged, err = repo.PurgeExpiredClientAssertionReplays(ctx, pool, retention.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), purged)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM oauth_client_assertion_replays WHERE id=$1`, row.ID).Scan(&alive))
+	require.Zero(t, alive)
+}
+
 func TestIB2ClaimAuthorizationCodeExactBindingAndConcurrentOneSuccess(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.DB(t)
@@ -290,6 +336,9 @@ func TestIB2IssueAuthorizationCodeTokensSignBeforeCommitAndLostResponse(t *testi
 	require.Nil(t, out.Token.ConsumedAt)
 	require.Equal(t, domain.IssuanceOutcomeCommitted, out.Audit.Outcome)
 	require.Equal(t, fx.Code.CodeHash, out.Audit.AuthorizationCodeHash)
+	var signingKeyID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `SELECT signing_key_id FROM token_issuance_audit WHERE id=$1`, out.Audit.ID).Scan(&signingKeyID))
+	require.NotEqual(t, uuid.Nil, signingKeyID)
 
 	signFail := issuedCodeFixture(t)
 	_, err = pool.Exec(ctx, `UPDATE oauth_authorization_codes SET pkce_challenge=$1 WHERE id=$2`, challenge, signFail.Code.ID)
@@ -504,6 +553,51 @@ func TestIB2IssueAuthorizationCodeTokensContextCancelRestoresNothing(t *testing.
 	require.Nil(t, consumed)
 }
 
+func TestIB2RefreshFamilyLifecycleChecksLiveCountForTokenMutationsAndAllowsRotation(t *testing.T) {
+	ctx := context.Background()
+	tx := testutil.Tx(t)
+	q := testutil.NewSavepointQuerier(tx)
+	fx := issuedCodeFixtureOn(t, q)
+	now := time.Now().UTC().Truncate(time.Second)
+	issued, err := repo.CreateInitialRefreshFamily(ctx, q, validRefresh(fx, now))
+	require.NoError(t, err)
+
+	_, err = tx.Exec(ctx, `SAVEPOINT lifecycle_bad_delete`)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `DELETE FROM oauth_refresh_tokens WHERE id=$1`, issued.Token.ID)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SET CONSTRAINTS oauth_refresh_tokens_family_lifecycle_ck IMMEDIATE`)
+	require.Error(t, err, "deleting the only live token must fail for an active family")
+	_, err = tx.Exec(ctx, `ROLLBACK TO SAVEPOINT lifecycle_bad_delete`)
+	require.NoError(t, err)
+
+	_, err = tx.Exec(ctx, `SAVEPOINT lifecycle_bad_update`)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE oauth_refresh_tokens SET revoked_at=$2 WHERE id=$1`, issued.Token.ID, now)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SET CONSTRAINTS oauth_refresh_tokens_family_lifecycle_ck IMMEDIATE`)
+	require.Error(t, err, "revoking the only live token must fail for an active family")
+	_, err = tx.Exec(ctx, `ROLLBACK TO SAVEPOINT lifecycle_bad_update`)
+	require.NoError(t, err)
+
+	// A rotation may transiently have no live token, but its deferred final
+	// state must contain exactly one live replacement.
+	_, err = q.Exec(ctx, `UPDATE oauth_refresh_tokens SET revoked_at=$2 WHERE id=$1`, issued.Token.ID, now)
+	require.NoError(t, err)
+	var replacementID uuid.UUID
+	require.NoError(t, q.QueryRow(ctx, `
+INSERT INTO oauth_refresh_tokens(family_id,token_hash,pepper_version,sequence,issued_at,expires_at)
+VALUES($1,$2,1,1,$3,$4)
+RETURNING id`, issued.Family.ID, uniqueHash("rotation-replacement"), now, now.Add(7*24*time.Hour)).Scan(&replacementID))
+	_, err = q.Exec(ctx, `
+UPDATE oauth_refresh_tokens
+SET revoked_at=NULL, consumed_at=$2, replaced_by_id=$3
+WHERE id=$1`, issued.Token.ID, now, replacementID)
+	require.NoError(t, err)
+	_, err = q.Exec(ctx, `SET CONSTRAINTS oauth_refresh_tokens_family_lifecycle_ck IMMEDIATE`)
+	require.NoError(t, err, "valid rotation must leave exactly one live token")
+}
+
 func TestIB2HashedSecretsNeverPersistRawMaterial(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.DB(t)
@@ -559,6 +653,33 @@ type issuedCode struct {
 	Code     *domain.OAuthAuthorizationCode
 }
 
+func ensureAuditSigningKey(t *testing.T, q repo.Querier) {
+	t.Helper()
+	ctx := context.Background()
+	if rec, err := repo.GetSigningKeyByKid(ctx, q, "active-kid"); err == nil {
+		if rec.Status == domain.SigningKeyStatusActive {
+			_, err = q.Exec(ctx, `
+UPDATE signing_keys
+SET status='retired', retired_at=COALESCE(activated_at, now())
+WHERE kid=$1 AND status='active'`, "active-kid")
+			require.NoError(t, err)
+		}
+		return
+	} else {
+		require.ErrorIs(t, err, domain.ErrNotFound)
+	}
+	rec := sealedRecord(t, domain.SigningKeyStatusActive)
+	rec.Kid = "active-kid"
+	rec.PublicJWK.Kid = rec.Kid
+	_, err := repo.InsertSigningKey(ctx, q, rec)
+	require.NoError(t, err)
+	_, err = q.Exec(ctx, `
+UPDATE signing_keys
+SET status='retired', retired_at=COALESCE(activated_at, now())
+WHERE kid=$1`, rec.Kid)
+	require.NoError(t, err)
+}
+
 func issuedCodeFixture(t *testing.T) issuedCode {
 	t.Helper()
 	return issuedCodeFixtureOn(t, testutil.DB(t))
@@ -568,6 +689,7 @@ func issuedCodeFixtureOn(t *testing.T, q repo.Querier) issuedCode {
 	t.Helper()
 	ctx := context.Background()
 	client := factory.OAuthClient(t, q)
+	ensureAuditSigningKey(t, q)
 	redirect := factory.OAuthClientRedirect(t, q, client)
 	owner := factory.Account(t, q)
 	mapping, err := repo.CreateStytchMapping(ctx, q, owner.ID, domain.StytchPrincipal{

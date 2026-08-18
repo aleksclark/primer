@@ -141,12 +141,12 @@ func TestVerifyRejectsWrongAndMultipleAudience(t *testing.T) {
 		tok, s, _, source := issueHuman(t, clock)
 		return tok, s, source
 	}()
-	wrongAud, err := token.NewVerifier(src, testIssuer, "primer-lms", clock, nil)
+	wrongAud, err := token.NewVerifier(src, testIssuer, "primer-lms", clock, registeredClientLookup("primer-lms"))
 	require.NoError(t, err)
 	principal, err := wrongAud.Verify(context.Background(), issued.Compact)
 	requireDenied(t, err, principal)
 
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	arrayAud := resign(t, replacePayload(t, issued.Compact, func(p map[string]any) {
 		p["aud"] = []string{testAudience, "primer-lms"}
@@ -212,19 +212,19 @@ func TestVerifyRejectsAlgSubstitutionUnknownKidExpiredAndFuture(t *testing.T) {
 		requireDenied(t, err, principal)
 	}
 
-	unknown, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now}, nil)
+	unknown, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now}, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	principal, err := unknown.Verify(context.Background(), replaceHeader(t, issued.Compact, func(h map[string]any) {
 		h["kid"] = uuid.NewString()
 	}))
 	requireDenied(t, err, principal)
 
-	expired, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(15*time.Minute + 6*time.Second)}, nil)
+	expired, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(15*time.Minute + 6*time.Second)}, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	principal, err = expired.Verify(context.Background(), issued.Compact)
 	requireDenied(t, err, principal)
 
-	future, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(-6 * time.Second)}, nil)
+	future, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(-6 * time.Second)}, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	principal, err = future.Verify(context.Background(), issued.Compact)
 	requireDenied(t, err, principal)
@@ -233,11 +233,11 @@ func TestVerifyRejectsAlgSubstitutionUnknownKidExpiredAndFuture(t *testing.T) {
 func TestVerifyAcceptsExactSkewBoundaries(t *testing.T) {
 	now := time.Date(2026, 8, 16, 15, 4, 5, 0, time.UTC)
 	issued, _, _, src := issueHuman(t, frozenClock{now: now})
-	atExp, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(15*time.Minute + 5*time.Second)}, nil)
+	atExp, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(15*time.Minute + 5*time.Second)}, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	_, err = atExp.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)
-	atFuture, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(-5 * time.Second)}, nil)
+	atFuture, err := token.NewVerifier(src, testIssuer, testAudience, frozenClock{now: now.Add(-5 * time.Second)}, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	_, err = atFuture.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)
@@ -415,7 +415,7 @@ func TestConcurrentIssueVerifyRace(t *testing.T) {
 	minter, err := token.NewMinter(staticSignerSource{signer: signer}, testIssuer, clock)
 	require.NoError(t, err)
 	src := &staticKeySource{keys: map[string]domain.PublicJWK{jwk.Kid: jwk}}
-	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, nil)
+	verifier, err := token.NewVerifier(src, testIssuer, testAudience, clock, registeredClientLookup(testAudience))
 	require.NoError(t, err)
 	var wg sync.WaitGroup
 	errCh := make(chan error, 64)

@@ -121,14 +121,17 @@ func postProcessToken(t *testing.T, baseURL string, form url.Values, headers map
 }
 
 func publicTokenForm(code, redirect, resource, clientID string) url.Values {
-	return url.Values{
+	form := url.Values{
 		"grant_type":    {oauth.GrantAuthorizationCode},
 		"code":          {code},
 		"redirect_uri":  {redirect},
 		"resource":      {resource},
 		"code_verifier": {tokenProcessVerifier},
-		"client_id":     {clientID},
 	}
+	if clientID != "" {
+		form.Set("client_id", clientID)
+	}
+	return form
 }
 
 func readJSON(t *testing.T, resp *http.Response) (int, map[string]any, string) {
@@ -156,7 +159,9 @@ func verifyFetchedAccess(t *testing.T, baseURL, access, audience, clientID, subj
 	keyset, err := token.NewKeySet(func(context.Context) ([]domain.PublicJWK, error) { return pubs, nil })
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(context.Background()))
-	verifier, err := token.NewVerifier(keyset, tokenProcessIssuer, audience, nil, nil)
+	verifier, err := token.NewVerifier(keyset, tokenProcessIssuer, audience, nil, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{ClientID: clientID, Audience: audience, SubjectClass: token.KindHuman}, nil
+	})
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), access)
 	require.NoError(t, err)
@@ -329,7 +334,7 @@ SELECT
 	basicSrv := startTokenProcessWithArtifact(t, basicArtifact)
 	basicRedirect, basicResource, basicAudience := registerConfidentialBasic(t, basicID, secret)
 	basicCode := issueProcessCode(t, basicSrv, basicID, basicRedirect, basicResource, basicAudience, basicArtifact)
-	wrong := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, basicID), map[string]string{
+	wrong := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, ""), map[string]string{
 		"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(basicID+":wrong-secret-value-xxxxxxxxxxxxxxxx")),
 	})
 	wrongStatus, wrongBody, wrongRaw := readJSON(t, wrong)
@@ -338,7 +343,7 @@ SELECT
 	assert.Equal(t, tokenBasicRealm, wrong.Header.Get("WWW-Authenticate"))
 	assert.NotContains(t, wrongRaw, secret)
 
-	okBasic := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, basicID), map[string]string{
+	okBasic := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, ""), map[string]string{
 		"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(basicID+":"+secret)),
 	})
 	basicStatus, basicBody, basicRaw := readJSON(t, okBasic)
@@ -456,7 +461,7 @@ func TestProcessTokenMetadataPublishesRevokeAndReadyRequiresKeyBootstrap(t *test
 	assert.Equal(t, "public,max-age=300", metaResp.Header.Get("Cache-Control"))
 	assert.Contains(t, raw, "/oauth/revoke")
 	assert.Contains(t, raw, "client_credentials")
-	assert.Contains(t, raw, "refresh_token")
+	assert.Contains(t, raw, `"refresh_token"`)
 
 	revoke, err := noFollowClient().Get(srv.baseURL + "/oauth/revoke")
 	require.NoError(t, err)
@@ -586,7 +591,7 @@ func TestProcessPublicBasicAndPrivateRevokeAfterIssue(t *testing.T) {
 	basicSrv := startTokenProcessWithArtifact(t, basicArtifact)
 	basicRedirect, basicResource, basicAudience := registerConfidentialBasic(t, basicID, secret)
 	basicCode := issueProcessCode(t, basicSrv, basicID, basicRedirect, basicResource, basicAudience, basicArtifact)
-	basicIssued := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, basicID), map[string]string{
+	basicIssued := postProcessToken(t, basicSrv.baseURL, publicTokenForm(basicCode, basicRedirect, basicResource, ""), map[string]string{
 		"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(basicID+":"+secret)),
 	})
 	basicStatus, basicBody, basicRaw := readJSON(t, basicIssued)

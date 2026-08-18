@@ -2,8 +2,10 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +39,18 @@ func (r SigningKeyRecord) String() string {
 }
 
 func (r SigningKeyRecord) GoString() string { return r.String() }
+
+// Format intentionally ignores the requested verb and flags so copied values
+// and pointers cannot fall back to fmt's raw struct/byte-slice formatting.
+func (r SigningKeyRecord) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, r.String())
+}
+
+// MarshalJSON emits the public signing-key projection and refuses to expose
+// sealed private material through future field additions to this record.
+func (r SigningKeyRecord) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.Public())
+}
 
 // Public returns the safe domain projection without sealed bytes.
 func (r SigningKeyRecord) Public() domain.SigningKey {

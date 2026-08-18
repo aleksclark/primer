@@ -2,7 +2,10 @@ package api_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +28,24 @@ func (s staticJWKS) PublicJWKS(context.Context) ([]domain.PublicJWK, error) {
 	return s.pubs, s.err
 }
 func (s staticJWKS) PublicSetETag(context.Context) (string, error) { return s.etag, s.err }
+
+type snapshotJWKS struct {
+	pubs      []domain.PublicJWK
+	pubCalls  int
+	etagCalls int
+	etag      string
+	etagErr   error
+}
+
+func (s *snapshotJWKS) PublicJWKS(context.Context) ([]domain.PublicJWK, error) {
+	s.pubCalls++
+	return s.pubs, nil
+}
+
+func (s *snapshotJWKS) PublicSetETag(context.Context) (string, error) {
+	s.etagCalls++
+	return s.etag, s.etagErr
+}
 
 func samplePublicJWK(kid string) domain.PublicJWK {
 	return domain.PublicJWK{
@@ -60,7 +81,7 @@ func TestWellKnownRoutesRegisterOnceAndServeExactWire(t *testing.T) {
 	require.Equal(t, http.StatusOK, jwks.Code)
 	assert.Equal(t, "application/jwk-set+json", jwks.Header().Get("Content-Type"))
 	assert.Equal(t, "public,max-age=300", jwks.Header().Get("Cache-Control"))
-	assert.Equal(t, `W/"abc"`, jwks.Header().Get("ETag"))
+	assert.Equal(t, expectedMetadataETag(jwks.Body.Bytes()), jwks.Header().Get("ETag"))
 	assert.LessOrEqual(t, jwks.Body.Len(), 64*1024)
 	assert.NotContains(t, jwks.Body.String(), `"d"`)
 	var doc map[string]any
@@ -72,7 +93,7 @@ func TestWellKnownRoutesRegisterOnceAndServeExactWire(t *testing.T) {
 
 	cached := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil)
-	req.Header.Set("If-None-Match", `W/"abc"`)
+	req.Header.Set("If-None-Match", jwks.Header().Get("ETag"))
 	handler.ServeHTTP(cached, req)
 	assert.Equal(t, http.StatusNotModified, cached.Code)
 	body, err := io.ReadAll(cached.Result().Body)
@@ -86,11 +107,11 @@ func TestWellKnownRoutesRegisterOnceAndServeExactWire(t *testing.T) {
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal(meta.Body.Bytes(), &parsed))
 	assert.Equal(t, "https://id.example.test/issuer/path", parsed["issuer"])
-	assert.Equal(t, "https://id.example.test/issuer/path/oauth/authorize", parsed["authorization_endpoint"])
-	assert.Equal(t, "https://id.example.test/issuer/path/oauth/token", parsed["token_endpoint"])
-	assert.Equal(t, "https://id.example.test/issuer/path/oauth/revoke", parsed["revocation_endpoint"])
+	assert.Equal(t, "https://id.example.test/oauth/authorize", parsed["authorization_endpoint"])
+	assert.Equal(t, "https://id.example.test/oauth/token", parsed["token_endpoint"])
+	assert.Equal(t, "https://id.example.test/oauth/revoke", parsed["revocation_endpoint"])
 	assert.Contains(t, meta.Body.String(), "/oauth/revoke")
-	assert.Equal(t, "https://id.example.test/issuer/path/.well-known/jwks.json", parsed["jwks_uri"])
+	assert.Equal(t, "https://id.example.test/.well-known/jwks.json", parsed["jwks_uri"])
 	assert.Equal(t, []any{"authorization_code", "refresh_token", "client_credentials"}, parsed["grant_types_supported"])
 	assert.Equal(t, []any{"none", "client_secret_basic", "private_key_jwt"}, parsed["revocation_endpoint_auth_methods_supported"])
 	assert.Equal(t, []any{"ES256"}, parsed["revocation_endpoint_auth_signing_alg_values_supported"])
@@ -101,6 +122,32 @@ func TestWellKnownRoutesRegisterOnceAndServeExactWire(t *testing.T) {
 	root := httptest.NewRecorder()
 	handler.ServeHTTP(root, httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil))
 	assert.Equal(t, http.StatusNotFound, root.Code)
+}
+
+func TestJWKSUsesOnePublicSnapshotForBodyAndETag(t *testing.T) {
+	provider := &snapshotJWKS{
+		pubs:    []domain.PublicJWK{samplePublicJWK("kid-a")},
+		etag:    `W/"stale-authority-etag"`,
+		etagErr: errors.New("second authority read must not happen"),
+	}
+	_, handler := api.New(nil, api.Options{
+		Issuer: "https://id.example.test",
+		JWKS:   provider,
+	})
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, 1, provider.pubCalls)
+	assert.Equal(t, 0, provider.etagCalls)
+	assert.Equal(t, expectedMetadataETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
+	assert.NotEqual(t, provider.etag, rr.Header().Get("ETag"))
+}
+
+func expectedMetadataETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return `W/"` + base64.RawURLEncoding.EncodeToString(sum[:]) + `"`
 }
 
 func TestLiveBrokerWithoutJWKSOmitsRuntimeWellKnown(t *testing.T) {

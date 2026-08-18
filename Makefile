@@ -22,7 +22,7 @@ IDENTITY_COVER_MIN := 80
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
-	identity-e2e dev-db-identity migrate-identity
+	identity-e2e identity-live-stytch dev-db-identity migrate-identity
 
 all: build openapi openapi-tv client tv-client
 
@@ -354,6 +354,18 @@ identity-test-oauth:
 ## Identity process E2E (I1 harness under internal/testutil/e2e).
 identity-e2e:
 	cd primer-identity && go test ./internal/testutil/e2e/ -count=1 -timeout 10m
+
+## Opt-in live Stytch *test-project* provider qualification (not IB8-E10 browser/webhook).
+## Requires IDENTITY_LIVE_STYTCH=1 and IDENTITY_STYTCH_{PROJECT_ID,SECRET} (env=test).
+## Optional: IDENTITY_LIVE_STYTCH_ENV_FILE=~/.config/primer/stytch-test.env
+## Optional happy path: IDENTITY_LIVE_STYTCH_SESSION_TOKEN=<opaque session token>
+## Never prints secrets. Excluded from default identity-test / identity-e2e.
+identity-live-stytch:
+	@if [ "$${IDENTITY_LIVE_STYTCH:-}" != "1" ]; then \
+		echo "identity-live-stytch: set IDENTITY_LIVE_STYTCH=1 to run (refusing ambient credentials)" >&2; \
+		exit 2; \
+	fi
+	cd primer-identity && go test -tags=live_stytch ./internal/testutil/live/ -count=1 -timeout 5m -v
 
 ## Create Identity dev database — deferred: no coherent additive Compose surface
 ## exists for primer_identity yet (F0 will not invent hollow compose). Use a

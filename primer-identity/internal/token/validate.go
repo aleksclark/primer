@@ -16,11 +16,17 @@ import (
 )
 
 func normalizeConfiguredIssuer(raw string) (string, error) {
-	normalized, err := normalizeIssuer(raw, true)
+	normalized, err := CanonicalIssuer(raw, true)
 	if err != nil {
 		return "", denyInvalid()
 	}
 	return normalized, nil
+}
+
+// CanonicalIssuer applies the IB2 issuer normalization used by mint, verify,
+// and runtime config so Config.Issuer, metadata issuer, and JWT iss match.
+func CanonicalIssuer(raw string, requireHTTPS bool) (string, error) {
+	return normalizeIssuer(raw, requireHTTPS)
 }
 
 func normalizeIssuer(raw string, requireHTTPS bool) (string, error) {

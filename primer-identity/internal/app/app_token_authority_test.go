@@ -152,7 +152,9 @@ func TestRunJWKSCanVerifyCurrentTokenPackageOutput(t *testing.T) {
 	keyset, err := token.NewKeySet(func(context.Context) ([]domain.PublicJWK, error) { return pubs, nil })
 	require.NoError(t, err)
 	require.NoError(t, keyset.Refresh(context.Background()))
-	verifier, err := token.NewVerifier(keyset, cfg.Issuer, "studio", nil, nil)
+	verifier, err := token.NewVerifier(keyset, cfg.Issuer, "studio", nil, func(_ context.Context, clientID string) (token.ClientRegistration, error) {
+		return token.ClientRegistration{ClientID: clientID, Audience: "studio", SubjectClass: token.KindHuman, Scope: "openid"}, nil
+	})
 	require.NoError(t, err)
 	got, err := verifier.Verify(context.Background(), issued.Compact)
 	require.NoError(t, err)
@@ -618,11 +620,11 @@ func TestAuthorizationServerMetadataExactPathAndFields(t *testing.T) {
 	var meta map[string]any
 	require.NoError(t, json.Unmarshal(body, &meta))
 	assert.Equal(t, "https://id.example.test/issuer/path", meta["issuer"])
-	assert.Equal(t, "https://id.example.test/issuer/path/oauth/authorize", meta["authorization_endpoint"])
-	assert.Equal(t, "https://id.example.test/issuer/path/oauth/token", meta["token_endpoint"])
-	assert.Equal(t, "https://id.example.test/issuer/path/oauth/revoke", meta["revocation_endpoint"])
+	assert.Equal(t, "https://id.example.test/oauth/authorize", meta["authorization_endpoint"])
+	assert.Equal(t, "https://id.example.test/oauth/token", meta["token_endpoint"])
+	assert.Equal(t, "https://id.example.test/oauth/revoke", meta["revocation_endpoint"])
 	assert.Contains(t, string(body), "/oauth/revoke")
-	assert.Equal(t, "https://id.example.test/issuer/path/.well-known/jwks.json", meta["jwks_uri"])
+	assert.Equal(t, "https://id.example.test/.well-known/jwks.json", meta["jwks_uri"])
 	assert.Equal(t, []any{"code"}, meta["response_types_supported"])
 	assert.Equal(t, []any{"query"}, meta["response_modes_supported"])
 	assert.Equal(t, []any{"authorization_code", "refresh_token", "client_credentials"}, meta["grant_types_supported"])

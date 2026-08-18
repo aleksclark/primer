@@ -137,6 +137,11 @@ func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oaut
 	if err != nil {
 		return oauth.ExchangeRequest{}, oauth.ClientAuth{}, challenge, err
 	}
+	if form.Get("grant_type") == oauth.GrantAuthorizationCode {
+		if err := validateAuthorizationCodeTokenForm(form, auth.Method); err != nil {
+			return oauth.ExchangeRequest{}, oauth.ClientAuth{}, challenge, err
+		}
+	}
 	req := oauth.ExchangeRequest{
 		GrantType:           form.Get("grant_type"),
 		Code:                form.Get("code"),
@@ -149,6 +154,31 @@ func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oaut
 		RefreshToken:        form.Get("refresh_token"),
 	}
 	return req, auth, challenge, nil
+}
+
+func validateAuthorizationCodeTokenForm(form url.Values, authMethod string) error {
+	allowed := map[string]struct{}{
+		"grant_type": {}, "code": {}, "redirect_uri": {}, "resource": {}, "code_verifier": {},
+	}
+	switch authMethod {
+	case oauth.AuthNone:
+		allowed["client_id"] = struct{}{}
+	case oauth.AuthBasic:
+		// Basic authentication identifies the client in Authorization. A form
+		// client_id would make this a different, ambiguous field set.
+	case oauth.AuthPrivateKeyJWT:
+		allowed["client_id"] = struct{}{}
+		allowed["client_assertion_type"] = struct{}{}
+		allowed["client_assertion"] = struct{}{}
+	default:
+		return tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
+	}
+	for name := range form {
+		if _, ok := allowed[name]; !ok {
+			return tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
+		}
+	}
+	return nil
 }
 
 func parseStrictTokenForm(raw []byte) (url.Values, error) {
@@ -224,7 +254,7 @@ func parseTokenClientAuth(authorizations []string, form url.Values) (oauth.Clien
 		if !ok {
 			return oauth.ClientAuth{}, true, tokenWire(oauth.ErrorInvalidClient, descInvalidClient, true)
 		}
-		if form.Get("client_id") != "" && form.Get("client_id") != user {
+		if form.Get("client_id") != "" {
 			return oauth.ClientAuth{}, true, tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
 		}
 		return oauth.ClientAuth{Method: oauth.AuthBasic, ClientID: user, Secret: pass}, true, nil
@@ -351,11 +381,18 @@ func writeTokenOAuthError(w http.ResponseWriter, hsts, code, description string,
 	setTokenHeaders(w, hsts, basicChallenge)
 	w.Header().Set("Content-Type", tokenJSONContentType)
 	w.WriteHeader(status)
-	body, err := json.Marshal(oauthTokenError{Code: code, ErrorDescription: description})
+	body, err := json.Marshal(oauthTokenError{Code: code, ErrorDescription: tokenWireDescription(code, description)})
 	if err != nil {
 		return
 	}
 	_, _ = w.Write(body)
+}
+
+func tokenWireDescription(code, description string) string {
+	if code == oauth.ErrorInvalidClient {
+		return ""
+	}
+	return description
 }
 
 func writeBrokerStatusError(w http.ResponseWriter, err *brokerStatusError) {
@@ -419,25 +456,44 @@ func tokenRequestBody() *huma.RequestBody {
 	plain := func() *huma.Schema {
 		return &huma.Schema{Type: huma.TypeString}
 	}
+	baseProperties := func() map[string]*huma.Schema {
+		return map[string]*huma.Schema{
+			"grant_type":    {Type: huma.TypeString, Const: oauth.GrantAuthorizationCode},
+			"code":          writeOnly(),
+			"redirect_uri":  plain(),
+			"resource":      plain(),
+			"code_verifier": writeOnly(),
+		}
+	}
+	baseRequired := []string{"grant_type", "code", "redirect_uri", "resource", "code_verifier"}
+	variant := func(properties map[string]*huma.Schema, required []string) *huma.Schema {
+		return &huma.Schema{
+			Type:                 huma.TypeObject,
+			Properties:           properties,
+			Required:             required,
+			AdditionalProperties: false,
+		}
+	}
+	publicProperties := baseProperties()
+	publicProperties["client_id"] = plain()
+	publicRequired := append(append([]string(nil), baseRequired...), "client_id")
+	basicProperties := baseProperties()
+	privateProperties := baseProperties()
+	privateProperties["client_id"] = plain()
+	privateProperties["client_assertion_type"] = &huma.Schema{Type: huma.TypeString, Const: tokenAssertionTypeURN}
+	privateProperties["client_assertion"] = writeOnly()
+	privateRequired := append(append([]string(nil), baseRequired...), "client_id", "client_assertion_type", "client_assertion")
+
 	return &huma.RequestBody{
 		Required:    true,
 		Description: "OAuth token form",
 		Content: map[string]*huma.MediaType{
 			tokenFormContentType: {
 				Schema: &huma.Schema{
-					Type: huma.TypeObject,
-					Properties: map[string]*huma.Schema{
-						"grant_type":            plain(),
-						"code":                  writeOnly(),
-						"redirect_uri":          plain(),
-						"resource":              plain(),
-						"code_verifier":         writeOnly(),
-						"client_id":             plain(),
-						"client_assertion_type": plain(),
-						"client_assertion":      writeOnly(),
-						"client_secret":         writeOnly(),
-						"refresh_token":         writeOnly(),
-						"scope":                 plain(),
+					OneOf: []*huma.Schema{
+						variant(publicProperties, publicRequired),
+						variant(basicProperties, baseRequired),
+						variant(privateProperties, privateRequired),
 					},
 				},
 			},
@@ -492,10 +548,10 @@ func tokenOpenAPIResponses() map[string]*huma.Response {
 			Description: "OAuth invalid_client",
 			Headers:     security,
 			Content: jsonMedia(&huma.Schema{
-				Type: huma.TypeObject,
+				Type:                 huma.TypeObject,
+				AdditionalProperties: false,
 				Properties: map[string]*huma.Schema{
-					"error":             {Type: huma.TypeString},
-					"error_description": {Type: huma.TypeString},
+					"error": {Type: huma.TypeString, Const: oauth.ErrorInvalidClient},
 				},
 				Required: []string{"error"},
 			}),

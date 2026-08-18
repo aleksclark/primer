@@ -1,6 +1,6 @@
 # 06: IB2 / Primer ES256 JWT and JWKS bridge
 
-**Status: COMPLETE — reviewed credential-free IB2 at code tip `f31559db92445826aabd98bbc0903a22d80d6e80` (`fix(identity): harden IB2 replay and clock semantics`). Spec PASS 0C/0I/0M; quality/security APPROVED 0C/0I (1 nonblocking minor: unbounded X-Request-ID echo). Live Stytch remains **BLOCKED**; this records credential-free completion only.**
+**Status: COMPLETE — dual-reviewed credential-free IB2 hardening tip `f5d5b5b372dc6988a65d082f948b96e7de9f432b` (`fix(identity): close IB2 grant metadata and assertion retention`). Spec PASS 0C/0I (1 minor); quality/security APPROVED 0C/0I. Supersedes earlier master tip `f31559db92445826aabd98bbc0903a22d80d6e80` (PR #24). Opt-in test-project adapter harness at `e8ecd18`. Full IB8-E10 browser + webhook remains **BLOCKED**.**
 
 ## Goal
 
@@ -44,4 +44,6 @@ No symmetric fallback, multi-audience token, missing or internal-UUID `client_id
 - [x] JWKS/AS metadata/OpenAPI parity and signer-aware readiness pass.
 - [x] Fresh exact-tip specification and security review approves donor-derived and new code.
 
-**Credential-free boundary:** This completion does not claim live Stytch, IB3 BFF, production BFF/MCP, IB6 refresh rotation/reuse, or IB7 key retirement/destruction. Live Stytch remains **BLOCKED**.
+**Hardening delta beyond `f31559d` (must land on master before IB3):** host-rooted `/oauth/token` and `/oauth/revoke` audiences for pathful issuers; `AssertionClockSkew=60s` with opaque control-free assertion `jti`; human Verify requires `ClientLookup` (E10 allowlists `studio-bff`); exact `{"error":"invalid_client"}`; exact authorization-code field sets (Basic must not send form `client_id`); OpenAPI/client regen; `TransactionSigner` value-receiver Format/JSON refusal; migration `00008` family live-token cardinality + `token_issuance_audit.signing_key_id` FK; migration `00009` assertion replay retention through `exp+60s` (no 503 oracle on lifetime-edge valid crypto); RFC8414 `grant_types_supported` exact triple while token still rejects refresh/client_credentials.
+
+**Credential-free boundary:** This completion does not claim IB3 BFF, production BFF/MCP, IB6 refresh rotation/reuse, IB7 key retirement/destruction, or IB8-E10 browser/webhook. Opt-in `make identity-live-stytch` is test-project adapter qualification only.

@@ -15,6 +15,96 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError.
+const (
+	OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyErrorInvalidClient OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError = "invalid_client"
+)
+
+// Valid indicates whether the value is a known member of the OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError enum.
+func (e OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError) Valid() bool {
+	switch e {
+	case OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyErrorInvalidClient:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody0GrantType.
+const (
+	OauthTokenFormdataBody0GrantTypeAuthorizationCode OauthTokenFormdataBody0GrantType = "authorization_code"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody0GrantType enum.
+func (e OauthTokenFormdataBody0GrantType) Valid() bool {
+	switch e {
+	case OauthTokenFormdataBody0GrantTypeAuthorizationCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody1GrantType.
+const (
+	OauthTokenFormdataBody1GrantTypeAuthorizationCode OauthTokenFormdataBody1GrantType = "authorization_code"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody1GrantType enum.
+func (e OauthTokenFormdataBody1GrantType) Valid() bool {
+	switch e {
+	case OauthTokenFormdataBody1GrantTypeAuthorizationCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody2ClientAssertionType.
+const (
+	UrnIetfParamsOauthClientAssertionTypeJwtBearer OauthTokenFormdataBody2ClientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody2ClientAssertionType enum.
+func (e OauthTokenFormdataBody2ClientAssertionType) Valid() bool {
+	switch e {
+	case UrnIetfParamsOauthClientAssertionTypeJwtBearer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody2GrantType.
+const (
+	OauthTokenFormdataBody2GrantTypeAuthorizationCode OauthTokenFormdataBody2GrantType = "authorization_code"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody2GrantType enum.
+func (e OauthTokenFormdataBody2GrantType) Valid() bool {
+	switch e {
+	case OauthTokenFormdataBody2GrantTypeAuthorizationCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError.
+const (
+	OauthToken401ApplicationJSONCharsetUTF8ResponseBodyErrorInvalidClient OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError = "invalid_client"
+)
+
+// Valid indicates whether the value is a known member of the OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError enum.
+func (e OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError) Valid() bool {
+	switch e {
+	case OauthToken401ApplicationJSONCharsetUTF8ResponseBodyErrorInvalidClient:
+		return true
+	default:
+		return false
+	}
+}
+
 // ErrorDetail defines model for ErrorDetail.
 type ErrorDetail struct {
 	// Location Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'
@@ -117,31 +207,157 @@ type OauthRevokeFormdataBody struct {
 	ClientAssertion     *string `form:"client_assertion,omitempty" json:"client_assertion,omitempty"`
 	ClientAssertionType *string `form:"client_assertion_type,omitempty" json:"client_assertion_type,omitempty"`
 	ClientId            *string `form:"client_id,omitempty" json:"client_id,omitempty"`
-	ClientSecret        *string `form:"client_secret,omitempty" json:"client_secret,omitempty"`
 	Token               *string `form:"token,omitempty" json:"token,omitempty"`
 	TokenTypeHint       *string `form:"token_type_hint,omitempty" json:"token_type_hint,omitempty"`
 }
 
+// OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError defines parameters for OauthRevoke.
+type OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError string
+
 // OauthTokenFormdataBody defines parameters for OauthToken.
 type OauthTokenFormdataBody struct {
-	ClientAssertion     *string `form:"client_assertion,omitempty" json:"client_assertion,omitempty"`
-	ClientAssertionType *string `form:"client_assertion_type,omitempty" json:"client_assertion_type,omitempty"`
-	ClientId            *string `form:"client_id,omitempty" json:"client_id,omitempty"`
-	ClientSecret        *string `form:"client_secret,omitempty" json:"client_secret,omitempty"`
-	Code                *string `form:"code,omitempty" json:"code,omitempty"`
-	CodeVerifier        *string `form:"code_verifier,omitempty" json:"code_verifier,omitempty"`
-	GrantType           *string `form:"grant_type,omitempty" json:"grant_type,omitempty"`
-	RedirectUri         *string `form:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
-	RefreshToken        *string `form:"refresh_token,omitempty" json:"refresh_token,omitempty"`
-	Resource            *string `form:"resource,omitempty" json:"resource,omitempty"`
-	Scope               *string `form:"scope,omitempty" json:"scope,omitempty"`
+	union json.RawMessage
 }
+
+// OauthTokenFormdataBody0 defines parameters for OauthToken.
+type OauthTokenFormdataBody0 struct {
+	ClientId     string                           `json:"client_id"`
+	Code         *string                          `json:"code,omitempty"`
+	CodeVerifier *string                          `json:"code_verifier,omitempty"`
+	GrantType    OauthTokenFormdataBody0GrantType `json:"grant_type"`
+	RedirectUri  string                           `json:"redirect_uri"`
+	Resource     string                           `json:"resource"`
+}
+
+// OauthTokenFormdataBody0GrantType defines parameters for OauthToken.
+type OauthTokenFormdataBody0GrantType string
+
+// OauthTokenFormdataBody1 defines parameters for OauthToken.
+type OauthTokenFormdataBody1 struct {
+	Code         *string                          `json:"code,omitempty"`
+	CodeVerifier *string                          `json:"code_verifier,omitempty"`
+	GrantType    OauthTokenFormdataBody1GrantType `json:"grant_type"`
+	RedirectUri  string                           `json:"redirect_uri"`
+	Resource     string                           `json:"resource"`
+}
+
+// OauthTokenFormdataBody1GrantType defines parameters for OauthToken.
+type OauthTokenFormdataBody1GrantType string
+
+// OauthTokenFormdataBody2 defines parameters for OauthToken.
+type OauthTokenFormdataBody2 struct {
+	ClientAssertion     *string                                    `json:"client_assertion,omitempty"`
+	ClientAssertionType OauthTokenFormdataBody2ClientAssertionType `json:"client_assertion_type"`
+	ClientId            string                                     `json:"client_id"`
+	Code                *string                                    `json:"code,omitempty"`
+	CodeVerifier        *string                                    `json:"code_verifier,omitempty"`
+	GrantType           OauthTokenFormdataBody2GrantType           `json:"grant_type"`
+	RedirectUri         string                                     `json:"redirect_uri"`
+	Resource            string                                     `json:"resource"`
+}
+
+// OauthTokenFormdataBody2ClientAssertionType defines parameters for OauthToken.
+type OauthTokenFormdataBody2ClientAssertionType string
+
+// OauthTokenFormdataBody2GrantType defines parameters for OauthToken.
+type OauthTokenFormdataBody2GrantType string
+
+// OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError defines parameters for OauthToken.
+type OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError string
 
 // OauthRevokeFormdataRequestBody defines body for OauthRevoke for application/x-www-form-urlencoded ContentType.
 type OauthRevokeFormdataRequestBody OauthRevokeFormdataBody
 
 // OauthTokenFormdataRequestBody defines body for OauthToken for application/x-www-form-urlencoded ContentType.
 type OauthTokenFormdataRequestBody OauthTokenFormdataBody
+
+// AsOauthTokenFormdataBody0 returns the union data inside the OauthTokenFormdataBody as a OauthTokenFormdataBody0
+func (t OauthTokenFormdataBody) AsOauthTokenFormdataBody0() (OauthTokenFormdataBody0, error) {
+	var body OauthTokenFormdataBody0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOauthTokenFormdataBody0 overwrites any union data inside the OauthTokenFormdataBody as the provided OauthTokenFormdataBody0
+func (t *OauthTokenFormdataBody) FromOauthTokenFormdataBody0(v OauthTokenFormdataBody0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOauthTokenFormdataBody0 performs a merge with any union data inside the OauthTokenFormdataBody, using the provided OauthTokenFormdataBody0
+func (t *OauthTokenFormdataBody) MergeOauthTokenFormdataBody0(v OauthTokenFormdataBody0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOauthTokenFormdataBody1 returns the union data inside the OauthTokenFormdataBody as a OauthTokenFormdataBody1
+func (t OauthTokenFormdataBody) AsOauthTokenFormdataBody1() (OauthTokenFormdataBody1, error) {
+	var body OauthTokenFormdataBody1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOauthTokenFormdataBody1 overwrites any union data inside the OauthTokenFormdataBody as the provided OauthTokenFormdataBody1
+func (t *OauthTokenFormdataBody) FromOauthTokenFormdataBody1(v OauthTokenFormdataBody1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOauthTokenFormdataBody1 performs a merge with any union data inside the OauthTokenFormdataBody, using the provided OauthTokenFormdataBody1
+func (t *OauthTokenFormdataBody) MergeOauthTokenFormdataBody1(v OauthTokenFormdataBody1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOauthTokenFormdataBody2 returns the union data inside the OauthTokenFormdataBody as a OauthTokenFormdataBody2
+func (t OauthTokenFormdataBody) AsOauthTokenFormdataBody2() (OauthTokenFormdataBody2, error) {
+	var body OauthTokenFormdataBody2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOauthTokenFormdataBody2 overwrites any union data inside the OauthTokenFormdataBody as the provided OauthTokenFormdataBody2
+func (t *OauthTokenFormdataBody) FromOauthTokenFormdataBody2(v OauthTokenFormdataBody2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOauthTokenFormdataBody2 performs a merge with any union data inside the OauthTokenFormdataBody, using the provided OauthTokenFormdataBody2
+func (t *OauthTokenFormdataBody) MergeOauthTokenFormdataBody2(v OauthTokenFormdataBody2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t OauthTokenFormdataBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *OauthTokenFormdataBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1712,8 +1928,7 @@ type OauthRevokeResponse struct {
 	}
 	// ApplicationjsonCharsetUtf8401 the response for an HTTP 401 `application/json; charset=utf-8` response
 	ApplicationjsonCharsetUtf8401 *struct {
-		Error            string  `json:"error"`
-		ErrorDescription *string `json:"error_description,omitempty"`
+		Error OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError `json:"error"`
 	}
 	// ApplicationjsonCharsetUtf8503 the response for an HTTP 503 `application/json; charset=utf-8` response
 	ApplicationjsonCharsetUtf8503 *struct {
@@ -1744,8 +1959,7 @@ func (r OauthRevokeResponse) GetApplicationjsonCharsetUtf8400() *struct {
 
 // GetApplicationjsonCharsetUtf8401 returns the response for an HTTP 401 `application/json; charset=utf-8` response
 func (r OauthRevokeResponse) GetApplicationjsonCharsetUtf8401() *struct {
-	Error            string  `json:"error"`
-	ErrorDescription *string `json:"error_description,omitempty"`
+	Error OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError `json:"error"`
 } {
 	return r.ApplicationjsonCharsetUtf8401
 }
@@ -1853,8 +2067,7 @@ type OauthTokenResponse struct {
 	}
 	// ApplicationjsonCharsetUtf8401 the response for an HTTP 401 `application/json; charset=utf-8` response
 	ApplicationjsonCharsetUtf8401 *struct {
-		Error            string  `json:"error"`
-		ErrorDescription *string `json:"error_description,omitempty"`
+		Error OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError `json:"error"`
 	}
 	// ApplicationjsonCharsetUtf8503 the response for an HTTP 503 `application/json; charset=utf-8` response
 	ApplicationjsonCharsetUtf8503 *struct {
@@ -1896,8 +2109,7 @@ func (r OauthTokenResponse) GetApplicationjsonCharsetUtf8400() *struct {
 
 // GetApplicationjsonCharsetUtf8401 returns the response for an HTTP 401 `application/json; charset=utf-8` response
 func (r OauthTokenResponse) GetApplicationjsonCharsetUtf8401() *struct {
-	Error            string  `json:"error"`
-	ErrorDescription *string `json:"error_description,omitempty"`
+	Error OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError `json:"error"`
 } {
 	return r.ApplicationjsonCharsetUtf8401
 }
@@ -2834,8 +3046,7 @@ func ParseOauthRevokeResponse(rsp *http.Response) (*OauthRevokeResponse, error) 
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest struct {
-			Error            string  `json:"error"`
-			ErrorDescription *string `json:"error_description,omitempty"`
+			Error OauthRevoke401ApplicationJSONCharsetUTF8ResponseBodyError `json:"error"`
 		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
@@ -3091,8 +3302,7 @@ func ParseOauthTokenResponse(rsp *http.Response) (*OauthTokenResponse, error) {
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest struct {
-			Error            string  `json:"error"`
-			ErrorDescription *string `json:"error_description,omitempty"`
+			Error OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError `json:"error"`
 		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err

@@ -202,12 +202,20 @@ func CreateTokenIssuanceAudit(ctx context.Context, q Querier, in domain.TokenIss
 		return nil, wrapf("create token issuance audit", err)
 	}
 	out := &domain.TokenIssuanceAudit{}
-	err := q.QueryRow(ctx, `
-INSERT INTO token_issuance_audit(grant_id,authorization_code_id,authorization_code_hash,subject_ref,client_id,resource_uri,audience,scopes,jti_hash,kid,issued_at,expires_at,outcome,request_correlation_hash)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+	var signingKeyID uuid.UUID
+	err := q.QueryRow(ctx, `SELECT id FROM signing_keys WHERE kid=$1`, in.Kid).Scan(&signingKeyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, wrapf("create token issuance audit", fmt.Errorf("%w: signing key kid %q", domain.ErrNotFound, in.Kid))
+	}
+	if err != nil {
+		return nil, wrapf("create token issuance audit", err)
+	}
+	err = q.QueryRow(ctx, `
+INSERT INTO token_issuance_audit(grant_id,authorization_code_id,authorization_code_hash,subject_ref,client_id,resource_uri,audience,scopes,jti_hash,kid,signing_key_id,issued_at,expires_at,outcome,request_correlation_hash)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 RETURNING id,grant_id,authorization_code_id,authorization_code_hash,subject_ref,client_id,resource_uri,audience,scopes,jti_hash,kid,issued_at,expires_at,outcome,request_correlation_hash`,
 		in.GrantID, in.AuthorizationCodeID, in.AuthorizationCodeHash, in.SubjectRef, in.ClientID,
-		in.ResourceURI, in.Audience, in.Scopes, in.JTIHash, in.Kid, in.IssuedAt, in.ExpiresAt, in.Outcome, in.RequestCorrelationHash,
+		in.ResourceURI, in.Audience, in.Scopes, in.JTIHash, in.Kid, signingKeyID, in.IssuedAt, in.ExpiresAt, in.Outcome, in.RequestCorrelationHash,
 	).Scan(&out.ID, &out.GrantID, &out.AuthorizationCodeID, &out.AuthorizationCodeHash, &out.SubjectRef, &out.ClientID,
 		&out.ResourceURI, &out.Audience, &out.Scopes, &out.JTIHash, &out.Kid, &out.IssuedAt, &out.ExpiresAt, &out.Outcome, &out.RequestCorrelationHash)
 	return out, wrapf("create token issuance audit", err)

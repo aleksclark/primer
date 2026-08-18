@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -399,4 +400,18 @@ func mustJSON(v any) []byte {
 		panic(err)
 	}
 	return b
+}
+
+func TestAdapterFormattingDoesNotExposeSDKInternals(t *testing.T) {
+	client, err := stytch.New(adapterConfig(""))
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	baseline := fmt.Sprintf("%v", client)
+	for _, format := range []string{"%v", "%+v", "%#v", "%s", "%d", "%x"} {
+		got := fmt.Sprintf(format, client)
+		assert.Equal(t, baseline, got, "format %s", format)
+		assert.NotContains(t, got, "secret-value")
+		assert.NotContains(t, got, "b2bstytchapi")
+	}
 }

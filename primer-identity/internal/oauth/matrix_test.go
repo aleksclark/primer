@@ -31,6 +31,7 @@ import (
 	"github.com/aleksclark/primer/identity/internal/repo"
 	"github.com/aleksclark/primer/identity/internal/secrethash"
 	"github.com/aleksclark/primer/identity/internal/testutil"
+	"github.com/aleksclark/primer/identity/internal/testutil/factory"
 	"github.com/aleksclark/primer/identity/internal/token"
 )
 
@@ -145,6 +146,67 @@ func TestPrivateKeyJWTExchangeAndReplayDenied(t *testing.T) {
 	}, oauth.ClientAuth{Method: oauth.AuthPrivateKeyJWT, ClientID: fx2.client.ClientID, Assertion: assertion})
 	require.Error(t, err)
 	assert.Equal(t, oauth.ErrorInvalidClient, oauth.ErrorCodeOf(err))
+}
+
+func TestPrivateKeyJWTPostExpSkewRecordsRetentionAndDeniesReplay(t *testing.T) {
+	// Presentation at JWT exp+59s is still accepted by the parser. Ledger must
+	// retain through exp+AssertionClockSkew so purge-at-exp cannot open a
+	// replay window, and lifetime-edge record failures stay invalid_client.
+	iat := time.Date(2026, 8, 17, 16, 15, 0, 0, time.UTC)
+	jwtTTL := 2 * time.Minute
+	jwtExp := iat.Add(jwtTTL)
+	presentAt := jwtExp.Add(59 * time.Second)
+
+	clientMat, err := keys.Generate()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = clientMat.Destroy() })
+	fx := issuedPrivateKeyJWTCode(t, presentAt, clientMat)
+	svc := newTestService(t, fx.secrets, frozenClock{now: presentAt})
+	assertion := mintClientAssertion(t, clientMat, fx.client.ClientID, testTokenEndpoint, iat, jwtTTL)
+
+	req := oauth.ExchangeRequest{
+		GrantType: oauth.GrantAuthorizationCode, Code: fx.rawCode, ClientID: fx.client.ClientID,
+		RedirectURI: fx.redirect.RedirectURI, Resource: fx.redirect.ResourceURI, CodeVerifier: testVerifier,
+		ClientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+		ClientAssertion:     assertion,
+	}
+	resp, err := svc.Exchange(context.Background(), req, oauth.ClientAuth{
+		Method: oauth.AuthPrivateKeyJWT, ClientID: fx.client.ClientID, Assertion: assertion,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.AccessToken)
+
+	var storedExp time.Time
+	require.NoError(t, testutil.DB(t).QueryRow(context.Background(), `
+SELECT expires_at FROM oauth_client_assertion_replays
+WHERE oauth_client_id=$1 AND endpoint_kind=$2
+ORDER BY consumed_at DESC LIMIT 1`, fx.client.ID, domain.AssertionEndpointToken).Scan(&storedExp))
+	require.True(t, storedExp.Equal(jwtExp.Add(token.AssertionClockSkew)) || storedExp.After(jwtExp),
+		"retention must outlive JWT exp; got %s jwtExp %s", storedExp, jwtExp)
+	require.True(t, !storedExp.Before(jwtExp.Add(token.AssertionClockSkew)),
+		"retention must be at least exp+skew; got %s want >= %s", storedExp, jwtExp.Add(token.AssertionClockSkew))
+
+	// Purge at JWT exp must leave the ledger row (still inside skew window).
+	purged, err := svc.PurgeExpiredAssertionReplays(context.Background(), jwtExp)
+	require.NoError(t, err)
+	require.Zero(t, purged)
+
+	// Same client + same jti after purge-at-exp is still invalid_client (replay retained).
+	fx2 := issuedCodeOnClient(t, presentAt, fx)
+	_, err = svc.Exchange(context.Background(), oauth.ExchangeRequest{
+		GrantType: oauth.GrantAuthorizationCode, Code: fx2.rawCode, ClientID: fx.client.ClientID,
+		RedirectURI: fx.redirect.RedirectURI, Resource: fx.redirect.ResourceURI, CodeVerifier: testVerifier,
+		ClientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+		ClientAssertion:     assertion,
+	}, oauth.ClientAuth{Method: oauth.AuthPrivateKeyJWT, ClientID: fx.client.ClientID, Assertion: assertion})
+	require.Error(t, err)
+	assert.Equal(t, oauth.ErrorInvalidClient, oauth.ErrorCodeOf(err))
+	assert.NotEqual(t, oauth.ErrorTemporarilyUnavail, oauth.ErrorCodeOf(err))
+
+	// After retention + ε the row is purgeable.
+	purged, err = svc.PurgeExpiredAssertionReplays(context.Background(), jwtExp.Add(token.AssertionClockSkew).Add(time.Second))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, purged, int64(1))
 }
 
 func TestConcurrentCodeExchangeHasExactlyOneSuccess(t *testing.T) {
@@ -557,6 +619,60 @@ func issuedPrivateKeyJWTCode(t *testing.T, now time.Time, mat *keys.Material) is
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))
 	return issuedCustomClient(t, now, *client, nil)
+}
+
+// issuedCodeOnClient mints a fresh authorization code on an existing client/redirect
+// pair so private_key_jwt replay can reuse the same oauth_client_id.
+func issuedCodeOnClient(t *testing.T, now time.Time, base issuedFixture) issuedFixture {
+	t.Helper()
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	secrets := base.secrets
+	client := base.client
+	redirect := base.redirect
+	account := factory.Account(t, pool)
+	mapping, err := repo.CreateStytchMapping(ctx, pool, account.ID, domain.StytchPrincipal{
+		ProjectID: "proj-" + uuid.NewString()[:8], OrganizationID: "org-" + uuid.NewString()[:8], MemberID: "member-" + uuid.NewString()[:8],
+	})
+	require.NoError(t, err)
+	assoc, err := repo.CreateProviderSessionAssociation(ctx, pool, domain.ProviderSessionAssociation{
+		AccountID: account.ID, StytchMappingID: mapping.ID, Provider: "stytch_b2b",
+		ProviderProjectID: mapping.ProjectID, ProviderOrganizationID: mapping.OrganizationID,
+		ProviderMemberID: mapping.MemberID, ProviderMemberSessionID: "sess-" + uuid.NewString()[:8],
+		ProviderExpiresAt: now.Add(2 * time.Hour), Status: "active", LastValidatedAt: now,
+	})
+	require.NoError(t, err)
+	broker, err := repo.CreateBrokerTransaction(ctx, pool, domain.CreateBrokerTransactionInput{
+		OAuthClientID: client.ID, RedirectID: redirect.ID, StateHash: uniqueTestHash("state"),
+		StatePepperVersion: 1, StateSealed: []byte(strings.Repeat("x", 30)), StateKeyVersion: 1, StateLength: 1,
+		PKCEChallenge: strings.Repeat("A", 43), PKCEMethod: "S256", RequestedScopes: []string{"openid"},
+		ResourceURI: redirect.ResourceURI, Audience: redirect.Audience, BrokerCookieHash: uniqueTestHash("cookie"),
+		BrokerCookiePepperVersion: 1, CreatedAt: now, ExpiresAt: now.Add(time.Minute),
+	})
+	require.NoError(t, err)
+	grant, err := repo.CreateOAuthGrant(ctx, pool, domain.OAuthGrant{
+		AccountID: &account.ID, OAuthClientID: client.ID, ProviderSessionAssociationID: &assoc.ID,
+		ResourceURI: redirect.ResourceURI, Audience: redirect.Audience, Scopes: []string{"openid"},
+		SubjectClass: "human", Status: "active", GrantedAt: now, NotAfter: now.Add(24 * time.Hour),
+	})
+	require.NoError(t, err)
+	rawCode := "code-" + uuid.NewString()
+	codeHash, err := secrethash.Hash(secrethash.Peppers(secrets.AuthorizationCodePeppers), secrets.AuthorizationCodeActiveVersion, oauth.CodeHashContext, []byte(rawCode))
+	require.NoError(t, err)
+	sum := sha256.Sum256([]byte(testVerifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	code, err := repo.CreateAuthorizationCode(ctx, pool, domain.OAuthAuthorizationCode{
+		CodeHash: codeHash, PepperVersion: int16(secrets.AuthorizationCodeActiveVersion),
+		GrantID: grant.ID, BrokerTransactionID: broker.ID, OAuthClientID: client.ID,
+		RedirectURI: redirect.RedirectURI, ResourceURI: redirect.ResourceURI, Audience: redirect.Audience,
+		Scopes: []string{"openid"}, PKCEChallenge: challenge, PKCEMethod: "S256",
+		IssuedAt: now, ExpiresAt: now.Add(60 * time.Second),
+	})
+	require.NoError(t, err)
+	return issuedFixture{
+		client: client, redirect: redirect, account: account, grant: grant, code: code,
+		rawCode: rawCode, codeHash: codeHash, secrets: secrets, keys: base.keys,
+	}
 }
 
 func issuedCustomClient(t *testing.T, now time.Time, clientIn domain.OAuthClient, after func(*testing.T, *domain.OAuthClient)) issuedFixture {

@@ -8,7 +8,10 @@ This tree is a **separate deployable** with its own PostgreSQL database
 (`primer_identity`, goose table `identity_goose_db_version`). It does not share
 a database with the LMS (`server/`), TV, or Curriculum Studio.
 
-## Layout (I1 + I2 + IB1 + IB2 token + revoke contract)
+## Layout (I1 + I2 + IB1 + IB2 token/JWKS/revoke + hardening)
+
+**Status tip:** dual-reviewed IB2 hardening `f5d5b5b` (`impl/IB2-hardening-remed`).
+Resume: `agent_docs/plans/identity-ib2-resume.md`. Next wave: IB3/I7 BFF.
 
 ```text
 primer-identity/
@@ -21,17 +24,23 @@ primer-identity/
   cmd/openapi-gen/         # offline Huma OpenAPI 3.1 emitter (no DB/provider)
   internal/config/         # IDENTITY_* envconfig, fail-fast validation
   internal/db/             # pgx pool + embedded goose migrations
-  internal/db/migrations/  # foundation + accounts/external_identities/password
+  internal/db/migrations/  # 00001–00009 (IB1 broker + IB2 keys/grants/audit/retention)
   internal/db/SCHEMA.md    # schema notes
-  internal/domain/         # Account, ExternalIdentity, bounds, typed errors
+  internal/domain/         # Account, ExternalIdentity, OAuth bounds, typed errors
   internal/password/       # Argon2id PHC KDF (never stores plaintext)
-  internal/repo/           # Create/Get/Lock account, external identities, password
-  internal/api/            # chi+Huma /healthz /readyz /metrics + request IDs
-  internal/app/            # process bootstrap
+  internal/repo/           # accounts, broker, oauth token/assertion repos
+  internal/api/            # chi+Huma health + authorize/broker + token/revoke/JWKS/metadata
+  internal/app/            # process bootstrap (prod fail-closed without active key)
+  internal/broker/         # authorize/start/callback composition
+  internal/oauth/          # code exchange + revoke core (sign-before-commit)
+  internal/token/          # ES256 mint/verify + private_key_jwt assertion
+  internal/keys/           # signing custody + TransactionSigner
+  internal/stytch/         # official adapter + broker provider boundary
   internal/logging/        # structured JSON logs with secret redaction
   internal/testutil/       # Postgres testcontainer (primer_identity_test)
-  internal/testutil/factory/ # account/identity test builders
-  internal/testutil/e2e/   # process-level fail-fast + SIGTERM proofs
+  internal/testutil/factory/
+  internal/testutil/e2e/   # process-level token/broker proofs (credential-free)
+  internal/testutil/live/  # opt-in -tags=live_stytch test-project qualification
 ```
 
 ## Accounts and identities (I2)
@@ -141,12 +150,16 @@ go test ./... -count=1
 | --- | --- |
 | `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
 | `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
+| `make identity-live-stytch` | opt-in Stytch **test-project** provider qualification (`-tags=live_stytch`); requires `IDENTITY_LIVE_STYTCH=1`; not IB8-E10 browser/webhook |
 | `make identity-openapi` | generate IB2 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
 | `make identity-test-oauth` | IB2 oauth/keys/token/revoke packages plus process tests (including `./client`) with `-race` against real Postgres |
 | `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
 
 IB2 publishes the authorization-code token contract and RFC7009 revoke.
-Live Stytch / production provider traffic remains **BLOCKED**. `openapi.yaml`
+Full IB8-E10 browser + webhook live proof remains **BLOCKED** until IB3–IB7.
+Opt-in `make identity-live-stytch` may call the Stytch **test** API only through
+the production adapter (fail-closed negatives; optional session token happy path).
+Production/live-project credentials are refused by that harness. `openapi.yaml`
 is generated from handler signatures plus documented `POST /oauth/token` and
 `POST /oauth/revoke` form-urlencoded operations (Huma OpenAPI only; the live
 routes are registered once on chi so Huma never reads the form body). It

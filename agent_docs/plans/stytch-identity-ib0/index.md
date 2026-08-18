@@ -1,6 +1,6 @@
 # Stytch Identity IB0 — reviewed IB1–IB8 contract freeze
 
-**Status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical, 0 Important, and 0 Minor findings.** The review covered 40 docs/architecture files; links, all 58 planned E2Es, all 24 requirements, and LikeC4 topology passed. The post-merge cursor is **PROCEED to credential-free IB1 only after this review-status commit is merged to `master`**. Live Stytch remains **BLOCKED**.
+**Status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical, 0 Important, and 0 Minor findings.** This package remains the **contract authority** for IB1–IB8. Runtime status lives in [`../primer-identity-service/index.md`](../primer-identity-service/index.md) and [`../identity-ib2-resume.md`](../identity-ib2-resume.md): IB1+IB2 credential-free complete (hardening tip `f5d5b5b`); next is IB3. Full IB8-E10 browser/webhook remains **BLOCKED**.
 
 ## Outcome
 
