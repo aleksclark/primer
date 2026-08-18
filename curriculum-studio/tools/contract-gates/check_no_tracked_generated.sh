@@ -129,7 +129,15 @@ self_test() {
     "curriculum-studio/scratch.pb.go"
   )
 
-  local restore_dirs=()
+  # Use an isolated index so this self-test is safe while `go test ./...`
+  # runs package tests concurrently. The planted paths must never be visible
+  # to another package's scanner or to the caller's real index.
+  local real_index self_index
+  real_index="$(git rev-parse --git-path index)"
+  self_index="$(mktemp "${TMPDIR:-/tmp}/generated-gate-index.XXXXXX")"
+  cp -- "$real_index" "$self_index"
+  export GIT_INDEX_FILE="$self_index"
+
   cleanup() {
     local p d
     for p in "${plants[@]}"; do
@@ -151,6 +159,8 @@ self_test() {
       rmdir "$d" 2>/dev/null || true
     done
     rm -rf -- "$plant_dir"
+    unset GIT_INDEX_FILE
+    rm -f -- "$self_index"
   }
   trap cleanup EXIT
 
@@ -160,6 +170,9 @@ self_test() {
     mkdir -p "$parent"
     printf 'planted %s\n' "$p" >"$p"
     git add -f -- "$p"
+    # Keep the index entry, but remove the worktree file immediately. This
+    # prevents concurrent Go package tests from compiling planted junk.
+    rm -f -- "$p"
   done
 
   local out ec=0
