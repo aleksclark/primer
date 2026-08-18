@@ -54,6 +54,14 @@ jobs:
             primer-identity/go.mod
             server/go.sum
 
+      - name: Set up pinned Buf CLI
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: "1.72.0"
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: C4 contract validation and generated client tests
         run: |
           make -C curriculum-studio contracts-validate
