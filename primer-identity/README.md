@@ -10,8 +10,7 @@ a database with the LMS (`server/`), TV, or Curriculum Studio.
 
 ## Layout (I1 + I2 + IB1 + IB2 token/JWKS/revoke + hardening)
 
-**Status tip:** dual-reviewed IB2 hardening `0dd5faa` (local branch
-`impl/IB2-hardening-remed`); master may still be at `f31559d` until integrated.
+**Status tip:** dual-reviewed IB2 hardening `f5d5b5b` (`impl/IB2-hardening-remed`).
 Resume: `agent_docs/plans/identity-ib2-resume.md`. Next wave: IB3/I7 BFF.
 
 ```text

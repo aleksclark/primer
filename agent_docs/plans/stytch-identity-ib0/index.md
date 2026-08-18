@@ -1,6 +1,6 @@
 # Stytch Identity IB0 — reviewed IB1–IB8 contract freeze
 
-**Status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical, 0 Important, and 0 Minor findings.** This package remains the **contract authority** for IB1–IB8. Runtime status lives in [`../primer-identity-service/index.md`](../primer-identity-service/index.md) and [`../identity-ib2-resume.md`](../identity-ib2-resume.md): IB1+IB2 credential-free complete (hardening tip `0dd5faa`); next is IB3 after hardening lands on master. Full IB8-E10 browser/webhook remains **BLOCKED**.
+**Status: PASS — independently reviewed design freeze at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical, 0 Important, and 0 Minor findings.** This package remains the **contract authority** for IB1–IB8. Runtime status lives in [`../primer-identity-service/index.md`](../primer-identity-service/index.md) and [`../identity-ib2-resume.md`](../identity-ib2-resume.md): IB1+IB2 credential-free complete (hardening tip `f5d5b5b`); next is IB3. Full IB8-E10 browser/webhook remains **BLOCKED**.
 
 ## Outcome
 

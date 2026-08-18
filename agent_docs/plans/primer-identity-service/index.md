@@ -1,6 +1,6 @@
 # Primer Identity — Stytch-backed broker delivery plan
 
-**IB2/I6 status: COMPLETE — dual-reviewed credential-free tip `0dd5faac34da7afc19a11c3e463d7d28eef2b538` (`fix(identity): close IB2 grant metadata and assertion retention`), plus opt-in live test-project harness at `bee0a5c99b364ad9c2bf3ceddc73abdd28b44960`.** Spec PASS 0C/0I (1 minor); quality/security APPROVED 0C/0I. Branch `impl/IB2-hardening-remed` (local, unpushed). Master still has the earlier reviewed tip `f31559db92445826aabd98bbc0903a22d80d6e80` (PR #24). The reviewed IB0 design freeze remains the contract authority. Full IB8-E10 browser + webhook live proof remains **BLOCKED**.
+**IB2/I6 status: COMPLETE — dual-reviewed credential-free tip `f5d5b5b372dc6988a65d082f948b96e7de9f432b` (`fix(identity): close IB2 grant metadata and assertion retention`), plus opt-in live test-project harness at `e8ecd183b9354bcf9b200f2c1ace81ee1bdb47b5`.** Spec PASS 0C/0I (1 minor); quality/security APPROVED 0C/0I. Integrated via `impl/IB2-hardening-remed` (supersedes master tip `f31559db92445826aabd98bbc0903a22d80d6e80` from PR #24). The reviewed IB0 design freeze remains the contract authority. Full IB8-E10 browser + webhook live proof remains **BLOCKED**.
 
 ## Outcome and current state
 
@@ -10,7 +10,7 @@ At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Sty
 
 **Resume handoff:** [`../identity-ib2-resume.md`](../identity-ib2-resume.md) — integrate hardening to master first, then **IB3 / I7**.
 
-**Post-merge roadmap cursor:** **IB3 / I7 product BFF cookie, CSRF, and PKCE contract**, only after the dual-reviewed IB2 hardening tip is on `master`. Live Stytch browser/webhook proof remains **BLOCKED**. This status does not claim production BFF or MCP authorization.
+**Post-merge roadmap cursor:** **IB3 / I7 product BFF cookie, CSRF, and PKCE contract**. Live Stytch browser/webhook proof remains **BLOCKED**. This status does not claim production BFF or MCP authorization.
 
 ## Non-negotiable boundaries
 
@@ -33,7 +33,7 @@ At `87d5c215134825edb410266a62c15534e1e9ecea`, IA library foundation exists: Sty
 | [03: IA-R / residual remediation and review](./phase-03-keys-jwks-access-tokens.md) | Close the blocking foundation residuals before composition. **Status:** reviewed at `8623ee639bd64d40f819d3079c52ed567b65b27b`: specification PASS: 0 Critical/Important; quality/security APPROVED: 0 Critical/Important; credential-free/library foundation complete; **not** composed production authentication; live Stytch still **BLOCKED**. | Fresh quality and specification approval. |
 | [04: IB0 / reviewed broker, webhook, and provisioning design freeze](./phase-04-oauth-clients-and-op.md) | Independently reviewed docs/architecture **PASS** at the recorded design tip; no runtime implementation. | Credential-free IB1 may start only after the review-status commit reaches `master`; [`../stytch-identity-ib0/`](../stytch-identity-ib0/). |
 | [05: IB1 / compose validated Stytch broker exchange](./phase-05-sessions-cookies-login-csrf.md) | **Complete and reviewed** at code tip `59a3998208ba9ef87dfe0bf4a913eedab3753ef8`: credential-free callback/state/exact unpaginated `Sessions.Get` adapter/mapping/code-issuance composition with 1 MiB/256 bounds and account-bound associations; public token consume/JWT/JWKS waits for IB2. | Reviewed IB0 design freeze; post-merge status gate. |
-| [06: IB2 / Primer ES256 JWT and JWKS bridge](./phase-06-google-rp-loopback.md) | **Complete and dual-reviewed** at hardening tip `0dd5faa` (master still at `f31559d` until integrated). | IB1. |
+| [06: IB2 / Primer ES256 JWT and JWKS bridge](./phase-06-google-rp-loopback.md) | **Complete and dual-reviewed** at hardening tip `f5d5b5b` (supersedes master `f31559d`). | IB1. |
 | [07: IB3 / product BFF cookie, CSRF, and PKCE contract](./phase-07-product-bff-contract.md) | Give each product a safe broker-facing browser contract. **Next after IB2 hardening lands on master.** | IB2 and IB0 contract. |
 | [08: IB4 / signed webhook and two-plane revocation](./phase-08-service-principals.md) | Make provider invalidation and local grants durable and replay safe, with four reason-bound collision classes and one restart-safe alert. | IB1–IB3; hard gate for production BFF/MCP. |
 | [09: IB5 / Primer-owned service principals](./phase-09-refresh-revoke-logout.md) | Add bounded local machine credentials. | IB2. |

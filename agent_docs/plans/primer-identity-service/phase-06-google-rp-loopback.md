@@ -1,6 +1,6 @@
 # 06: IB2 / Primer ES256 JWT and JWKS bridge
 
-**Status: COMPLETE — dual-reviewed credential-free IB2 hardening tip `0dd5faac34da7afc19a11c3e463d7d28eef2b538` (`fix(identity): close IB2 grant metadata and assertion retention`). Spec PASS 0C/0I (1 minor); quality/security APPROVED 0C/0I. Master still has earlier reviewed tip `f31559db92445826aabd98bbc0903a22d80d6e80` until hardening is integrated. Opt-in test-project adapter harness at `bee0a5c`. Full IB8-E10 browser + webhook remains **BLOCKED**.**
+**Status: COMPLETE — dual-reviewed credential-free IB2 hardening tip `f5d5b5b372dc6988a65d082f948b96e7de9f432b` (`fix(identity): close IB2 grant metadata and assertion retention`). Spec PASS 0C/0I (1 minor); quality/security APPROVED 0C/0I. Supersedes earlier master tip `f31559db92445826aabd98bbc0903a22d80d6e80` (PR #24). Opt-in test-project adapter harness at `e8ecd18`. Full IB8-E10 browser + webhook remains **BLOCKED**.**
 
 ## Goal
 
