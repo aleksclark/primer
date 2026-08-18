@@ -101,6 +101,14 @@ dependencies, acceptance commands, review protocol, and stop gates.
 | Primer Identity token broker, JWKS, Stytch B2B validation, BFF contract, service principals, LMS/TV migration S0–S7, MCP client/resource registration support | Identity | `I1`–`I14` | Studio product authz roles |
 | Streamable HTTP MCP `/mcp` adapter + tools | Platform | `S19` | Token mint; OpenAPI/proto authorship |
 
+**Database track cursor:** **D8 complete** (transactional plan graph,
+publish/supersede consistency, serialized prerequisite-cycle protection,
+validation reports, learner/class snapshots, concurrent run idempotency, and
+fenced workflow checkpoints; merged at `973c8a4`). The next database wave is
+**D9 — materialized items lifecycle**. This cursor covers only the
+Database-owned rows below; the Identity, Platform, and Contracts cursors above
+remain independent.
+
 Detailed BDD/E2E remain in the four plan directories. This roadmap only sequences and assigns.
 
 ---

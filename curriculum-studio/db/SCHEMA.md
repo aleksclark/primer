@@ -149,7 +149,7 @@ closed sets below are the contract:
 | --- | --- |
 | `learner_profiles` | Generic learner or class profile |
 | `materialization_runs` | Production run + complete input snapshot + fingerprint |
-| `workflow_stages` | Resumable generation stages |
+| `workflow_stages` | Resumable generation stages with DB lease/fencing state |
 | `workflow_attempts` | Per-stage attempts |
 | `materialized_items` | Generated lessons / assessments / guides |
 | `materialized_item_edits` | Author edit history |
@@ -166,7 +166,7 @@ closed sets below are the contract:
 | --- | --- |
 | Separate database / no LMS FKs | Dedicated `curriculum_studio` schema; no objects outside it; opaque text refs only |
 | Published plan immutability | `plan_revisions` trigger blocks UPDATE/DELETE except `published → superseded`; child-table triggers block INSERT/UPDATE/DELETE |
-| Acyclic outcome prerequisites | BEFORE INSERT/UPDATE recursive walk on `outcome_prerequisites` |
+| Acyclic outcome prerequisites | BEFORE INSERT/UPDATE recursive walk on `outcome_prerequisites`, serialized on both endpoint UUIDs with transaction-scoped advisory locks |
 | Acyclic catalog prerequisites | BEFORE INSERT/UPDATE recursive walk on `catalog_standard_prerequisites`, serialized with transaction-scoped advisory locks |
 | Catalog edge workspace compatibility | Crosswalk and prerequisite triggers reject two non-global endpoint frameworks from different workspaces; global endpoints remain compatible |
 | Catalog ownership reassignment | Framework workspace ownership and standard framework assignment are immutable after creation |
@@ -179,7 +179,7 @@ closed sets below are the contract:
 | Referential integrity | Foreign keys throughout; `ON DELETE RESTRICT` on published-adjacent catalog/resource refs |
 | Idempotent webhook delivery | `UNIQUE (endpoint_id, event_id)` and `UNIQUE (idempotency_key)` |
 | Inbound idempotency | `UNIQUE (workspace_id, scope, key)` on `idempotency_keys` |
-| Complete materialization input | `input_snapshot` NOT NULL object + `input_fingerprint` NOT NULL; index on `(plan_revision_id, input_fingerprint)` |
+| Complete materialization input | `input_snapshot` NOT NULL object + `input_fingerprint` NOT NULL; unique index on `(plan_revision_id, input_fingerprint)` |
 | Assessment publication requires rubric/key | Trigger on `materialized_items` when `kind=assessment` and `status=published`; `assessment_supports` kind check |
 | Memberships are not credentials | No password/token/hash columns; only `subject_ref` + role |
 | Generated items trace to a plan node | `plan_revision_id` NOT NULL + optional `unit_id` / `project_id` / `outcome_id`; run/revision match trigger |
@@ -212,3 +212,6 @@ Goose SQL, numbered:
 5. `00005_catalog_scope_and_resource_policy.sql`
 6. `00006_catalog_edge_scope_and_resource_updates.sql`
 7. `00007_catalog_ownership_immutability.sql`
+8. `00008_outcome_prerequisite_concurrency.sql`
+9. `00009_materialization_fingerprint_unique.sql`
+10. `00010_workflow_leases.sql`

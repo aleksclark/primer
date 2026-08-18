@@ -33,6 +33,35 @@ func (f *Factory) Ping(ctx context.Context) error {
 	return nil
 }
 
+// Curricula returns the workspace-scoped curriculum repository.
+func (f *Factory) Curricula() *CurriculumRepo { return NewCurriculumRepo(f.Q) }
+
+// PlanRevisions returns the revision lifecycle repository.
+func (f *Factory) PlanRevisions() *PlanRevisionRepo { return NewPlanRevisionRepo(f.Q) }
+
+// PlanGraph returns the revision-scoped graph write/read facade.
+func (f *Factory) PlanGraph() *PlanGraphRepo { return NewPlanGraphRepo(f.Q) }
+
+// ValidationReports returns the durable validation output repository.
+func (f *Factory) ValidationReports() *ValidationReportRepo { return NewValidationReportRepo(f.Q) }
+
+// LearnerProfiles returns the workspace-scoped profile repository.
+func (f *Factory) LearnerProfiles() *LearnerProfileRepo { return NewLearnerProfileRepo(f.Q) }
+
+// MaterializationRuns returns the durable run repository.
+func (f *Factory) MaterializationRuns() *MaterializationRunRepo {
+	return NewMaterializationRunRepo(f.Q)
+}
+
+// Workflow returns the durable stage/attempt checkpoint repository.
+func (f *Factory) Workflow() *WorkflowRepo { return NewWorkflowRepo(f.Q) }
+
+// MaterializedItems returns the generated-item lifecycle repository.
+func (f *Factory) MaterializedItems() *MaterializedItemRepo { return NewMaterializedItemRepo(f.Q) }
+
+// AssessmentSupports returns assessment support-link persistence.
+func (f *Factory) AssessmentSupports() *AssessmentSupportRepo { return NewAssessmentSupportRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}

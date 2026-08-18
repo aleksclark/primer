@@ -182,6 +182,9 @@ def test_migrations_are_goose_paired():
         "00005_catalog_scope_and_resource_policy.sql",
         "00006_catalog_edge_scope_and_resource_updates.sql",
         "00007_catalog_ownership_immutability.sql",
+        "00008_outcome_prerequisite_concurrency.sql",
+        "00009_materialization_fingerprint_unique.sql",
+        "00010_workflow_leases.sql",
     ]
     for path in MIGRATIONS:
         text = path.read_text()
