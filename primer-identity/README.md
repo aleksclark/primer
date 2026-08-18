@@ -141,12 +141,16 @@ go test ./... -count=1
 | --- | --- |
 | `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
 | `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
+| `make identity-live-stytch` | opt-in Stytch **test-project** provider qualification (`-tags=live_stytch`); requires `IDENTITY_LIVE_STYTCH=1`; not IB8-E10 browser/webhook |
 | `make identity-openapi` | generate IB2 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
 | `make identity-test-oauth` | IB2 oauth/keys/token/revoke packages plus process tests (including `./client`) with `-race` against real Postgres |
 | `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
 
 IB2 publishes the authorization-code token contract and RFC7009 revoke.
-Live Stytch / production provider traffic remains **BLOCKED**. `openapi.yaml`
+Full IB8-E10 browser + webhook live proof remains **BLOCKED** until IB3–IB7.
+Opt-in `make identity-live-stytch` may call the Stytch **test** API only through
+the production adapter (fail-closed negatives; optional session token happy path).
+Production/live-project credentials are refused by that harness. `openapi.yaml`
 is generated from handler signatures plus documented `POST /oauth/token` and
 `POST /oauth/revoke` form-urlencoded operations (Huma OpenAPI only; the live
 routes are registered once on chi so Huma never reads the form body). It
