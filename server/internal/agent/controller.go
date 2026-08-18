@@ -26,12 +26,13 @@ const (
 // RunSnapshot is safe to expose to an API caller. Run records are process-local
 // and are not a durable control plane.
 type RunSnapshot struct {
-	ID        string    `json:"runId"`
-	RootRunID string    `json:"rootRunId"`
-	State     RunState  `json:"state"`
-	Error     string    `json:"error,omitempty"`
-	StartedAt time.Time `json:"startedAt"`
-	EndedAt   time.Time `json:"endedAt,omitempty"`
+	ID         string    `json:"runId"`
+	RootRunID  string    `json:"rootRunId"`
+	State      RunState  `json:"state"`
+	ErrorClass string    `json:"errorClass,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	StartedAt  time.Time `json:"startedAt"`
+	EndedAt    time.Time `json:"endedAt,omitempty"`
 }
 
 // Controller owns runtime contexts and detached run lifetimes. Request
@@ -123,7 +124,7 @@ func (c *Controller) Start(text string) (RunSnapshot, error) {
 	c.mu.Unlock()
 
 	go func() {
-		run.setState(RunRunning, "")
+		run.setState(RunRunning, "", "")
 		var opts []mafagent.Option
 		if c.buildTool != nil {
 			if child := c.buildTool(handle.Context(), runner, bridge); child != nil {
@@ -145,7 +146,7 @@ func (c *Controller) Start(text string) (RunSnapshot, error) {
 				err = context.Canceled
 			}
 		}
-		run.setState(state, errorText(err))
+		run.setState(state, publicErrorClass(err), publicErrorText(err))
 		cancel()
 		bridge.Close()
 		close(run.done)
@@ -153,11 +154,32 @@ func (c *Controller) Start(text string) (RunSnapshot, error) {
 	return run.snapshot(), nil
 }
 
-func errorText(err error) string {
+func publicErrorClass(err error) string {
 	if err == nil {
 		return ""
 	}
-	return err.Error()
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "deadline_exceeded"
+	}
+	return "provider_error"
+}
+
+// publicErrorText deliberately does not expose provider, prompt, tool, or
+// credential details in the HTTP-visible run record.
+func publicErrorText(err error) string {
+	switch publicErrorClass(err) {
+	case "canceled":
+		return "agent run canceled"
+	case "deadline_exceeded":
+		return "agent run exceeded its time budget"
+	case "provider_error":
+		return "agent provider failed"
+	default:
+		return ""
+	}
 }
 
 // Get returns a process-local run snapshot.
@@ -267,11 +289,12 @@ func (c *Controller) retainLocked() {
 	}
 }
 
-func (r *controlledRun) setState(state RunState, errText string) {
+func (r *controlledRun) setState(state RunState, errorClass, errText string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state = state
 	r.status.State = state
+	r.status.ErrorClass = errorClass
 	r.status.Error = errText
 	if isTerminal(state) {
 		r.status.EndedAt = time.Now().UTC()

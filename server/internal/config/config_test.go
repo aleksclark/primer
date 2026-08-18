@@ -13,6 +13,8 @@ func TestLoadDefaults(t *testing.T) {
 	assert.NotEmpty(t, cfg.DatabaseURL)
 	assert.Equal(t, "development", cfg.Env)
 	assert.Equal(t, 8080, cfg.Port)
+	assert.False(t, cfg.AgentRuntimeEnabled)
+	assert.Equal(t, "2m0s", cfg.AgentRuntimeRunBudget.String())
 }
 
 func TestLoadFromEnv(t *testing.T) {

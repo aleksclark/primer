@@ -18,7 +18,7 @@ IDENTITY_COVER_MIN := 80
 	student-stub student-harness \
 	workstation-package workstation-check update-student-vendor-hash \
 	investor-web investor-web-dev investor-web-test investor-web-ci \
-	foundation-check \
+	foundation-check agent-runtime-check \
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
@@ -247,6 +247,10 @@ update-student-vendor-hash:
 ## Mechanical F0 foundation check (module paths, go.work, Make names, no coupling).
 foundation-check:
 	./scripts/check-f0-foundations.sh
+
+## Verify the pinned public-preview MAF production boundary.
+agent-runtime-check:
+	./scripts/check-maf-runtime.sh
 
 ## Studio module unit/package tests (minimal F0 root; no business coverage claim).
 studio-test:
