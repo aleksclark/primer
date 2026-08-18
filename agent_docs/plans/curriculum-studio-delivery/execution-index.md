@@ -7,9 +7,8 @@ file as the wave cursor. Detailed BDD scenarios and E2E IDs live in the four
 source plans; this file maps them 1:N to master waves.
 
 **Current status:** IB2/I6 dual-reviewed at `f5d5b5b` on `impl/IB2-hardening-remed`; coverage 82.4% (≥80%); parent gates green; opt-in `make identity-live-stytch` green against Stytch test project (not IB8-E10). Resume handoff: [`../identity-ib2-resume.md`](../identity-ib2-resume.md).
-**Studio platform status:** S1, S2, and S3 are complete on master/this delivery branch; S2 landed in PR #29 (`79ab153`) and S3 is being rebased for PR #33. Residual production-auth promotion and live BFF work remain gated on I8 and applicable I12/I7 milestones; this is not a production BFF claim.
-**Contracts status:** C1–C4 complete; C4 landed in PR #28 at `db587ed`. **Contracts cursor: C5** (gRPC integration service harness).
-**Post-merge cursor:** **PROCEED to IB3 / I7 BFF cookie/CSRF/PKCE.** **Studio platform cursor:** **PROCEED to S4 Standards Catalog API** (S5 may proceed in parallel after S3 integration).
+**Post-merge cursor:** **PROCEED to IB3 / I7 BFF cookie/CSRF/PKCE.** Do not claim production BFF or MCP authorization from this status.
+**Contracts status:** C1–C5 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`. **Contracts cursor: C6** (Huma boundary DTOs and offline OpenAPI emission).
 
 **Legend**
 
@@ -134,8 +133,8 @@ Focused package commands from detailed phases are **required in addition** when 
 | **C2** | Closed-enum parity gate | Contracts | [phase-02](../curriculum-studio-contracts/phase-02-enum-parity.md) | C1 | PG1 | `impl/C2-enum-parity` | parity script RED on drift | — |
 | **C3** | Hard-type qualification spikes | Contracts | [phase-03](../curriculum-studio-contracts/phase-03-qualification-spikes.md) | C1 | PG1 | `impl/C3-spikes` | PROCEED/STOP recorded | **HARD** if STOP |
 | **C4** | Protobuf buf generate + gRPC client pkgs — **complete** (PR #28, `db587ed`) | Contracts | [phase-04](../curriculum-studio-contracts/phase-04-protobuf-generation.md) | C1–C3 | PG3 | `impl/C4-protobuf-gen` | clean-tree generate | parallel C6 after C3 |
-| **C5** | gRPC integration service harness — **current** | Contracts | [phase-05](../curriculum-studio-contracts/phase-05-grpc-integration-harness.md) | C4 | PG4 | `impl/C5-grpc-harness` | generated client E2E | stubs only OK |
-| **C6** | Huma boundary DTOs + offline OpenAPI emission | Contracts | [phase-06](../curriculum-studio-contracts/phase-06-huma-openapi-emission.md) | C2–C3; needs S1 handler host hooks | PG3 / after S1 | `impl/C6-huma-emit` | openapi-gen offline | may stub handlers |
+| **C5** | gRPC integration service harness — **complete** (PR #31, `b35164d`) | Contracts | [phase-05](../curriculum-studio-contracts/phase-05-grpc-integration-harness.md) | C4 | PG4 | `impl/C5-grpc-harness` | generated client E2E | stubs only OK |
+| **C6** | Huma boundary DTOs + offline OpenAPI emission — **current** | Contracts | [phase-06](../curriculum-studio-contracts/phase-06-huma-openapi-emission.md) | C2–C3; needs S1 handler host hooks | PG3 / after S1 | `impl/C6-huma-emit` | openapi-gen offline | may stub handlers |
 | **C7** | OpenAPI baseline handoff + REST clients | Contracts | [phase-07](../curriculum-studio-contracts/phase-07-openapi-handoff-and-rest-clients.md) | C6 | PG5d | `impl/C7-openapi-clients` | TS/Go clients gen | stop dual SoT |
 | **C8** | Auth/errors/idempotency/pagination semantics | Contracts | [phase-08](../curriculum-studio-contracts/phase-08-auth-errors-idempotency-pagination.md) | C5, C7 | PG6c | `impl/C8-auth-errors` | REST+gRPC semantics | X-Service-Token alias only |
 | **C9** | Events + webhook envelope conformance | Contracts | [phase-09](../curriculum-studio-contracts/phase-09-events-webhooks.md) | C5, C8 | PG7c | `impl/C9-events` | envelope tests | — |

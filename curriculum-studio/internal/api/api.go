@@ -79,12 +79,22 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	cfg := huma.DefaultConfig("Curriculum Studio API", "0.1.0")
 	cfg.Info.Description = "Curriculum Studio service: health, readiness, and (later) authoring APIs."
 	cfg.Servers = []*huma.Server{{URL: "/"}}
+	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"bearerAuth": {
+			Type:         "http",
+			Scheme:       "bearer",
+			BearerFormat: "JWT",
+			Description:  "Primer Identity JWT with aud=curriculum-studio.",
+		},
+	}
 
 	// Mount Huma under /studio/v1 for all authoring/system routes.
 	humaAPI := humachi.New(router, cfg)
 	// Register at absolute paths with the version prefix so OpenAPI and
 	// handlers share /studio/v1/*.
 	s.RegisterRoutes(humaAPI)
+	registerAuthoringRoutes(humaAPI)
+	registerEnumComponents(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)

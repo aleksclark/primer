@@ -38,7 +38,7 @@ help:
 	@echo "  contracts-ownership     ownership + layout scan (C1)"
 	@echo "  contracts-buf-generate  buf generate via local pinned plugins (C4)"
 	@echo "  clients-go-grpc-build   generate stubs then go test clients/go-grpc (C4)"
-	@echo "  contracts-openapi-emit  openapi-gen offline emit (C6)"
+	@echo "  contracts-openapi-emit  openapi-gen offline emit to contracts/.tmp (C6)"
 	@echo "  clients-generate        fan-out client generation (C4/C7)"
 	@echo "  contracts-parity        closed-enum parity gate (C2)"
 	@echo "  contracts-gates         policy gates incl. no-tracked-gen (C1/C10)"
@@ -100,8 +100,9 @@ clients-go-grpc-build: contracts-buf-generate
 
 # Filled in C6 — keep name stable.
 contracts-openapi-emit:
-	@echo "TODO(C6): run cmd/openapi-gen offline emitter" >&2
-	@exit 1
+	mkdir -p "$(CONTRACTS)/.tmp"
+	go run ./cmd/openapi-gen -out "$(CONTRACTS)/.tmp/openapi.emitted.yaml"
+	python3 -m openapi_spec_validator "$(CONTRACTS)/.tmp/openapi.emitted.yaml"
 
 # C4 fills go-grpc generate; C7 fills REST clients.
 clients-generate: contracts-buf-generate
