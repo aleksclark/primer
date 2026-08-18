@@ -9,12 +9,12 @@ checkpointing, materialized-item edit/lock/supersession/provenance, exports and
 object refs, transactional outbox/webhook leases/idempotency, and
 audit/retention/backup/restore with observability and operational gates.
 
-**Database track cursor:** **D9 complete** (materialized item provenance,
-lock/unlock, edit history, supersession, and assessment-support publication
-rules; included in merge `8e2c381`). The next wave is **D10 — exports and
-object refs**. D1–D9 evidence is present on this branch with real-Postgres
-repository, migration, and race tests; the full-module generated gRPC client
-gate is green on the merged tip.
+**Database track cursor:** **D11 complete** (export refs, transactional
+publish outbox events, webhook delivery leases, and inbound idempotency;
+implemented through `b8bac62`). The next wave is **D12 — audit, retention,
+backup, and observability**. D1–D11 evidence is present on this branch with
+real-Postgres repository, migration, and race tests; the full-module generated
+gRPC client gate is green on the merged tip.
 
 **Branch / base:** `planning/curriculum-studio-plan-db` @
 `66449725337165c2ef00f7c269633696313e0be2`
@@ -49,15 +49,13 @@ gate is green on the merged tip.
 
 | Item | State |
 | --- | --- |
-| Goose migrations 00001–00007 | The initial 00001–00004 history is frozen; D4 added forward-only 00005–00007 catalog/resource policy migrations. Studio owns the migrator and checksum policy. |
-| Invariants | Catalog scope, ownership, resource policy, and catalog-prerequisite invariants are enforced in SQL and exercised through D4 repositories. Plan-graph invariants still need repository/concurrency coverage in D5. |
-| Python schema suite | Proves SQL invariants against real Postgres; does **not** prove plan repositories, leases, outbox workers, or backup drills |
+| Goose migrations 00001–00011 | The initial 00001–00004 history is frozen; D4–D11 added forward-only policy, uniqueness, lease, and delivery migrations. Studio owns the migrator and checksum policy. |
+| Invariants | Catalog, plan graph, materialization, item lifecycle, and delivery lease invariants are enforced in SQL and exercised through D4–D11 repositories. Audit/ops gates remain in D12. |
+| Python schema suite | Proves SQL invariants against real Postgres; does **not** prove audit retention, backup drills, or operational metrics |
 
 ### Missing (this plan owns)
 
-- Export metadata + object-store refs (bytes out of Postgres)
-- Transactional outbox, webhook delivery leases, inbound idempotency keys
-- Audit trail, retention, backup/restore/PITR operational gates, metrics/tracing
+- Audit trail, retention, backup/restore drill, and persistence observability
 
 ---
 
