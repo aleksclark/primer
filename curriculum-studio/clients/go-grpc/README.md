@@ -34,10 +34,10 @@ TS gRPC is deferred (C3 qualified Go + openapi-typescript only).
 ## Façade
 
 ```go
+unary, stream := grpcclient.WithBearerToken(token)
 conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()),
     grpc.WithUnaryInterceptor(unary), grpc.WithStreamInterceptor(stream))
 client := grpcclient.NewClient(conn, grpcclient.WithTimeout(5*time.Second))
-unary, stream := grpcclient.WithBearerToken(token)
 ```
 
 `NewClient` wraps generated RPCs. `WithBearerToken` is a dial-option helper

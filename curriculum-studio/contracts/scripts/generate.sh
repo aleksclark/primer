@@ -16,6 +16,13 @@ fail() {
 }
 
 command -v buf >/dev/null || fail "buf is required"
+EXPECTED_BUF_MAJOR_MINOR="1.72"
+buf_version=""
+if ! buf_version="$(buf --version 2>&1 | tr -d '[:space:]')"; then
+  fail "unable to determine buf CLI version"
+fi
+[[ "$buf_version" =~ ^${EXPECTED_BUF_MAJOR_MINOR}\.[0-9]+$ ]] || \
+  fail "buf CLI version '$buf_version' not in ${EXPECTED_BUF_MAJOR_MINOR}.x (pinned generation requires Buf 1.72.x)"
 [[ -f "$ROOT/buf.gen.yaml" ]] || fail "missing buf.gen.yaml"
 [[ -f "$BOOTSTRAP" ]] || fail "missing bootstrap_local_plugins.sh"
 

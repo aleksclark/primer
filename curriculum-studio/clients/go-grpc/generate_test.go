@@ -88,6 +88,25 @@ func TestP4S1GenerateScriptUsesLocalPinnedPlugins(t *testing.T) {
 	}
 }
 
+func TestP4S1GenerateRejectsUnpinnedBuf(t *testing.T) {
+	tmp := t.TempDir()
+	fakeBuf := filepath.Join(tmp, "buf")
+	if err := os.WriteFile(fakeBuf, []byte("#!/bin/sh\necho 1.71.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("bash", filepath.Join(contractsRoot(t), "scripts", "generate.sh"))
+	cmd.Dir = contractsRoot(t)
+	cmd.Env = append(os.Environ(), "PATH="+tmp+":"+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("generate.sh accepted an unpinned Buf CLI:\n%s", out)
+	}
+	if !strings.Contains(string(out), "not in 1.72.x") {
+		t.Fatalf("missing pinned Buf rejection:\n%s", out)
+	}
+}
+
 func TestP4S3GenerateTwiceDeterministic(t *testing.T) {
 	root := contractsRoot(t)
 	out, err := runIn(t, root, "./scripts/generate.sh", "--twice")

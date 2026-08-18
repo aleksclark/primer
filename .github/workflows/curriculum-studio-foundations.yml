@@ -16,6 +16,8 @@ on:
       - "scripts/probe-module-cover-gates.sh"
       - "curriculum-studio/go.mod"
       - "curriculum-studio/**/*.go"
+      - "curriculum-studio/contracts/**"
+      - "curriculum-studio/clients/**"
       - "primer-identity/go.mod"
       - "primer-identity/**/*.go"
       - ".github/workflows/curriculum-studio-foundations.yml"
@@ -28,6 +30,8 @@ on:
       - "scripts/probe-module-cover-gates.sh"
       - "curriculum-studio/go.mod"
       - "curriculum-studio/**/*.go"
+      - "curriculum-studio/contracts/**"
+      - "curriculum-studio/clients/**"
       - "primer-identity/go.mod"
       - "primer-identity/**/*.go"
       - ".github/workflows/curriculum-studio-foundations.yml"
@@ -49,6 +53,13 @@ jobs:
             curriculum-studio/go.mod
             primer-identity/go.mod
             server/go.sum
+
+      - name: C4 contract validation and generated client tests
+        run: |
+          make -C curriculum-studio contracts-validate
+          make -C curriculum-studio clients-go-grpc-build
+          bash curriculum-studio/tools/contract-gates/check_no_tracked_generated.sh
+          git diff --check
 
       - name: F0 foundation check
         run: make foundation-check
