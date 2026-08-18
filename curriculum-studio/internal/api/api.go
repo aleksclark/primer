@@ -90,11 +90,15 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 
 	// Mount Huma under /studio/v1 for all authoring/system routes.
 	humaAPI := humachi.New(router, cfg)
+	// Register the contract baseline first; implemented platform handlers then
+	// replace fixture-only operations as each platform wave lands. This keeps
+	// C6's offline DTO/OpenAPI surface while ensuring runtime routes use the
+	// real S3+ handlers rather than empty fixture responses.
+	registerAuthoringRoutes(humaAPI)
+	registerEnumComponents(humaAPI)
 	// Register at absolute paths with the version prefix so OpenAPI and
 	// handlers share /studio/v1/*.
 	s.RegisterRoutes(humaAPI)
-	registerAuthoringRoutes(humaAPI)
-	registerEnumComponents(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
