@@ -58,6 +58,11 @@ func (f *Factory) IntegrationIdentities() *IntegrationIdentityRepo {
 	return NewIntegrationIdentityRepo(f.Q)
 }
 
+// Audits returns the audit-event repository.
+func (f *Factory) Audits() *AuditRepo {
+	return NewAuditRepo(f.Q)
+}
+
 // HealthRepo exposes readiness probes used by later service wiring.
 type HealthRepo struct {
 	Q Querier

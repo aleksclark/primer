@@ -238,7 +238,7 @@ func TestValidatePortZeroAllowed(t *testing.T) {
 
 func TestValidateRejectsNegativePort(t *testing.T) {
 	cfg := &config.Config{
-		DatabaseURL:           "postgres://studio:x@localhost:5432/curriculum_studio?sslmode=disable",
+		DatabaseURL:           "postgres://studio:***@localhost:5432/curriculum_studio?sslmode=disable",
 		Port:                  -1,
 		Env:                   "test",
 		ShutdownTimeout:       time.Second,
@@ -249,4 +249,101 @@ func TestValidateRejectsNegativePort(t *testing.T) {
 		HTTPMaxBodyBytes:      1,
 	}
 	require.Error(t, cfg.Validate())
+}
+
+// P2-S4 / P2-E3: production must refuse test auth mode before serving.
+func TestLoadRejectTestAuthInProduction(t *testing.T) {
+	t.Setenv("STUDIO_ENV", "production")
+	t.Setenv("STUDIO_AUTH_MODE", "test")
+	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:***@db:5432/curriculum_studio?sslmode=disable")
+	t.Setenv("STUDIO_JWKS_URL", "https://identity.example.test/.well-known/jwks.json")
+	t.Setenv("STUDIO_ISSUER", "https://identity.example.test")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "forbidden test auth")
+}
+
+func TestLoadRejectsUnknownAuthMode(t *testing.T) {
+	t.Setenv("STUDIO_ENV", "development")
+	t.Setenv("STUDIO_AUTH_MODE", "stytch")
+	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:***@db:5432/curriculum_studio?sslmode=disable")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "auth mode")
+}
+
+func TestLoadProductionJWKSRequiresHTTPSIssuerAndJWKS(t *testing.T) {
+	t.Setenv("STUDIO_ENV", "production")
+	t.Setenv("STUDIO_AUTH_MODE", "jwks")
+	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:***@db:5432/curriculum_studio?sslmode=disable")
+	t.Setenv("STUDIO_JWKS_URL", "")
+	t.Setenv("STUDIO_ISSUER", "")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "jwks")
+}
+
+func TestLoadProductionRejectsLoopbackIdentityProvider(t *testing.T) {
+	cases := []struct {
+		name    string
+		jwks    string
+		issuer  string
+		wantSub string
+	}{
+		{
+			name:    "loopback jwks",
+			jwks:    "https://127.0.0.1:8443/.well-known/jwks.json",
+			issuer:  "https://identity.example.test",
+			wantSub: "loopback",
+		},
+		{
+			name:    "localhost issuer",
+			jwks:    "https://identity.example.test/.well-known/jwks.json",
+			issuer:  "https://localhost:8443",
+			wantSub: "loopback",
+		},
+		{
+			name:    "http jwks",
+			jwks:    "http://identity.example.test/.well-known/jwks.json",
+			issuer:  "https://identity.example.test",
+			wantSub: "https",
+		},
+		{
+			name:    "test identity host",
+			jwks:    "https://identity.example.test/.well-known/jwks.json",
+			issuer:  "https://identity.example.test",
+			wantSub: "test/loopback",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("STUDIO_ENV", "production")
+			t.Setenv("STUDIO_AUTH_MODE", "jwks")
+			t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:***@db:5432/curriculum_studio?sslmode=disable")
+			t.Setenv("STUDIO_JWKS_URL", tc.jwks)
+			t.Setenv("STUDIO_ISSUER", tc.issuer)
+
+			_, err := config.Load()
+			require.Error(t, err)
+			assert.Contains(t, strings.ToLower(err.Error()), tc.wantSub)
+		})
+	}
+}
+
+func TestLoadTestModeAllowsLoopbackJWKS(t *testing.T) {
+	t.Setenv("STUDIO_ENV", "test")
+	t.Setenv("STUDIO_AUTH_MODE", "test")
+	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:***@db:5432/curriculum_studio?sslmode=disable")
+	t.Setenv("STUDIO_JWKS_URL", "http://127.0.0.1:9/.well-known/jwks.json")
+	t.Setenv("STUDIO_ISSUER", "http://127.0.0.1:9")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "test", cfg.AuthMode)
+	assert.Equal(t, "http://127.0.0.1:9/.well-known/jwks.json", cfg.JWKSURL)
+	assert.Equal(t, "http://127.0.0.1:9", cfg.Issuer)
+	assert.Equal(t, "curriculum-studio", cfg.Audience)
 }
