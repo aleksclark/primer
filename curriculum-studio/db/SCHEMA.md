@@ -166,7 +166,7 @@ closed sets below are the contract:
 | --- | --- |
 | Separate database / no LMS FKs | Dedicated `curriculum_studio` schema; no objects outside it; opaque text refs only |
 | Published plan immutability | `plan_revisions` trigger blocks UPDATE/DELETE except `published → superseded`; child-table triggers block INSERT/UPDATE/DELETE |
-| Acyclic outcome prerequisites | BEFORE INSERT/UPDATE recursive walk on `outcome_prerequisites` |
+| Acyclic outcome prerequisites | BEFORE INSERT/UPDATE recursive walk on `outcome_prerequisites`, serialized on both endpoint UUIDs with transaction-scoped advisory locks |
 | Acyclic catalog prerequisites | BEFORE INSERT/UPDATE recursive walk on `catalog_standard_prerequisites`, serialized with transaction-scoped advisory locks |
 | Catalog edge workspace compatibility | Crosswalk and prerequisite triggers reject two non-global endpoint frameworks from different workspaces; global endpoints remain compatible |
 | Catalog ownership reassignment | Framework workspace ownership and standard framework assignment are immutable after creation |
@@ -212,3 +212,4 @@ Goose SQL, numbered:
 5. `00005_catalog_scope_and_resource_policy.sql`
 6. `00006_catalog_edge_scope_and_resource_updates.sql`
 7. `00007_catalog_ownership_immutability.sql`
+8. `00008_outcome_prerequisite_concurrency.sql`

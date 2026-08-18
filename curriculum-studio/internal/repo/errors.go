@@ -20,6 +20,8 @@ var (
 	ErrCheckViolation    = errors.New("studio repo: check violation")
 	ErrPrerequisiteCycle = errors.New("studio repo: prerequisite cycle")
 	ErrPayloadTooLarge   = errors.New("studio repo: payload too large")
+	ErrImmutable         = errors.New("studio repo: immutable")
+	ErrInvalidTransition = errors.New("studio repo: invalid status transition")
 )
 
 // MapError converts pgx/pgconn errors into stable package sentinels when possible.
@@ -41,6 +43,8 @@ func MapError(err error) error {
 			return fmt.Errorf("%w: %s", ErrForeignKey, pgErr.ConstraintName)
 		case "23514": // check_violation
 			return fmt.Errorf("%w: %s", ErrCheckViolation, pgErr.ConstraintName)
+		case "23001": // restrict_violation (published plan/item immutability)
+			return fmt.Errorf("%w: %s", ErrImmutable, pgErr.Message)
 		case "23000": // integrity_constraint_violation (catalog/outcome cycle triggers)
 			if strings.Contains(strings.ToLower(pgErr.Message), "cycle") {
 				return fmt.Errorf("%w: %s", ErrPrerequisiteCycle, pgErr.Message)

@@ -33,6 +33,15 @@ func (f *Factory) Ping(ctx context.Context) error {
 	return nil
 }
 
+// Curricula returns the workspace-scoped curriculum repository.
+func (f *Factory) Curricula() *CurriculumRepo { return NewCurriculumRepo(f.Q) }
+
+// PlanRevisions returns the revision lifecycle repository.
+func (f *Factory) PlanRevisions() *PlanRevisionRepo { return NewPlanRevisionRepo(f.Q) }
+
+// PlanGraph returns the revision-scoped graph write/read facade.
+func (f *Factory) PlanGraph() *PlanGraphRepo { return NewPlanGraphRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}
