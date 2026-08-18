@@ -181,6 +181,7 @@ def test_migrations_are_goose_paired():
         "00004_invariants.sql",
         "00005_catalog_scope_and_resource_policy.sql",
         "00006_catalog_edge_scope_and_resource_updates.sql",
+        "00007_catalog_ownership_immutability.sql",
     ]
     for path in MIGRATIONS:
         text = path.read_text()

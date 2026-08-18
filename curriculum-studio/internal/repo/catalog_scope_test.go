@@ -105,11 +105,44 @@ INSERT INTO curriculum_studio.catalog_standards
 VALUES ($1, $2, $3, $4)`, fwA.ID, parentB.ID, "BAD", "bad")
 	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
 
+	// Ownership reassignment is rejected even through raw SQL. No-op updates
+	// remain valid and demonstrate that the triggers test changed values.
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.standard_frameworks
+SET workspace_id = workspace_id
+WHERE id = $1`, fwA.ID)
+	require.NoError(t, err)
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.standard_frameworks
+SET workspace_id = $1
+WHERE id = $2`, wsB.ID, fwA.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.catalog_standards
+SET framework_id = framework_id
+WHERE id = $1`, a.ID)
+	require.NoError(t, err)
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.catalog_standards
+SET framework_id = $1
+WHERE id = $2`, fwB.ID, a.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
+
 	resource, err := f.Resources().Create(ctx, &domain.Resource{
 		TenantID: tenA.ID, WorkspaceID: &wsA.ID, Kind: domain.ResourceKindBook,
 		Title: "A", Metadata: json.RawMessage(`{"tags":["math"]}`),
 	})
 	require.NoError(t, err)
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.workspaces
+SET tenant_id = tenant_id
+WHERE id = $1`, wsA.ID)
+	require.NoError(t, err)
+	_, err = sp.Exec(ctx, `
+UPDATE curriculum_studio.workspaces
+SET tenant_id = $1
+WHERE id = $2`, tenB.ID, wsA.ID)
+	require.ErrorIs(t, repo.MapError(err), repo.ErrCheckViolation)
 	_, err = f.Resources().Get(ctx, tenA.ID, wsB.ID, resource.ID)
 	require.ErrorIs(t, err, repo.ErrNotFound)
 	_, err = f.Resources().Get(ctx, tenB.ID, wsB.ID, resource.ID)
