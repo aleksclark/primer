@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/api"
+	"github.com/aleksclark/primer/curriculum-studio/internal/authn"
 	"github.com/aleksclark/primer/curriculum-studio/internal/config"
 	studiodb "github.com/aleksclark/primer/curriculum-studio/internal/db"
 	"github.com/aleksclark/primer/curriculum-studio/internal/logging"
@@ -75,7 +76,18 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer pool.Close()
 
-	_, handler := api.New(pool, api.Options{})
+	var validator *authn.Validator
+	if cfg.JWKSURL != "" && cfg.Issuer != "" {
+		validator, err = authn.NewValidator(authn.Options{
+			Issuer:   cfg.Issuer,
+			Audience: cfg.Audience,
+			JWKSURL:  cfg.JWKSURL,
+		})
+		if err != nil {
+			return fmt.Errorf("configure auth validator: %w", err)
+		}
+	}
+	_, handler := api.New(pool, api.Options{Validator: validator})
 
 	// Bound body size for all routes (health is tiny; future writes stay capped).
 	bounded := http.MaxBytesHandler(handler, cfg.HTTPMaxBodyBytes)

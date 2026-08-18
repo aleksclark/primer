@@ -56,6 +56,26 @@ RETURNING id, tenant_id, slug, name, kind, status, created_at, updated_at`
 	return out, nil
 }
 
+// GetByID returns a workspace by primary key. Callers that already resolved
+// membership must still not leak rows across workspaces.
+func (r *WorkspaceRepo) GetByID(ctx context.Context, workspaceID uuid.UUID) (*domain.Workspace, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil {
+		return nil, fmt.Errorf("%w", ErrNotFound)
+	}
+	const q = `
+SELECT id, tenant_id, slug, name, kind, status, created_at, updated_at
+FROM curriculum_studio.workspaces
+WHERE id = $1`
+	out, err := scanWorkspace(r.Q.QueryRow(ctx, q, workspaceID))
+	if err != nil {
+		return nil, MapError(err)
+	}
+	return out, nil
+}
+
 // Get returns a workspace by id only when it belongs to tenantID (IDOR defense).
 func (r *WorkspaceRepo) Get(ctx context.Context, tenantID, workspaceID uuid.UUID) (*domain.Workspace, error) {
 	if r == nil || r.Q == nil {

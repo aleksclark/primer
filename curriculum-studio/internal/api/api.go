@@ -18,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 )
 
 // maxRequestIDLen bounds client-supplied X-Request-ID values accepted as-is.
@@ -27,6 +29,12 @@ const maxRequestIDLen = 128
 type Options struct {
 	// Now overrides the clock for tests.
 	Now func() time.Time
+	// Validator verifies signed Bearer JWTs. A nil validator fails closed on
+	// protected routes; health/readiness remain available.
+	Validator TokenValidator
+	// Querier supplies the local Studio database authorization projection. New
+	// normally derives it from the pgx pool; this seam supports non-pool tests.
+	Querier repo.Querier
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -36,9 +44,11 @@ type Pinger interface {
 
 // Server holds shared handler dependencies.
 type Server struct {
-	pool     Pinger
-	now      func() time.Time
-	reqTotal atomic.Int64
+	pool      Pinger
+	querier   repo.Querier
+	validator TokenValidator
+	now       func() time.Time
+	reqTotal  atomic.Int64
 }
 
 // New builds the Huma API and chi HTTP handler.
@@ -52,13 +62,19 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, now: now}
+	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, now: now}
+	if s.querier == nil {
+		if q, ok := pool.(repo.Querier); ok {
+			s.querier = q
+		}
+	}
 
 	router := chi.NewMux()
 	router.Use(middleware.Recoverer)
 	router.Use(RequestIDMiddleware)
 	router.Use(AccessLogMiddleware)
 	router.Use(s.metricsMiddleware)
+	router.Use(s.authMiddleware)
 
 	cfg := huma.DefaultConfig("Curriculum Studio API", "0.1.0")
 	cfg.Info.Description = "Curriculum Studio service: health, readiness, and (later) authoring APIs."
@@ -79,6 +95,8 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 
 // RegisterRoutes wires health and readiness into the Huma API under /studio/v1.
 func (s *Server) RegisterRoutes(api huma.API) {
+	s.registerAuthRoutes(api)
+
 	type healthOut struct {
 		Body struct {
 			Status string `json:"status" example:"ok"`

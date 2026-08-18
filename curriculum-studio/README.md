@@ -34,7 +34,7 @@ curriculum-studio/
   internal/api/          # Huma authoring edge
   internal/grpcapi/      # gRPC integration edge
   internal/boundary/     # wire helpers — NOT a DTO catalog
-  internal/authn/        # JWT/JWKS adapter interface
+  internal/authn/        # fail-closed JWT/JWKS validator (S2)
   db/                    # standalone PostgreSQL schema + tests + embed
   contracts/             # OpenAPI (authoring) + protobuf (integration)
   clients/ts-rest/       # TS authoring client package
@@ -44,9 +44,13 @@ curriculum-studio/
 ```
 
 Ownership freeze: [`contracts/OWNERS.md`](contracts/OWNERS.md).
-Service shell fullness lands in platform wave **S1**. Persistence repositories
-and the testcontainers harness land in database wave **D2**. Contracts C1
-reserves package boundaries and generation policy.
+Service shell fullness lands in platform wave **S1**. The S2 auth boundary
+validates Identity-issued ES256 JWTs and enforces local workspace membership
+RBAC; Studio never issues tokens or sessions. Set `STUDIO_AUTH_MODE=jwks` with
+`STUDIO_JWKS_URL` and `STUDIO_ISSUER` for a configured validator. `test` mode is
+for external test JWKS fixtures only and is rejected in production. Persistence
+repositories and the testcontainers harness land in database wave **D2**.
+Contracts C1 reserves package boundaries and generation policy.
 
 ## Database
 

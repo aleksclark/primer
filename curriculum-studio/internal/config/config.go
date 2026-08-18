@@ -5,6 +5,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -12,6 +14,9 @@ import (
 
 	studiodb "github.com/aleksclark/primer/curriculum-studio/internal/db"
 )
+
+// AudienceCurriculumStudio is the only accepted JWT audience for Studio.
+const AudienceCurriculumStudio = "curriculum-studio"
 
 // EnvPrefix namespaces every Studio setting (e.g. STUDIO_DATABASE_URL).
 const EnvPrefix = "STUDIO"
@@ -32,8 +37,16 @@ type Config struct {
 	Env string `envconfig:"ENV" default:"development"`
 	// LogLevel is the slog level name (debug|info|warn|error).
 	LogLevel string `envconfig:"LOG_LEVEL" default:"info"`
-	// AuthMode is reserved for S2+ (jwks|test). Unused by the S1 shell.
+	// AuthMode is the credential-free validator path: jwks|test.
+	// Production refuses test mode and loopback/test Identity providers.
 	AuthMode string `envconfig:"AUTH_MODE" default:"jwks"`
+	// JWKSURL is the Identity (or test-double) JWKS document Studio validates against.
+	// Studio never mints keys or tokens; it only fetches public JWKS.
+	JWKSURL string `envconfig:"JWKS_URL"`
+	// Issuer is the expected JWT iss (Identity issuer or loopback test issuer).
+	Issuer string `envconfig:"ISSUER"`
+	// Audience is the expected JWT aud. Frozen to curriculum-studio.
+	Audience string `envconfig:"AUDIENCE" default:"curriculum-studio"`
 	// ArtifactStoreDir is optional filesystem root for later export bytes (S13).
 	ArtifactStoreDir string `envconfig:"ARTIFACT_STORE_DIR"`
 	// ShutdownTimeout bounds graceful HTTP shutdown after SIGINT/SIGTERM.
@@ -81,6 +94,24 @@ func (c *Config) Validate() error {
 	if c.AuthMode == "" {
 		c.AuthMode = "jwks"
 	}
+	switch c.AuthMode {
+	case "jwks", "test":
+	default:
+		return fmt.Errorf("studio config: auth mode must be jwks|test, got %q", c.AuthMode)
+	}
+	if c.Env == "production" && c.AuthMode == "test" {
+		return fmt.Errorf("studio config: forbidden test auth in production")
+	}
+
+	c.JWKSURL = strings.TrimSpace(c.JWKSURL)
+	c.Issuer = strings.TrimSpace(c.Issuer)
+	c.Audience = strings.TrimSpace(c.Audience)
+	if c.Audience == "" {
+		c.Audience = AudienceCurriculumStudio
+	}
+	if c.Audience != AudienceCurriculumStudio {
+		return fmt.Errorf("studio config: audience must be %s, got %q", AudienceCurriculumStudio, c.Audience)
+	}
 
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("studio config: database url is required")
@@ -112,5 +143,70 @@ func (c *Config) Validate() error {
 	if err := studiodb.ValidateDatabaseURL(c.DatabaseURL); err != nil {
 		return fmt.Errorf("studio config: %w", err)
 	}
+	if err := validateIdentityEndpoints(c.Env, c.AuthMode, c.JWKSURL, c.Issuer); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateIdentityEndpoints(env, _ string, jwksURL, issuer string) error {
+	if jwksURL == "" && issuer == "" {
+		// A bare development/test process may serve health while its external
+		// Identity fixture is brought up. Protected routes still fail closed
+		// until a validator is configured.
+		if env == "production" {
+			return fmt.Errorf("studio config: jwks url is required in production")
+		}
+		return nil
+	}
+	if jwksURL == "" {
+		return fmt.Errorf("studio config: jwks url is required when issuer is set")
+	}
+	if issuer == "" {
+		return fmt.Errorf("studio config: issuer is required when jwks url is set")
+	}
+	jwks, err := parseIdentityURL("jwks url", jwksURL)
+	if err != nil {
+		return err
+	}
+	iss, err := parseIdentityURL("issuer", issuer)
+	if err != nil {
+		return err
+	}
+	if env == "production" {
+		if jwks.Scheme != "https" {
+			return fmt.Errorf("studio config: jwks url must use https in production")
+		}
+		if iss.Scheme != "https" {
+			return fmt.Errorf("studio config: issuer must use https in production")
+		}
+		if isForbiddenProductionHost(jwks.Hostname()) || isForbiddenProductionHost(iss.Hostname()) {
+			return fmt.Errorf("studio config: forbidden test/loopback identity provider in production")
+		}
+	}
+	return nil
+}
+
+func parseIdentityURL(field, raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil {
+		return nil, fmt.Errorf("studio config: %s is invalid", field)
+	}
+	switch u.Scheme {
+	case "http", "https":
+	default:
+		return nil, fmt.Errorf("studio config: %s scheme must be http or https", field)
+	}
+	return u, nil
+}
+
+func isForbiddenProductionHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") || h == "test" || strings.HasSuffix(h, ".test") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

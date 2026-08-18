@@ -108,6 +108,42 @@ WHERE workspace_id = $1 AND subject_ref = $2 AND status = 'active'`
 	return out, nil
 }
 
+// ListActiveBySubject returns active memberships for a subject across workspaces.
+func (r *MembershipRepo) ListActiveBySubject(ctx context.Context, subjectRef string) ([]domain.WorkspaceMembership, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	canon, err := domain.CanonicalizeSubjectRef(subjectRef)
+	if err != nil {
+		return nil, err
+	}
+	const q = `
+SELECT id, workspace_id, subject_ref, subject_kind, display_name, role, status, created_at, updated_at
+FROM curriculum_studio.workspace_memberships
+WHERE subject_ref = $1 AND status = 'active'
+ORDER BY workspace_id ASC`
+	rows, err := r.Q.Query(ctx, q, canon.String())
+	if err != nil {
+		return nil, MapError(err)
+	}
+	defer rows.Close()
+	var out []domain.WorkspaceMembership
+	for rows.Next() {
+		var m domain.WorkspaceMembership
+		if err := rows.Scan(&m.ID, &m.WorkspaceID, &m.SubjectRef, &m.SubjectKind, &m.DisplayName, &m.Role, &m.Status, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, MapError(err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, MapError(err)
+	}
+	if out == nil {
+		out = []domain.WorkspaceMembership{}
+	}
+	return out, nil
+}
+
 // List returns memberships for a workspace ordered by subject_ref.
 func (r *MembershipRepo) List(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMembership, error) {
 	if r == nil || r.Q == nil {
