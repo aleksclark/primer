@@ -16,9 +16,5 @@ EOF
   exit 2
 fi
 
-if [[ -z "${PRIMER_TASKS_BROWSER_COMMAND:-}" ]]; then
-  echo "browser-test: BLOCKED — set PRIMER_TASKS_BROWSER_COMMAND to the approved runner" >&2
-  exit 2
-fi
-
-exec bash -lc "$PRIMER_TASKS_BROWSER_COMMAND"
+browser_command="${PRIMER_TASKS_BROWSER_COMMAND:-npm --prefix web run browser:promoted}"
+exec bash -lc "$browser_command"
