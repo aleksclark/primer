@@ -9,7 +9,8 @@ import (
 
 func TestAgentHubTenantConversationFilteringAndBoundedSlowSubscriber(t *testing.T) {
 	h := newAgentHub()
-	allowed := &agentSubscriber{tenant: "tenant-a", conversation: "conversation-a", queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
+	cancelled := make(chan struct{})
+	allowed := &agentSubscriber{tenant: "tenant-a", conversation: "conversation-a", queue: make(chan wireAgentEvent, 64), done: make(chan struct{}), cancel: func() { close(cancelled) }}
 	otherConversation := &agentSubscriber{tenant: "tenant-a", conversation: "conversation-b", queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
 	otherTenant := &agentSubscriber{tenant: "tenant-b", conversation: "conversation-a", queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
 	h.add(allowed)
@@ -31,6 +32,13 @@ func TestAgentHubTenantConversationFilteringAndBoundedSlowSubscriber(t *testing.
 		// publisher. A reconnect can use the durable cursor to catch up.
 	default:
 		t.Fatal("slow subscriber was not closed at queue capacity")
+	}
+	select {
+	case <-cancelled:
+		// Eviction also cancels the socket reader, so a slow subscriber cannot
+		// leave the HTTP handler blocked after its bounded queue is evicted.
+	default:
+		t.Fatal("slow subscriber cancellation was not propagated")
 	}
 	if h.subscriberCountForTest() != 3 {
 		t.Fatalf("unrelated subscribers were removed: %d", h.subscriberCountForTest())

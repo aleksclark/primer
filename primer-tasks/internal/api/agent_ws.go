@@ -41,6 +41,7 @@ type agentSubscriber struct {
 	tenant, conversation string
 	queue                chan wireAgentEvent
 	done                 chan struct{}
+	cancel               context.CancelFunc
 	once                 sync.Once
 }
 
@@ -52,7 +53,18 @@ func (h *agentHub) remove(s *agentSubscriber) {
 	h.mu.Unlock()
 	s.close()
 }
-func (s *agentSubscriber) close() { s.once.Do(func() { close(s.done); close(s.queue) }) }
+func (s *agentSubscriber) close() {
+	s.once.Do(func() {
+		close(s.done)
+		if s.cancel != nil {
+			s.cancel()
+		}
+		// The writer observes done and exits; leave the queue allocated until
+		// that goroutine has selected its terminal branch. Closing a queue while
+		// publish is racing with eviction can turn bounded backpressure into a
+		// send-on-closed-channel panic.
+	})
+}
 
 // enqueue is the sole path after upgrade for a socket-bound event. The writer
 // goroutine owns websocket writes; command handling and worker fan-out never
@@ -201,13 +213,13 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "closed")
-	sub := &agentSubscriber{tenant: sc.Tenant, queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	sub := &agentSubscriber{tenant: sc.Tenant, queue: make(chan wireAgentEvent, 64), done: make(chan struct{}), cancel: cancel}
 	s.agentHub.add(sub)
 	defer s.agentHub.remove(sub)
 	connectionID := uuid.NewString()
-	_ = wsjson.Write(r.Context(), conn, wireAgentEvent{Type: "hello", ProtocolVersion: agentProtocolVersion, ConnectionID: connectionID, HeartbeatSeconds: 30, ConversationID: "", Sequence: 0, Cursor: 0, Time: time.Now().UTC()})
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
+	_ = wsjson.Write(ctx, conn, wireAgentEvent{Type: "hello", ProtocolVersion: agentProtocolVersion, ConnectionID: connectionID, HeartbeatSeconds: 30, ConversationID: "", Sequence: 0, Cursor: 0, Time: time.Now().UTC()})
 	go func() {
 		for {
 			select {
