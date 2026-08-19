@@ -113,7 +113,6 @@ export default function StudentDialoguePage({
       <section className="dialogue-transcript" aria-label="Verification transcript" aria-live="polite">
         {liveDialogue.currentQuestion && <article className="dialogue-entry dialogue-question"><span className="system-label">Current question</span><p>{liveDialogue.currentQuestion}</p></article>}
         {items.length === 0 && !liveDialogue.currentQuestion ? <div className="empty"><h2>Ready to begin</h2><p>Start the task, then answer each question in complete sentences.</p></div> : items.map((item) => <article className={`dialogue-entry dialogue-${item.kind}`} key={item.key}><span className="system-label">{item.label}</span><p>{item.text}</p></article>)}
-        {complete && <article className="dialogue-entry dialogue-complete"><span className="system-label">Complete</span><p>{dialogue.completionSummary ?? "This task is checked off."}</p></article>}
       </section>
       <aside className="dialogue-progress" aria-label="Progress">
         <p className="eyebrow">Learn / progress</p>
