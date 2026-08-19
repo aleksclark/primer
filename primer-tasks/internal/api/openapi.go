@@ -1,145 +1,396 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"sort"
-	"strings"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 )
 
-type routeContract struct{ Path, Method string }
+// The types in this file are the Tasks wire boundary. Huma derives the
+// request, response, and error schemas from these types and the typed handler
+// signatures below. Persistence and the browser-facing implementation remain
+// behind that boundary.
+type Health struct {
+	Status string `json:"status"`
+}
 
-// productionRouteContracts walks the same chi router used by the server. There
-// is deliberately no second route inventory for the offline contract to drift
-// from production registration.
-func productionRouteContracts() []routeContract {
-	routes := []routeContract{}
-	if err := chi.Walk(New(nil, "openapi").router(), func(method, path string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		routes = append(routes, routeContract{Path: path, Method: strings.ToLower(method)})
-		return nil
-	}); err != nil {
-		panic(err)
+type Session struct {
+	SubjectRef string `json:"subjectRef"`
+	TenantID   string `json:"tenantId"`
+}
+
+type StatusResponse struct {
+	Status string `json:"status"`
+}
+
+type StudentPage struct {
+	Items      []Student `json:"items" nullable:"false"`
+	TotalCount int       `json:"totalCount"`
+	Limit      int       `json:"limit"`
+	Offset     int       `json:"offset"`
+}
+
+type CreateStudent struct {
+	DisplayName string `json:"displayName"`
+}
+
+type UpdateStudent struct {
+	DisplayName string `json:"displayName"`
+}
+
+type PairCode struct {
+	Code string `json:"code"`
+}
+
+type StudentPair struct {
+	StudentID string `json:"studentId"`
+}
+
+type DevicePair struct {
+	Token     string `json:"token"`
+	StudentID string `json:"studentId"`
+}
+
+type Pairing struct {
+	PairingID string `json:"pairingId"`
+	Code      string `json:"code"`
+	ExpiresAt string `json:"expiresAt" format:"date-time"`
+	QRPayload string `json:"qrPayload"`
+}
+
+type ChecklistItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+}
+
+type Checklist struct {
+	Items []ChecklistItem `json:"items" nullable:"false"`
+}
+
+type AuthLoginInput struct {
+	ReturnTo  string `query:"return_to"`
+	Principal string `query:"principal"`
+}
+
+type AuthCallbackInput struct {
+	Error string `query:"error"`
+	State string `query:"state"`
+	Code  string `query:"code"`
+}
+
+type ListStudentsInput struct {
+	Q      string `query:"q"`
+	Limit  int    `query:"limit"`
+	Offset int    `query:"offset"`
+}
+
+type StudentIDInput struct {
+	ID string `path:"id"`
+}
+
+type CreateStudentInput struct {
+	Body CreateStudent `required:"true"`
+}
+
+type UpdateStudentInput struct {
+	ID   string        `path:"id"`
+	Body UpdateStudent `required:"true"`
+}
+
+type PairCodeInput struct {
+	Body PairCode `required:"true"`
+}
+
+// ResponseHeaders is embedded by every output that can carry browser
+// headers. Set-Cookie is a slice because one request may set more than one
+// cookie (the OAuth callback does this).
+type ResponseHeaders struct {
+	SetCookie []string `header:"Set-Cookie"`
+	Location  string   `header:"Location"`
+}
+
+type HealthOutput struct {
+	ResponseHeaders
+	Body Health
+}
+type SessionOutput struct {
+	ResponseHeaders
+	Body Session
+}
+type StatusOutput struct {
+	ResponseHeaders
+	Body StatusResponse
+}
+type StudentPageOutput struct {
+	ResponseHeaders
+	Body StudentPage
+}
+type StudentOutput struct {
+	ResponseHeaders
+	Body Student
+}
+type CreatedStudentOutput struct {
+	ResponseHeaders
+	Body Student
+}
+type PairingOutput struct {
+	ResponseHeaders
+	Body Pairing
+}
+type StudentPairOutput struct {
+	ResponseHeaders
+	Body StudentPair
+}
+type DevicePairOutput struct {
+	ResponseHeaders
+	Body DevicePair
+}
+type ChecklistOutput struct {
+	ResponseHeaders
+	Body Checklist
+}
+type RedirectOutput struct {
+	ResponseHeaders
+}
+type NoContentOutput struct {
+	ResponseHeaders
+}
+
+// Problem is the existing browser error envelope. It is also Huma's error
+// type, so validation failures and handler failures use the same wire shape.
+type Problem struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Detail  string `json:"detail"`
+	status  int
+}
+
+func (e *Problem) Error() string             { return e.Detail }
+func (e *Problem) GetStatus() int            { return e.status }
+func (e *Problem) ContentType(string) string { return "application/json" }
+
+func newProblem(status int, message string, _ ...error) huma.StatusError {
+	// The old browser API reports malformed and semantically invalid JSON as
+	// 400. Huma normally uses 422 for schema validation, so keep that public
+	// behavior while still deriving the validation schema from the input type.
+	if status == http.StatusUnprocessableEntity {
+		status = http.StatusBadRequest
 	}
-	sort.Slice(routes, func(i, j int) bool {
-		if routes[i].Path == routes[j].Path {
-			return routes[i].Method < routes[j].Method
-		}
-		return routes[i].Path < routes[j].Path
+	return &Problem{Code: "invalid_request", Message: message, Detail: message, status: status}
+}
+
+func init() {
+	// Huma exposes its error factory specifically for applications that need a
+	// stable error envelope. Tasks is a standalone binary, so installing this
+	// once keeps offline emission and runtime serialization identical.
+	huma.NewError = newProblem
+}
+
+type humaContextKey struct{}
+
+func register[I, O any](api huma.API, op huma.Operation, handler func(context.Context, *I) (*O, error)) {
+	huma.Register(api, op, handler)
+	// Huma adds 422 for every operation with a body. The legacy public API
+	// reports malformed/empty JSON as 400; Problem handles runtime errors and
+	// this removes the unreachable generic status from the generated contract.
+	item := api.OpenAPI().Paths[op.Path]
+	var registered *huma.Operation
+	switch op.Method {
+	case http.MethodGet:
+		registered = item.Get
+	case http.MethodPost:
+		registered = item.Post
+	case http.MethodPatch:
+		registered = item.Patch
+	case http.MethodDelete:
+		registered = item.Delete
+	}
+	if registered != nil {
+		delete(registered.Responses, "422")
+	}
+}
+
+// humaAPI is the sole production registration function. Routes and offline
+// OpenAPI emission both call it; there is no parallel route or schema builder.
+func (s *Server) humaAPI() huma.API {
+	r := chi.NewRouter()
+	config := huma.DefaultConfig("Primer Tasks", "1.0.0")
+	config.DocsPath = ""
+	config.SchemasPath = ""
+	config.OpenAPIPath = "/openapi"
+	api := humachi.New(r, config)
+	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
+		next(huma.WithValue(ctx, humaContextKey{}, ctx))
 	})
-	return routes
+
+	register(api, huma.Operation{OperationID: "health", Method: http.MethodGet, Path: "/health"}, func(ctx context.Context, _ *struct{}) (*HealthOutput, error) {
+		body, headers, err := legacyJSON[Health](ctx, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { jsonOK(w, Health{Status: "ok"}) }), nil)
+		return &HealthOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "auth-login", Method: http.MethodGet, Path: "/auth/login", DefaultStatus: http.StatusFound, Errors: []int{500, 503}}, func(ctx context.Context, _ *AuthLoginInput) (*RedirectOutput, error) {
+		headers, err := legacyEmpty(ctx, http.HandlerFunc(s.login), nil)
+		return &RedirectOutput{ResponseHeaders: headers}, err
+	})
+	register(api, huma.Operation{OperationID: "auth-callback", Method: http.MethodGet, Path: "/auth/callback", DefaultStatus: http.StatusFound, Errors: []int{400, 401, 403, 500}}, func(ctx context.Context, _ *AuthCallbackInput) (*RedirectOutput, error) {
+		headers, err := legacyEmpty(ctx, http.HandlerFunc(s.callback), nil)
+		return &RedirectOutput{ResponseHeaders: headers}, err
+	})
+	register(api, huma.Operation{OperationID: "auth-session", Method: http.MethodGet, Path: "/auth/session", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*SessionOutput, error) {
+		body, headers, err := legacyJSON[Session](ctx, http.HandlerFunc(s.parentSession), nil)
+		return &SessionOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "auth-logout", Method: http.MethodPost, Path: "/auth/logout", Errors: []int{500}}, func(ctx context.Context, _ *struct{}) (*StatusOutput, error) {
+		body, headers, err := legacyJSON[StatusResponse](ctx, http.HandlerFunc(s.logout), nil)
+		return &StatusOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "students-list", Method: http.MethodGet, Path: "/students", Errors: []int{401, 500}}, func(ctx context.Context, _ *ListStudentsInput) (*StudentPageOutput, error) {
+		body, headers, err := legacyJSON[StudentPage](ctx, s.requireParent(s.listStudents), nil)
+		return &StudentPageOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "students-create", Method: http.MethodPost, Path: "/students", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *CreateStudentInput) (*CreatedStudentOutput, error) {
+		body, headers, err := legacyJSON[Student](ctx, s.requireParent(s.createStudent), in.Body)
+		return &CreatedStudentOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "students-get", Method: http.MethodGet, Path: "/students/{id}", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *StudentIDInput) (*StudentOutput, error) {
+		body, headers, err := legacyJSON[Student](ctx, s.requireParent(s.getStudent), nil)
+		return &StudentOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "students-update", Method: http.MethodPatch, Path: "/students/{id}", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *UpdateStudentInput) (*StudentOutput, error) {
+		body, headers, err := legacyJSON[Student](ctx, s.requireParent(s.updateStudent), in.Body)
+		return &StudentOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "students-archive", Method: http.MethodDelete, Path: "/students/{id}", DefaultStatus: http.StatusNoContent, Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *StudentIDInput) (*NoContentOutput, error) {
+		headers, err := legacyEmpty(ctx, s.requireParent(s.archiveStudent), nil)
+		return &NoContentOutput{ResponseHeaders: headers}, err
+	})
+	register(api, huma.Operation{OperationID: "students-pairing", Method: http.MethodPost, Path: "/students/{id}/pairing", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *StudentIDInput) (*PairingOutput, error) {
+		body, headers, err := legacyJSON[Pairing](ctx, s.requireParent(s.issuePairing), nil)
+		return &PairingOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "student-pair", Method: http.MethodPost, Path: "/student/pair", Errors: []int{400, 410}, SkipValidateBody: true}, func(ctx context.Context, in *PairCodeInput) (*StudentPairOutput, error) {
+		body, headers, err := legacyJSON[StudentPair](ctx, http.HandlerFunc(s.pairBrowser), in.Body)
+		return &StudentPairOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "student-profile", Method: http.MethodGet, Path: "/student/profile", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*StudentOutput, error) {
+		body, headers, err := legacyJSON[Student](ctx, s.requireStudent(s.studentProfile), nil)
+		return &StudentOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "student-checklist", Method: http.MethodGet, Path: "/student/checklist", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*ChecklistOutput, error) {
+		body, headers, err := legacyJSON[Checklist](ctx, s.requireStudent(s.checklist), nil)
+		return &ChecklistOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "device-pair", Method: http.MethodPost, Path: "/device/pair", Errors: []int{400, 410}, SkipValidateBody: true}, func(ctx context.Context, in *PairCodeInput) (*DevicePairOutput, error) {
+		body, headers, err := legacyJSON[DevicePair](ctx, http.HandlerFunc(s.devicePair), in.Body)
+		return &DevicePairOutput{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "device-profile", Method: http.MethodGet, Path: "/device/profile", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*StudentOutput, error) {
+		body, headers, err := legacyJSON[Student](ctx, s.requireDevice(s.deviceProfile), nil)
+		return &StudentOutput{ResponseHeaders: headers, Body: body}, err
+	})
+
+	return api
 }
 
-func ref(name string) map[string]string {
-	return map[string]string{"$ref": "#/components/schemas/" + name}
+type capturedResponse struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
 }
 
-func content(schema any) map[string]any {
-	return map[string]any{"content": map[string]any{"application/json": map[string]any{"schema": schema}}}
+func (r *capturedResponse) Header() http.Header { return r.header }
+func (r *capturedResponse) WriteHeader(status int) {
+	if r.status == 0 {
+		r.status = status
+	}
+}
+func (r *capturedResponse) Write(p []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.body.Write(p)
 }
 
-func response(description string, schema any) map[string]any {
-	out := map[string]any{"description": description}
-	if schema != nil {
-		for k, v := range content(schema) {
-			out[k] = v
+func legacyResponse(ctx context.Context, handler http.Handler, body any) (*capturedResponse, error) {
+	hctx, ok := ctx.Value(humaContextKey{}).(huma.Context)
+	if !ok {
+		return nil, huma.Error500InternalServerError("Huma request context missing")
+	}
+	req, _ := humachi.Unwrap(hctx)
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("unable to encode request body")
+		}
+		req = req.Clone(ctx)
+		req.Body = io.NopCloser(bytes.NewReader(payload))
+		req.ContentLength = int64(len(payload))
+	}
+	response := &capturedResponse{header: make(http.Header)}
+	handler.ServeHTTP(response, req)
+	return response, nil
+}
+
+func legacyEmpty(ctx context.Context, handler http.Handler, body any) (ResponseHeaders, error) {
+	response, err := legacyResponse(ctx, handler, body)
+	if err != nil {
+		return ResponseHeaders{}, err
+	}
+	if response.status >= 400 {
+		return ResponseHeaders{}, capturedError(response)
+	}
+	return responseHeaders(response), nil
+}
+
+func legacyJSON[T any](ctx context.Context, handler http.Handler, body any) (T, ResponseHeaders, error) {
+	response, err := legacyResponse(ctx, handler, body)
+	if err != nil {
+		return *new(T), ResponseHeaders{}, err
+	}
+	if response.status >= 400 {
+		return *new(T), ResponseHeaders{}, capturedError(response)
+	}
+	var out T
+	if response.body.Len() > 0 {
+		if err := json.Unmarshal(response.body.Bytes(), &out); err != nil {
+			return *new(T), ResponseHeaders{}, huma.Error500InternalServerError("invalid handler response")
 		}
 	}
-	return out
+	return out, responseHeaders(response), nil
 }
 
-func responses(values map[string]map[string]any) map[string]any {
-	out := make(map[string]any, len(values))
-	for status, value := range values {
-		out[status] = value
-	}
-	return out
+func responseHeaders(response *capturedResponse) ResponseHeaders {
+	return ResponseHeaders{SetCookie: response.header.Values("Set-Cookie"), Location: response.header.Get("Location")}
 }
 
-func operation(path, method string) map[string]any {
-	op := map[string]any{}
-	switch {
-	case path == "/health":
-		op["responses"] = responses(map[string]map[string]any{"200": response("healthy", map[string]any{"type": "object", "properties": map[string]any{"status": map[string]string{"type": "string"}}})})
-	case path == "/openapi.yaml":
-		op["responses"] = responses(map[string]map[string]any{"200": response("OpenAPI document", nil)})
-	case path == "/auth/login":
-		op["responses"] = responses(map[string]map[string]any{"302": response("Redirect to identity provider", nil), "500": response("Unable to create authorization state", nil), "503": response("Identity provider is unconfigured", nil)})
-	case path == "/auth/callback":
-		op["responses"] = responses(map[string]map[string]any{"302": response("Parent session established", nil), "400": response("Invalid authorization state or request", nil), "401": response("Identity provider denied authorization", nil), "403": response("Principal is not provisioned", nil), "500": response("Unable to establish session", nil)})
-	case path == "/auth/session":
-		op["responses"] = responses(map[string]map[string]any{"200": response("parent session", ref("Session")), "401": response("Parent session required", nil)})
-	case path == "/auth/logout":
-		op["responses"] = responses(map[string]map[string]any{"200": response("signed out", ref("Status"))})
-	case path == "/students" && method == "get":
-		op["parameters"] = []any{map[string]any{"name": "q", "in": "query", "schema": map[string]string{"type": "string"}}, map[string]any{"name": "limit", "in": "query", "schema": map[string]string{"type": "integer"}}, map[string]any{"name": "offset", "in": "query", "schema": map[string]string{"type": "integer"}}}
-		op["responses"] = responses(map[string]map[string]any{"200": response("student page", ref("StudentPage")), "401": response("Parent session required", nil), "500": response("Unable to list students", nil)})
-	case path == "/students" && method == "post":
-		op["requestBody"] = map[string]any{"required": true}
-		for k, v := range content(ref("CreateStudent")) {
-			op["requestBody"].(map[string]any)[k] = v
-		}
-		op["responses"] = responses(map[string]map[string]any{"201": response("student", ref("Student")), "400": response("Invalid request", nil), "401": response("Parent session required", nil), "409": response("Student conflicts with an existing record", nil), "500": response("Unable to create student", nil)})
-	case path == "/students/{id}" && method == "get":
-		op["parameters"] = pathParameter()
-		op["responses"] = responses(map[string]map[string]any{"200": response("student", ref("Student")), "401": response("Parent session required", nil), "404": response("Student not found", nil), "500": response("Unable to load student", nil)})
-	case path == "/students/{id}" && method == "patch":
-		op["parameters"] = pathParameter()
-		op["requestBody"] = content(ref("UpdateStudent"))
-		op["responses"] = responses(map[string]map[string]any{"200": response("student", ref("Student")), "400": response("Invalid request", nil), "401": response("Parent session required", nil), "404": response("Student not found", nil), "409": response("Student cannot be updated", nil)})
-	case path == "/students/{id}" && method == "delete":
-		op["parameters"] = pathParameter()
-		op["responses"] = responses(map[string]map[string]any{"204": response("student archived", nil), "401": response("Parent session required", nil), "404": response("Student not found", nil), "500": response("Unable to archive student", nil)})
-	case path == "/students/{id}/pairing":
-		op["parameters"] = pathParameter()
-		op["responses"] = responses(map[string]map[string]any{"200": response("pairing", ref("Pairing")), "401": response("Parent session required", nil), "404": response("Student not found", nil), "500": response("Unable to issue pairing", nil)})
-	case path == "/student/pair":
-		op["requestBody"] = content(ref("Pair"))
-		op["responses"] = responses(map[string]map[string]any{"200": response("paired", ref("StudentPair")), "400": response("Invalid request", nil), "410": response("Pairing code is unavailable", nil)})
-	case path == "/student/profile" || path == "/device/profile":
-		op["responses"] = responses(map[string]map[string]any{"200": response("student profile", ref("Student")), "401": response("Student credential required", nil)})
-	case path == "/student/checklist":
-		op["responses"] = responses(map[string]map[string]any{"200": response("checklist", ref("Checklist")), "401": response("Student session required", nil)})
-	case path == "/device/pair":
-		op["requestBody"] = content(ref("Pair"))
-		op["responses"] = responses(map[string]map[string]any{"200": response("device paired", ref("DevicePair")), "400": response("Invalid request", nil), "410": response("Pairing code is unavailable", nil)})
-	default:
-		panic("missing OpenAPI operation for registered route " + method + " " + path)
+func capturedError(response *capturedResponse) error {
+	var problem Problem
+	if err := json.Unmarshal(response.body.Bytes(), &problem); err != nil || problem.Detail == "" {
+		return &Problem{Code: "internal", Message: http.StatusText(response.status), Detail: http.StatusText(response.status), status: response.status}
 	}
-	return op
+	problem.status = response.status
+	return &problem
 }
 
-func pathParameter() []any {
-	return []any{map[string]any{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}}
-}
-
-func generatedOpenAPI() string {
-	paths := map[string]map[string]any{}
-	for _, route := range productionRouteContracts() {
-		if paths[route.Path] == nil {
-			paths[route.Path] = map[string]any{}
-		}
-		paths[route.Path][route.Method] = operation(route.Path, route.Method)
-	}
-	schemas := map[string]any{
-		"Student":       map[string]any{"type": "object", "required": []string{"id", "displayName", "createdAt"}, "properties": map[string]any{"id": map[string]string{"type": "string"}, "displayName": map[string]string{"type": "string"}, "createdAt": map[string]string{"type": "string", "format": "date-time"}, "archivedAt": map[string]any{"type": "string", "format": "date-time", "nullable": true}}},
-		"StudentPage":   map[string]any{"type": "object", "required": []string{"items", "totalCount", "limit", "offset"}, "properties": map[string]any{"items": map[string]any{"type": "array", "items": ref("Student")}, "totalCount": map[string]string{"type": "integer"}, "limit": map[string]string{"type": "integer"}, "offset": map[string]string{"type": "integer"}}},
-		"CreateStudent": map[string]any{"type": "object", "required": []string{"displayName"}, "properties": map[string]any{"displayName": map[string]string{"type": "string"}}},
-		"UpdateStudent": map[string]any{"type": "object", "required": []string{"displayName"}, "properties": map[string]any{"displayName": map[string]string{"type": "string"}}},
-		"Pair":          map[string]any{"type": "object", "required": []string{"code"}, "properties": map[string]any{"code": map[string]string{"type": "string"}}},
-		"StudentPair":   map[string]any{"type": "object", "required": []string{"studentId"}, "properties": map[string]any{"studentId": map[string]string{"type": "string"}}},
-		"DevicePair":    map[string]any{"type": "object", "required": []string{"token", "studentId"}, "properties": map[string]any{"token": map[string]string{"type": "string"}, "studentId": map[string]string{"type": "string"}}},
-		"Pairing":       map[string]any{"type": "object", "required": []string{"pairingId", "code", "expiresAt", "qrPayload"}, "properties": map[string]any{"pairingId": map[string]string{"type": "string"}, "code": map[string]string{"type": "string"}, "expiresAt": map[string]string{"type": "string", "format": "date-time"}, "qrPayload": map[string]string{"type": "string"}}},
-		"ChecklistItem": map[string]any{"type": "object", "properties": map[string]any{"id": map[string]string{"type": "string"}, "title": map[string]string{"type": "string"}, "description": map[string]string{"type": "string"}, "status": map[string]string{"type": "string"}}},
-		"Checklist":     map[string]any{"type": "object", "required": []string{"items"}, "properties": map[string]any{"items": map[string]any{"type": "array", "items": ref("ChecklistItem")}}},
-		"Session":       map[string]any{"type": "object", "required": []string{"subjectRef", "tenantId"}, "properties": map[string]any{"subjectRef": map[string]string{"type": "string"}, "tenantId": map[string]string{"type": "string"}}},
-		"Status":        map[string]any{"type": "object", "required": []string{"status"}, "properties": map[string]any{"status": map[string]string{"type": "string"}}},
-	}
-	doc := map[string]any{"openapi": "3.0.3", "info": map[string]any{"title": "Primer Tasks", "version": "1.0.0"}, "paths": paths, "components": map[string]any{"schemas": schemas}}
-	b, err := json.Marshal(doc)
+func OpenAPI() string {
+	data, err := New(nil, "openapi").humaAPI().OpenAPI().YAML()
 	if err != nil {
 		panic(err)
 	}
-	return string(b)
+	return string(data)
+}
+
+func OpenAPIJSON() string {
+	data, err := json.Marshal(New(nil, "openapi").humaAPI().OpenAPI())
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }

@@ -53,12 +53,7 @@ func TestRoutesExposeCallbackAndGeneratedContract(t *testing.T) {
 			t.Fatalf("callback route missing: %d", rec.Code)
 		}
 	}
-	contract := OpenAPI()
-	var doc map[string]any
-	if err := json.Unmarshal([]byte(contract), &doc); err != nil {
-		t.Fatal(err)
-	}
-	paths := doc["paths"].(map[string]any)
+	paths := New(nil, "test").humaAPI().OpenAPI().Paths
 	for _, path := range []string{"/auth/callback", "/students/{id}/pairing", "/device/pair"} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("contract omitted %s", path)

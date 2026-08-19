@@ -54,7 +54,7 @@ func authConfigFromEnv(env string) AuthConfig {
 	}
 }
 
-type student struct {
+type Student struct {
 	ID          string     `json:"id"`
 	DisplayName string     `json:"displayName"`
 	CreatedAt   time.Time  `json:"createdAt"`
@@ -78,31 +78,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	}
 	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth}
 }
-func (s *Server) Routes() http.Handler { return s.router() }
-
-// router is the single production registration path. The offline OpenAPI
-// emitter walks this same chi router rather than maintaining a parallel list.
-func (s *Server) router() chi.Router {
-	r := chi.NewRouter()
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) { jsonOK(w, map[string]string{"status": "ok"}) })
-	r.Get("/openapi.yaml", s.openapi)
-	r.Get("/auth/login", s.login)
-	r.Get("/auth/callback", s.callback)
-	r.Get("/auth/session", s.parentSession)
-	r.Post("/auth/logout", s.logout)
-	r.Get("/students", s.requireParent(s.listStudents))
-	r.Post("/students", s.requireParent(s.createStudent))
-	r.Get("/students/{id}", s.requireParent(s.getStudent))
-	r.Patch("/students/{id}", s.requireParent(s.updateStudent))
-	r.Delete("/students/{id}", s.requireParent(s.archiveStudent))
-	r.Post("/students/{id}/pairing", s.requireParent(s.issuePairing))
-	r.Post("/student/pair", s.pairBrowser)
-	r.Get("/student/profile", s.requireStudent(s.studentProfile))
-	r.Get("/student/checklist", s.requireStudent(s.checklist))
-	r.Post("/device/pair", s.devicePair)
-	r.Get("/device/profile", s.requireDevice(s.deviceProfile))
-	return r
-}
+func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
 
 type parentHandler func(http.ResponseWriter, *http.Request, scope)
 
@@ -274,9 +250,9 @@ func (s *Server) listStudents(w http.ResponseWriter, r *http.Request, sc scope) 
 		return
 	}
 	defer rows.Close()
-	items := []student{}
+	items := []Student{}
 	for rows.Next() {
-		var x student
+		var x Student
 		if err := rows.Scan(&x.ID, &x.DisplayName, &x.CreatedAt, &x.ArchivedAt); err != nil {
 			problem(w, 500, "internal", err.Error())
 			return
@@ -296,7 +272,7 @@ func (s *Server) createStudent(w http.ResponseWriter, r *http.Request, sc scope)
 		problem(w, 400, "invalid_request", "display name is required")
 		return
 	}
-	x := student{ID: uuid.NewString(), DisplayName: strings.TrimSpace(in.DisplayName), CreatedAt: time.Now().UTC()}
+	x := Student{ID: uuid.NewString(), DisplayName: strings.TrimSpace(in.DisplayName), CreatedAt: time.Now().UTC()}
 	err := s.DB.QueryRow(r.Context(), `INSERT INTO students(id,tenant_id,display_name) VALUES($1,$2,$3) RETURNING created_at`, x.ID, sc.Tenant, x.DisplayName).Scan(&x.CreatedAt)
 	if err != nil {
 		problem(w, 409, "conflict", "student name already exists or is invalid")
@@ -305,8 +281,8 @@ func (s *Server) createStudent(w http.ResponseWriter, r *http.Request, sc scope)
 	audit(r.Context(), s.DB, sc, "student.created", x.ID)
 	jsonStatus(w, x, 201)
 }
-func (s *Server) findStudent(ctx context.Context, tenant, id string) (student, error) {
-	var x student
+func (s *Server) findStudent(ctx context.Context, tenant, id string) (Student, error) {
+	var x Student
 	err := s.DB.QueryRow(ctx, `SELECT id,display_name,created_at,archived_at FROM students WHERE tenant_id=$1 AND id=$2`, tenant, id).Scan(&x.ID, &x.DisplayName, &x.CreatedAt, &x.ArchivedAt)
 	return x, err
 }
@@ -333,7 +309,7 @@ func (s *Server) updateStudent(w http.ResponseWriter, r *http.Request, sc scope)
 		problem(w, 400, "invalid_request", "display name is required")
 		return
 	}
-	var x student
+	var x Student
 	e := s.DB.QueryRow(r.Context(), `UPDATE students SET display_name=$1 WHERE tenant_id=$2 AND id=$3 AND archived_at IS NULL RETURNING id,display_name,created_at,archived_at`, strings.TrimSpace(in.DisplayName), sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.DisplayName, &x.CreatedAt, &x.ArchivedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "student not found")
@@ -483,7 +459,7 @@ func (s *Server) studentFromCookie(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(strings.TrimPrefix(ref, "student:"))
 }
 func (s *Server) studentProfile(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	var x student
+	var x Student
 	e := s.DB.QueryRow(r.Context(), `SELECT id,display_name,created_at,archived_at FROM students WHERE id=$1 AND archived_at IS NULL`, id).Scan(&x.ID, &x.DisplayName, &x.CreatedAt, &x.ArchivedAt)
 	if e != nil {
 		problem(w, 401, "revoked", "student is unavailable")
@@ -540,12 +516,6 @@ func jsonStatus(w http.ResponseWriter, v any, status int) {
 func problem(w http.ResponseWriter, status int, code, message string) {
 	jsonStatus(w, map[string]any{"code": code, "message": message, "detail": message}, status)
 }
-func (s *Server) openapi(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/yaml")
-	_, _ = w.Write([]byte(generatedOpenAPI()))
-}
-func OpenAPI() string { return generatedOpenAPI() }
-
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
