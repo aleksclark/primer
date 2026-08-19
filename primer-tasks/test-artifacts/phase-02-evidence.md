@@ -1,7 +1,7 @@
 # Primer Tasks Phase 2 — integration evidence
 
 Branch: `impl/tasks-p2-checklist`
-Reviewed implementation tip: `3e97ff2` (LazyColumn Android accessibility and focused model tests); scheduler/decision fixes are in `4140732`.
+Reviewed implementation tip: `e937540` (Android deep-link boundary and schedule snapshot/integrity fixes); scheduler/decision fixes are in `4140732`.
 
 ## Implementation checkpoints
 
@@ -19,6 +19,7 @@ Reviewed implementation tip: `3e97ff2` (LazyColumn Android accessibility and foc
 - `38782a7` — scrollable Android Today/Upcoming checklist.
 - `3e97ff2` — LazyColumn-backed accessible Today/Upcoming rows and focused section model tests.
 - `4140732` — durable PostgreSQL lease worker, ON CONFLICT materialization, immutable decision replay, and legal retry checks.
+- `e937540` — active-template/revision validation, occurrence timezone/version/due snapshots, and `primertasks://occurrences/{id}` Android deep links with generic unavailable handling.
 
 ## Automated gates
 
@@ -51,6 +52,6 @@ No Playwright suite was promoted yet because the required Android exploratory ac
 
 `test-artifacts/android-phase2-final/acceptance-report.md` records the real CameraX-first then exact system Photo Picker pairing, server-derived identity, Today and Upcoming, detail/start/awaiting, parent rejection/retry/approval coordination, completed state, force-stop persistence, and accessible upcoming rows. The paired device façade has no direct completion/approval method. Terra final Android exploratory evidence (`test-artifacts/android-phase2-final-pass/acceptance-report.md`) passes pairing, LazyColumn Today/Upcoming, start/awaiting, parent reject/retry/approve, checked persistence, skip/cancel, and force-stop. The concise failed-run report is retained at `test-artifacts/android-phase2-final-pass/failed-run-report.md`.
 
-The remaining fail-closed item is the foreign-occurrence/forged-completion negative through the generated device façade. The app UI intentionally exposes only device-owned records and Start; the Android acceptance agent refused to substitute a private/raw API call. A real Parent-B occurrence was subsequently created through public UI (`62b79178-af55-4ca7-8cb8-8f4000252d2b`) for the prescribed generated-client negative, but the final façade denial run was not completed before this evidence checkpoint.
+The remaining fail-closed item is the foreign-occurrence/forged-completion negative through the Android deep-link/device façade boundary. The deep-link product boundary now exists and focused JVM tests pass, but a final Terra run using `adb am start` against both own and Parent-B IDs did not complete before the acceptance leaf errored. The app UI intentionally exposes only device-owned records and Start; the Android acceptance agent refused to substitute a private/raw API call. A real Parent-B occurrence was subsequently created through public UI (`62b79178-af55-4ca7-8cb8-8f4000252d2b`) for the prescribed generated-client negative, but the final façade denial run was not completed before this evidence checkpoint.
 
 Therefore this evidence does **not** claim Phase 2 complete and Phase 3 must not be dispatched.
