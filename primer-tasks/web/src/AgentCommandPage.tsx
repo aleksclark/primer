@@ -126,7 +126,7 @@ function AgentTranscript({ items, client, snapshot }: { items: TranscriptItem[];
       <p>{item.text || "Working…"}</p>
       {item.kind === "confirmation" && <span className="meta">The server owns the preview and requires an explicit confirmation command.</span>}
     </div>)}
-    {items.some((item) => item.kind === "confirmation") && <div className="agent-confirmation-actions" aria-label="Confirmation state"><p className="meta">No mutation is implied until you confirm this single-use server preview.</p>{[...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)?.confirmationId && <button className="button" type="button" onClick={() => client.confirm([...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)!.confirmationId!, snapshot.runId)}>Confirm preview</button>}<button className="button secondary" type="button" onClick={() => client.cancel(snapshot.runId)}>Cancel request</button></div>}
+    {latestRunStatus(snapshot.events) === "awaiting_confirmation" && items.some((item) => item.kind === "confirmation") && <div className="agent-confirmation-actions" aria-label="Confirmation state"><p className="meta">No mutation is implied until you confirm this single-use server preview.</p>{[...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)?.confirmationId && <button className="button" type="button" onClick={() => client.confirm([...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)!.confirmationId!, snapshot.runId)}>Confirm preview</button>}<button className="button secondary" type="button" onClick={() => client.cancel(snapshot.runId)}>Cancel request</button></div>}
   </section>;
 }
 
