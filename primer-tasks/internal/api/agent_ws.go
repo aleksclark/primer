@@ -186,7 +186,7 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 	s.agentHub.add(sub)
 	defer s.agentHub.remove(sub)
 	connectionID := uuid.NewString()
-	_ = wsjson.Write(r.Context(), conn, wireAgentEvent{Type: "hello", ProtocolVersion: agentProtocolVersion, ConnectionID: connectionID, HeartbeatSeconds: 30, ConversationID: "", Sequence: 0, Cursor: 0})
+	_ = wsjson.Write(r.Context(), conn, wireAgentEvent{Type: "hello", ProtocolVersion: agentProtocolVersion, ConnectionID: connectionID, HeartbeatSeconds: 30, ConversationID: "", Sequence: 0, Cursor: 0, Time: time.Now().UTC()})
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go func() {
@@ -259,7 +259,6 @@ func (s *Server) agentSubscribe(ctx context.Context, sc scope, sub *agentSubscri
 			}
 		}
 	}
-	s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "subscribed", ProtocolVersion: agentProtocolVersion, ConversationID: cmd.ConversationID, TenantID: sc.Tenant})
 }
 
 func (s *Server) agentMessage(ctx context.Context, sc scope, cmd agentCommand) {
