@@ -21,7 +21,7 @@ async function createStudent(page: Page, name: string) {
 
 async function openStudentAndIssueQr(page: Page, name: string) {
   await page.getByRole("button", { name }).click();
-  await expect(page.getByRole("heading", { name })).toBeVisible();
+  await expect(page.getByRole("heading", { name }).first()).toBeVisible();
   await page.getByRole("button", { name: /issue pairing qr/i }).click();
   await expect(page.getByRole("img", { name: /one-use student pairing qr code/i })).toBeVisible();
   const code = await page.locator(".code").textContent();
@@ -63,16 +63,17 @@ test("parent and student pairing lifecycle stays real, tenant-scoped, and revoca
     const studentB = `Playwright Phase 1 B ${suffix}`;
     await createStudent(parentBPage, studentB);
     await parentBPage.goto(studentURL);
-    await expect(parentBPage.getByRole("heading", { name: "Unable to load" })).toBeVisible();
+    await expect(parentBPage.getByText("Unable to load", { exact: true })).toBeVisible();
 
     const paired = await pairStudentBrowser(studentBrowser, code, studentA);
     await paired.reload();
     await expect(paired.getByText("Nothing assigned yet")).toBeVisible();
 
-    await replayBrowser.goto("/student/pair");
-    await replayBrowser.getByLabel("Pairing code").fill(code);
-    await replayBrowser.getByRole("button", { name: /pair this browser/i }).click();
-    await expect(replayBrowser.getByRole("alert")).toContainText("Pairing expired");
+    const replayPage = await replayBrowser.newPage();
+    await replayPage.goto("/student/pair");
+    await replayPage.getByLabel("Pairing code").fill(code);
+    await replayPage.getByRole("button", { name: /pair this browser/i }).click();
+    await expect(replayPage.getByRole("alert")).toContainText("Pairing expired");
 
     parentAPage.once("dialog", (dialog) => dialog.accept());
     await parentAPage.getByRole("button", { name: /archive student/i }).click();

@@ -14,6 +14,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    launchOptions: { executablePath: process.env.CHROME_EXECUTABLE ?? "/home/aleks/.local/bin/google-chrome" },
   },
   reporter: [["list"], ["json", { outputFile: "test-artifacts/playwright-phase1.json" }]],
 });
