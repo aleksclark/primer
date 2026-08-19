@@ -6,7 +6,7 @@ browser/public authoring; generated clients are the exclusive consumption path;
 generated outputs are never committed; compatibility and conformance gates are
 deterministic from a clean checkout.
 
-**Status:** C1–C8 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`, C6 in PR #36 at `eb2fd8c`, C7 in PR #41 at `656d8a1`, C8 in PR #44 at `2310fcf`. **Current contracts cursor: C9** (domain events and webhook envelopes).
+**Status:** C1–C9 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`, C6 in PR #36 at `eb2fd8c`, C7 in PR #41 at `656d8a1`, C8 in PR #44 at `2310fcf`, C9 in PR #46 at `2e55dd3`. **Current contracts cursor: C10** (compatibility and policy gates).
 **Plan directory:** `agent_docs/plans/curriculum-studio-contracts/`
 **Branch base:** `66449725337165c2ef00f7c269633696313e0be2`
 **Must-cite:** [foundation crosswalk](../curriculum-studio-foundation-crosswalk.md),
