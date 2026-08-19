@@ -120,7 +120,9 @@ func (s *Server) agentOriginAllowed(r *http.Request) bool {
 			allowed[value] = true
 		}
 	}
-	return allowed[origin]
+	if allowed[origin] { return true }
+	if s.Env != "production" && (strings.HasPrefix(origin, "http://127.0.0.1:") || strings.HasPrefix(origin, "http://localhost:")) { return true }
+	return false
 }
 
 func (s *Server) csrfToken(w http.ResponseWriter, r *http.Request) string {
