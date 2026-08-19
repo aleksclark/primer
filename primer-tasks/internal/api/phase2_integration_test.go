@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"primer-tasks/internal/schedule"
 )
 
 func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
@@ -37,6 +40,20 @@ func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
 	if rec = requestJSON(t, h, http.MethodPost, "/schedules", "parent-a", body); rec.Code != 201 {
 		t.Fatalf("schedule=%d %s", rec.Code, rec.Body.String())
 	}
+	worker := schedule.NewWorker(pool)
+	if err := worker.Materialize(context.Background()); err != nil {
+		t.Fatalf("worker materialize=%v", err)
+	}
+	if err := worker.Materialize(context.Background()); err != nil {
+		t.Fatalf("worker retry=%v", err)
+	}
+	worker2 := schedule.NewWorker(pool)
+	if err := worker2.Materialize(context.Background()); err == nil {
+		t.Fatal("second worker acquired an active tenant lease")
+	}
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	cancelWorker()
+	worker.Run(workerCtx)
 	list := requestJSON(t, h, http.MethodGet, "/occurrences?limit=20&sort=nominalAt&dir=asc", "parent-a", "")
 	if list.Code != 200 || !strings.Contains(list.Body.String(), "Brush your teeth") {
 		t.Fatalf("occurrences=%d %s", list.Code, list.Body.String())
@@ -204,8 +221,8 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/skip", "parent-a", ""); got.Code != 200 {
 		t.Fatalf("skip=%d %s", got.Code, got.Body.String())
 	}
-	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/retry", "parent-a", ""); got.Code != 200 {
-		t.Fatalf("retry=%d %s", got.Code, got.Body.String())
+	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/retry", "parent-a", ""); got.Code != 409 {
+		t.Fatalf("retry after skip=%d %s", got.Code, got.Body.String())
 	}
 	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/cancel", "parent-a", ""); got.Code != 200 {
 		t.Fatalf("cancel=%d %s", got.Code, got.Body.String())

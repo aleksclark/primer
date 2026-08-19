@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
+	"primer-tasks/internal/schedule"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,17 @@ func uuidMust(s string) uuid.UUID { return uuid.MustParse(s) }
 func TestPhase2HandlersSurfaceDatabaseFailures(t *testing.T) {
 	pool := integrationPool(t)
 	pool.Close()
+	if err := schedule.NewWorker(pool).Materialize(context.Background()); err == nil {
+		t.Fatal("worker accepted closed DB")
+	}
+	t.Setenv("TASKS_SCHEDULE_HORIZON_DAYS", "365")
+	if got := schedule.NewWorker(pool).Horizon; got != 365*24*time.Hour {
+		t.Fatalf("horizon=%s", got)
+	}
+	t.Setenv("TASKS_SCHEDULE_HORIZON_DAYS", "bad")
+	if got := schedule.NewWorker(pool).Horizon; got != 45*24*time.Hour {
+		t.Fatalf("default horizon=%s", got)
+	}
 	s := New(pool, "test")
 	sc := scope{Tenant: tenantA, Subject: "parent-a"}
 	req := func(method, path, body string) *http.Request {

@@ -219,7 +219,6 @@ func (s *Server) retireTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	_, _ = s.DB.Exec(r.Context(), `UPDATE task_revisions SET status='retired' WHERE tenant_id=$1 AND template_id=$2 AND status<>'retired'`, sc.Tenant, id)
 	w.WriteHeader(204)
 }
 func (s *Server) createSchedule2(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -279,7 +278,7 @@ func (s *Server) materializeSchedule(ctx context.Context, tenant, id, owner stri
 	h := time.Now().Add(time.Duration(horizonDays) * 24 * time.Hour)
 	for _, at := range spec.Occurrences(h) {
 		oid := uuid.New()
-		_, e = s.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) SELECT $1,$2,$3,$4,$5,$6::timestamptz,$6::timestamptz+($7::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid) WHERE NOT EXISTS(SELECT 1 FROM task_occurrences WHERE tenant_id=$2 AND schedule_id=$3 AND nominal_at=$6::timestamptz)`, oid, tenant, id, student, rev, at, due)
+		_, e = s.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) SELECT $1,$2,$3,$4,$5,$6::timestamptz,$6::timestamptz+($7::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, oid, tenant, id, student, rev, at, due)
 		if e != nil {
 			return e
 		}
@@ -376,21 +375,24 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		return
 	}
 	var decisionID string
-	e = tx.QueryRow(r.Context(), `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,attempt_id) DO UPDATE SET accepted=verification_decisions.accepted RETURNING id`, uuid.New(), sc.Tenant, attempt, in.Accepted, in.Reason, sc.Subject).Scan(&decisionID)
+	var accepted bool
+	e = tx.QueryRow(r.Context(), `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,attempt_id) DO NOTHING RETURNING id,accepted`, uuid.New(), sc.Tenant, attempt, in.Accepted, in.Reason, sc.Subject).Scan(&decisionID, &accepted)
+	if errors.Is(e, pgx.ErrNoRows) {
+		e = tx.QueryRow(r.Context(), `SELECT id,accepted FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, sc.Tenant, attempt).Scan(&decisionID, &accepted)
+	}
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
 	status := "pending"
-	if in.Accepted {
+	if accepted {
 		status = "completed"
 	}
-	if _, e = tx.Exec(r.Context(), `UPDATE verification_attempts SET status=$1 WHERE tenant_id=$2 AND id=$3`, func() string {
-		if in.Accepted {
-			return "accepted"
-		}
-		return "rejected"
-	}(), sc.Tenant, attempt); e != nil {
+	attemptStatus := "rejected"
+	if accepted {
+		attemptStatus = "accepted"
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE verification_attempts SET status=$1 WHERE tenant_id=$2 AND id=$3`, attemptStatus, sc.Tenant, attempt); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
@@ -402,10 +404,24 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": in.Accepted, "status": status})
+	jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": status})
 }
 func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	oid := chi.URLParam(r, "id")
+	var occurrenceStatus string
+	if e := s.DB.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2`, sc.Tenant, oid).Scan(&occurrenceStatus); e != nil {
+		problem(w, 404, "not_found", "occurrence not found")
+		return
+	}
+	if occurrenceStatus != "pending" {
+		problem(w, 409, "conflict", "retry requires a pending occurrence")
+		return
+	}
+	var latestStatus string
+	if e := s.DB.QueryRow(r.Context(), `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1`, sc.Tenant, oid).Scan(&latestStatus); e != nil || latestStatus != "rejected" {
+		problem(w, 409, "conflict", "retry requires a rejected attempt")
+		return
+	}
 	var n int
 	e := s.DB.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n)
 	if e != nil {
