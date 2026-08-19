@@ -63,7 +63,7 @@ func (p phase3Services) ListTasks(ctx context.Context, c parent.ServiceContext, 
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := p.s.DB.Query(ctx, `SELECT id,template_id,version,title,instructions,status FROM task_revisions WHERE tenant_id=$1 AND ($2='' OR title ILIKE '%'||$2||'%') ORDER BY title LIMIT $3 OFFSET $4`, scopeTenant(c), q.Query, limit, offset)
+	rows, err := p.s.DB.Query(ctx, `SELECT r.id,r.template_id,r.version,r.title,r.instructions,r.status FROM task_revisions r JOIN task_templates t ON t.id=r.template_id AND t.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND t.status<>'retired' AND ($2='' OR r.title ILIKE '%'||$2||'%') ORDER BY r.title LIMIT $3 OFFSET $4`, scopeTenant(c), q.Query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
