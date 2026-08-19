@@ -12,7 +12,7 @@
 {
   lib,
   buildGoModule,
-  go_1_25 ? null,
+  go_1_26 ? null,
   go,
   primerServerSrc,
   version ? "0.1.0",
@@ -20,13 +20,13 @@
 }:
 
 let
-  # go.mod requires go >= 1.25. Prefer an explicit go_1_25 from nixpkgs-unstable
-  # when the workstation nixpkgs pin is older.
+  # go.mod requires go >= 1.26.6. Prefer an explicit go_1_26 from
+  # nixpkgs-unstable when the workstation nixpkgs pin is older.
   goToolchain =
-    if go_1_25 != null then go_1_25
-    else if lib.versionAtLeast go.version "1.25" then go
+    if go_1_26 != null then go_1_26
+    else if lib.versionAtLeast go.version "1.26.6" then go
     else
-      throw "primer-student requires Go >= 1.25 (got ${go.version}); pass go_1_25 from nixpkgs-unstable";
+      throw "primer-student requires Go >= 1.26.6 (got ${go.version}); pass go_1_26 from nixpkgs-unstable";
 in
 (buildGoModule.override { go = goToolchain; }) {
   pname = "primer-student";

@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
-    # Go 1.25+ for primer-student (go.mod requires >= 1.25.7). Workstation
+    # Go 1.26.6 for primer-student (go.mod requires >= 1.26.6). Workstation
     # system packages stay on nixos-25.05; only the Go toolchain comes from here.
     nixpkgs-go.url = "github:NixOS/nixpkgs/nixos-unstable";
     disko = {
@@ -43,14 +43,14 @@
 
     primerStudent = pkgs.callPackage ./packages/primer-student.nix {
       inherit primerServerSrc;
-      go_1_25 = pkgsGo.go_1_25;
+      go_1_26 = pkgsGo.go_1_26;
       version = gitVersion;
       commit = gitCommit;
     };
 
     activityValidate = pkgs.callPackage ./packages/activity-validate.nix {
       inherit primerServerSrc;
-      go_1_25 = pkgsGo.go_1_25;
+      go_1_26 = pkgsGo.go_1_26;
       curriculumActivities = curriculumActivities;
     };
 

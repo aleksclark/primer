@@ -1,6 +1,6 @@
 module github.com/aleksclark/primer/identity
 
-go 1.25.7
+go 1.26.6
 
 require (
 	github.com/danielgtaylor/huma/v2 v2.39.0

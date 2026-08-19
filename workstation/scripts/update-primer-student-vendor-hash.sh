@@ -48,7 +48,7 @@ let
       let base = baseNameOf path;
       in !(builtins.elem base [ \".git\" \"bin\" \"coverage.out\" \"vendor\" ]);
   };
-  buildGoModule = pkgs.buildGoModule.override { go = pkgsGo.go_1_25; };
+  buildGoModule = pkgs.buildGoModule.override { go = pkgsGo.go_1_26; };
 in buildGoModule {
   pname = \"primer-student\";
   version = \"0.1.0\";
