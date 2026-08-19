@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "suiteId": "phase3-parent-agent-fresh",
+  "functionality": "Fresh public parent login and scoped durable Fantasy parent-agent commands over WebSocket without exposing reasoning.",
+  "phase": "run",
+  "callCount": 20,
+  "baseUrl": "http://127.0.0.1:38250",
+  "acceptance": [
+    "A fresh public parent login followed by exactly one List my tasks command streams safe progress and reaches a terminal completed state.",
+    "The UI, WebSocket, PostgreSQL, API logs, and browser storage contain no raw reasoning or secrets.",
+    "Subsequent public agent workflows preserve authorization, durable effects, confirmation, replay, and System C accessibility gates."
+  ],
+  "updatedAt": "2026-08-19T16:15:00Z",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/phase3-parent-agent-fresh/exploration.md",
+    "playwrightConfig": "primer-tasks/web/playwright.config.ts",
+    "specFiles": [],
+    "packageJsonScript": "npm --prefix primer-tasks/web run browser:promoted",
+    "lastRun": null
+  },
+  "qualityGates": {
+    "independentChromeVerification": true,
+    "playwrightGreen": true,
+    "relaxed": false
+  }
+}

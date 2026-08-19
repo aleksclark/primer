@@ -1,0 +1,10 @@
+
+> primer-tasks-web@0.0.0 browser:test
+> ../scripts/browser-test
+
+
+Running 1 test using 1 worker
+
+  ✓  1 e2e/phase3-parent-agent.spec.ts:83:1 › real parent agent survives remount/restart, scopes tools and tenants, and bounds public sockets (1.8m)
+
+  1 passed (1.8m)
