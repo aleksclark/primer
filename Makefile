@@ -19,15 +19,14 @@ IDENTITY_COVER_MIN := 80
 	workstation-package workstation-check update-student-vendor-hash \
 	investor-web investor-web-dev investor-web-test investor-web-ci \
 	foundation-check agent-runtime-check \
-	agents-build agents-test agents-race agents-cover agents-openapi agents-client agents-e2e agents-restart-e2e agents-migrate docker-agents dev-db-agents \
-	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
-	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
-	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
-	identity-e2e identity-live-stytch dev-db-identity migrate-identity \
 	agents-build agents-vet agents-test agents-race agents-cover \
 	agents-openapi agents-clients-go agents-clients-ts agents-clients \
 	agents-contracts-check agents-maf-audit agents-migrate dev-db-agents \
-	docker-agents agents-no-live-billable
+	docker-agents agents-no-live-billable \
+	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
+	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
+	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
+	identity-e2e identity-live-stytch dev-db-identity migrate-identity
 
 all: build openapi openapi-tv client tv-client
 
@@ -257,43 +256,6 @@ foundation-check:
 agent-runtime-check:
 	./scripts/check-maf-runtime.sh
 
-## Standalone primer-agents module gates. These never inherit bare DATABASE_URL.
-agents-build:
-	cd primer-agents && go build ./cmd/primer-agents
-
-agents-test:
-	cd primer-agents && go test ./... -count=1
-
-agents-race:
-	cd primer-agents && go test -race ./... -count=1
-
-agents-cover:
-	cd primer-agents && go test ./... -count=1 -coverprofile=coverage.out -covermode=atomic
-	@cd primer-agents && total=$$(go tool cover -func=coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \
-	if [ $$(echo "$$total < 85" | bc) -eq 1 ]; then echo "FAIL: agents coverage $$total% < 85%"; exit 1; fi; \
-	echo "OK: agents coverage $$total% >= 85%"
-
-agents-openapi:
-	$(MAKE) -C primer-agents openapi
-
-agents-client:
-	$(MAKE) -C primer-agents clients
-
-agents-e2e:
-	cd primer-agents && go test ./internal/app/... ./internal/worker/... ./internal/sse/... -count=1 -timeout=10m
-
-agents-restart-e2e:
-	cd primer-agents && go test ./internal/app/... ./internal/worker/... -count=1 -timeout=10m
-
-agents-migrate:
-	cd primer-agents && go run ./cmd/migrate
-
-docker-agents:
-	docker build -f Dockerfile.agents -t primer-agents .
-
-dev-db-agents:
-	docker exec primer-pg createdb -U primer primer_agents 2>/dev/null || true
-
 ## Studio module unit/package tests (minimal F0 root; no business coverage claim).
 studio-test:
 	cd curriculum-studio && go test ./...
@@ -415,8 +377,9 @@ identity-live-stytch:
 	cd primer-identity && go test -tags=live_stytch ./internal/testutil/live/ -count=1 -timeout 5m -v
 
 ## ── primer-agents module ─────────────────────────────────────────────────────
-AGENTS_COVER_MIN := 78
-## NOTE: target is 85%; current honest total is 78.7%.
+AGENTS_COVER_MIN := 85
+## NOTE: current honest total is 78.7%; agents-cover remains a release blocker.
+## The threshold is intentionally not lowered; see agent_docs/runbooks/coverage-blockers.md.
 ## Blocker to 85%: worker/execute goroutine and SSE LISTEN/NOTIFY branches
 ## require live provider/DB interaction not available in standard CI.
 ## See agent_docs/runbooks/coverage-blockers.md.
@@ -456,9 +419,10 @@ agents-maf-audit:
 	bash scripts/check-agents-maf.sh
 
 agents-migrate:
-	PRIMER_AGENTS_DATABASE_URL=$${PRIMER_AGENTS_DATABASE_URL} \
-		cd primer-agents && go run ./cmd/primer-agents -migrate-only 2>/dev/null || \
-		echo "agents-migrate: run with a valid PRIMER_AGENTS_DATABASE_URL"
+	@if [ -z "$${PRIMER_AGENTS_DATABASE_URL:-}" ]; then \
+		echo "agents-migrate: PRIMER_AGENTS_DATABASE_URL is required" >&2; exit 2; \
+	fi
+	cd primer-agents && go run ./cmd/migrate
 
 dev-db-agents:
 	@echo "dev-db-agents: start a local primer_agents database"
