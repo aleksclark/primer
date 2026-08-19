@@ -1,0 +1,137 @@
+{
+  "format": "agentbase-house-tokens/v1",
+  "name": "Editorial Instrument",
+  "version": "1.0.0",
+  "dimensionUnit": "px",
+  "theme": {
+    "canonical": "dark",
+    "parity": "light"
+  },
+  "accent": {
+    "allowed": {
+      "violet": "#B98BFF",
+      "cyan": "#3DE0F0",
+      "mint": "#7CFFB2"
+    },
+    "selected": "#B98BFF",
+    "ink": "#15170E",
+    "policy": "Choose exactly one allowed accent per product."
+  },
+  "font": {
+    "product": "Archivo",
+    "editorial": "Newsreader",
+    "technical": "IBM Plex Mono"
+  },
+  "type": {
+    "display": { "desktop": 48, "mobile": 32, "weight": 400, "lineHeight": 1.05, "family": "editorial" },
+    "pageTitle": { "desktop": 30, "mobile": 22, "weight": 700, "lineHeight": 1.12, "letterSpacing": "-0.022em", "family": "product" },
+    "section": { "size": 15, "weight": 600, "lineHeight": 1.2, "family": "product" },
+    "lede": { "size": 14, "weight": 400, "lineHeight": 1.55, "family": "product" },
+    "body": { "size": 14, "weight": 400, "lineHeight": 1.6, "family": "product" },
+    "bodyCompact": { "size": 13, "weight": 400, "lineHeight": 1.5, "family": "product" },
+    "control": { "size": 13, "weight": 500, "lineHeight": 1.0, "family": "product" },
+    "label": { "size": 12, "weight": 500, "lineHeight": 1.3, "family": "product" },
+    "metadata": { "size": 11, "weight": 400, "lineHeight": 1.5, "family": "technical" },
+    "eyebrow": { "size": 10, "weight": 500, "lineHeight": 1.0, "letterSpacing": "0.16em", "transform": "uppercase", "family": "technical" },
+    "data": { "desktop": 30, "mobile": 22, "weight": 500, "lineHeight": 1.0, "family": "technical", "numeric": "tabular" },
+    "code": { "size": 12, "weight": 400, "lineHeight": 1.7, "family": "technical" }
+  },
+  "space": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "6": 24,
+    "8": 32,
+    "12": 48
+  },
+  "density": {
+    "default": "comfortable",
+    "compactPolicy": "explicit task or local product requirement only",
+    "comfortable": { "control": 34, "row": 40, "gutter": 28 },
+    "compact": { "control": 28, "row": 30, "gutter": 20 },
+    "mobileFloor": { "control": 44, "row": 48, "gutter": 16 }
+  },
+  "layout": {
+    "navDesktop": 218,
+    "navTablet": 186,
+    "readingWidth": 960,
+    "desktopReference": 1280,
+    "tabletReference": 834,
+    "mobileReference": 390
+  },
+  "shape": {
+    "radiusSmall": 2,
+    "radiusMedium": 2,
+    "radiusPill": 999,
+    "rule": 1,
+    "selectedRule": 2,
+    "focusWidth": 2,
+    "focusOffset": 2
+  },
+  "icon": {
+    "grid": 24,
+    "stroke": 1.75,
+    "renderDefault": 16,
+    "renderCompact": 14,
+    "renderEmphasis": 18,
+    "lineCap": "round",
+    "lineJoin": "round",
+    "color": "currentColor"
+  },
+  "elevation": {
+    "policy": "none except modal and toast",
+    "modal": "0 18px 48px rgb(0 0 0 / 55%)",
+    "toast": "0 12px 32px rgb(0 0 0 / 32%)"
+  },
+  "motion": {
+    "enter": "170ms ease-out",
+    "reduced": "0.001ms"
+  },
+  "color": {
+    "dark": {
+      "canvas": "oklch(0.178 0.008 250)",
+      "sunken": "oklch(0.152 0.008 250)",
+      "surface": "oklch(0.212 0.009 250)",
+      "raised": "oklch(0.252 0.010 250)",
+      "ruleSubtle": "oklch(0.298 0.010 250)",
+      "ruleStrong": "oklch(0.392 0.012 250)",
+      "textPrimary": "oklch(0.955 0.005 250)",
+      "textSecondary": "oklch(0.822 0.007 250)",
+      "textTertiary": "oklch(0.668 0.009 250)"
+    },
+    "light": {
+      "canvas": "oklch(0.985 0.003 250)",
+      "sunken": "oklch(0.952 0.004 250)",
+      "surface": "oklch(1 0 0)",
+      "raised": "oklch(0.938 0.005 250)",
+      "ruleSubtle": "oklch(0.882 0.006 250)",
+      "ruleStrong": "oklch(0.782 0.010 250)",
+      "textPrimary": "oklch(0.215 0.012 250)",
+      "textSecondary": "oklch(0.405 0.012 250)",
+      "textTertiary": "oklch(0.538 0.012 250)"
+    },
+    "status": {
+      "dark": {
+        "ok": "oklch(0.80 0.14 152)",
+        "okBackground": "oklch(0.2526 0.0173 175.8)",
+        "warning": "oklch(0.83 0.15 78)",
+        "warningBackground": "oklch(0.2562 0.0111 83.1)",
+        "danger": "oklch(0.72 0.16 26)",
+        "dangerBackground": "oklch(0.2430 0.0150 6.9)",
+        "info": "oklch(0.80 0.08 235)",
+        "infoBackground": "oklch(0.2402 0.0151 242.1)"
+      },
+      "light": {
+        "ok": "oklch(0.48 0.13 152)",
+        "okBackground": "oklch(0.9395 0.0116 165.4)",
+        "warning": "oklch(0.52 0.13 68)",
+        "warningBackground": "oklch(0.9431 0.0090 67.4)",
+        "danger": "oklch(0.50 0.18 26)",
+        "dangerBackground": "oklch(0.9462 0.0126 17.2)",
+        "info": "oklch(0.45 0.09 235)",
+        "infoBackground": "oklch(0.9422 0.0099 239.1)"
+      }
+    }
+  }
+}

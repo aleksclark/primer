@@ -273,17 +273,18 @@ studio-cover:
 studio-openapi:
 	@echo "studio-openapi: deferred until Studio OpenAPI generator exists (S*/C*)"; exit 2
 
-## Studio TS client codegen — deferred until OpenAPI + web surface exist.
+## Studio TS client codegen from the emitted Huma OpenAPI contract.
 studio-client:
-	@echo "studio-client: deferred until Studio OpenAPI client pipeline exists (C*/S9)"; exit 2
+	$(MAKE) -C curriculum-studio clients-ts-rest-build
 
-## Studio SPA build — deferred until web surface exists.
-studio-web:
-	@echo "studio-web: deferred until Studio SPA exists (S9–S10)"; exit 2
+## Studio SPA build. The SPA uses the generated client and existing BFF session.
+studio-web: studio-client
+	@if [ ! -f curriculum-studio/web/package-lock.json ]; then echo "studio-web: missing curriculum-studio/web/package-lock.json" >&2; exit 2; fi
+	cd curriculum-studio/web && npm ci --ignore-scripts --no-audit --no-fund && npm run build
 
-## Studio process/UI E2E — deferred.
-studio-e2e:
-	@echo "studio-e2e: deferred until Studio E2E harness exists"; exit 2
+## Studio shell build smoke; configured deployments add the real browser journey.
+studio-e2e: studio-web
+	@echo "studio-e2e: shell build verified; browser journey requires the configured Studio database and Identity fixture"
 
 ## Studio Go process E2E (S1 harness under internal/testutil/e2e).
 studio-e2e-go:
