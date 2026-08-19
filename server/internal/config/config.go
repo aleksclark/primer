@@ -50,6 +50,22 @@ type Config struct {
 	AgentRuntimeAPIKey    string        `envconfig:"AGENT_RUNTIME_API_KEY" default:""`
 	AgentRuntimeModel     string        `envconfig:"AGENT_RUNTIME_MODEL" default:""`
 	AgentRuntimeRunBudget time.Duration `envconfig:"AGENT_RUNTIME_RUN_BUDGET" default:"2m"`
+
+	// ── primer-agents remote service integration ──────────────────────────────
+	// PrimerAgentsEnabled enables the remote primer-agents service.
+	// Default false; keeps all existing Fantasy/LMS tutor/local-controller paths
+	// unchanged when unset. Distinct from AGENT_RUNTIME_ENABLED (process-local).
+	PrimerAgentsEnabled bool `envconfig:"PRIMER_AGENTS_ENABLED" default:"false"`
+	// PrimerAgentsBaseURL is the HTTPS base URL of the primer-agents service.
+	// Required when PrimerAgentsEnabled=true; no default prevents accidental prod use.
+	PrimerAgentsBaseURL string `envconfig:"PRIMER_AGENTS_BASE_URL" default:""`
+	// PrimerAgentsTimeout is the HTTP client timeout for agents requests.
+	PrimerAgentsTimeout time.Duration `envconfig:"PRIMER_AGENTS_TIMEOUT" default:"30s"`
+	// PrimerAgentsTokenEnvVar names the environment variable holding the
+	// short-lived Identity access JWT (aud=primer-agents). Never a static secret;
+	// the variable value is read at request time, not at startup.
+	// Empty disables remote calls even when PrimerAgentsEnabled=true.
+	PrimerAgentsTokenEnvVar string `envconfig:"PRIMER_AGENTS_TOKEN_ENV_VAR" default:""`
 }
 
 // Load reads configuration from the environment.
@@ -58,7 +74,35 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	if err := cfg.validatePrimerAgents(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// validatePrimerAgents fails fast when remote agents integration is
+// misconfigured. Production requires HTTPS; a static shared-secret fallback
+// is never accepted — the token must come from Identity at request time.
+func (c *Config) validatePrimerAgents() error {
+	if !c.PrimerAgentsEnabled {
+		return nil
+	}
+	if c.PrimerAgentsBaseURL == "" {
+		return fmt.Errorf("PRIMER_AGENTS_ENABLED requires PRIMER_AGENTS_BASE_URL")
+	}
+	if c.Env == "production" {
+		if !isHTTPS(c.PrimerAgentsBaseURL) {
+			return fmt.Errorf("PRIMER_AGENTS_BASE_URL must use HTTPS in production")
+		}
+	}
+	if c.PrimerAgentsTimeout <= 0 {
+		return fmt.Errorf("PRIMER_AGENTS_TIMEOUT must be positive")
+	}
+	return nil
+}
+
+func isHTTPS(url string) bool {
+	return len(url) >= 8 && url[:8] == "https://"
 }
 
 // Addr returns the host:port bind address.

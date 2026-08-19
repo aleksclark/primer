@@ -1,4 +1,17 @@
-// Package agent is the production Primer MAF adapter.
+// Package agent is a temporary LMS compatibility seam.
+//
+// # Migration status
+//
+// The canonical implementation has moved to:
+//
+//	github.com/aleksclark/primer/agents/runtime  (primer-agents/runtime/)
+//
+// This package will be replaced by a thin re-export shim once go.work
+// includes ./primer-agents. Until then, server/internal/agent and
+// primer-agents/runtime are kept in sync; do NOT make independent
+// behavioural edits here. The agents module is the single source of truth.
+//
+// See agent_docs/plans/primer-agents-service/phase-01-standalone-foundation-and-engine.md
 //
 // # Status
 //

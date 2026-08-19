@@ -17,6 +17,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/config"
 	"github.com/aleksclark/primer/server/internal/db"
+	"github.com/aleksclark/primer/server/internal/remoteagent"
 	"github.com/aleksclark/primer/server/internal/spa"
 	"github.com/aleksclark/primer/server/internal/tutor"
 	mafagent "github.com/microsoft/agent-framework-go/agent"
@@ -93,6 +94,22 @@ func run() error {
 	} else {
 		slog.Info("agent runtime disabled")
 	}
+
+	// primer-agents remote service integration — PRIMER_AGENTS_ENABLED (default false).
+	// Kept fully independent from AGENT_RUNTIME_ENABLED so both flags can coexist
+	// during the rollout period. Fantasy/LMS tutor paths are unaffected when disabled.
+	remoteAdapter := remoteagent.New(remoteagent.Config{
+		Enabled:     cfg.PrimerAgentsEnabled,
+		BaseURL:     cfg.PrimerAgentsBaseURL,
+		Timeout:     cfg.PrimerAgentsTimeout,
+		TokenSource: remoteagent.EnvTokenSource{EnvVar: cfg.PrimerAgentsTokenEnvVar},
+	})
+	if cfg.PrimerAgentsEnabled {
+		slog.Info("primer-agents remote integration enabled", "base_url", cfg.PrimerAgentsBaseURL)
+	} else {
+		slog.Info("primer-agents remote integration disabled (PRIMER_AGENTS_ENABLED=false)")
+	}
+	_ = remoteAdapter // wired into API opts below once UI is implemented (Phase 7 UI deferred)
 
 	var artStore *artifacts.Store
 	if cfg.ArtifactStoreDir != "" {

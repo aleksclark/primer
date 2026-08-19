@@ -19,6 +19,10 @@ IDENTITY_COVER_MIN := 80
 	workstation-package workstation-check update-student-vendor-hash \
 	investor-web investor-web-dev investor-web-test investor-web-ci \
 	foundation-check agent-runtime-check \
+	agents-build agents-vet agents-test agents-race agents-cover \
+	agents-openapi agents-clients-go agents-clients-ts agents-clients \
+	agents-contracts-check agents-maf-audit agents-migrate dev-db-agents \
+	docker-agents agents-no-live-billable \
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
@@ -371,6 +375,74 @@ identity-live-stytch:
 		exit 2; \
 	fi
 	cd primer-identity && go test -tags=live_stytch ./internal/testutil/live/ -count=1 -timeout 5m -v
+
+## ── primer-agents module ─────────────────────────────────────────────────────
+AGENTS_COVER_MIN := 85
+## NOTE: current honest total is 78.7%; agents-cover remains a release blocker.
+## The threshold is intentionally not lowered; see agent_docs/runbooks/coverage-blockers.md.
+## Blocker to 85%: worker/execute goroutine and SSE LISTEN/NOTIFY branches
+## require live provider/DB interaction not available in standard CI.
+## See agent_docs/runbooks/coverage-blockers.md.
+
+agents-build:
+	cd primer-agents && go build ./...
+
+agents-vet:
+	cd primer-agents && go vet ./...
+
+agents-test:
+	cd primer-agents && go test -count=1 -timeout=300s ./...
+
+agents-race:
+	cd primer-agents && go test -race -count=1 -timeout=300s ./...
+
+agents-cover:
+	@./scripts/enforce-module-cover.sh primer-agents $(AGENTS_COVER_MIN) agents
+
+agents-openapi:
+	bash primer-agents/scripts/generate-openapi.sh
+
+agents-clients-go:
+	bash primer-agents/scripts/generate-go-client.sh
+
+agents-clients-ts:
+	bash primer-agents/scripts/generate-ts-client.sh
+
+agents-clients: agents-openapi agents-clients-go agents-clients-ts
+
+agents-contracts-check:
+	cd primer-agents && go test -count=1 -timeout=60s -short \
+		-run "TestOpenAPIDeterministic|TestNoDuplicateDTOs|TestNoRawTransportImports" \
+		./internal/api/...
+
+agents-maf-audit:
+	bash scripts/check-agents-maf.sh
+
+agents-migrate:
+	@if [ -z "$${PRIMER_AGENTS_DATABASE_URL:-}" ]; then \
+		echo "agents-migrate: PRIMER_AGENTS_DATABASE_URL is required" >&2; exit 2; \
+	fi
+	cd primer-agents && go run ./cmd/migrate
+
+dev-db-agents:
+	@echo "dev-db-agents: start a local primer_agents database"
+	docker run -d --name primer-agents-dev \
+		-e POSTGRES_DB=primer_agents \
+		-e POSTGRES_USER=agents \
+		-e POSTGRES_PASSWORD=agents \
+		-p 5438:5432 postgres:17-alpine || \
+		docker start primer-agents-dev
+
+docker-agents:
+	docker build -f Dockerfile.agents -t primer-agents:local .
+
+agents-no-live-billable:
+	@bash scripts/check-agents-maf.sh
+	@echo "Live billable proof: BLOCKED — no ambient provider credential used"
+	@! grep -rn --include='*.go' \
+		'OPENAI_API_KEY\|ANTHROPIC_API_KEY\|BEDROCK_SECRET' \
+		primer-agents/internal primer-agents/cmd 2>/dev/null | grep -v '_test\.go'
+	@echo "OK: no ambient live-provider credential references in production code"
 
 ## Create Identity dev database — deferred: no coherent additive Compose surface
 ## exists for primer_identity yet (F0 will not invent hollow compose). Use a
