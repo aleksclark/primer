@@ -2063,8 +2063,13 @@ components:
         - watchedSeconds
       type: object
   securitySchemes:
+    adminJWT:
+      bearerFormat: JWT
+      description: Primer Identity JWT (ES256, typ=at+jwt) for human admin authentication.
+      scheme: bearer
+      type: http
     adminKey:
-      description: Admin API key, presented by the admin SPA and by Primer.
+      description: Service-to-service admin API key (content-ingest, LMS).
       in: header
       name: X-Admin-Key
       type: apiKey
@@ -2736,6 +2741,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Record an acquisition attempt
       tags:
         - Content Manifest
@@ -2784,6 +2790,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Mark a catalog entry present
       tags:
         - Content Manifest
@@ -2824,6 +2831,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Upsert the desired-state content catalog
       tags:
         - Content Manifest
@@ -2955,6 +2963,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Register a device
       tags:
         - Devices
@@ -3163,6 +3172,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Issue a fresh pairing code
       tags:
         - Devices
@@ -3447,6 +3457,7 @@ paths:
           description: Service Unavailable
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Browse the Jellyfin library
       tags:
         - Jellyfin
@@ -3487,6 +3498,7 @@ paths:
           description: Service Unavailable
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Refresh cached metadata
       tags:
         - Jellyfin
@@ -3624,6 +3636,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Create a media item
       tags:
         - Media Items
@@ -3769,6 +3782,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Update a media item
       tags:
         - Media Items
@@ -3836,6 +3850,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Reconcile a media item from ingest
       tags:
         - Media Items
@@ -3942,6 +3957,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Viewing statistics
       tags:
         - Metrics
@@ -4230,6 +4246,7 @@ paths:
           description: Service Unavailable
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Report pending viewings now
       tags:
         - Primer Reports
@@ -4349,6 +4366,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Turn the catalog over
       tags:
         - Rotation
@@ -4395,6 +4413,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Suggest what to offer next
       tags:
         - Rotation
@@ -4580,6 +4599,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Place an airing in the grid
       tags:
         - Schedule Entries
@@ -4626,6 +4646,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Copy one week of the grid onto another
       tags:
         - Schedule Entries
@@ -4765,6 +4786,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Move or retime an airing
       tags:
         - Schedule Entries
@@ -4824,6 +4846,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Read a span of the grid
       tags:
         - Schedule Entries

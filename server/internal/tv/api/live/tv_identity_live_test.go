@@ -31,7 +31,8 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/humatest"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -271,25 +272,55 @@ func TestLiveTVIdentityProof(t *testing.T) {
 
 // --- Test infrastructure ---
 
-// guardedAPI creates a minimal humatest API with a single admin-guarded probe
+// liveAPI is a real HTTP client/server boundary without humatest's request
+// logging. The bearer values are synthetic in this harness, but must still
+// never be emitted as request diagnostics or evidence.
+type liveAPI struct {
+	t      *testing.T
+	client *http.Client
+	base   string
+}
+
+type liveResponse struct{ Code int }
+
+func (a *liveAPI) Get(path string, headers ...string) liveResponse {
+	a.t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, a.base+path, nil)
+	require.NoError(a.t, err)
+	for _, header := range headers {
+		name, value, ok := strings.Cut(header, ":")
+		if ok {
+			req.Header.Set(strings.TrimSpace(name), strings.TrimSpace(value))
+		}
+	}
+	resp, err := a.client.Do(req)
+	require.NoError(a.t, err)
+	defer resp.Body.Close()
+	return liveResponse{Code: resp.StatusCode}
+}
+
+// guardedAPI creates a minimal real HTTP API with a single admin-guarded probe
 // endpoint. This avoids needing a database connection: we only care about the
 // auth middleware, not the CRUD handlers behind it.
-func guardedAPI(t *testing.T, verifier *identityauth.Verifier, adminKey string) humatest.TestAPI {
+func guardedAPI(t *testing.T, verifier *identityauth.Verifier, adminKey string) *liveAPI {
 	t.Helper()
-	_, testAPI := humatest.New(t)
+	router := chi.NewMux()
+	humaAPI := humachi.New(router, huma.DefaultConfig("TV live proof", "0.1.0"))
 
 	// Register a minimal probe endpoint with the same auth logic as TV admin.
-	huma.Register(testAPI, huma.Operation{
+	huma.Register(humaAPI, huma.Operation{
 		OperationID:   "admin-probe",
 		Method:        http.MethodGet,
 		Path:          "/admin-probe",
 		DefaultStatus: http.StatusNoContent,
-		Middlewares:   huma.Middlewares{tvAdminGuard(testAPI, verifier, adminKey)},
+		Middlewares:   huma.Middlewares{tvAdminGuard(humaAPI, verifier, adminKey)},
 	}, func(_ context.Context, _ *struct{}) (*struct{}, error) {
 		return nil, nil
 	})
 
-	return testAPI
+	srv := httptest.NewServer(router)
+	t.Cleanup(srv.Close)
+	return &liveAPI{t: t, client: srv.Client(), base: srv.URL}
 }
 
 // tvAdminGuard replicates the TV admin auth logic for the live test without
