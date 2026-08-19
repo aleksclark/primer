@@ -637,6 +637,10 @@ func (m *scriptedParentModel) Stream(ctx context.Context, call fantasy.Call) (fa
 	return scriptedStream(ctx, "I inspected the server-owned Tasks records."), nil
 }
 
+// toolResultJSON normalizes the small scripted fixture's tool results. Real
+// Fantasy models receive the original typed JSON; this fixture accepts both a
+// single object and the array returned by list tools so it exercises the same
+// multi-step path instead of silently constructing empty foreign keys.
 func toolResultJSON(call fantasy.Call, name string) map[string]any {
 	for _, message := range call.Prompt {
 		for _, part := range message.Content {
@@ -648,6 +652,10 @@ func toolResultJSON(call fantasy.Call, name string) map[string]any {
 			var value map[string]any
 			if json.Unmarshal(b, &value) == nil {
 				return value
+			}
+			var items []map[string]any
+			if json.Unmarshal(b, &items) == nil && len(items) > 0 {
+				return map[string]any{"items": items}
 			}
 		}
 	}
@@ -663,10 +671,8 @@ func scriptedScheduleInput(call fantasy.Call) string {
 	students := toolResultJSON(call, "list_students")
 	id, _ := students["id"].(string)
 	if id == "" {
-		if items, ok := students["items"].([]any); ok && len(items) > 0 {
-			if row, ok := items[0].(map[string]any); ok {
-				id, _ = row["id"].(string)
-			}
+		if items, ok := students["items"].([]map[string]any); ok && len(items) > 0 {
+			id, _ = items[0]["id"].(string)
 		}
 	}
 	templateID, _ := task["templateId"].(string)
@@ -677,12 +683,10 @@ func scriptedPreviewInput(call fantasy.Call) string {
 	tasks := toolResultJSON(call, "list_tasks")
 	id, _ := tasks["id"].(string)
 	version := 1
-	if items, ok := tasks["items"].([]any); ok && len(items) > 0 {
-		if row, ok := items[0].(map[string]any); ok {
-			id, _ = row["id"].(string)
-			if n, ok := row["version"].(float64); ok {
-				version = int(n)
-			}
+	if items, ok := tasks["items"].([]map[string]any); ok && len(items) > 0 {
+		id, _ = items[0]["id"].(string)
+		if n, ok := items[0]["version"].(float64); ok {
+			version = int(n)
 		}
 	}
 	return fmt.Sprintf(`{"kind":"retire_task","targetIds":[%q],"payload":{"expectedVersion":%d},"summary":"Retire task"}`, id, version)

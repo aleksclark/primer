@@ -98,13 +98,7 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 			}
 			// A confirmation preview is a safe, server-issued handle. Only its
 			// opaque handle, human summary, and expiry may cross the protocol.
-			b, _ := json.Marshal(c.Result)
-			var preview struct {
-				Handle    string    `json:"handle"`
-				Summary   string    `json:"summary"`
-				ExpiresAt time.Time `json:"expiresAt"`
-			}
-			if json.Unmarshal(b, &preview) == nil && preview.Handle != "" && !preview.ExpiresAt.IsZero() {
+			if preview, ok := readConfirmationPreview(c.Result); ok {
 				return next(protocol.Confirmation(runID, seq+1, preview.Handle, preview.Summary, preview.ExpiresAt))
 			}
 			return nil
@@ -125,6 +119,28 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 	return Execution{FinalText: result.Response.Content.Text(), Usage: usage, Provider: "fantasy", Model: "fantasy", Steps: len(result.Steps)}, nil
 }
 func ptr[T any](v T) *T { return &v }
+
+type previewEnvelope struct {
+	Handle    string    `json:"handle"`
+	Summary   string    `json:"summary"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// confirmationPreview accepts only a server-issued opaque preview encoded in
+// the safe text result. Fantasy's typed tool result wrapper is intentionally
+// unwrapped here; raw tool input/result content never enters the protocol.
+func readConfirmationPreview(result fantasy.ToolResultOutputContent) (previewEnvelope, bool) {
+	text, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result)
+	if !ok {
+		return previewEnvelope{}, false
+	}
+	var preview previewEnvelope
+	if json.Unmarshal([]byte(text.Text), &preview) != nil || preview.Handle == "" || preview.ExpiresAt.IsZero() {
+		return previewEnvelope{}, false
+	}
+	return preview, true
+}
+
 func (r *Runtime) label(name string) string {
 	if label, ok := r.Labels[name]; ok && label != "" {
 		return label
