@@ -11,6 +11,7 @@ import (
 
 	"github.com/aleksclark/primer/server/internal/agent"
 	"github.com/aleksclark/primer/server/internal/artifacts"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tutor"
 )
@@ -35,6 +36,10 @@ type Options struct {
 	// AgentController enables the authenticated, process-local MAF runtime
 	// boundary. Nil keeps the preview runtime disabled.
 	AgentController *agent.Controller
+	// IdentityVerifier verifies Primer Identity access tokens (ES256,
+	// typ=at+jwt). Nil means the JWT path is inactive (fail-closed): only
+	// legacy opaque session tokens are accepted.
+	IdentityVerifier *identityauth.Verifier
 }
 
 // New builds the Huma API and its HTTP handler. The Querier may be nil when

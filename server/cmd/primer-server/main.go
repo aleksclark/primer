@@ -17,6 +17,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/artifacts"
 	"github.com/aleksclark/primer/server/internal/config"
 	"github.com/aleksclark/primer/server/internal/db"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/remoteagent"
 	"github.com/aleksclark/primer/server/internal/spa"
 	"github.com/aleksclark/primer/server/internal/tutor"
@@ -131,6 +132,7 @@ func run() error {
 		TutorEnabled:      tutorSvc.Enabled(),
 		ArtifactStore:     artStore,
 		AgentController:   agentController,
+		IdentityVerifier:  identityVerifier(cfg),
 	})
 
 	mux := http.NewServeMux()
@@ -164,4 +166,19 @@ func run() error {
 		}
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// identityVerifier builds the Primer Identity JWT verifier from config.
+// Returns nil (fail-closed: all JWTs are rejected) when any config field is empty.
+func identityVerifier(cfg *config.Config) *identityauth.Verifier {
+	v := identityauth.New(cfg.IdentityAuthConfig())
+	if v == nil {
+		slog.Warn("Primer Identity JWT path is disabled (IDENTITY_ISSUER, IDENTITY_AUDIENCE, or IDENTITY_JWKS_URL missing)")
+	} else {
+		slog.Info("Primer Identity JWT path enabled",
+			"issuer", cfg.IdentityIssuer,
+			"audience", cfg.IdentityAudience,
+			"jwks_url", cfg.IdentityJWKSURL)
+	}
+	return v
 }

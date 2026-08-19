@@ -8,6 +8,7 @@ import (
 	"github.com/aleksclark/primer/server/internal/agent"
 	"github.com/aleksclark/primer/server/internal/api"
 	"github.com/aleksclark/primer/server/internal/artifacts"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tutor"
 )
@@ -27,6 +28,9 @@ type Options struct {
 	ArtifactStoreDir string
 	// AgentController enables the authenticated runtime boundary in API tests.
 	AgentController *agent.Controller
+	// IdentityVerifier enables the Primer JWT authentication path.
+	// Nil means JWT path is inactive (legacy-only).
+	IdentityVerifier *identityauth.Verifier
 }
 
 // API returns a humatest API wired to the full route set, plus the
@@ -41,7 +45,7 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, repo.Querier) {
 	}
 	q := NewSavepointQuerier(Tx(t))
 	_, testAPI := humatest.New(t)
-	apiOpts := api.Options{ServiceToken: o.ServiceToken, AgentController: o.AgentController}
+	apiOpts := api.Options{ServiceToken: o.ServiceToken, AgentController: o.AgentController, IdentityVerifier: o.IdentityVerifier}
 	if o.Tutor != nil {
 		apiOpts.Tutor = o.Tutor
 		apiOpts.TutorProviderName = o.TutorProviderName

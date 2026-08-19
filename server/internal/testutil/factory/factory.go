@@ -50,6 +50,20 @@ func EducatorWithPassword(t *testing.T, q repo.Querier, password string, overrid
 	return ed
 }
 
+// EducatorOpts is an alias for Override with named-field convenience.
+// Use like: factory.Educator(t, q, factory.EducatorOpts{"role": "tutor"})
+type EducatorOpts = Override
+
+// ParentSession creates a parent login session and returns the plaintext token.
+func ParentSession(t *testing.T, q repo.Querier, educatorID string) string {
+	t.Helper()
+	token, _, err := repo.CreateParentSession(t.Context(), q, educatorID, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("create parent session: %v", err)
+	}
+	return token
+}
+
 // Student creates a student.
 func Student(t *testing.T, q repo.Querier, overrides ...Override) *domain.Student {
 	i := n()

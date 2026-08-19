@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/aleksclark/primer/server/internal/domain"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/mastery"
 	"github.com/aleksclark/primer/server/internal/overseer"
 	"github.com/aleksclark/primer/server/internal/repo"
@@ -15,16 +16,26 @@ import (
 	"github.com/aleksclark/primer/server/internal/tutor"
 )
 
-func parentOp(h huma.API, q repo.Querier, op huma.Operation) huma.Operation {
+func parentOp(h huma.API, q repo.Querier, op huma.Operation, opts ...Options) huma.Operation {
 	op.Security = []map[string][]string{{parentSessionSecurityScheme: {}}}
-	op.Middlewares = huma.Middlewares{ParentSessionGuard(h, q)}
+	var verifier *identityauth.Verifier
+	if len(opts) > 0 {
+		verifier = opts[0].IdentityVerifier
+	}
+	op.Middlewares = huma.Middlewares{ParentSessionGuard(h, q, verifier)}
 	op.Errors = append(op.Errors, http.StatusUnauthorized, http.StatusForbidden)
 	return op
 }
 
+// parentOpWith is parentOp pre-bound with options. Used by registration
+// functions that already have opts in scope to avoid repeating the argument.
+func parentOpWith(h huma.API, q repo.Querier, opts Options, op huma.Operation) huma.Operation {
+	return parentOp(h, q, op, opts)
+}
+
 func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	// Pairing codes
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "create-pairing-code",
 		Method:        http.MethodPost,
 		Path:          "/pairing-codes",
@@ -54,7 +65,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Activities: create draft
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "create-learning-activity",
 		Method:        http.MethodPost,
 		Path:          "/learning-activities",
@@ -73,7 +84,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// List activities
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-learning-activities",
 		Method:      http.MethodGet,
 		Path:        "/learning-activities",
@@ -99,7 +110,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Publish revision (content immutable once written)
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "publish-activity-revision",
 		Method:        http.MethodPost,
 		Path:          "/learning-activities/{id}/revisions",
@@ -136,7 +147,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// List revisions for activity
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-activity-revisions",
 		Method:      http.MethodGet,
 		Path:        "/learning-activities/{id}/revisions",
@@ -158,7 +169,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Assignments
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "create-assignment",
 		Method:        http.MethodPost,
 		Path:          "/assignments",
@@ -192,7 +203,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 		return &itemOutput[domain.StudentAssignment]{Body: *asg}, nil
 	})
 
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-student-assignments",
 		Method:      http.MethodGet,
 		Path:        "/students/{id}/assignments",
@@ -212,7 +223,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Device list (parent diagnostics)
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-student-devices",
 		Method:      http.MethodGet,
 		Path:        "/student-devices",
@@ -233,7 +244,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Device revoke
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "revoke-student-device",
 		Method:      http.MethodPost,
 		Path:        "/student-devices/{id}/revoke",
@@ -251,7 +262,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Parent-visible tutor diagnostics (provider choice, enablement, recent failures).
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "get-student-tutor-status",
 		Method:      http.MethodGet,
 		Path:        "/students/{id}/tutor-status",
@@ -293,7 +304,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Overseer: assign next activity
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "assign-next-activity",
 		Method:        http.MethodPost,
 		Path:          "/students/{id}/assign-next",
@@ -345,7 +356,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 
 	// Rotate device credential: revoke current token and issue a fresh pairing code.
 	// Parent must re-pair the workstation; plaintext device tokens are never re-issued.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "rotate-student-device-token",
 		Method:        http.MethodPost,
 		Path:          "/student-devices/{id}/rotate-token",
@@ -386,7 +397,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Cancel assignment
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "cancel-assignment",
 		Method:      http.MethodPost,
 		Path:        "/assignments/{id}/cancel",
@@ -405,7 +416,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Retry assignment: new row for same revision
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "retry-assignment",
 		Method:        http.MethodPost,
 		Path:          "/assignments/{id}/retry",
@@ -431,7 +442,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// List all assignments (parent diagnostics / SPA)
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-assignments",
 		Method:      http.MethodGet,
 		Path:        "/assignments",
@@ -457,7 +468,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// List learning sessions
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-learning-sessions",
 		Method:      http.MethodGet,
 		Path:        "/learning-sessions",
@@ -483,7 +494,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Learning overview for one student
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "get-student-learning-overview",
 		Method:      http.MethodGet,
 		Path:        "/students/{id}/learning-overview",
@@ -526,7 +537,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Toggle per-student tutor via notes marker
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "set-student-tutor",
 		Method:      http.MethodPost,
 		Path:        "/students/{id}/tutor",
@@ -545,7 +556,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Conceptual response review queue
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-response-reviews",
 		Method:      http.MethodGet,
 		Path:        "/response-reviews",
@@ -563,7 +574,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 		return &listResponseReviewsOutput{Body: ResponseReviewList{Items: items}}, nil
 	})
 
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "get-response-review",
 		Method:      http.MethodGet,
 		Path:        "/response-reviews/{id}",
@@ -580,7 +591,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 		return &responseReviewDetailOutput{Body: *detail}, nil
 	})
 
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "decide-response-review",
 		Method:      http.MethodPost,
 		Path:        "/response-reviews/{id}/decision",
@@ -619,7 +630,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Parent correction: supersede mastery evidence
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "supersede-mastery-evidence",
 		Method:        http.MethodPost,
 		Path:          "/mastery-evidence/{id}/supersede",
@@ -647,7 +658,7 @@ func registerParentLearning(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Household student-client metrics
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "get-student-metrics",
 		Method:      http.MethodGet,
 		Path:        "/ops/student-metrics",

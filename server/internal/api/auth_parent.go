@@ -9,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/aleksclark/primer/server/internal/domain"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/repo"
 )
 
@@ -24,24 +25,61 @@ func ParentFromContext(ctx context.Context) (*domain.Educator, bool) {
 	return ed, ok
 }
 
-// ParentSessionGuard authenticates parent/admin routes via Bearer session token.
+// ParentSessionGuard authenticates parent/admin routes via either:
+//   - Legacy path: opaque Bearer session token (DB lookup)
+//   - Primer JWT path: Identity-minted ES256 access token (signature + claims)
+//
+// The guard inspects the token format: JWTs have 3 dot-separated segments;
+// opaque tokens do not. Both paths enforce local educator roles — the LMS
+// never uses external provider roles for authorization.
+//
 // Single-family deployment: any authenticated parent or admin may manage all students.
-func ParentSessionGuard(api huma.API, q repo.Querier) func(huma.Context, func(huma.Context)) {
+func ParentSessionGuard(api huma.API, q repo.Querier, iv ...*identityauth.Verifier) func(huma.Context, func(huma.Context)) {
+	var verifier *identityauth.Verifier
+	if len(iv) > 0 {
+		verifier = iv[0]
+	}
 	return func(ctx huma.Context, next func(huma.Context)) {
 		token := BearerToken(ctx.Header("Authorization"))
 		if token == "" {
 			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "missing parent session token")
 			return
 		}
-		_, ed, err := repo.ParentSessionByToken(ctx.Context(), q, token, time.Now().UTC())
-		if err != nil {
-			if errors.Is(err, repo.ErrNotFound) {
-				_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "invalid or expired session")
+
+		var ed *domain.Educator
+
+		if identityauth.IsJWT(token) {
+			// Primer JWT path.
+			principal, err := verifier.Verify(ctx.Context(), token)
+			if err != nil {
+				_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "invalid identity token")
 				return
 			}
-			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "authenticate parent")
-			return
+			// Map identity subject to local educator.
+			ed, err = repo.EducatorByIdentitySubject(ctx.Context(), q, principal.Subject)
+			if err != nil {
+				if errors.Is(err, repo.ErrNotFound) {
+					_ = huma.WriteErr(api, ctx, http.StatusForbidden, "no local educator linked to this identity")
+					return
+				}
+				_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "look up educator")
+				return
+			}
+		} else {
+			// Legacy opaque token path.
+			_, educator, err := repo.ParentSessionByToken(ctx.Context(), q, token, time.Now().UTC())
+			if err != nil {
+				if errors.Is(err, repo.ErrNotFound) {
+					_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "invalid or expired session")
+					return
+				}
+				_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "authenticate parent")
+				return
+			}
+			ed = educator
 		}
+
+		// Local role enforcement — the LMS is the source of truth for product roles.
 		if ed.Role != "parent" && ed.Role != "admin" {
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "parent or admin role required")
 			return

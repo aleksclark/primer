@@ -108,3 +108,43 @@ func TestPrimerAgentsDevelopmentAllowsHTTP(t *testing.T) {
 	assert.True(t, cfg.PrimerAgentsEnabled)
 	assert.Equal(t, "http://localhost:8091", cfg.PrimerAgentsBaseURL)
 }
+
+func TestIdentityConfigDefaultsToInactive(t *testing.T) {
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.IdentityIssuer, "identity issuer must default to empty (JWT path disabled)")
+	assert.Empty(t, cfg.IdentityAudience)
+	assert.Empty(t, cfg.IdentityJWKSURL)
+
+	iaCfg := cfg.IdentityAuthConfig()
+	assert.Empty(t, iaCfg.Issuer)
+	assert.Empty(t, iaCfg.Audience)
+	assert.Empty(t, iaCfg.JWKSURL)
+}
+
+func TestIdentityConfigFromEnv(t *testing.T) {
+	t.Setenv("IDENTITY_ISSUER", "https://identity.primer.dev")
+	t.Setenv("IDENTITY_AUDIENCE", "primer-lms")
+	t.Setenv("IDENTITY_JWKS_URL", "https://identity.primer.dev/.well-known/jwks.json")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "https://identity.primer.dev", cfg.IdentityIssuer)
+	assert.Equal(t, "primer-lms", cfg.IdentityAudience)
+	assert.Equal(t, "https://identity.primer.dev/.well-known/jwks.json", cfg.IdentityJWKSURL)
+
+	iaCfg := cfg.IdentityAuthConfig()
+	assert.Equal(t, "https://identity.primer.dev", iaCfg.Issuer)
+	assert.Equal(t, "primer-lms", iaCfg.Audience)
+	assert.Equal(t, "https://identity.primer.dev/.well-known/jwks.json", iaCfg.JWKSURL)
+}
+
+func TestIdentityPartialConfigStillReturnsConfig(t *testing.T) {
+	// Only issuer set — the verifier will be nil (fail-closed).
+	t.Setenv("IDENTITY_ISSUER", "https://identity.primer.dev")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "https://identity.primer.dev", cfg.IdentityIssuer)
+	assert.Empty(t, cfg.IdentityAudience)
+	assert.Empty(t, cfg.IdentityJWKSURL)
+}

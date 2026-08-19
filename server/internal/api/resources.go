@@ -310,7 +310,7 @@ func registerAll(h huma.API, q repo.Querier, opts Options) {
 	registerInstructionLogs(h, q, opts)
 	registerParentAuth(h, q)
 	registerParentLearning(h, q, opts)
-	registerParentCourse(h, q)
+	registerParentCourse(h, q, opts)
 	registerStudentAPI(h, q, opts)
 	registerArtifactsAndImport(h, q, opts)
 	registerAgentRuntime(h, q, opts)

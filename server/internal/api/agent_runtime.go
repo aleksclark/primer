@@ -18,7 +18,7 @@ import (
 func registerAgentRuntime(h huma.API, q repo.Querier, opts Options) {
 	controller := opts.AgentController
 
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "start-agent-run",
 		Method:        http.MethodPost,
 		Path:          "/agent/runs",
@@ -40,7 +40,7 @@ func registerAgentRuntime(h huma.API, q repo.Querier, opts Options) {
 		return &agentRunOutput{Body: snapshot}, nil
 	})
 
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "get-agent-run",
 		Method:      http.MethodGet,
 		Path:        "/agent/runs/{id}",
@@ -60,7 +60,7 @@ func registerAgentRuntime(h huma.API, q repo.Querier, opts Options) {
 		return &agentRunOutput{Body: snapshot}, nil
 	})
 
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "cancel-agent-run",
 		Method:        http.MethodPost,
 		Path:          "/agent/runs/{id}/cancel",
@@ -81,7 +81,7 @@ func registerAgentRuntime(h huma.API, q repo.Querier, opts Options) {
 		return &agentRunOutput{Body: snapshot}, nil
 	})
 
-	streamOp := parentOp(h, q, huma.Operation{
+	streamOp := parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "stream-agent-run",
 		Method:      http.MethodGet,
 		Path:        "/agent/runs/{id}/events",
