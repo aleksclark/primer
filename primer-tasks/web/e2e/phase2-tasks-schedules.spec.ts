@@ -108,15 +108,24 @@ test("public task schedule, student verification, collections, and tenant bounda
     await parentPage.goto("/parent/occurrences?status=awaiting_verification");
     let awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
     await expect(awaiting).toContainText("awaiting_verification");
-    await awaiting.getByRole("button", { name: /^Reject$/ }).click();
+    await Promise.all([
+      parentPage.waitForResponse((response) => response.url().includes("/decision") && response.status() === 200),
+      awaiting.getByRole("button", { name: /^Reject$/ }).click(),
+    ]);
     await parentPage.goto("/parent/occurrences?status=pending");
     let pending = parentPage.getByRole("row").filter({ hasText: taskTitle });
     await expect(pending).toContainText("pending");
-    await pending.getByRole("button", { name: /^Retry$/ }).click();
+    await Promise.all([
+      parentPage.waitForResponse((response) => response.url().includes("/retry") && response.status() === 200),
+      pending.getByRole("button", { name: /^Retry$/ }).click(),
+    ]);
     await parentPage.goto("/parent/occurrences?status=awaiting_verification");
     awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
     await expect(awaiting).toContainText("awaiting_verification");
-    await awaiting.getByRole("button", { name: /^Approve$/ }).click();
+    await Promise.all([
+      parentPage.waitForResponse((response) => response.url().includes("/decision") && response.status() === 200),
+      awaiting.getByRole("button", { name: /^Approve$/ }).click(),
+    ]);
     await parentPage.goto("/parent/occurrences");
     awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
     await expect(awaiting).toContainText("completed");
