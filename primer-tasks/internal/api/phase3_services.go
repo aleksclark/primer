@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -47,15 +48,18 @@ func (p phase3Services) beginToolEffect(ctx context.Context, c parent.ServiceCon
 		return nil, nil
 	}
 	digest := effectDigest(tool, input)
-	tag, err := p.s.DB.Exec(ctx, `INSERT INTO agent_tool_effects(tenant_id,run_id,step,tool_name,action_digest,status,result) VALUES($1,$2,$3,$4,$5,'reserved','{}'::jsonb) ON CONFLICT (tenant_id,run_id,tool_name,action_digest) DO NOTHING`, c.TenantID, c.RunID, c.ToolStep, tool, digest)
+	tag, err := p.s.DB.Exec(ctx, `INSERT INTO agent_tool_effects(tenant_id,run_id,step,tool_name,action_digest,status,result) VALUES($1,$2,$3,$4,$5,'reserved','{}'::jsonb) ON CONFLICT (tenant_id,run_id,step) DO NOTHING`, c.TenantID, c.RunID, c.ToolStep, tool, digest)
 	if err != nil {
 		return nil, err
 	}
 	if tag.RowsAffected() == 0 {
-		var status string
+		var status, existingTool, existingDigest string
 		var result []byte
-		if err := p.s.DB.QueryRow(ctx, `SELECT status,result FROM agent_tool_effects WHERE tenant_id=$1 AND run_id=$2 AND tool_name=$3 AND action_digest=$4`, c.TenantID, c.RunID, tool, digest).Scan(&status, &result); err != nil {
+		if err := p.s.DB.QueryRow(ctx, `SELECT status,tool_name,action_digest,result FROM agent_tool_effects WHERE tenant_id=$1 AND run_id=$2 AND step=$3`, c.TenantID, c.RunID, c.ToolStep).Scan(&status, &existingTool, &existingDigest, &result); err != nil {
 			return nil, err
+		}
+		if existingTool != tool || existingDigest != digest {
+			return nil, fmt.Errorf("%w: durable tool boundary changed", errToolEffectInProgress)
 		}
 		if status == "applied" {
 			return result, nil

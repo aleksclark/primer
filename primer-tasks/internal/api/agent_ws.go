@@ -631,7 +631,14 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, runID strin
 	}
 	// A retry of one durable run must keep the same idempotency identity;
 	// generating a fresh key here would permit duplicate domain effects.
-	ctx := parent.Context{TenantID: tenant, ActorID: actor, IdempotencyKey: runID, RunID: runID, ToolStep: 1, Tools: set}
+	ctx := parent.Context{TenantID: tenant, ActorID: actor, IdempotencyKey: runID, RunID: runID, Tools: set}
+	toolStep := 0
+	nextToolContext := func() parent.Context {
+		toolStep++
+		toolCtx := ctx
+		toolCtx.ToolStep = toolStep
+		return toolCtx
+	}
 	// Actor is supplied by the authenticated run in production; this function
 	// is called only after the run tenant has been verified.  The worker fills
 	// actor from the durable conversation before invoking tools in later steps.
@@ -640,27 +647,27 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, runID strin
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.ListStudents(c, ctx, parent.StudentQuery{Name: in.Query, Limit: in.Limit})
+			v, e := tools.ListStudents(c, nextToolContext(), parent.StudentQuery{Name: in.Query, Limit: in.Limit})
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("list_tasks", "List household tasks", func(c context.Context, in struct {
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.ListTasks(c, ctx, parent.TaskQuery{Query: in.Query, Limit: in.Limit})
+			v, e := tools.ListTasks(c, nextToolContext(), parent.TaskQuery{Query: in.Query, Limit: in.Limit})
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("draft_task", "Draft a task", func(c context.Context, in struct {
 			Title        string `json:"title"`
 			Instructions string `json:"instructions"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.DraftTask(c, ctx, parent.TaskDraftInput{Title: in.Title, Instructions: in.Instructions})
+			v, e := tools.DraftTask(c, nextToolContext(), parent.TaskDraftInput{Title: in.Title, Instructions: in.Instructions})
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("publish_task", "Publish a drafted task", func(c context.Context, in struct {
 			ID string `json:"id"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.PublishTask(c, ctx, in.ID)
+			v, e := tools.PublishTask(c, nextToolContext(), in.ID)
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("create_schedule", "Schedule a published task for a student", func(c context.Context, in struct {
@@ -678,21 +685,21 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, runID strin
 			if parseErr != nil {
 				return safeToolJSON(nil, parent.ErrInvalidInput)
 			}
-			v, e := tools.CreateSchedule(c, ctx, parent.ScheduleInput{StudentID: in.StudentID, TemplateID: in.TemplateID, RevisionID: in.RevisionID, Kind: in.Kind, Timezone: in.Timezone, StartAt: startAt, RRULE: in.RRULE, DueOffsetMinutes: in.DueOffsetMinutes}, in.StudentName)
+			v, e := tools.CreateSchedule(c, nextToolContext(), parent.ScheduleInput{StudentID: in.StudentID, TemplateID: in.TemplateID, RevisionID: in.RevisionID, Kind: in.Kind, Timezone: in.Timezone, StartAt: startAt, RRULE: in.RRULE, DueOffsetMinutes: in.DueOffsetMinutes}, in.StudentName)
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("list_schedules", "List schedules", func(c context.Context, in struct {
 			IncludeDisabled bool `json:"includeDisabled"`
 			Limit           int  `json:"limit"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.ListSchedules(c, ctx, parent.ScheduleQuery{IncludeDisabled: in.IncludeDisabled, Limit: in.Limit})
+			v, e := tools.ListSchedules(c, nextToolContext(), parent.ScheduleQuery{IncludeDisabled: in.IncludeDisabled, Limit: in.Limit})
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("list_occurrences", "List occurrences", func(c context.Context, in struct {
 			Status string `json:"status"`
 			Limit  int    `json:"limit"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.ListOccurrences(c, ctx, parent.OccurrenceQuery{Status: in.Status, Limit: in.Limit})
+			v, e := tools.ListOccurrences(c, nextToolContext(), parent.OccurrenceQuery{Status: in.Status, Limit: in.Limit})
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("preview_action", "Prepare a destructive change for explicit parent confirmation", func(c context.Context, in struct {
@@ -701,7 +708,7 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, runID strin
 			Payload   map[string]any `json:"payload"`
 			Summary   string         `json:"summary"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.PreviewAction(c, ctx, parent.Action{Kind: in.Kind, TargetIDs: in.TargetIDs, Payload: in.Payload}, in.Summary)
+			v, e := tools.PreviewAction(c, nextToolContext(), parent.Action{Kind: in.Kind, TargetIDs: in.TargetIDs, Payload: in.Payload}, in.Summary)
 			if e == nil {
 				b, _ := json.Marshal(v)
 				return fantasy.NewTextResponse(string(b)), nil

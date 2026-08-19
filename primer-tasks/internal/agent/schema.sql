@@ -48,5 +48,5 @@ CREATE TABLE IF NOT EXISTS agent_tool_effects (
  tenant_id uuid NOT NULL, run_id uuid NOT NULL, step integer NOT NULL CHECK(step > 0),
  tool_name text NOT NULL, action_digest text NOT NULL, status text NOT NULL CHECK(status IN ('reserved','applied')),
  result jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
- PRIMARY KEY(tenant_id,run_id,tool_name,action_digest)
+ PRIMARY KEY(tenant_id,run_id,step), UNIQUE(tenant_id,run_id,tool_name,action_digest)
 );
