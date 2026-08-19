@@ -44,3 +44,9 @@ CREATE TABLE IF NOT EXISTS agent_confirmation_previews (
  expires_at timestamptz NOT NULL, used_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS agent_events_replay ON agent_run_events(tenant_id,run_id,sequence);
+CREATE TABLE IF NOT EXISTS agent_tool_effects (
+ tenant_id uuid NOT NULL, run_id uuid NOT NULL, step integer NOT NULL CHECK(step > 0),
+ tool_name text NOT NULL, action_digest text NOT NULL, status text NOT NULL CHECK(status IN ('reserved','applied')),
+ result jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(tenant_id,run_id,tool_name,action_digest)
+);

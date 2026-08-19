@@ -509,7 +509,7 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	_, _ = s.DB.Exec(ctx, `UPDATE agent_runs SET provider=$3,model=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2`, job.TenantID, job.RunID, model.Provider(), model.Model())
-	tools := s.fantasyTools(job.TenantID, actor, cfg.ActiveTools, run.Provenance.PromptDigest)
+	tools := s.fantasyTools(job.TenantID, actor, cfg.ActiveTools, run.ID)
 	rt, err := agent.NewFantasyAgent(model, tools, agent.Limits{MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: cfg.MaxDuration, MaxRetries: cfg.MaxRetries})
 	if err != nil {
 		return err
@@ -631,7 +631,7 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, runID strin
 	}
 	// A retry of one durable run must keep the same idempotency identity;
 	// generating a fresh key here would permit duplicate domain effects.
-	ctx := parent.Context{TenantID: tenant, ActorID: actor, IdempotencyKey: runID, Tools: set}
+	ctx := parent.Context{TenantID: tenant, ActorID: actor, IdempotencyKey: runID, RunID: runID, ToolStep: 1, Tools: set}
 	// Actor is supplied by the authenticated run in production; this function
 	// is called only after the run tenant has been verified.  The worker fills
 	// actor from the durable conversation before invoking tools in later steps.

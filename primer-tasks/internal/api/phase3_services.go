@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -21,6 +23,73 @@ func (s *Server) parentTools() *parent.Tools {
 	return &parent.Tools{Students: phase3Services{s}, Tasks: phase3Services{s}, Schedules: phase3Services{s}, Occurrences: phase3Services{s}, Confirmations: &parent.SQLConfirmationStore{DB: s.DB}, ConfirmationTTL: 5 * time.Minute}
 }
 func scopeTenant(c parent.ServiceContext) string { return c.TenantID }
+
+var errToolEffectInProgress = errors.New("parent tool effect is already in progress")
+
+func effectDigest(tool string, input any) string {
+	b, _ := json.Marshal(input)
+	h := sha256.Sum256(append([]byte(tool+"\x00"), b...))
+	return hex.EncodeToString(h[:])
+}
+
+// beginToolEffect reserves a mutation before the domain write. If a process
+// dies after the write but before completion, a retry sees the reservation and
+// fails safely instead of replaying the mutation. Applied effects replay their
+// sanitized domain result. Read-only/unit callers without a run ID bypass the
+// ledger because they are not durable worker executions.
+func (p phase3Services) beginToolEffect(ctx context.Context, c parent.ServiceContext, tool string, input any) ([]byte, error) {
+	if c.RunID == "" {
+		return nil, nil
+	}
+	if _, err := uuid.Parse(c.RunID); err != nil {
+		// Unit adapters may use a descriptive test identity; only durable
+		// worker runs carry a UUID-backed ledger key.
+		return nil, nil
+	}
+	digest := effectDigest(tool, input)
+	tag, err := p.s.DB.Exec(ctx, `INSERT INTO agent_tool_effects(tenant_id,run_id,step,tool_name,action_digest,status,result) VALUES($1,$2,$3,$4,$5,'reserved','{}'::jsonb) ON CONFLICT (tenant_id,run_id,tool_name,action_digest) DO NOTHING`, c.TenantID, c.RunID, c.ToolStep, tool, digest)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		var status string
+		var result []byte
+		if err := p.s.DB.QueryRow(ctx, `SELECT status,result FROM agent_tool_effects WHERE tenant_id=$1 AND run_id=$2 AND tool_name=$3 AND action_digest=$4`, c.TenantID, c.RunID, tool, digest).Scan(&status, &result); err != nil {
+			return nil, err
+		}
+		if status == "applied" {
+			return result, nil
+		}
+		return nil, errToolEffectInProgress
+	}
+	return nil, nil
+}
+
+func (p phase3Services) completeToolEffect(ctx context.Context, c parent.ServiceContext, tool string, input, result any) error {
+	if c.RunID == "" {
+		return nil
+	}
+	if _, err := uuid.Parse(c.RunID); err != nil {
+		return nil
+	}
+	digest := effectDigest(tool, input)
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	tx, err := p.s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE agent_tool_effects SET status='applied',result=$6,updated_at=now() WHERE tenant_id=$1 AND run_id=$2 AND step=$3 AND tool_name=$4 AND action_digest=$5 AND status='reserved'`, c.TenantID, c.RunID, c.ToolStep, tool, digest, b); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE agent_runs SET durable_step=GREATEST(durable_step,$3),updated_at=now() WHERE tenant_id=$1 AND id=$2`, c.TenantID, c.RunID, c.ToolStep); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
 func (p phase3Services) ListStudents(ctx context.Context, c parent.ServiceContext, q parent.StudentQuery) ([]parent.Student, error) {
 	limit := q.Limit
@@ -90,6 +159,20 @@ func (p phase3Services) DraftTask(ctx context.Context, c parent.ServiceContext, 
 	if strings.TrimSpace(in.Title) == "" {
 		return parent.Task{}, parent.ErrInvalidInput
 	}
+	input := struct {
+		Title        string           `json:"title"`
+		Instructions string           `json:"instructions"`
+		Requirements []map[string]any `json:"requirements"`
+	}{strings.TrimSpace(in.Title), in.Instructions, in.Requirements}
+	if replay, err := p.beginToolEffect(ctx, c, parent.ToolDraftTask, input); err != nil {
+		return parent.Task{}, err
+	} else if replay != nil {
+		var task parent.Task
+		if err := json.Unmarshal(replay, &task); err != nil {
+			return parent.Task{}, err
+		}
+		return task, nil
+	}
 	tx, err := p.s.DB.Begin(ctx)
 	if err != nil {
 		return parent.Task{}, err
@@ -124,18 +207,34 @@ func (p phase3Services) DraftTask(ctx context.Context, c parent.ServiceContext, 
 	if err = tx.Commit(ctx); err != nil {
 		return parent.Task{}, err
 	}
-	return parent.Task{ID: rid.String(), TemplateID: tid.String(), Version: 1, Title: strings.TrimSpace(in.Title), Instructions: in.Instructions, Status: "draft"}, nil
+	task := parent.Task{ID: rid.String(), TemplateID: tid.String(), Version: 1, Title: strings.TrimSpace(in.Title), Instructions: in.Instructions, Status: "draft"}
+	if err := p.completeToolEffect(ctx, c, parent.ToolDraftTask, input, task); err != nil {
+		return parent.Task{}, err
+	}
+	return task, nil
 }
 func (p phase3Services) UpdateTask(context.Context, parent.ServiceContext, parent.TaskUpdateInput) (parent.Task, error) {
 	return parent.Task{}, errors.New("task updates require a new revision in Phase 3")
 }
 func (p phase3Services) PublishTask(ctx context.Context, c parent.ServiceContext, id string) (parent.Task, error) {
+	if replay, err := p.beginToolEffect(ctx, c, parent.ToolPublishTask, map[string]string{"id": strings.TrimSpace(id)}); err != nil {
+		return parent.Task{}, err
+	} else if replay != nil {
+		var task parent.Task
+		if err := json.Unmarshal(replay, &task); err != nil {
+			return parent.Task{}, err
+		}
+		return task, nil
+	}
 	var x parent.Task
 	err := p.s.DB.QueryRow(ctx, `UPDATE task_revisions SET status='published',published_at=now() WHERE tenant_id=$1 AND id=$2 AND status='draft' RETURNING id,template_id,version,title,instructions,status`, scopeTenant(c), id).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status)
 	if err != nil {
 		return x, err
 	}
 	_, err = p.s.DB.Exec(ctx, `UPDATE task_templates SET status='published',current_revision=$1,title=$2 WHERE tenant_id=$3 AND id=$4`, x.Version, x.Title, scopeTenant(c), x.TemplateID)
+	if err == nil {
+		err = p.completeToolEffect(ctx, c, parent.ToolPublishTask, map[string]string{"id": strings.TrimSpace(id)}, x)
+	}
 	return x, err
 }
 func (p phase3Services) RetireTask(ctx context.Context, c parent.ServiceContext, id string, version int) (parent.Task, error) {
@@ -187,12 +286,28 @@ func (p phase3Services) GetSchedule(ctx context.Context, c parent.ServiceContext
 	return parent.Schedule{}, parent.ErrServiceMissing
 }
 func (p phase3Services) CreateSchedule(ctx context.Context, c parent.ServiceContext, in parent.ScheduleInput) (parent.Schedule, error) {
+	if replay, err := p.beginToolEffect(ctx, c, parent.ToolCreateSchedule, in); err != nil {
+		return parent.Schedule{}, err
+	} else if replay != nil {
+		var schedule parent.Schedule
+		if err := json.Unmarshal(replay, &schedule); err != nil {
+			return parent.Schedule{}, err
+		}
+		return schedule, nil
+	}
 	id := uuid.New()
 	_, err := p.s.DB.Exec(ctx, `INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, scopeTenant(c), in.StudentID, in.TemplateID, in.RevisionID, in.Kind, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
 	if err != nil {
 		return parent.Schedule{}, err
 	}
-	return p.GetSchedule(ctx, c, id.String())
+	schedule, err := p.GetSchedule(ctx, c, id.String())
+	if err != nil {
+		return parent.Schedule{}, err
+	}
+	if err := p.completeToolEffect(ctx, c, parent.ToolCreateSchedule, in, schedule); err != nil {
+		return parent.Schedule{}, err
+	}
+	return schedule, nil
 }
 func (p phase3Services) UpdateSchedule(ctx context.Context, c parent.ServiceContext, in parent.ScheduleUpdateInput) (parent.Schedule, error) {
 	result, err := p.s.DB.Exec(ctx, `UPDATE task_schedules SET timezone=$3,start_local=$4,end_local=$5,rrule=$6,due_offset_minutes=$7,version=version+1 WHERE tenant_id=$1 AND id=$2 AND enabled`, scopeTenant(c), in.ScheduleID, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)

@@ -84,6 +84,8 @@ type Context struct {
 	TenantID       string
 	ActorID        string
 	IdempotencyKey string
+	RunID          string
+	ToolStep       int
 	Tools          ToolSet
 }
 
@@ -139,10 +141,12 @@ type ServiceContext struct {
 	TenantID       string
 	ActorID        string
 	IdempotencyKey string
+	RunID          string
+	ToolStep       int
 }
 
 func (c Context) serviceContext() ServiceContext {
-	return ServiceContext{TenantID: c.TenantID, ActorID: c.ActorID, IdempotencyKey: c.IdempotencyKey}
+	return ServiceContext{TenantID: c.TenantID, ActorID: c.ActorID, IdempotencyKey: c.IdempotencyKey, RunID: c.RunID, ToolStep: c.ToolStep}
 }
 
 func contextOrBackground(ctx context.Context) context.Context {
