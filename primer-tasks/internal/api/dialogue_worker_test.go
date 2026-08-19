@@ -70,9 +70,11 @@ func TestDialogueQuestionsAreBoundToTheParentSource(t *testing.T) {
 	if err != nil || len(fixture) != 3 || fixture[0].Key != "conflict" {
 		t.Fatalf("curated source questions=%+v err=%v", fixture, err)
 	}
-	chapter, err := dialogueQuestions(domain.DialogueConfig{SourceText: stacklaneChapterSource, LearningFocus: "focus", RequiredQuestions: 3, Rubric: []string{"criterion"}, AllowedFollowUps: 1, MaxAttempts: 1, MaxTurns: 3, RetentionPolicy: "retain"})
-	if err != nil || len(chapter) != 3 || chapter[0].Key != "wall" {
-		t.Fatalf("chapter source questions=%+v err=%v", chapter, err)
+	for _, source := range []string{stacklaneChapterSource, stacklaneChapterSourceForm} {
+		chapter, err := dialogueQuestions(domain.DialogueConfig{SourceText: source, LearningFocus: "focus", RequiredQuestions: 3, Rubric: []string{"criterion"}, AllowedFollowUps: 1, MaxAttempts: 1, MaxTurns: 3, RetentionPolicy: "retain"})
+		if err != nil || len(chapter) != 3 || chapter[0].Key != "wall" {
+			t.Fatalf("chapter source questions=%+v err=%v", chapter, err)
+		}
 	}
 	if _, err := dialogueQuestions(domain.DialogueConfig{SourceText: "student supplied replacement source", LearningFocus: "focus", RequiredQuestions: 3, Rubric: []string{"criterion"}, AllowedFollowUps: 1, MaxAttempts: 1, MaxTurns: 3, RetentionPolicy: "retain"}); !errors.Is(err, errDialogueSourceUnsupported) {
 		t.Fatalf("unsupported source error=%v", err)

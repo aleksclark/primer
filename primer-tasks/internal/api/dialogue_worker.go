@@ -127,7 +127,10 @@ type dialogueQuestionSpec struct {
 
 var errDialogueSourceUnsupported = errors.New("dialogue source is unsupported")
 
-const stacklaneChapterSource = "The family repaired the garden wall after the storm. The mortar must dry before the next course, or rushing will weaken the wall."
+const (
+	stacklaneChapterSource     = "The family repaired the garden wall after the storm. The mortar must dry before the next course, or rushing will weaken the wall."
+	stacklaneChapterSourceForm = "Chapter 4 follows the family as they repair the garden wall after the storm. The narrator notices that the mortar must dry before the next course of stones can be laid, and that rushing the work would weaken the whole wall."
+)
 
 func dialogueQuestions(config domain.DialogueConfig) ([]dialogueQuestionSpec, error) {
 	if config.SourceRef == "fixture://chapter-4" {
@@ -140,7 +143,7 @@ func dialogueQuestions(config domain.DialogueConfig) ([]dialogueQuestionSpec, er
 	}
 	// The source text fixture is supported only by exact identity. An arbitrary
 	// parent source must never silently select facts from another chapter.
-	if config.SourceRef == "" && config.SourceText == stacklaneChapterSource {
+	if config.SourceRef == "" && (config.SourceText == stacklaneChapterSource || config.SourceText == stacklaneChapterSourceForm) {
 		return []dialogueQuestionSpec{
 			{Key: "wall", Prompt: "What did the family repair after the storm?", Keywords: []string{"wall", "garden"}},
 			{Key: "mortar", Prompt: "Why must the mortar dry before the next course of stones?", Keywords: []string{"mortar", "dry"}},
