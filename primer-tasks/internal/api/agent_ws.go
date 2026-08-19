@@ -720,20 +720,6 @@ func (m *scriptedParentModel) StreamObject(context.Context, fantasy.ObjectCall) 
 }
 func (m *scriptedParentModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	m.calls++
-	// Development-only pacing lets the real browser harness exercise
-	// disconnect/reconnect and cancellation while the durable worker owns the
-	// run. Production never enables scripted mode, and the delay is bounded.
-	if raw := strings.TrimSpace(os.Getenv("TASKS_AGENT_SCRIPTED_DELAY_MS")); raw != "" {
-		if ms, err := strconv.Atoi(raw); err == nil && ms > 0 && ms <= 30000 {
-			timer := time.NewTimer(time.Duration(ms) * time.Millisecond)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-		}
-	}
 	lower := strings.ToLower(m.prompt)
 	if strings.Contains(lower, "ambiguous") || strings.Contains(lower, "alex") {
 		if m.calls == 1 {
@@ -882,6 +868,22 @@ func scriptedPreviewInput(call fantasy.Call) string {
 	}
 	return fmt.Sprintf(`{"kind":"retire_task","targetIds":[%q],"payload":{"expectedVersion":%d},"summary":"Retire task"}`, id, version)
 }
+func scriptedDelay(ctx context.Context) bool {
+	raw := strings.TrimSpace(os.Getenv("TASKS_AGENT_SCRIPTED_DELAY_MS"))
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 || ms > 30000 {
+		return true
+	}
+	timer := time.NewTimer(time.Duration(ms) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func scriptedToolStream(ctx context.Context, name, input string) fantasy.StreamResponse {
 	return func(yield func(fantasy.StreamPart) bool) {
 		// Fantasy associates a tool result with the tool-call ID. Reusing one ID
@@ -889,7 +891,7 @@ func scriptedToolStream(ctx context.Context, name, input string) fantasy.StreamR
 		// schedule that never committed.
 		toolID := "scripted-" + name
 		parts := []fantasy.StreamPart{{Type: fantasy.StreamPartTypeReasoningStart, ID: "r"}, {Type: fantasy.StreamPartTypeReasoningDelta, ID: "r", Delta: "hidden"}, {Type: fantasy.StreamPartTypeReasoningEnd, ID: "r"}, {Type: fantasy.StreamPartTypeToolInputStart, ID: toolID, ToolCallName: name}, {Type: fantasy.StreamPartTypeToolInputDelta, ID: toolID, Delta: input}, {Type: fantasy.StreamPartTypeToolInputEnd, ID: toolID}, {Type: fantasy.StreamPartTypeToolCall, ID: toolID, ToolCallName: name, ToolCallInput: input}, {Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonToolCalls}}
-		for _, part := range parts {
+		for i, part := range parts {
 			select {
 			case <-ctx.Done():
 				return
@@ -898,19 +900,25 @@ func scriptedToolStream(ctx context.Context, name, input string) fantasy.StreamR
 			if !yield(part) {
 				return
 			}
+			if i == 0 && !scriptedDelay(ctx) {
+				return
+			}
 		}
 	}
 }
 func scriptedStream(ctx context.Context, text string) fantasy.StreamResponse {
 	return func(yield func(fantasy.StreamPart) bool) {
 		parts := []fantasy.StreamPart{{Type: fantasy.StreamPartTypeReasoningStart, ID: "r"}, {Type: fantasy.StreamPartTypeReasoningDelta, ID: "r", Delta: "hidden"}, {Type: fantasy.StreamPartTypeReasoningEnd, ID: "r"}, {Type: fantasy.StreamPartTypeTextStart, ID: "t"}, {Type: fantasy.StreamPartTypeTextDelta, ID: "t", Delta: text}, {Type: fantasy.StreamPartTypeTextEnd, ID: "t"}, {Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop, Usage: fantasy.Usage{InputTokens: 1, OutputTokens: int64(len(text)), TotalTokens: int64(len(text) + 1)}}}
-		for _, p := range parts {
+		for i, p := range parts {
 			select {
 			case <-ctx.Done():
 				return
 			default:
 			}
 			if !yield(p) {
+				return
+			}
+			if i == 0 && !scriptedDelay(ctx) {
 				return
 			}
 		}

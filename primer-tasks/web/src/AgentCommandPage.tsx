@@ -34,13 +34,14 @@ function latestRunStatus(events: readonly AgentEvent[]): string | undefined {
     const event = events[index];
     if (event.kind === "terminal") return event.status;
     if (event.kind === "tool_progress" && event.phase === "awaiting_confirmation") return "awaiting_confirmation";
+    if (event.kind === "thinking_start" || event.kind === "text_start" || (event.kind === "tool_progress" && (event.phase === "started" || event.phase === "called"))) return "running";
   }
   return undefined;
 }
 
 function hasPendingConfirmation(events: readonly AgentEvent[]): boolean {
   const preview = [...events].reverse().find((event) => event.kind === "tool_progress" && event.phase === "awaiting_confirmation" && event.confirmationId);
-  if (!preview || preview.confirmationId === undefined) return false;
+  if (!preview || preview.kind !== "tool_progress" || preview.confirmationId === undefined) return false;
   return !events.some((event) => event.sequence > preview.sequence && (
     (event.kind === "tool_progress" && event.label === "Confirm change" && event.phase === "completed") ||
     (event.kind === "error" && event.code === "confirmation_rejected")
