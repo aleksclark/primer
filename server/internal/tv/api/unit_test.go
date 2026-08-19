@@ -43,9 +43,12 @@ func TestSpecDocumentsDeviceSecurityScheme(t *testing.T) {
 	require.Contains(t, schemes, adminSecurityScheme)
 	assert.Equal(t, "apiKey", schemes[adminSecurityScheme].Type)
 	assert.Equal(t, adminKeyHeader, schemes[adminSecurityScheme].Name)
+	require.Contains(t, schemes, adminJWTSecurityScheme)
+	assert.Equal(t, "http", schemes[adminJWTSecurityScheme].Type)
+	assert.Equal(t, "bearer", schemes[adminJWTSecurityScheme].Scheme)
 
-	// The two audiences carry different credentials: devices a bearer token,
-	// admin callers an API key.
+	// The two audiences carry different credentials: devices a TV-local bearer
+	// token, admin callers either a service key or a Primer Identity JWT.
 	catalog := api.OpenAPI().Paths["/catalog"].Get
 	require.NotNil(t, catalog)
 	assert.Equal(t, []map[string][]string{{deviceSecurityScheme: {}}}, catalog.Security,
@@ -53,8 +56,11 @@ func TestSpecDocumentsDeviceSecurityScheme(t *testing.T) {
 
 	mediaItems := api.OpenAPI().Paths["/media-items"].Get
 	require.NotNil(t, mediaItems)
-	assert.Equal(t, []map[string][]string{{adminSecurityScheme: {}}}, mediaItems.Security,
-		"admin CRUD requires the admin key, not a device token")
+	assert.Equal(t, []map[string][]string{
+		{adminSecurityScheme: {}},
+		{adminJWTSecurityScheme: {}},
+	}, mediaItems.Security,
+		"admin CRUD requires a service key or Primer JWT, not a device token")
 }
 
 func TestDefaultsApplied(t *testing.T) {

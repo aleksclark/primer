@@ -62,7 +62,7 @@ type SyncResponse struct {
 
 // adminGuard is the CRUD option that authenticates generic admin resources.
 func (s *Server) adminGuard() baseapi.CRUDOption {
-	return baseapi.Guard(s.requireAdmin(), adminSecurityScheme)
+	return baseapi.GuardWithSecurity(s.requireAdmin(), adminSecurityScheme, adminJWTSecurityScheme)
 }
 
 // adminOp stamps admin authentication onto a hand-written operation.

@@ -2243,6 +2243,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List availability-windows
       tags:
         - Availability Windows
@@ -2281,6 +2282,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Create a availability-window
       tags:
         - Availability Windows
@@ -2319,6 +2321,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Delete a availability-window
       tags:
         - Availability Windows
@@ -2360,6 +2363,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a availability-window
       tags:
         - Availability Windows
@@ -2408,6 +2412,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Update a availability-window
       tags:
         - Availability Windows
@@ -2528,6 +2533,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List content-manifest-entries
       tags:
         - Content Manifest Entries
@@ -2566,6 +2572,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Create a content-manifest-entry
       tags:
         - Content Manifest Entries
@@ -2604,6 +2611,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Delete a content-manifest-entry
       tags:
         - Content Manifest Entries
@@ -2645,6 +2653,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a content-manifest-entry
       tags:
         - Content Manifest Entries
@@ -2693,6 +2702,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Update a content-manifest-entry
       tags:
         - Content Manifest Entries
@@ -2924,6 +2934,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List devices
       tags:
         - Devices
@@ -3040,6 +3051,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Delete a device
       tags:
         - Devices
@@ -3081,6 +3093,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a device
       tags:
         - Devices
@@ -3129,6 +3142,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Update a device
       tags:
         - Devices
@@ -3591,6 +3605,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List media-items
       tags:
         - Media Items
@@ -3675,6 +3690,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Delete a media-item
       tags:
         - Media Items
@@ -3716,6 +3732,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a media-item
       tags:
         - Media Items
@@ -4078,6 +4095,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List playback-sessions
       tags:
         - Playback Sessions
@@ -4120,6 +4138,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a playback-session
       tags:
         - Playback Sessions
@@ -4212,6 +4231,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List primer-reports
       tags:
         - Primer Reports
@@ -4285,6 +4305,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Delete a primer-report
       tags:
         - Primer Reports
@@ -4326,6 +4347,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a primer-report
       tags:
         - Primer Reports
@@ -4554,6 +4576,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: List schedule-entries
       tags:
         - Schedule Entries
@@ -4685,6 +4708,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Delete a schedule-entry
       tags:
         - Schedule Entries
@@ -4726,6 +4750,7 @@ paths:
           description: Internal Server Error
       security:
         - adminKey: []
+        - adminJWT: []
       summary: Get a schedule-entry
       tags:
         - Schedule Entries
