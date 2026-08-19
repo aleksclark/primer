@@ -78,6 +78,7 @@ func (r *DialogueRepository) GetDialogueState(ctx context.Context, scope verific
 		return state, err
 	}
 	state.Terminal = status != "open"
+	state.TerminalStatus = status
 	state.Questions, err = r.questions(ctx, scope)
 	if err != nil {
 		return
@@ -108,7 +109,7 @@ func (r *DialogueRepository) questions(ctx context.Context, s verification.Dialo
 }
 
 func (r *DialogueRepository) evaluations(ctx context.Context, s verification.DialogueContext) ([]verification.DialogueEvaluation, error) {
-	rows, err := r.DB.Query(ctx, `SELECT id,attempt_id,question_id,message_id,accepted,rationale,provider,model,policy_version,usage,created_at FROM verification_evaluations WHERE tenant_id=$1 AND attempt_id=$2 ORDER BY created_at,id LIMIT 200`, s.TenantID, s.AttemptID)
+	rows, err := r.DB.Query(ctx, `SELECT id,attempt_id,question_id,message_id,accepted,criteria,rationale,provider,model,policy_version,usage,created_at FROM verification_evaluations WHERE tenant_id=$1 AND attempt_id=$2 ORDER BY created_at,id LIMIT 200`, s.TenantID, s.AttemptID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +117,11 @@ func (r *DialogueRepository) evaluations(ctx context.Context, s verification.Dia
 	var out []verification.DialogueEvaluation
 	for rows.Next() {
 		var e verification.DialogueEvaluation
-		var usage []byte
-		if err := rows.Scan(&e.ID, &e.AttemptID, &e.QuestionID, &e.MessageID, &e.Accepted, &e.Rationale, &e.Provider, &e.Model, &e.PolicyVersion, &usage, &e.CreatedAt); err != nil {
+		var criteria, usage []byte
+		if err := rows.Scan(&e.ID, &e.AttemptID, &e.QuestionID, &e.MessageID, &e.Accepted, &criteria, &e.Rationale, &e.Provider, &e.Model, &e.PolicyVersion, &usage, &e.CreatedAt); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal(criteria, &e.Criteria)
 		_ = json.Unmarshal(usage, &e.Usage)
 		out = append(out, e)
 	}
@@ -246,6 +248,17 @@ func (r *DialogueRepository) RecordAnswerEvaluation(ctx context.Context, s verif
 		return e, verification.DecisionReady{}, false, verification.ErrDialogueEvaluation
 	}
 	e.QuestionID = q.ID
+	// Provider retries may arrive after the terminal decision committed. Return
+	// the natural-key evidence before terminal validation so retries are safe.
+	if existing, found, lookupErr := r.existingEvaluation(ctx, s, q.ID, s.MessageID); lookupErr != nil {
+		return e, verification.DecisionReady{}, false, lookupErr
+	} else if found {
+		ready := verification.DecisionReady{Accepted: state.AcceptedCount >= state.Config.RequiredQuestions, AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions}
+		if ready.Accepted {
+			ready.Reason = "required distinct dialogue questions accepted"
+		}
+		return existing, ready, false, nil
+	}
 	if _, _, err = verification.RecordEvaluation(state, e); err != nil {
 		return e, verification.DecisionReady{}, false, err
 	}
@@ -268,14 +281,19 @@ func (r *DialogueRepository) RecordAnswerEvaluation(ctx context.Context, s verif
 		return e, verification.DecisionReady{}, false, verification.ErrDialogueEvaluation
 	}
 	var existing verification.DialogueEvaluation
-	var usage []byte
-	err = tx.QueryRow(ctx, `INSERT INTO verification_evaluations(id,tenant_id,attempt_id,question_id,message_id,accepted,rationale,provider,model,policy_version,usage) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,attempt_id,question_id,message_id) DO NOTHING RETURNING id,accepted,rationale,provider,model,policy_version,usage,created_at`, e.ID, s.TenantID, s.AttemptID, q.ID, s.MessageID, e.Accepted, e.Rationale, e.Provider, e.Model, e.PolicyVersion, jsonBytes(e.Usage)).Scan(&existing.ID, &existing.Accepted, &existing.Rationale, &existing.Provider, &existing.Model, &existing.PolicyVersion, &usage, &existing.CreatedAt)
+	var criteria, usage []byte
+	criteriaValues := e.Criteria
+	if criteriaValues == nil {
+		criteriaValues = []string{}
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO verification_evaluations(id,tenant_id,attempt_id,question_id,message_id,accepted,criteria,rationale,provider,model,policy_version,usage) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(tenant_id,attempt_id,question_id,message_id) DO NOTHING RETURNING id,accepted,criteria,rationale,provider,model,policy_version,usage,created_at`, e.ID, s.TenantID, s.AttemptID, q.ID, s.MessageID, e.Accepted, jsonBytes(criteriaValues), e.Rationale, e.Provider, e.Model, e.PolicyVersion, jsonBytes(e.Usage)).Scan(&existing.ID, &existing.Accepted, &criteria, &existing.Rationale, &existing.Provider, &existing.Model, &existing.PolicyVersion, &usage, &existing.CreatedAt)
 	inserted := err == nil
 	if err == pgx.ErrNoRows {
-		err = tx.QueryRow(ctx, `SELECT id,accepted,rationale,provider,model,policy_version,usage,created_at FROM verification_evaluations WHERE tenant_id=$1 AND attempt_id=$2 AND question_id=$3 AND message_id=$4`, s.TenantID, s.AttemptID, q.ID, s.MessageID).Scan(&existing.ID, &existing.Accepted, &existing.Rationale, &existing.Provider, &existing.Model, &existing.PolicyVersion, &usage, &existing.CreatedAt)
+		err = tx.QueryRow(ctx, `SELECT id,accepted,criteria,rationale,provider,model,policy_version,usage,created_at FROM verification_evaluations WHERE tenant_id=$1 AND attempt_id=$2 AND question_id=$3 AND message_id=$4`, s.TenantID, s.AttemptID, q.ID, s.MessageID).Scan(&existing.ID, &existing.Accepted, &criteria, &existing.Rationale, &existing.Provider, &existing.Model, &existing.PolicyVersion, &usage, &existing.CreatedAt)
 		if err != nil {
 			return e, verification.DecisionReady{}, false, err
 		}
+		_ = json.Unmarshal(criteria, &existing.Criteria)
 		_ = json.Unmarshal(usage, &existing.Usage)
 		ready := verification.DecisionReady{Accepted: acceptedCount >= state.Config.RequiredQuestions, AcceptedCount: acceptedCount, RequiredCount: state.Config.RequiredQuestions}
 		return existing, ready, false, tx.Commit(ctx)
@@ -283,6 +301,7 @@ func (r *DialogueRepository) RecordAnswerEvaluation(ctx context.Context, s verif
 	if err != nil {
 		return e, verification.DecisionReady{}, false, err
 	}
+	_ = json.Unmarshal(criteria, &existing.Criteria)
 	_ = json.Unmarshal(usage, &existing.Usage)
 	var count int
 	if err = tx.QueryRow(ctx, `SELECT count(DISTINCT question_id) FROM verification_evaluations WHERE tenant_id=$1 AND attempt_id=$2 AND accepted`, s.TenantID, s.AttemptID).Scan(&count); err != nil {
@@ -298,6 +317,9 @@ func (r *DialogueRepository) RecordAnswerEvaluation(ctx context.Context, s verif
 		if err == nil {
 			_, err = tx.Exec(ctx, `UPDATE verification_attempts SET status='accepted' WHERE tenant_id=$1 AND id=$2 AND status='open'`, s.TenantID, s.AttemptID)
 		}
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE task_occurrences SET status='completed' WHERE tenant_id=$1 AND id=(SELECT occurrence_id FROM verification_attempts WHERE tenant_id=$1 AND id=$2) AND status NOT IN ('canceled','completed')`, s.TenantID, s.AttemptID)
+		}
 	} else {
 		_, err = tx.Exec(ctx, `UPDATE dialogue_attempts SET accepted_count=$3,updated_at=now() WHERE tenant_id=$1 AND attempt_id=$2`, s.TenantID, s.AttemptID, count)
 	}
@@ -310,7 +332,22 @@ func (r *DialogueRepository) RecordAnswerEvaluation(ctx context.Context, s verif
 	return existing, ready, inserted, nil
 }
 
-func jsonBytes(v map[string]any) []byte { b, _ := json.Marshal(v); return b }
+func (r *DialogueRepository) existingEvaluation(ctx context.Context, s verification.DialogueContext, questionID, messageID string) (verification.DialogueEvaluation, bool, error) {
+	var e verification.DialogueEvaluation
+	var criteria, usage []byte
+	err := r.DB.QueryRow(ctx, `SELECT id,attempt_id,question_id,message_id,accepted,criteria,rationale,provider,model,policy_version,usage,created_at FROM verification_evaluations WHERE tenant_id=$1 AND attempt_id=$2 AND question_id=$3 AND message_id=$4`, s.TenantID, s.AttemptID, questionID, messageID).Scan(&e.ID, &e.AttemptID, &e.QuestionID, &e.MessageID, &e.Accepted, &criteria, &e.Rationale, &e.Provider, &e.Model, &e.PolicyVersion, &usage, &e.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return e, false, nil
+	}
+	if err != nil {
+		return e, false, err
+	}
+	_ = json.Unmarshal(criteria, &e.Criteria)
+	_ = json.Unmarshal(usage, &e.Usage)
+	return e, true, nil
+}
+
+func jsonBytes(v any) []byte { b, _ := json.Marshal(v); return b }
 func isUniqueViolation(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint"))
 }

@@ -149,7 +149,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		if host == "" {
 			host = r.Host
 		}
-		if strings.HasPrefix(host, "127.") || strings.HasPrefix(host, "localhost") {
+		// The test issuer is Compose-private. Send browser authorization through
+		// the web BFF's /issuer proxy for every test-auth host, including a
+		// Stacklane FQDN; only the API's back-channel token exchange uses the
+		// Compose-DNS issuer address.
+		if s.Auth.Mode == "test" || strings.HasPrefix(host, "127.") || strings.HasPrefix(host, "localhost") {
 			browserBase := "http://" + host
 			redirectURI = browserBase + "/auth/callback"
 			publicIssuer = browserBase + "/issuer"
@@ -459,6 +463,10 @@ func (s *Server) pairBrowser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "tasks_student", Value: raw, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 7776000})
+	// Browser-paired students use the same origin/CSRF-protected WebSocket
+	// boundary as parent sessions. Issue its readable double-submit token at
+	// pairing time, before the dialogue page makes its first socket request.
+	s.csrfToken(w, r)
 	jsonOK(w, map[string]string{"studentId": sid.String()})
 }
 func (s *Server) studentFromCookie(r *http.Request) (uuid.UUID, error) {

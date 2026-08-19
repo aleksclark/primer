@@ -9,8 +9,11 @@ func TestValidateRevisionAndTransitions(t *testing.T) {
 	if ValidateRevision("x", "", nil) == nil {
 		t.Fatal("empty requirements accepted")
 	}
-	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "agent_dialogue", ConfigVersion: 1}}) == nil {
-		t.Fatal("unsupported requirement accepted")
+	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "agent_dialogue", ConfigVersion: 1}}) != nil {
+		t.Fatal("dialogue requirement rejected")
+	}
+	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "unknown", ConfigVersion: 1}}) == nil {
+		t.Fatal("unknown requirement accepted")
 	}
 	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "parent_approval", ConfigVersion: 1}}) != nil {
 		t.Fatal("valid revision rejected")

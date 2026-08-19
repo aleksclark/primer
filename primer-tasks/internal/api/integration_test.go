@@ -399,8 +399,10 @@ func TestPostgresAuthorizationStateAndCallbackReplay(t *testing.T) {
 	h := s.Routes()
 
 	login := httptest.NewRecorder()
-	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a&return_to=https://evil.example", nil))
-	if login.Code != http.StatusFound || !strings.Contains(login.Header().Get("Location"), "/oauth/authorize") {
+	loginRequest := httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a&return_to=https://evil.example", nil)
+	loginRequest.Header.Set("X-Forwarded-Host", "web.phase4-dialogue.primer-tasks.test:5173")
+	h.ServeHTTP(login, loginRequest)
+	if login.Code != http.StatusFound || !strings.HasPrefix(login.Header().Get("Location"), "http://web.phase4-dialogue.primer-tasks.test:5173/issuer/oauth/authorize?") {
 		t.Fatalf("login = %d %s", login.Code, login.Header().Get("Location"))
 	}
 	stateCookie := login.Result().Cookies()[0]

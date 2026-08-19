@@ -53,7 +53,10 @@ export default function OccurrenceInspectPage() {
     setBusy(true);
     setError(null);
     try {
-      setTimeline(await tasksClient.overrideOccurrence(id, { accepted, reason: reason.trim() }));
+      await tasksClient.overrideOccurrence(id, { accepted, reason: reason.trim() });
+      // The override response is only a decision acknowledgement. Reload the
+      // authoritative inspect projection so prior evidence remains visible.
+      setTimeline(await tasksClient.inspectOccurrence(id));
       setReason("");
     } catch (next) {
       setError(next instanceof Error ? next.message : "The override could not be recorded.");
@@ -80,8 +83,8 @@ export default function OccurrenceInspectPage() {
         {timeline.overrides.length > 0 && <section aria-label="Audited overrides">{timeline.overrides.map((row) => <article className="inspect-override" key={row.id}><p className="system-label">{row.accepted ? "Accepted override" : "Rejected override"}</p><p>{row.reason}</p><p className="meta">{row.actorId} · {formatWhen(row.createdAt)}</p></article>)}</section>}
         <form className="inspect-override-form" onSubmit={override}>
           <p className="system-label">Append-only override</p>
-          <label className="field"><span>Decision</span><select className="input" aria-label="Override decision" value={accepted ? "accept" : "reject"} onChange={(event) => setAccepted(event.target.value === "accept")}><option value="accept">Accept requirement</option><option value="reject">Reject requirement</option></select></label>
-          <label className="field"><span>Reason</span><textarea className="input" aria-label="Override reason" rows={4} value={reason} onChange={(event) => setReason(event.target.value)} required /></label>
+          <label className="field" htmlFor="override-decision"><span>Decision</span><select id="override-decision" name="decision" className="input" aria-label="Override decision" value={accepted ? "accept" : "reject"} onChange={(event) => setAccepted(event.target.value === "accept")}><option value="accept">Accept requirement</option><option value="reject">Reject requirement</option></select></label>
+          <label className="field" htmlFor="override-reason"><span>Reason</span><textarea id="override-reason" name="reason" className="input" aria-label="Override reason" rows={4} value={reason} onChange={(event) => setReason(event.target.value)} required /></label>
           <button className="button" type="submit" disabled={busy || Boolean(validateOverrideInput({ accepted, reason }))}>{busy ? "Recording…" : "Record override"}</button>
           <p className="meta">This creates a separate audited decision. It cannot edit student answers or model evaluations.</p>
         </form>

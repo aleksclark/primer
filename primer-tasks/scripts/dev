@@ -200,7 +200,7 @@ PY
 endpoints() {
   local web_port api_port
   echo "Stacklane:"
-  echo "  web.${INSTANCE}.${PROJECT_SLUG}.${BASE_DOMAIN}"
+  echo "  web.${INSTANCE}.${PROJECT_SLUG}.${BASE_DOMAIN}:${STACKLANE_WEB_PUBLIC_PORT:-5173}"
   echo "  api.${INSTANCE}.${PROJECT_SLUG}.${BASE_DOMAIN}:8080"
   echo "Direct loopback (Docker-assigned ephemeral ports):"
 

@@ -103,6 +103,9 @@ services:
       # server exits before listening when production is misconfigured.
       TASKS_AUTH_MODE: ${TASKS_AUTH_MODE-test}
       TASKS_MODEL_PROVIDER: ${TASKS_MODEL_PROVIDER-disabled}
+      # The scripted Fantasy fixture is a deliberate development override;
+      # production must supply a real provider and never accepts this mode.
+      TASKS_AGENT_MODE: ${TASKS_AGENT_MODE-${TASKS_MODEL_PROVIDER-disabled}}
       TASKS_AGENT_SCRIPTED_DELAY_MS: ${TASKS_AGENT_SCRIPTED_DELAY_MS-0}
       # Parent agent tooling is explicit and server-owned. Empty/unknown values
       # fail closed in parent.ProviderConfig; this development default is only
@@ -112,14 +115,16 @@ services:
       # The test issuer is a Compose-DNS address. Override this with the live
       # Identity issuer and TASKS_AUTH_MODE=oidc for a real authorization flow.
       TASKS_ISSUER_URL: ${TASKS_ISSUER_URL-http://test-issuer:8091}
+      # Browser test authorization is sent through web's /issuer proxy; this
+      # stable public issuer value must match the test issuer's signed `iss`.
       TASKS_PUBLIC_ISSUER_URL: ${TASKS_PUBLIC_ISSUER_URL-http://test-issuer.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}}
       TASKS_OIDC_CLIENT_ID: ${TASKS_OIDC_CLIENT_ID-primer-tasks-web}
-      TASKS_OIDC_REDIRECT_URL: ${TASKS_OIDC_REDIRECT_URL-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}/auth/callback}
+      TASKS_OIDC_REDIRECT_URL: ${TASKS_OIDC_REDIRECT_URL-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173}/auth/callback}
       TASKS_TEST_PRINCIPAL: ${TASKS_TEST_PRINCIPAL-parent-a}
       TASKS_TEST_ISSUER_SECRET: ${TASKS_TEST_ISSUER_SECRET-primer-tasks-test-issuer-secret}
       TASKS_DATABASE_URL: postgres://tasks@postgres:5432/primer_tasks?sslmode=disable
-      TASKS_PUBLIC_ORIGIN: ${TASKS_PUBLIC_ORIGIN-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}}
-      TASKS_ALLOWED_ORIGINS: ${TASKS_ALLOWED_ORIGINS-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test},http://127.0.0.1}
+      TASKS_PUBLIC_ORIGIN: ${TASKS_PUBLIC_ORIGIN-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173}}
+      TASKS_ALLOWED_ORIGINS: ${TASKS_ALLOWED_ORIGINS-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173},http://127.0.0.1}
       TASKS_ARTIFACT_STORE_DIR: /var/lib/primer-tasks/artifacts
     volumes:
       - .:/src
@@ -179,7 +184,7 @@ services:
       stacklane.project: "primer-tasks"
       stacklane.instance: "${STACKLANE_INSTANCE:-dev}"
       stacklane.endpoint: "web"
-      stacklane.port: "80"
+      stacklane.port: "${STACKLANE_WEB_PUBLIC_PORT:-5173}"
       stacklane.target_port: "5173"
     depends_on:
       api:

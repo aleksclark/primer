@@ -221,11 +221,24 @@ export function previewDialogueConfig(input: unknown): DialogueConfigPreview | n
 export function dialogueRequirement(id: string, input: unknown): DialogueRequirement {
   const issues = validateDialogueConfig(input);
   if (issues.length) throw new Error(issues[0]?.message ?? "Dialogue configuration is invalid.");
+  const config = normalizeDialogueConfig(input);
+  // The UI model is intentionally friendly; the wire uses the server-owned
+  // manifest names. No client field can provide policy beyond this mapping.
+  const wireConfig = {
+    sourceText: config.source,
+    learningFocus: config.learningFocus,
+    requiredQuestions: config.requiredAcceptedQuestions,
+    rubric: [config.rubric],
+    allowedFollowUps: config.allowedFollowUps,
+    maxAttempts: config.maxAttempts,
+    maxTurns: config.maxTurns,
+    retentionPolicy: "retain",
+  } as unknown as DialogueConfig;
   return {
     id,
     kind: AGENT_DIALOGUE_KIND,
     configVersion: AGENT_DIALOGUE_CONFIG_VERSION,
-    config: normalizeDialogueConfig(input),
+    config: wireConfig,
     interaction: AGENT_DIALOGUE_INTERACTION,
     executor: AGENT_DIALOGUE_EXECUTOR,
   };

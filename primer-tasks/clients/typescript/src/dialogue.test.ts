@@ -33,7 +33,7 @@ test("valid dialogue config previews parent-owned fields only", () => {
   const requirement = dialogueRequirement("agent-dialogue", valid);
   assert.equal(requirement.interaction, "chat");
   assert.equal(requirement.executor, "fantasy");
-  assert.equal(requirement.config.source, valid.source);
+  assert.equal((requirement.config as unknown as { sourceText: string }).sourceText, valid.source);
 });
 
 test("dialogue config rejects empty source, hidden-count, and oversized fields", () => {

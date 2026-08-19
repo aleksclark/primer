@@ -45,14 +45,15 @@ func (c DialogueContext) Validate() error {
 }
 
 type DialogueState struct {
-	Context       DialogueContext
-	Config        domain.DialogueConfig
-	AcceptedCount int
-	TurnCount     int
-	Terminal      bool
-	Questions     []DialogueQuestion
-	Evaluations   []DialogueEvaluation
-	Messages      []DialogueMessage
+	Context        DialogueContext
+	Config         domain.DialogueConfig
+	AcceptedCount  int
+	TurnCount      int
+	Terminal       bool
+	TerminalStatus string
+	Questions      []DialogueQuestion
+	Evaluations    []DialogueEvaluation
+	Messages       []DialogueMessage
 }
 
 type DialogueMessage struct {
@@ -158,11 +159,24 @@ func validateEvaluation(s DialogueState, e DialogueEvaluation) error {
 	if e.Rationale != "" && !rubricToken.MatchString(e.Rationale) {
 		return ErrDialogueEvaluation
 	}
+	for _, old := range s.Evaluations {
+		if old.QuestionID == e.QuestionID && old.MessageID == e.MessageID {
+			return ErrDuplicateEvaluation
+		}
+	}
 	allowedCriteria := s.Config.Criteria()
+	if e.Accepted && len(e.Criteria) == 0 {
+		return ErrDialogueEvaluation
+	}
+	seenCriteria := make(map[string]struct{}, len(e.Criteria))
 	for _, criterion := range e.Criteria {
+		criterion = strings.TrimSpace(criterion)
+		if criterion == "" {
+			return ErrDialogueEvaluation
+		}
 		matched := false
 		for _, allowed := range allowedCriteria {
-			if strings.EqualFold(strings.TrimSpace(criterion), strings.TrimSpace(allowed)) {
+			if strings.EqualFold(criterion, strings.TrimSpace(allowed)) {
 				matched = true
 				break
 			}
@@ -170,6 +184,11 @@ func validateEvaluation(s DialogueState, e DialogueEvaluation) error {
 		if !matched {
 			return ErrDialogueEvaluation
 		}
+		key := strings.ToLower(criterion)
+		if _, duplicate := seenCriteria[key]; duplicate {
+			return ErrDialogueEvaluation
+		}
+		seenCriteria[key] = struct{}{}
 	}
 	found := false
 	for _, q := range s.Questions {
@@ -180,11 +199,6 @@ func validateEvaluation(s DialogueState, e DialogueEvaluation) error {
 	}
 	if !found {
 		return ErrDialogueEvaluation
-	}
-	for _, old := range s.Evaluations {
-		if old.QuestionID == e.QuestionID && old.MessageID == e.MessageID {
-			return ErrDuplicateEvaluation
-		}
 	}
 	return nil
 }

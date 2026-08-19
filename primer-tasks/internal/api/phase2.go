@@ -105,7 +105,7 @@ type IDInput2 struct {
 
 type taskRow struct{ rev TaskRevision }
 
-func requirementJSON(rs []Requirement) []byte { b, _ := json.Marshal(rs); return b }
+func requirementConfigJSON(config map[string]any) []byte { b, _ := json.Marshal(config); return b }
 func parsePage(r *http.Request) (int, int) {
 	limit, offset := 20, 0
 	if n, e := strconv.Atoi(r.URL.Query().Get("limit")); e == nil && n > 0 && n <= 100 {
@@ -128,6 +128,12 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	dr := make([]domain.VerificationRequirement, len(rs))
 	for i, x := range rs {
 		dr[i] = domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion}
+		if x.Kind == domain.AgentDialogueKind {
+			if err := domain.ValidateDialogueRequirement(domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion, Config: x.Config, Interaction: x.Interaction, Executor: x.Executor}); err != nil {
+				problem(w, 400, "invalid_request", "dialogue requirement configuration is invalid")
+				return
+			}
+		}
 	}
 	if errors.Is(domain.ValidateRevision(in.Title, in.Instructions, dr), domain.ErrInvalidTask) {
 		problem(w, 400, "invalid_request", "a task requires a title and supported verification requirement")
@@ -150,7 +156,7 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 		return
 	}
 	for i, x := range rs {
-		if _, e = tx.Exec(ctx, `INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), sc.Tenant, rid, i, x.Kind, x.ConfigVersion, requirementJSON([]Requirement{x}), x.Interaction, x.Executor); e != nil {
+		if _, e = tx.Exec(ctx, `INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), sc.Tenant, rid, i, x.Kind, x.ConfigVersion, requirementConfigJSON(x.Config), x.Interaction, x.Executor); e != nil {
 			problem(w, 400, "invalid_request", "unsupported verification requirement")
 			return
 		}
@@ -345,15 +351,44 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 		problem(w, 404, "not_found", "occurrence unavailable")
 		return
 	}
-	var req string
-	if e = tx.QueryRow(r.Context(), `SELECT id FROM verification_requirements WHERE tenant_id=$1 AND revision_id=$2 ORDER BY ordinal LIMIT 1`, tenant, rev).Scan(&req); e != nil {
+	var req, reqKind string
+	var rawConfig []byte
+	if e = tx.QueryRow(r.Context(), `SELECT id,kind,config FROM verification_requirements WHERE tenant_id=$1 AND revision_id=$2 ORDER BY ordinal LIMIT 1`, tenant, rev).Scan(&req, &reqKind, &rawConfig); e != nil {
 		problem(w, 409, "blocked", "verification requirement unavailable")
 		return
 	}
-	_, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1) ON CONFLICT DO NOTHING`, uuid.New(), tenant, oid, req)
+	attemptID := uuid.New()
+	_, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1) ON CONFLICT DO NOTHING`, attemptID, tenant, oid, req)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
+	}
+	if reqKind == domain.AgentDialogueKind {
+		var raw map[string]any
+		if e = json.Unmarshal(rawConfig, &raw); e != nil {
+			problem(w, 409, "blocked", "dialogue requirement configuration is invalid")
+			return
+		}
+		config, parseErr := domain.ParseDialogueConfig(raw)
+		if parseErr != nil {
+			problem(w, 409, "blocked", "dialogue requirement configuration is invalid")
+			return
+		}
+		snapshot, snapshotErr := domain.SnapshotDialogueConfig(config)
+		if snapshotErr != nil {
+			problem(w, 409, "blocked", "dialogue requirement configuration is invalid")
+			return
+		}
+		snapshotJSON, marshalErr := json.Marshal(snapshot)
+		if marshalErr != nil {
+			problem(w, 500, "internal", marshalErr.Error())
+			return
+		}
+		_, e = tx.Exec(r.Context(), `INSERT INTO dialogue_attempts(tenant_id,attempt_id,occurrence_id,requirement_id,policy_version,config_snapshot,next_sequence) VALUES($1,$2,$3,$4,'dialogue.v1',$5,1) ON CONFLICT (tenant_id,attempt_id) DO NOTHING`, tenant, attemptID, oid, req, snapshotJSON)
+		if e != nil {
+			problem(w, 500, "internal", e.Error())
+			return
+		}
 	}
 	if e = tx.Commit(r.Context()); e != nil {
 		problem(w, 500, "internal", e.Error())
@@ -422,27 +457,65 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		return
 	}
 	var latestStatus string
-	if e := s.DB.QueryRow(r.Context(), `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1`, sc.Tenant, oid).Scan(&latestStatus); e != nil || latestStatus != "rejected" {
+	if e := s.DB.QueryRow(r.Context(), `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1`, sc.Tenant, oid).Scan(&latestStatus); e != nil || (latestStatus != "rejected" && latestStatus != "exhausted") {
 		problem(w, 409, "conflict", "retry requires a rejected attempt")
 		return
 	}
-	var n int
-	e := s.DB.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n)
+	tx, e := s.DB.Begin(r.Context())
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	var req string
-	if e = s.DB.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY vr.ordinal LIMIT 1`, sc.Tenant, oid).Scan(&req); e != nil {
+	defer tx.Rollback(r.Context())
+	var previousNumber int
+	var req, kind string
+	var snapshot []byte
+	e = tx.QueryRow(r.Context(), `SELECT a.number,a.requirement_id,r.kind,d.config_snapshot
+		FROM verification_attempts a
+		JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id
+		LEFT JOIN dialogue_attempts d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id
+		WHERE a.tenant_id=$1 AND a.occurrence_id=$2
+		ORDER BY a.number DESC LIMIT 1 FOR UPDATE OF a`, sc.Tenant, oid).Scan(&previousNumber, &req, &kind, &snapshot)
+	if e != nil {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
 	}
-	_, e = s.DB.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, uuid.New(), sc.Tenant, oid, req, n)
-	if e != nil {
+	n := previousNumber + 1
+	if kind == domain.AgentDialogueKind {
+		var raw map[string]any
+		if len(snapshot) == 0 || json.Unmarshal(snapshot, &raw) != nil {
+			problem(w, 409, "blocked", "dialogue policy snapshot is unavailable")
+			return
+		}
+		config, parseErr := domain.ParseDialogueConfig(raw)
+		if parseErr != nil {
+			problem(w, 409, "blocked", "dialogue policy snapshot is invalid")
+			return
+		}
+		if n > config.MaxAttempts {
+			problem(w, 409, "conflict", "dialogue attempt limit reached")
+			return
+		}
+	}
+	attemptID := uuid.New()
+	if _, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, attemptID, sc.Tenant, oid, req, n); e != nil {
 		problem(w, 409, "conflict", "retry is not permitted")
 		return
 	}
-	_, _ = s.DB.Exec(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2 AND status='pending'`, sc.Tenant, oid)
+	if kind == domain.AgentDialogueKind {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO dialogue_attempts(tenant_id,attempt_id,occurrence_id,requirement_id,policy_version,config_snapshot,next_sequence) VALUES($1,$2,$3,$4,'dialogue.v1',$5,1)`, sc.Tenant, attemptID, oid, req, snapshot); e != nil {
+			problem(w, 500, "internal", e.Error())
+			return
+		}
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2 AND status='pending'`, sc.Tenant, oid); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if e = tx.Commit(r.Context()); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
 	jsonOK(w, map[string]any{"occurrenceId": oid, "attemptNumber": n, "status": "awaiting_verification"})
 }
 func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc scope, status string) {
@@ -541,7 +614,7 @@ func (s *Server) reviseTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 		return
 	}
 	for i, req := range in.Requirements {
-		if _, err = tx.Exec(ctx, `INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), sc.Tenant, rid, i, req.Kind, req.ConfigVersion, requirementJSON([]Requirement{req}), req.Interaction, req.Executor); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), sc.Tenant, rid, i, req.Kind, req.ConfigVersion, requirementConfigJSON(req.Config), req.Interaction, req.Executor); err != nil {
 			problem(w, 400, "invalid_request", "unsupported verification requirement")
 			return
 		}

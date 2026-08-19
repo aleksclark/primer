@@ -15,7 +15,7 @@ import (
 const studentProtocolVersion = 1
 
 var (
-	errStudentRevoked     = errors.New("student credential revoked")
+	errStudentRevoked      = errors.New("student credential revoked")
 	errStudentUnauthorized = errors.New("student credential required")
 )
 
@@ -115,7 +115,9 @@ func (s *Server) studentWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.verifyStudentIdentity(ctx, identity); err != nil {
-			s.sendStudentToSubscriber(sub, wireStudentEvent{Type: "error", ProtocolVersion: studentProtocolVersion, Code: "revoked", Message: "This device pairing is no longer active.", Retryable: false})
+			// The reader is about to terminate the connection; do not enqueue the
+			// revocation notice behind the writer goroutine and then close it.
+			_ = wsjson.Write(ctx, conn, wireStudentEvent{Type: "error", ProtocolVersion: studentProtocolVersion, Code: "revoked", Message: "This device pairing is no longer active.", Retryable: false})
 			return
 		}
 		if cmd.ProtocolVersion != studentProtocolVersion {

@@ -60,6 +60,9 @@ type studentAttemptBinding struct {
 	Kind          string
 	Accepted      int
 	Required      int
+	TurnCount     int
+	MaxTurns      int
+	MaxAttempts   int
 	NextSequence  int64
 	Config        []byte
 }
@@ -148,9 +151,12 @@ func (s *Server) bindStudentAttempt(ctx context.Context, identity studentIdentit
 	query := `
 SELECT a.tenant_id, a.occurrence_id::text, a.id::text, a.requirement_id::text, a.status, r.kind,
        COALESCE(d.accepted_count, 0),
-       COALESCE((d.config_snapshot->>'requiredAccepted')::int, (r.config->>'requiredAccepted')::int, 3),
+       COALESCE((d.config_snapshot->>'requiredQuestions')::int, 0),
+       COALESCE(d.turn_count, 0),
+       COALESCE((d.config_snapshot->>'maxTurns')::int, 0),
+       COALESCE((d.config_snapshot->>'maxAttempts')::int, 0),
        COALESCE(d.next_sequence, 1),
-       COALESCE(d.config_snapshot, r.config)
+       COALESCE(d.config_snapshot, '{}'::jsonb)
   FROM verification_attempts a
   JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=a.occurrence_id
   JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id
@@ -170,13 +176,16 @@ SELECT a.tenant_id, a.occurrence_id::text, a.id::text, a.requirement_id::text, a
 	}
 	err := s.DB.QueryRow(ctx, query, args...).Scan(
 		&binding.TenantID, &binding.OccurrenceID, &binding.AttemptID, &binding.RequirementID, &binding.Status, &binding.Kind,
-		&binding.Accepted, &binding.Required, &binding.NextSequence, &binding.Config,
+		&binding.Accepted, &binding.Required, &binding.TurnCount, &binding.MaxTurns, &binding.MaxAttempts, &binding.NextSequence, &binding.Config,
 	)
 	if err != nil {
 		return binding, err
 	}
 	if binding.Kind != "agent_dialogue" {
 		return binding, errors.New("not a dialogue attempt")
+	}
+	if binding.Required < 1 || binding.MaxTurns < binding.Required || binding.MaxAttempts < 1 {
+		return binding, errors.New("dialogue policy snapshot is unavailable")
 	}
 	return binding, nil
 }
@@ -206,6 +215,7 @@ func (s *Server) studentSubscribe(ctx context.Context, identity studentIdentity,
 		return
 	}
 	defer rows.Close()
+	questionSent := false
 	for rows.Next() {
 		var sequence int64
 		var kind string
@@ -218,10 +228,23 @@ func (s *Server) studentSubscribe(ctx context.Context, identity studentIdentity,
 			continue
 		}
 		event.Sequence, event.Cursor, event.TenantID = sequence, sequence, binding.TenantID
+		if event.Type == "question" {
+			questionSent = true
+		}
 		if !sub.enqueue(event) {
 			s.studentDialogueHub().remove(sub)
 			return
 		}
+	}
+	if !questionSent && binding.Status == "open" {
+		// The first prompt must come from the immutable source snapshot. Do not
+		// substitute facts from a different fixture when the source is unknown.
+		prompt, promptErr := dialogueStarterPrompt(binding.Config)
+		if promptErr != nil {
+			s.sendStudentToSubscriber(sub, wireStudentEvent{Type: "error", AttemptID: binding.AttemptID, OccurrenceID: binding.OccurrenceID, Code: "unsupported_source", Message: "This dialogue source is not available for verification.", Retryable: false, TenantID: binding.TenantID})
+			return
+		}
+		s.sendStudentToSubscriber(sub, wireStudentEvent{Type: "question", AttemptID: binding.AttemptID, OccurrenceID: binding.OccurrenceID, Text: prompt, AcceptedCount: binding.Accepted, RequiredCount: binding.Required, TenantID: binding.TenantID})
 	}
 }
 
@@ -371,6 +394,25 @@ func (s *Server) appendStudentMessage(ctx context.Context, binding studentAttemp
 		return "", 0, false, false, err
 	}
 	if openJobs > 0 {
+		if err = tx.Commit(ctx); err != nil {
+			return "", 0, false, false, err
+		}
+		return "", next, false, true, nil
+	}
+	var turnCount, maxTurns int
+	if err = tx.QueryRow(ctx, `SELECT turn_count,(config_snapshot->>'maxTurns')::int FROM dialogue_attempts WHERE tenant_id=$1 AND attempt_id=$2 FOR UPDATE`, binding.TenantID, binding.AttemptID).Scan(&turnCount, &maxTurns); err != nil {
+		return "", 0, false, false, err
+	}
+	if maxTurns < 1 || turnCount >= maxTurns {
+		if _, err = tx.Exec(ctx, `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,false,$4,'verification_engine') ON CONFLICT(tenant_id,attempt_id) DO NOTHING`, uuid.NewString(), binding.TenantID, binding.AttemptID, "dialogue turn limit reached"); err != nil {
+			return "", 0, false, false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE verification_attempts SET status='exhausted' WHERE tenant_id=$1 AND id=$2 AND status='open'`, binding.TenantID, binding.AttemptID); err != nil {
+			return "", 0, false, false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE task_occurrences SET status='pending' WHERE tenant_id=$1 AND id=$2 AND status NOT IN ('canceled','completed')`, binding.TenantID, binding.OccurrenceID); err != nil {
+			return "", 0, false, false, err
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return "", 0, false, false, err
 		}

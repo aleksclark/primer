@@ -54,11 +54,17 @@ func (r *PostgresRepository) ClaimDialogue(ctx context.Context, owner string, le
 }
 
 func (r *PostgresRepository) CompleteDialogue(ctx context.Context, id, owner string) error {
+	if r == nil || r.DB == nil || id == "" || owner == "" {
+		return errors.New("invalid dialogue completion")
+	}
 	_, err := r.DB.Exec(ctx, `UPDATE verification_jobs SET status='succeeded',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2`, id, owner)
 	return err
 }
 
 func (r *PostgresRepository) FailDialogue(ctx context.Context, id, owner string, cause error) error {
+	if r == nil || r.DB == nil || id == "" || owner == "" {
+		return errors.New("invalid dialogue failure")
+	}
 	code := "dialogue_job_failed"
 	if errors.Is(cause, context.Canceled) {
 		code = "canceled"
@@ -68,6 +74,9 @@ func (r *PostgresRepository) FailDialogue(ctx context.Context, id, owner string,
 }
 
 func (r *PostgresRepository) RequeueExpiredDialogue(ctx context.Context, now time.Time) error {
+	if r == nil || r.DB == nil || now.IsZero() {
+		return errors.New("invalid dialogue requeue")
+	}
 	_, err := r.DB.Exec(ctx, `UPDATE verification_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'queued' END,lease_owner=NULL,lease_until=NULL,updated_at=$1 WHERE status='running' AND lease_until<$1`, now)
 	return err
 }

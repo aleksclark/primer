@@ -246,7 +246,18 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if studentPair.Code != 200 {
 		t.Fatalf("student pair=%d %s", studentPair.Code, studentPair.Body.String())
 	}
-	studentCookie := studentPair.Result().Cookies()[0].Value
+	var studentCookie, csrf string
+	for _, cookie := range studentPair.Result().Cookies() {
+		switch cookie.Name {
+		case "tasks_student":
+			studentCookie = cookie.Value
+		case "tasks_csrf":
+			csrf = cookie.Value
+		}
+	}
+	if studentCookie == "" || csrf == "" {
+		t.Fatalf("student pair must issue student and csrf cookies: %#v", studentPair.Result().Cookies())
+	}
 	studentRequest := func(method, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
 		req.AddCookie(&http.Cookie{Name: "tasks_student", Value: studentCookie})

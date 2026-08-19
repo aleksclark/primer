@@ -35,6 +35,7 @@ export default defineConfig({
         target: proxyTarget,
         changeOrigin: true,
         secure: false,
+        ws: true,
         configure: (proxy) => { proxy.on("proxyReq", (proxyReq, req) => { if (req.headers.host) proxyReq.setHeader("X-Forwarded-Host", req.headers.host); }); },
         rewrite: (path) => path.replace(/^\/api/, ""),
       },

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"primer-tasks/internal/agent"
 	agentprotocol "primer-tasks/internal/agent/protocol"
+	"primer-tasks/internal/domain"
 	"primer-tasks/internal/domain/parent"
 	"primer-tasks/internal/jobs"
 	"primer-tasks/internal/repo"
@@ -59,6 +60,9 @@ func (s *Server) runDialogueJob(ctx context.Context, j jobs.DialogueJob) error {
 	if err != nil {
 		return err
 	}
+	if _, err := dialogueQuestions(state.Config); err != nil {
+		return err
+	}
 	if evaluationForMessage(state, j.MessageID) != nil {
 		return s.publishDialogueResult(ctx, scope, state)
 	}
@@ -69,7 +73,7 @@ func (s *Server) runDialogueJob(ctx context.Context, j jobs.DialogueJob) error {
 	answer := studentAnswer(state, j.MessageID)
 	var model fantasy.LanguageModel
 	if cfg.Mode == parent.ProviderScripted {
-		model = &scriptedDialogueModel{answer: answer, questionKey: nextDialogueKey(state)}
+		model = &scriptedDialogueModel{answer: answer, questionKey: nextDialogueKey(state), config: state.Config}
 	} else if cfg.Mode == parent.ProviderDisabled {
 		return agent.ErrProviderDisabled
 	} else {
@@ -115,8 +119,54 @@ func studentAnswer(s verification.DialogueState, id string) string {
 	}
 	return ""
 }
+
+type dialogueQuestionSpec struct {
+	Key, Prompt string
+	Keywords    []string
+}
+
+var errDialogueSourceUnsupported = errors.New("dialogue source is unsupported")
+
+const stacklaneChapterSource = "The family repaired the garden wall after the storm. The mortar must dry before the next course, or rushing will weaken the wall."
+
+func dialogueQuestions(config domain.DialogueConfig) ([]dialogueQuestionSpec, error) {
+	if config.SourceRef == "fixture://chapter-4" {
+		f := agent.CuratedThreeQuestionFixture()
+		out := make([]dialogueQuestionSpec, 0, len(f.Questions))
+		for _, q := range f.Questions {
+			out = append(out, dialogueQuestionSpec{Key: q.Key, Prompt: q.Prompt, Keywords: q.Keywords})
+		}
+		return out, nil
+	}
+	// The source text fixture is supported only by exact identity. An arbitrary
+	// parent source must never silently select facts from another chapter.
+	if config.SourceRef == "" && config.SourceText == stacklaneChapterSource {
+		return []dialogueQuestionSpec{
+			{Key: "wall", Prompt: "What did the family repair after the storm?", Keywords: []string{"wall", "garden"}},
+			{Key: "mortar", Prompt: "Why must the mortar dry before the next course of stones?", Keywords: []string{"mortar", "dry"}},
+			{Key: "rushing", Prompt: "What would rushing the work do to the wall?", Keywords: []string{"rushing", "weaken"}},
+		}, nil
+	}
+	return nil, fmt.Errorf("%w: %q", errDialogueSourceUnsupported, config.SourceRef)
+}
+
+func dialogueStarterPrompt(raw []byte) (string, error) {
+	var config domain.DialogueConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return "", errDialogueSourceUnsupported
+	}
+	questions, err := dialogueQuestions(config)
+	if err != nil || len(questions) == 0 {
+		return "", err
+	}
+	return questions[0].Prompt, nil
+}
+
 func nextDialogueKey(s verification.DialogueState) string {
-	f := agent.CuratedThreeQuestionFixture()
+	f, err := dialogueQuestions(s.Config)
+	if err != nil || len(f) == 0 {
+		return ""
+	}
 	for i := len(s.Evaluations) - 1; i >= 0; i-- {
 		if s.Evaluations[i].Accepted {
 			break
@@ -127,7 +177,7 @@ func nextDialogueKey(s verification.DialogueState) string {
 			}
 		}
 	}
-	for _, q := range f.Questions {
+	for _, q := range f {
 		seen := false
 		for _, old := range s.Questions {
 			if old.QuestionKey == q.Key {
@@ -139,7 +189,7 @@ func nextDialogueKey(s verification.DialogueState) string {
 			return q.Key
 		}
 	}
-	return f.Questions[len(f.Questions)-1].Key
+	return f[len(f)-1].Key
 }
 func dialoguePrompt(s verification.DialogueState, answer string) string {
 	b, _ := json.Marshal(s.Config)
@@ -155,16 +205,30 @@ func (s *Server) publishDialogueResult(ctx context.Context, scope verification.D
 		return err
 	}
 	if state.Terminal {
-		return s.persistStudentEvent(ctx, b, wireStudentEvent{Type: "completed", Status: "accepted", AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions})
+		status := state.TerminalStatus
+		if status == "" {
+			// Unit-created states predate TerminalStatus; do not turn a short
+			// terminal state into a false acceptance.
+			status = "rejected"
+			if state.AcceptedCount >= state.Config.RequiredQuestions {
+				status = "accepted"
+			}
+		}
+		return s.persistStudentEvent(ctx, b, wireStudentEvent{Type: "complete", Phase: "complete", Status: status, AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions})
 	}
 	if e := evaluationForMessage(state, scope.MessageID); e != nil && !e.Accepted {
-		return s.persistStudentEvent(ctx, b, wireStudentEvent{Type: "follow_up", Status: "retry", Text: "Please try again with a specific detail or reason.", AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions})
+		return s.persistStudentEvent(ctx, b, wireStudentEvent{Type: "progress", Phase: "retry", Status: "rejected", Text: "Please try again with a specific detail or reason.", AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions})
+	}
+	if len(state.Questions) > 0 {
+		q := state.Questions[len(state.Questions)-1]
+		return s.persistStudentEvent(ctx, b, wireStudentEvent{Type: "question", QuestionKey: q.QuestionKey, Text: q.Prompt, AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions})
 	}
 	return s.persistStudentEvent(ctx, b, wireStudentEvent{Type: "state", Status: "open", AcceptedCount: state.AcceptedCount, RequiredCount: state.Config.RequiredQuestions})
 }
 
 type scriptedDialogueModel struct {
 	answer, questionKey string
+	config              domain.DialogueConfig
 	calls               int
 }
 
@@ -181,16 +245,45 @@ func (m *scriptedDialogueModel) StreamObject(context.Context, fantasy.ObjectCall
 }
 func (m *scriptedDialogueModel) Stream(ctx context.Context, _ fantasy.Call) (fantasy.StreamResponse, error) {
 	m.calls++
-	f := agent.CuratedThreeQuestionFixture()
+	config := m.config
+	if config.SourceRef == "" && config.SourceText == "" {
+		// Keep direct unit construction deterministic; production always binds
+		// the immutable attempt snapshot above.
+		config = agent.CuratedThreeQuestionFixture().Config()
+	}
+	f, err := dialogueQuestions(config)
+	if err != nil {
+		return nil, err
+	}
 	if m.calls == 1 && m.questionKey != "" {
 		p := ""
-		for _, q := range f.Questions {
+		for _, q := range f {
 			if q.Key == m.questionKey {
 				p = q.Prompt
 			}
 		}
 		return scriptedToolStream(ctx, agent.ToolRecordQuestion, fmt.Sprintf(`{"questionKey":%q,"prompt":%q}`, m.questionKey, p)), nil
 	}
-	ok, r := f.Evaluate(m.questionKey, m.answer)
-	return scriptedToolStream(ctx, agent.ToolRecordAnswerEvaluation, fmt.Sprintf(`{"questionKey":%q,"accepted":%t,"criteria":["answers address the distinct question"],"rationale":%q}`, m.questionKey, ok, strings.TrimSpace(r))), nil
+	answer := strings.ToLower(strings.TrimSpace(m.answer))
+	accepted := false
+	for _, q := range f {
+		if q.Key == m.questionKey {
+			for _, keyword := range q.Keywords {
+				if strings.Contains(answer, keyword) {
+					accepted = true
+					break
+				}
+			}
+		}
+	}
+	rationale := "answer needs a specific detail from the parent-authored source"
+	if accepted {
+		rationale = "answer addresses a distinct source fact"
+	}
+	criteria := []string{}
+	if accepted {
+		criteria = []string{"answers address the distinct question"}
+	}
+	criteriaJSON, _ := json.Marshal(criteria)
+	return scriptedToolStream(ctx, agent.ToolRecordAnswerEvaluation, fmt.Sprintf(`{"questionKey":%q,"accepted":%t,"criteria":%s,"rationale":%q}`, m.questionKey, accepted, criteriaJSON, rationale)), nil
 }

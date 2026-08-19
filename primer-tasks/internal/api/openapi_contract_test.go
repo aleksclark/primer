@@ -96,8 +96,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 44 {
-		t.Fatalf("registered %d operations, want 44", operationCount)
+	if operationCount != 45 {
+		t.Fatalf("registered %d operations, want 45", operationCount)
 	}
 	dialogueInspect := registered["/occurrences/{id}/inspect"]
 	if dialogueInspect == nil || dialogueInspect.Get == nil || dialogueInspect.Get.OperationID != "occurrence-dialogue-inspect" {
@@ -110,6 +110,10 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 	studentDialogue := registered["/student/occurrences/{id}/dialogue"]
 	if studentDialogue == nil || studentDialogue.Post == nil || studentDialogue.Post.OperationID != "student-occurrence-dialogue" {
 		t.Fatal("student dialogue operation is missing or has the wrong operation ID")
+	}
+	studentDialogueState := registered["/student/occurrences/{id}/dialogue"]
+	if studentDialogueState == nil || studentDialogueState.Get == nil || studentDialogueState.Get.OperationID != "student-occurrence-dialogue-state" {
+		t.Fatal("student dialogue state operation is missing or has the wrong operation ID")
 	}
 	for path, item := range registered {
 		if item.Get == nil && item.Post == nil && item.Patch == nil && item.Delete == nil {

@@ -64,7 +64,7 @@ func ValidateRevision(title, instructions string, requirements []VerificationReq
 		return ErrInvalidTask
 	}
 	for _, r := range requirements {
-		if r.Kind != "parent_approval" || r.ConfigVersion != 1 {
+		if r.ConfigVersion != 1 || (r.Kind != "parent_approval" && r.Kind != "agent_dialogue") {
 			return ErrInvalidTask
 		}
 	}
