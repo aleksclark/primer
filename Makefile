@@ -269,9 +269,9 @@ studio-build:
 studio-cover:
 	@./scripts/enforce-module-cover.sh curriculum-studio $(STUDIO_COVER_MIN) studio
 
-## Studio OpenAPI emission — deferred until cmd/openapi-gen exists.
+## Studio OpenAPI emission from Huma handler signatures.
 studio-openapi:
-	@echo "studio-openapi: deferred until Studio OpenAPI generator exists (S*/C*)"; exit 2
+	$(MAKE) -C curriculum-studio contracts-openapi-emit
 
 ## Studio TS client codegen from the emitted Huma OpenAPI contract.
 studio-client:
