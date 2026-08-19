@@ -19,6 +19,7 @@ IDENTITY_COVER_MIN := 80
 	workstation-package workstation-check update-student-vendor-hash \
 	investor-web investor-web-dev investor-web-test investor-web-ci \
 	foundation-check agent-runtime-check \
+	agents-build agents-test agents-race agents-cover agents-openapi agents-client agents-e2e agents-restart-e2e agents-migrate docker-agents dev-db-agents \
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
@@ -251,6 +252,43 @@ foundation-check:
 ## Verify the pinned public-preview MAF production boundary.
 agent-runtime-check:
 	./scripts/check-maf-runtime.sh
+
+## Standalone primer-agents module gates. These never inherit bare DATABASE_URL.
+agents-build:
+	cd primer-agents && go build ./cmd/primer-agents
+
+agents-test:
+	cd primer-agents && go test ./... -count=1
+
+agents-race:
+	cd primer-agents && go test -race ./... -count=1
+
+agents-cover:
+	cd primer-agents && go test ./... -count=1 -coverprofile=coverage.out -covermode=atomic
+	@cd primer-agents && total=$$(go tool cover -func=coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \
+	if [ $$(echo "$$total < 85" | bc) -eq 1 ]; then echo "FAIL: agents coverage $$total% < 85%"; exit 1; fi; \
+	echo "OK: agents coverage $$total% >= 85%"
+
+agents-openapi:
+	$(MAKE) -C primer-agents openapi
+
+agents-client:
+	$(MAKE) -C primer-agents clients
+
+agents-e2e:
+	cd primer-agents && go test ./internal/app/... ./internal/worker/... ./internal/sse/... -count=1 -timeout=10m
+
+agents-restart-e2e:
+	cd primer-agents && go test ./internal/app/... ./internal/worker/... -count=1 -timeout=10m
+
+agents-migrate:
+	cd primer-agents && go run ./cmd/migrate
+
+docker-agents:
+	docker build -f Dockerfile.agents -t primer-agents .
+
+dev-db-agents:
+	docker exec primer-pg createdb -U primer primer_agents 2>/dev/null || true
 
 ## Studio module unit/package tests (minimal F0 root; no business coverage claim).
 studio-test:
