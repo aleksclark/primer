@@ -1,17 +1,4 @@
-// Package agent is a temporary LMS compatibility seam.
-//
-// # Migration status
-//
-// The canonical implementation has moved to:
-//
-//	github.com/aleksclark/primer/agents/runtime  (primer-agents/runtime/)
-//
-// This package will be replaced by a thin re-export shim once go.work
-// includes ./primer-agents. Until then, server/internal/agent and
-// primer-agents/runtime are kept in sync; do NOT make independent
-// behavioural edits here. The agents module is the single source of truth.
-//
-// See agent_docs/plans/primer-agents-service/phase-01-standalone-foundation-and-engine.md
+// Package agentruntime is the production Primer MAF adapter.
 //
 // # Status
 //
@@ -30,8 +17,16 @@
 // plane, restart recovery, or database persistence in this layer. Process-local
 // session continuity only.
 //
+// # Module ownership
+//
+// This package (github.com/aleksclark/primer/agents/runtime) is the single
+// canonical source for the Primer MAF engine. The LMS compatibility seam at
+// server/internal/agent is a temporary re-export shim; once go.work includes
+// ./primer-agents the shim imports from here and no second independently-edited
+// copy exists. See agent_docs/plans/primer-agents-service/phase-01-*.md.
+//
 // # Importing rules
 //
 // Never import github.com/microsoft/agent-framework-go/internal/…
-// Only public MAF packages are permitted.
-package agent
+// Only public MAF packages are permitted. A compile-time test enforces this.
+package agentruntime
