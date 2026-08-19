@@ -5,10 +5,12 @@
 Deliver **Primer Tasks**, a standalone Primer-adjacent product that gives each
 student a scheduled checklist and completes each occurrence only after its
 configured verification requirements succeed. Parents administer students,
-tasks, schedules, devices, and exceptions through a browser SPA or a
-WebSocket-streamed Fantasy agent. Students use the same SPA or a paired Android
-app; conversational, artifact, human, and external verification methods share
-one durable attempt/decision model.
+tasks, schedules, browser sessions, and exceptions through a browser SPA or a
+WebSocket-streamed Fantasy agent. Students use the same SPA; conversational,
+artifact, human, and external verification methods share one durable
+attempt/decision model. The already-established native baseline and all native
+work formerly attached to Phases 4–7 now live in the separate
+[Primer Tasks Android continuation plan](../primer-tasks-android/index.md).
 
 The completed standalone loop is:
 
@@ -57,10 +59,13 @@ runtime.
 │             ▼                         ▼                        │
 │       PostgreSQL                 object storage               │
 │  source of truth + jobs       media/artifact bytes            │
-└──────────────┬───────────────────────────┬─────────────────────┘
-               │ same-origin REST/WS       │ device REST/WS
-               ▼                           ▼
-       React parent/student SPA      Android student app
+└──────────────────────────┬────────────────────────────────────┘
+                           │ same-origin REST/WS
+                           ▼
+                 React parent/student SPA
+
+Native clients consume the same service contracts on an independent delivery
+track; they do not gate Phases 4–7 of this plan.
 ```
 
 ### Planned product tree
@@ -177,8 +182,6 @@ blocked; they never degrade to self-check or automatic completion.
 - Parent BFF login shell, tenant membership, multiple parent principals with the
   single initial `admin` role, student CRUD/archive, and tenant isolation.
 - Parent and student SPA route groups using Primer System C.
-- Android pairing by QR, persistent student-bound auth, task list, verification
-  chat, and camera/file image/video/audio submission.
 - Versioned task definitions, schedules, occurrences, manual approval, Fantasy
   chat and non-chat verification, media evidence, external verification.
 - WebSocket streaming, progress indicators, reconnect, durable jobs, audit and
@@ -202,6 +205,10 @@ blocked; they never degrade to self-check or automatic completion.
 - Offline completion guarantees; clients may cache read state, but server
   verification remains authoritative.
 - Treating scripted models as proof of pedagogical or multimodal model quality.
+- Native-client work after the reviewed Phase 1–2 baseline; dialogue, media,
+  external-verifier, and release continuation are owned by
+  [`../primer-tasks-android/`](../primer-tasks-android/index.md) and do not block
+  Phases 4–7 here.
 
 ## Global constraints
 
@@ -218,9 +225,10 @@ blocked; they never degrade to self-check or automatic completion.
    and shown once. Device tokens are stored only as hashes server-side and in an
    Android Keystore-encrypted local store; never in QR URLs, logs, or backups.
 5. **Typed API ownership:** Huma handler signatures and explicit boundary types
-   are the REST source of truth. Offline emission requires no DB/provider. All
-   web/Android calls use separately generated clients/façades; raw transport is
-   allowlisted only for health, binary upload, and WebSocket machinery.
+   are the REST source of truth. Offline emission requires no DB/provider. Web
+   calls use the separately generated TypeScript client/façade; raw transport is
+   allowlisted only for health, binary upload, and WebSocket machinery. Native
+   generated-client policy is owned by the separate platform plan.
 6. **Durable decisions:** agent text is not completion. Only a committed,
    immutable verification decision through the domain service can satisfy a
    requirement and complete an occurrence.
@@ -231,9 +239,9 @@ blocked; they never degrade to self-check or automatic completion.
    artifact sizes, cancellation, cost/usage records, and no provider credentials
    in clients/logs.
 9. **Safe progress:** stream text and progress; do not expose hidden reasoning.
-10. **System C:** consume `design-system/generated/primer.css` and
-    `PrimerTokens.kt`; dark primary/light parity, square ruled components, names
-    before IDs, no shadows/gradients/chat bubbles, keyboard/a11y/mobile evidence.
+10. **System C:** consume `design-system/generated/primer.css`; dark primary/
+    light parity, square ruled components, names before IDs, no shadows/gradients/
+    chat bubbles, keyboard/a11y/mobile-browser evidence.
 11. **Server-owned collections:** parent lists use bounded server-side search,
     filter, sort, and pagination with URL state; no bulk-fetch/client filtering.
 12. **Stacklane contract:** publishing services use required
@@ -251,28 +259,19 @@ blocked; they never degrade to self-check or automatic completion.
 
 ## Mandatory per-phase E2E promotion protocol
 
-Every phase must expose a user-visible browser flow; phases touching Android
-must expose an emulator flow too.
+Every remaining phase exposes a user-visible browser flow. Native emulator flows
+are specified and gated independently in
+[`../primer-tasks-android/`](../primer-tasks-android/index.md).
 
 1. **Implementation agent** completes the vertical slice and focused tests.
 2. A **dedicated exploratory E2E agent** (not the implementer) starts the real
    Stacklane Compose stack and exercises the phase through browser public
-   boundaries. It records actions, screenshots at desktop/mobile widths,
-   network/console failures, and database-visible outcomes.
-3. For Android phases, a **dedicated Android acceptance agent** installs a fresh
-   debug APK on an emulator, drives the real app/API, rotates the emulator when
-   auth/camera state matters, and records `adb`/screen evidence. For Phase 1,
-   CameraX remains the primary production path and its integration remains
-   tested; only when the recorded Emulator 36.4.10 VirtualScene poster
-   propagation blocker prevents camera-image injection may acceptance use the
-   visible secondary Photo Picker/SAF exact-image fallback. MockWebServer is
-   supplemental only.
-4. The implementer fixes findings and the exploratory agent re-runs until PASS.
-5. Only after exploratory PASS, a **test-promotion agent** writes/extends the
-   Playwright suite from those observed browser steps. Android observations are
-   promoted to emulator-backed `connectedDebugAndroidTest` and, when black-box
-   camera/QR behavior needs it, a pinned Maestro/Appium-style suite.
-6. A **review agent** runs the phase anti-cheating audit and all completion
+   boundaries. It records actions, desktop/mobile screenshots, network/console
+   failures, and database-visible outcomes.
+3. The implementer fixes findings and the exploratory agent re-runs until PASS.
+4. Only after exploratory PASS, a **test-promotion agent** writes/extends the
+   Playwright suite from those observed browser steps.
+5. A **review agent** runs the phase anti-cheating audit and all completion
    commands. The phase branch is integrated only after this review.
 
 Playwright must use the generated client through the UI, not seed final state by
@@ -287,18 +286,18 @@ for assertions.
 | [Phase 1: Standalone identity, pairing, and client shells](./phase-01-foundation-pairing.md) | Run the isolated Stacklane stack; parent logs in, creates a tenant-scoped student, displays a QR, and web/Android pair to that student. | None |
 | [Phase 2: Tasks, schedules, checklist, and parent approval](./phase-02-tasks-schedules-manual.md) | Parent creates/schedules versioned tasks; students see occurrences; parent approval completes the manual-verification example. | Phase 1 |
 | [Phase 3: Fantasy runtime and parent command chat](./phase-03-parent-agent-chat.md) | Durable Fantasy jobs and WebSockets stream a parent agent that safely manages tasks and schedules with tools. | Phase 2 |
-| [Phase 4: Student dialogue verification](./phase-04-student-dialogue-verification.md) | Student completes a reading task by passing a streamed, requirement-scoped three-question Fantasy conversation. | Phase 3 |
-| [Phase 5: Media evidence and asynchronous rubric review](./phase-05-media-rubric.md) | Web/Android submit image/video/audio evidence; image rubric evaluation runs without chat and streams progress. | Phase 4 |
+| [Phase 4: Student dialogue verification](./phase-04-student-dialogue-verification.md) | Student SPA completes a reading task through a streamed, requirement-scoped three-question Fantasy conversation. | Phase 3 |
+| [Phase 5: Web media evidence and asynchronous rubric review](./phase-05-media-rubric.md) | Student SPA submits image/video/audio evidence; image rubric evaluation runs without chat and streams progress. | Phase 4 |
 | [Phase 6: External verifier protocol](./phase-06-external-verifiers.md) | Allowlisted external tools receive signed idempotent jobs and return durable results through the same verification engine. | Phase 5 |
-| [Phase 7: Multi-user operations and Primer-ready release](./phase-07-release-integration-readiness.md) | Add admin invitations, audit/retention/backup/observability, release hardening, and authenticated API/event seams for later Primer integration. | Phase 6 |
+| [Phase 7: Multi-user operations and Primer-ready release](./phase-07-release-integration-readiness.md) | Add admin invitations, audit/retention/backup/observability, web release hardening, and authenticated API/event seams for later Primer integration. | Phase 6 |
 
 ## Requirement traceability
 
 | Requirement | Phase success/evidence |
 |---|---|
 | Different verification methods per task | P2 manual driver; P4 dialogue; P5 artifact rubric; P6 external callback |
-| Read chapter → three questions | P4 dialogue scenarios and browser/Android E2E |
-| Poem picture → rubric | P5 image artifact + asynchronous rubric scenario |
+| Read chapter → three questions | P4 browser dialogue scenarios; native continuation is Android Phase 1 |
+| Poem picture → rubric | P5 web image artifact + asynchronous rubric; native continuation is Android Phase 2 |
 | Brush teeth → parent checkoff | P2 parent-approval occurrence scenario |
 | Standalone now; Primer SOA later | P1 own DB/service; P7 authenticated integration seam and no cross-DB audit |
 | Future multi-tenant/multi-user; all parents admins initially | P1 tenant/membership model + two-tenant isolation; P7 invite flow; only `admin` role throughout |
@@ -310,9 +309,9 @@ for assertions.
 | Streaming and thinking/progress indicators | P3–P5 WS scenarios; raw reasoning exclusion audit |
 | Parent + student web SPA | P1 shells, P2 functional workflows, all later phases |
 | Android QR pairing and persistent single-student auth | P1; CameraX primary, with the documented exact-image Photo Picker/SAF emulator fallback only for the recorded upstream VirtualScene blocker |
-| Android camera/files for image/video/audio | P5 |
-| Mandatory dedicated E2E then Playwright per phase | global promotion protocol + every phase E2E/completion gate |
-| Android emulator testing | P1, P2, P4, P5, P7 emulator plans |
+| Native camera/files for image/video/audio | Separate Android continuation plan, Phase 2 |
+| Mandatory dedicated E2E then Playwright per phase | global browser promotion protocol + every phase E2E/completion gate |
+| Native emulator continuation | Separate Android plan; main Phases 4–7 do not wait for it |
 | Isolated dev Compose, Stacklane, Go/Vite hot reload | P1; re-proved in P7 two-instance/hot-reload gate |
 
 ## Delivery/orchestration contract
@@ -325,8 +324,9 @@ for assertions.
 - The phase orchestrator commits implementation and an evidence report. It does
   not push, open a PR, merge to `master`, or claim a blocked live-provider gate
   without user authorization.
-- RED E2E, cross-tenant leakage, stale generated clients, missing emulator proof,
-  hard-coded success, or a lowered gate stops integration and is reported.
+- RED browser E2E, cross-tenant leakage, stale generated clients, hard-coded
+  success, or a lowered gate stops integration and is reported. Native gates are
+  reported and sequenced independently in the Android continuation plan.
 
 Suggested branch sequence:
 
@@ -342,16 +342,13 @@ impl/tasks-p7-release
 
 ## Completion rule
 
-Primer Tasks is complete only when every phase BDD scenario passes through its
-real public boundary; each phase has independent exploratory evidence followed
-by promoted Playwright (and required emulator) automation. Where Phase 1 uses
-its documented Android emulator fallback, the exact rendered QR image must be
-selected through the system Photo Picker/SAF and decoded through the same bundled
-parser and real pair path; this exception never permits manual codes, payload
-recreation, direct API seeding, or internal seams, and the upstream VirtualScene
-blocker plus the remaining physical-camera/live-scene limitation stay recorded.
-Two tenants remain
-isolated across REST, WebSocket, agent tools, object keys, jobs, and events;
+Primer Tasks is complete only when every main-plan BDD scenario passes through
+its real public boundary; each remaining phase has independent browser
+exploratory evidence followed by promoted Playwright automation. The independent
+Android continuation may remain in progress without blocking this web/server
+completion claim and retains its own stricter emulator completion rule. Two
+tenants remain isolated across REST, WebSocket, agent tools, object keys, jobs,
+and events;
 Compose check/hot-reload/two-instance proofs pass; generated clients are freshly
 built from offline-emitted contracts with no tracked generated source; Fantasy
 and provider failures are bounded and observable; image rubric review has an

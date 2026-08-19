@@ -10,7 +10,8 @@ callback. The same generic attempt/decision policy updates the checklist.
 
 A real verifier fixture runs as another Compose service for E2E. It is external
 to the Tasks process and database; no in-process fake is accepted as boundary
-proof.
+proof. Native-client progress handling is owned by a separate continuation
+plan.
 
 ## BDD Success Criteria
 
@@ -18,11 +19,11 @@ proof.
 
 - **Given** an occurrence with a snapshotted `external_callback` requirement and
   an allowlisted verifier endpoint
-- **When** the student submits the configured response/artifact
+- **When** the student submits the configured web response/artifact
 - **Then** a durable job emits one signed request with tenant-safe opaque refs,
   the external service reports progress and an accepted structured result, and
   the generic engine completes the requirement/occurrence
-- **And** parent/student UIs show source, progress, provenance, and safe rationale.
+- **And** parent/student SPAs show source, progress, provenance, and safe rationale.
 
 #### Scenario: At-least-once delivery remains exactly-once in effect
 
@@ -70,128 +71,103 @@ proof.
 #### Scenario: External progress survives reconnect/restart
 
 - **Given** a verifier reports multiple progress steps and Tasks restarts
-- **When** parent/student reconnect with cursors
+- **When** parent/student browsers reconnect with cursors
 - **Then** durable safe progress and final state replay in order
 - **And** callback handling after restart still resolves the correct attempt.
 
 ## Implementation Instructions
 
 1. Add an administrator-configured verifier catalog separate from parent task
-   configuration. Catalog records include ID, name, endpoint, active state,
-   supported manifest/config/submission/result schema versions, capabilities,
-   secret reference/version, timeout, retry policy, and egress policy. Do not
-   store plaintext secrets in task revisions or return them to clients.
-2. Register `external_callback` in the verification registry. Its parent-visible
-   config selects verifier ID/capability and schema-validated public options.
-   Occurrences snapshot the manifest/version but resolve secret rotation at
-   delivery time with an auditable key ID.
-3. Add a durable outbox/delivery worker using real PostgreSQL leases/fencing.
-   Request envelope includes event/request ID, attempt/requirement refs, schema
-   version, created/expiry time, idempotency key, callback URL, allowed response
-   metadata/artifact handles, and no parent/student names unless explicitly
-   required and approved.
-4. Sign exact method/path/timestamp/body digest/request ID with HMAC (or a
-   documented asymmetric alternative). Verify callback signatures in constant
-   time, enforce clock window and body limits, bind verifier + attempt + result
-   digest, and keep a replay ledger. Support secret rotation with bounded overlap.
-5. Make callback result a typed discriminated union: progress, accepted,
-   rejected, retryable_error, terminal_error. Validate against the registered
-   result schema and legal attempt state. Only accepted/rejected terminal results
-   can ask the generic engine to commit a decision; they cannot directly update
-   occurrence state.
-6. Use at-least-once delivery and idempotent receiver semantics. Claim with
-   `FOR UPDATE SKIP LOCKED`, finite leases, exponential backoff+jitter, max
-   attempts/age, dead-letter state, manual retry/cancel, and restart recovery.
-   Events follow a transactional outbox with source-of-truth state.
-7. Add SSRF controls: parents never enter endpoint URLs; admin configuration is
-   validated against HTTPS/allowlists, resolved addresses, redirects, and
-   deployment egress policy. Re-resolve safely at connect time and prevent
-   credential forwarding across redirects.
-8. Add a standalone `external-verifier-fixture` Compose service that validates
-   production signatures/idempotency, supports barrier/failure modes, stores its
-   own in-memory fixture ledger only as the external test service, and calls the
-   real public callback. It may not share Tasks DB or import internal packages.
-9. Add parent advanced requirement configuration, verifier health/capability
-   view, delivery inspector, retry/cancel/fallback actions, and audit. Add student
-   waiting/progress/retry/rejected/completed states. Preserve System C and safe
-   progress/no raw payload display.
-10. Extend REST/WS generated clients, operational metrics, and logs for queue age,
-    attempts, latency, status classes, signature failures, dead letters, and
-    verifier ID; redact URLs where sensitive, signatures, headers, bodies, and
-    artifact URLs.
-11. Emit domain outbox events for verification requested/progressed/decided and
-    occurrence completed with globally unique event IDs and schema versions.
-    These events are product-owned facts and form part of phase-7 Primer readiness.
+   configuration. Records include ID/name/endpoint/active state, supported
+   schema versions/capabilities, secret reference/version, timeout/retry, and
+   egress policy. Never store plaintext secrets in task revisions or clients.
+2. Register `external_callback`. Parent-visible config selects verifier ID/
+   capability and schema-validated public options. Occurrences snapshot manifest
+   version while delivery resolves auditable secret rotation.
+3. Add a durable PostgreSQL outbox/delivery worker with leases/fencing. Request
+   envelope includes request/attempt/requirement refs, schema version, expiry,
+   idempotency key, callback URL, and allowed opaque handles—not unnecessary
+   parent/student identity.
+4. Sign method/path/timestamp/body digest/request ID. Verify callback signatures
+   in constant time, enforce clock/body bounds, bind verifier+attempt+digest, and
+   maintain replay/secret-rotation records.
+5. Define typed progress, accepted, rejected, retryable_error, and terminal_error
+   results. Only validated accepted/rejected results can ask the generic engine
+   to append a decision; callbacks never set occurrence state directly.
+6. Use at-least-once delivery, `FOR UPDATE SKIP LOCKED`, finite leases,
+   exponential backoff+jitter, max attempts/age, dead-letter state, manual
+   retry/cancel, restart recovery, and transactional source events.
+7. Prevent SSRF: parents never supply endpoint URLs/headers; admin endpoints are
+   HTTPS/allowlist/resolution/redirect/egress validated and credentials never
+   follow redirects.
+8. Add a separate `external-verifier-fixture` Compose service that validates
+   production signatures/idempotency, supports barrier/failure modes, owns its
+   fixture ledger, calls the public callback, and never shares/imports Tasks DB
+   or internal packages.
+9. Add parent advanced configuration, verifier health/capability, delivery
+   inspector, retry/cancel/fallback, and audit surfaces. Add student web waiting/
+   progress/retry/rejected/completed states with System C safe progress.
+10. Extend generated REST/WS TypeScript clients and metrics/logs for queue age,
+    attempts, latency, status, signature failures, dead letters, and verifier ID;
+    redact endpoints where sensitive, signatures, headers, bodies, and object URLs.
+11. Emit versioned outbox facts for verification requested/progressed/decided and
+    occurrence completed for phase-7 integration readiness.
 
 ## End-to-End Test Plan
 
 ### Browser exploratory acceptance
 
 - Parent selects the real fixture verifier, configures/schedules a task, student
-  submits, and both observe signed delivery progress then completion.
+  submits through the SPA, and both observe signed delivery progress/completion.
 - Exercise lost ack/callback replay, duplicate/out-of-order callbacks, invalid
-  signature/body digest/timestamp, 429/5xx/timeouts, dead letter, manual retry,
-  cancel, fallback to parent review, verifier disabled, and schema mismatch.
-- Attempt arbitrary endpoint/redirect/private address configuration and inspect
+  signature/body digest/timestamp, 429/5xx/timeouts, dead letter, retry, cancel,
+  fallback, verifier disabled, and schema mismatch.
+- Attempt arbitrary endpoint/redirect/private-address configuration and inspect
   logs/metrics for redaction.
-- Restart Tasks between request and callback and restart the verifier between
-  receives; verify exactly-one decision and durable progress.
-
-### Android emulator acceptance
-
-- From a paired emulator, submit a response/artifact to an external requirement,
-  background/kill the app while waiting, reopen, and observe replayed progress
-  and terminal state from the real fixture service.
+- Restart Tasks between request/callback and restart the verifier between
+  receives; verify exactly-one decision and durable progress after browser
+  reconnect.
 
 ### Promoted automation
 
-- After exploratory PASS, add Playwright external-verifier specs for happy path,
-  progress, retry/dead-letter/fallback, signature negatives, capability mismatch,
-  restart, and tenant isolation.
-- Add emulator-backed waiting/reconnect/terminal state test.
+- After exploratory PASS, add Playwright specs for happy path, progress,
+  retry/dead-letter/fallback, signature negatives, capability mismatch, restart,
+  and tenant isolation.
 - Add process E2E starting Tasks, PostgreSQL/object store as needed, and the
-  external fixture as separate processes/containers. Assert real wire signature,
-  callback, persisted delivery, outbox event, and exactly-one decision.
-- Add concurrency/lease tests with multiple Tasks workers and callback races;
-  run under race detector where in-process concurrency applies.
-- Add planted-red tests for body mutation, signature mismatch, raw private URL,
-  stale timestamp, and tracked secret/log leakage.
+  external fixture as separate processes. Assert real signatures, callbacks,
+  persisted delivery, outbox event, and exactly-one decision.
+- Add multi-worker lease/callback race tests and planted-red body/signature/
+  endpoint/timestamp/secret-log tests.
 
 Commands:
 
 ```bash
-make tasks-test tasks-cover tasks-clients tasks-web tasks-android tasks-e2e
+make tasks-test tasks-cover tasks-clients tasks-web tasks-e2e
 make tasks-external-e2e
-cd primer-tasks/android && ./gradlew connectedDebugAndroidTest
 ```
 
 ## Anti-Cheating Audit
 
-- Capture real network traffic between separate Tasks and verifier processes;
-  reject an in-process function call, shared DB, fixture import of internal code,
-  or handler hard-coded result.
-- Trace source attempt → outbox/delivery → signed request → signed callback →
-  generic decision → occurrence. Require durable rows at each product-owned step.
+- Capture real network traffic between separate Tasks/verifier processes; reject
+  an in-process function call, shared DB, internal import, or hard-coded result.
+- Trace attempt → outbox/delivery → signed request → signed callback → generic
+  decision → occurrence with durable product-owned rows at every step.
 - Inspect idempotency/replay constraints and concurrent tests for exactly-one
-  decision/event effects, not merely multiple 200 responses.
-- Verify callback auth is server-side, constant-time where applicable, bounded,
-  and binds body/path/time/verifier/attempt; reject a shared global secret with no
-  rotation/audit or unsigned progress.
-- Inspect SSRF handling and redirects/DNS resolution. Parent config must never
-  become arbitrary URL/headers.
-- Verify retry/dead-letter limits and lease fencing. Reject swallowed errors,
-  infinite retries, or status marked complete on delivery alone.
-- Ensure logs/UI/WS do not contain signatures, secrets, raw callback bodies,
-  long-lived object URLs, or raw hidden model reasoning.
-- Confirm schema/capability mismatch blocks task publication or execution visibly;
-  unknown versions never auto-pass.
+  effects, not merely multiple successful statuses.
+- Verify callback auth binds body/path/time/verifier/attempt and supports audited
+  secret rotation; reject unsigned progress.
+- Inspect SSRF handling, redirects, DNS resolution, retry/dead-letter limits,
+  and lease fencing.
+- Ensure logs/UI/WS contain no signatures, secrets, raw bodies, long-lived URLs,
+  or hidden reasoning.
+- Unknown schema/capability versions never auto-pass.
 
 ## Completion Gate
 
 - [ ] All external protocol BDD scenarios pass across separate real processes.
-- [ ] Dedicated exploratory browser/Android agents PASS before promotion.
-- [ ] Playwright and emulator external-progress suites are green.
+- [ ] Dedicated browser exploratory PASS precedes Playwright promotion.
+- [ ] Playwright external-progress suite is green.
 - [ ] Signature/idempotency/restart/lease/concurrency/SSRF planted-red tests pass.
 - [ ] Exactly one durable decision and completion event result from retries/races.
-- [ ] Generated clients, Go/web/Android/coverage/build/diff gates pass.
+- [ ] Generated clients, Go/web/coverage/build/diff gates pass.
 - [ ] Anti-cheating audit finds no in-process verifier substitute, unsigned callback, arbitrary egress, or fake durability.

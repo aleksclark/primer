@@ -2,16 +2,18 @@
 
 ## Goal
 
-Turn the completed standalone feature set into an operable, integration-ready
-product without embedding it into Primer yet. Add tenant-admin parent invitations
-(all parents still have the single `admin` role), comprehensive audit/retention,
-backup/restore and device replacement drills, observability and limits, and
-authenticated service/event seams that a later Primer adapter can consume.
-Re-prove Stacklane isolation/hot reload and run the complete browser/Android
-acceptance matrix.
+Turn the completed standalone web/server feature set into an operable,
+integration-ready product without embedding it into Primer yet. Add tenant-admin
+parent invitations (all parents still have the single `admin` role),
+comprehensive audit/retention, backup/restore drills, observability and limits,
+and authenticated service/event seams that a later Primer adapter can consume.
+Re-prove Stacklane isolation/hot reload and run the complete browser acceptance
+matrix.
 
-The phase ends with a standalone release candidate and an explicit future
+The phase ends with a standalone release candidate and explicit future
 integration contract, not a cross-database shortcut or premature LMS sync.
+Native-client release hardening and device-replacement regression live in a
+separate continuation plan.
 
 ## BDD Success Criteria
 
@@ -39,7 +41,7 @@ integration contract, not a cross-database shortcut or premature LMS sync.
 - **Given** manual, dialogue, rubric, and external completed occurrences
 - **When** a parent opens/exports the audit timeline
 - **Then** it links task/revision/schedule/occurrence/attempt/submissions/decisions,
-  actor/device/agent/provider/verifier provenance, overrides, and domain events
+  actor/session/agent/provider/verifier provenance, overrides, and domain events
   without exposing secrets or hidden reasoning
 - **And** audit rows are append-only and tenant-scoped.
 
@@ -56,20 +58,20 @@ integration contract, not a cross-database shortcut or premature LMS sync.
 #### Scenario: Backup and restore preserve authority
 
 - **Given** a populated standalone stack
-- **When** PostgreSQL and object-store backup are taken, the stack is restored to
-  a fresh instance, and workers resume
+- **When** PostgreSQL and object-store backup are taken, restored to a fresh
+  instance, and workers resume
 - **Then** tenants, memberships, students, tasks, schedules, occurrences,
   decisions, audit, outbox, and referenced artifacts are consistent
 - **And** no terminal task duplicates, stale lease, or cross-instance credential
   is accepted inadvertently.
 
-#### Scenario: Device replacement does not duplicate completion
+#### Scenario: Student browser session replacement does not duplicate completion
 
-- **Given** a lost/revoked Android device and a replacement paired to the same
+- **Given** a revoked/lost student browser session and a fresh re-pair to the same
   student
-- **When** the replacement loads work and retries any server-known terminal state
-- **Then** it observes existing completion, cannot replay old device credentials,
-  and creates no duplicate decisions/submissions.
+- **When** the new session loads work and retries any server-known terminal state
+- **Then** it observes existing completion, cannot replay the old credential, and
+  creates no duplicate decisions/submissions.
 
 #### Scenario: Primer-facing service read is authenticated and tenant-scoped
 
@@ -84,89 +86,73 @@ integration contract, not a cross-database shortcut or premature LMS sync.
 #### Scenario: Standalone remains authoritative and decoupled
 
 - **Given** Primer/LMS is absent or unavailable
-- **When** parents/students complete every verification type
-- **Then** Primer Tasks continues normally and queues any outbound integration
-  events durably
+- **When** browser users complete every verification type
+- **Then** Primer Tasks continues normally and queues outbound integration events
+  durably
 - **And** no query, migration, FK, view, or fallback touches a Primer database.
 
 #### Scenario: Operational failures are diagnosable
 
 - **Given** stale scheduler/job/outbox leases, provider failures, external
   dead-letters, object inconsistencies, pairing attacks, slow WebSocket clients,
-  or unsupported app versions
+  or unsupported browser protocol versions
 - **When** they occur
 - **Then** health/readiness, metrics, structured logs, and parent diagnostics show
   bounded actionable state without secrets/student media/chat bodies
 - **And** readiness fails only for documented critical dependencies.
 
-#### Scenario: Full Stacklane and client matrix remains green
+#### Scenario: Full Stacklane and browser matrix remains green
 
 - **Given** two release-candidate worktree instances
-- **When** the full browser and Android acceptance suites, hot-reload probes, and
-  stop-one isolation run
-- **Then** each instance remains isolated and all phase 1–6 user flows pass
+- **When** full browser suites, hot-reload probes, and stop-one isolation run
+- **Then** each instance remains isolated and all phase 1–6 browser flows pass
 - **And** clean contract/client generation leaves the worktree clean.
 
 ## Implementation Instructions
 
-1. Add invitation records and accept/revoke membership domain services. Invitations
-   bind tenant, intended subject/email hint only as non-authoritative display,
-   inviter, expiry, one-use digest, and the actual authenticated Identity subject
-   at acceptance. Never merge users by email. Keep the only initial role `admin`.
+1. Add invitation records and accept/revoke membership domain services. Bind
+   tenant, non-authoritative intended-subject/email hint, inviter, expiry,
+   one-use digest, and actual authenticated Identity subject. Never email-merge.
 2. Add last-admin protection, session/confirmation revocation, membership audit,
    and two-parent concurrency tests. Recheck membership on every sensitive
-   request/tool/WS replay rather than trusting a long-lived role snapshot.
+   request/tool/WS replay rather than trusting long-lived role snapshots.
 3. Consolidate append-only audit events and parent **Inspect/Monitor** UI across
-   all verification kinds. Define redaction/visibility separately for student
-   text, parent text, agent safe rationale, artifact metadata, provider usage,
-   external verifier data, and operational logs.
-4. Implement configurable retention jobs with leases/fencing for conversations,
-   transient run events, uploads/partials, originals/derivatives, external
-   payloads, audit, and outbox. Preserve immutable decision/provenance digests and
-   explicit tombstones. Add dry-run/report and legal-hold/admin exclusions.
-5. Add backup/restore scripts and runbook for the Tasks PostgreSQL database and
-   object storage, including ordering, encryption, checksums, manifest, restore
-   to a distinct instance, worker lease reconciliation, consistency scan, and
-   credential/session handling. Never put secrets or student media in git test
-   artifacts.
-6. Add observability: OpenTelemetry hooks/Prometheus metrics and structured
-   redacted logs for HTTP/WS, pairing, schedule lag, job leases, agent usage/
-   latency/failure, verification outcomes, upload/scan/retention, external
-   delivery/dead letters, outbox age, and client versions. Add health/readiness
-   dependency semantics and alert thresholds/runbooks.
-7. Define a future Primer integration adapter as authenticated REST/event
-   surfaces owned by Tasks:
-   - read-only occurrence/completion projections with stable source refs;
-   - durable versioned outbox event feed or signed webhooks with cursor/ack;
-   - explicit tenant service grants and scopes;
-   - audience/client identity validation aligned with Primer Identity once its
-     service-principal milestones are available.
-   Generate a Go client package for future Primer consumption, but do not add LMS
-   code or a shared database. Credential-free qualification may use a loopback
-   issuer; production cutover remains gated on Identity service principals.
-8. Add integration idempotency/source refs so a future consumer can replay safely.
-   Tasks never waits synchronously for Primer to mark its own occurrence complete.
-   Document event versioning, retention, backfill, and consumer outage behavior.
-9. Harden security: request/body limits, rate limits for login/pair/message/upload,
-   CSP/CORS/origin, secret rotation, object URL TTL, dependency/vulnerability
-   scans, WebSocket connection/subscription limits, agent cost quotas, Android
-   network security config, and production fail-fast config.
-10. Finish deployment artifacts for standalone Tasks while preserving dev hot
-    reload: production multi-stage image, migration command/job, non-root runtime,
-    read-only filesystem except declared paths, graceful drain for HTTP/WS/workers,
-    and documented rollback. Do not rewrite existing Primer deploys.
-11. Add parent diagnostics for device/app version, last seen, revocation, job/
-    outbox lag, failed verification requiring action, artifact retention, and
-    provider/verifier availability.
-12. Run full contract compatibility and generated-client policy gates. Attach
-    normalized contracts/digests as CI/release artifacts rather than committing
-    schema/generated source. Add breaking-change comparison against the first
-    immutable release artifact.
+   verification kinds. Define redaction/visibility for student/parent text,
+   safe rationale, artifact metadata, provider usage, external data, and logs.
+4. Implement configurable leased/fenced retention jobs for conversations,
+   transient events, uploads/partials, originals/derivatives, external payloads,
+   audit, and outbox. Preserve immutable decision/provenance digests and explicit
+   tombstones; add dry-run, report, hold, and exclusion controls.
+5. Add backup/restore scripts/runbook for PostgreSQL and object storage with
+   ordering, encryption, checksums, manifests, distinct-instance restore, lease
+   reconciliation, consistency scan, and session/credential handling.
+6. Add OpenTelemetry/Prometheus and redacted structured logs for HTTP/WS,
+   pairing, schedule/job/outbox lag, agent usage/failure, verification outcomes,
+   upload/scan/retention, external delivery, and client protocol versions.
+7. Define authenticated future Primer integration surfaces: read-only completion
+   projections with stable refs; durable versioned event feed or signed webhooks;
+   tenant grants/scopes; audience/client validation. Generate a Go client for
+   future Primer consumption without adding LMS code/shared DB.
+8. Add replay-safe integration source refs, event versioning/retention/backfill,
+   and consumer-outage behavior. Tasks never waits synchronously for Primer to
+   mark its own occurrence complete.
+9. Harden request/body and rate limits, CSP/CORS/origin, secret rotation, object
+   URL TTL, dependency/vulnerability scans, WS connection/subscription bounds,
+   inference quotas, and production fail-fast config.
+10. Finish standalone deployment artifacts: production multi-stage image,
+    migration command/job, non-root/read-only runtime, graceful HTTP/WS/worker
+    drain, documented rollback; preserve dev hot reload.
+11. Add parent diagnostics for browser sessions, sync/last-seen, job/outbox lag,
+    failed verification, retention, provider/verifier availability, and protocol
+    compatibility.
+12. Run contract compatibility/generated-client policy gates. Publish normalized
+    contract/digest as CI/release artifacts rather than tracked schema/generated
+    source; compare against immutable release baseline.
 13. Re-run Stacklane check, backend mutate/restore, frontend no-reload HMR,
-    two-instance isolation, stop-one, and cleanup with unique probe instances.
-14. Complete accessibility/responsive review for all parent/student SPA surfaces
-    and full emulator matrix for pairing, checklist, dialogue, media, external
-    waiting, revoke/re-pair, process restart, and device replacement.
+    two-instance isolation, stop-one, and cleanup with unique probes.
+14. Complete accessibility/responsive review across parent/student SPA surfaces
+    and full browser regression for pairing, checklist, dialogue, media,
+    external waiting, revoke/re-pair, process restart, and completion recovery.
 
 ## End-to-End Test Plan
 
@@ -174,37 +160,26 @@ integration contract, not a cross-database shortcut or premature LMS sync.
 
 - Invite/accept second parent, concurrently manage tasks, revoke one parent, and
   attempt stale REST/WS/confirmation/artifact access.
-- Run one complete task of each verification kind and reconstruct each in audit.
+- Complete one task of each verification kind and reconstruct each in audit.
 - Exercise retention dry-run/apply, legal hold, object/DB reconciliation,
   diagnostics, rate limits, provider/verifier disabled states, and export.
 - Use a loopback service principal to read scoped completion/events, replay
   cursor/ack, deny wrong audience/scope/client/raw Stytch/missing tenant grant,
   and keep product working while consumer is down.
-- Run full dark/light desktop/mobile axe and keyboard matrix.
-
-### Android emulator acceptance
-
-- Execute fresh pair, persistent login, manual task, dialogue reconnect, photo/
-  video/audio submission, no-chat rubric, external wait, process restart, device
-  revoke, replacement pair, and existing completion recovery against the real
-  release stack.
-- Run network loss and server restart at declared safe points. Inspect logcat,
-  app storage, backups, media cache, and exported files for secret/privacy leaks.
+- Run dark/light desktop/mobile axe and keyboard matrix.
 
 ### Backup/restore and isolation acceptance
 
 - Seed representative data/media, back up, destroy only a unique probe stack with
   exact confirmation, restore into a different instance, run consistency scan,
   resume workers, and compare domain facts/digests.
-- Run two Stacklane instances, full health/user smoke, mutate/restore Go and React
-  sources, stop one, and verify the other plus its DB/object store remains intact.
+- Run two Stacklane instances, health/user smoke, mutate/restore Go and React
+  sources, stop one, and verify the other plus DB/object store remains intact.
 
 ### Promoted automation
 
 - After exploratory PASS, promote invite/revoke/audit/retention/integration/auth
   and complete regression flows to Playwright.
-- Extend emulator black-box automation to the full matrix; do not replace camera,
-  QR, file, process, or real API boundaries with mocked screens.
 - Add process E2E for service auth/event replay, consumer outage/backfill,
   retention restart, backup/restore consistency, graceful shutdown, rate limits,
   and production fail-fast.
@@ -215,48 +190,42 @@ Commands:
 
 ```bash
 primer-tasks/scripts/dev check
-make tasks-all tasks-test tasks-cover tasks-lint tasks-clients tasks-web tasks-android
+make tasks-all tasks-test tasks-cover tasks-lint tasks-clients tasks-web
 make tasks-e2e tasks-external-e2e tasks-integration-e2e tasks-backup-restore-e2e
-cd primer-tasks/android && ./gradlew connectedDebugAndroidTest
 cd primer-tasks && go test -race ./... -count=1
 ```
 
 ## Anti-Cheating Audit
 
-- Verify invitation acceptance binds the authenticated Identity subject and does
-  not email-merge, auto-provision cross-tenant access, or trust invitation body
-  tenant/role.
-- Recheck revoked membership across REST, WS subscription/replay, agent tools,
-  confirmation, object download, and service grants; client logout alone is not
-  revocation.
-- Trace audit rows from immutable source facts; reject synthesized UI timelines,
-  mutable/delete-capable audit, or raw hidden reasoning/secrets.
+- Verify invitation acceptance binds authenticated Identity subject and does not
+  email-merge, auto-provision cross-tenant access, or trust body tenant/role.
+- Recheck revoked membership across REST, WS replay, tools, confirmation,
+  downloads, and service grants; client logout alone is not revocation.
+- Trace immutable audit rows from source facts; reject synthesized UI timelines,
+  mutable audit, hidden reasoning, or secrets.
 - Verify retention deletes real object/DB content while preserving required
-  decision facts, and restart/retry does not over-delete.
-- Inspect backup/restore evidence for actual PostgreSQL + object bytes, manifests,
-  checksums, fresh instance, and worker reconciliation; reject fixture reseeding
-  presented as restore.
-- Trace service API/event auth and tenant grants server-side. Reject shared-secret
-  fail-open, raw Stytch acceptance, client filtering, or event rows without
-  transactional source state.
-- Search code/schema for LMS imports, DSNs, cross-DB SQL, FDW/dblink/views/FKs, or
-  synchronous Primer dependency.
-- Inspect observability for real counters/state and redaction; reject health that
-  always returns OK or metrics derived only in browser.
-- Re-run all earlier phase anti-cheating checks on the release tip, especially
-  real Fantasy tools, media bytes, external separate process, exactly-once
-  decisions, and no raw reasoning.
-- Verify generated sources/contracts remain untracked and clean generation/build
-  uses production registration.
+  decision facts and restart/retry does not over-delete.
+- Inspect real PostgreSQL + object backup/restore manifests/checksums/fresh
+  instance/worker reconciliation; reject fixture reseeding as restore.
+- Trace service auth and tenant grants server-side. Reject fail-open shared
+  secrets, raw Stytch acceptance, client filtering, or events without source state.
+- Search for LMS imports/DSNs/cross-DB SQL/FDW/dblink/views/FKs or synchronous
+  Primer dependency.
+- Inspect real metrics/health/redaction; reject always-OK health or browser-only
+  counters.
+- Re-run earlier web/server anti-cheating checks: Fantasy tools, media bytes,
+  external separate process, exactly-once decisions, no reasoning.
+- Verify generated sources/contracts remain untracked and production registration
+  owns clean generation.
 
 ## Completion Gate
 
 - [ ] All phase-7 and regression BDD scenarios pass.
-- [ ] Dedicated browser and Android exploratory agents PASS before final promotion.
-- [ ] Full Playwright and emulator suites are green against the release stack.
-- [ ] Invitation/revocation and two-tenant/two-parent isolation pass across every boundary.
-- [ ] Audit/retention, backup/restore, device replacement, and consumer outage/backfill drills pass.
+- [ ] Dedicated browser exploratory PASS precedes final Playwright promotion.
+- [ ] Full Playwright suite is green against the release stack.
+- [ ] Invitation/revocation and two-tenant/two-parent isolation pass everywhere.
+- [ ] Audit/retention, backup/restore, session replacement, and consumer outage drills pass.
 - [ ] Stacklane check/hot-reload/two-instance/stop-one proofs pass.
 - [ ] Service integration seam is authenticated, generated, replay-safe, and DB-decoupled; production Identity blockers are labeled honestly.
 - [ ] Full race/coverage/vet/lint/build/client compatibility/security/diff gates pass.
-- [ ] Final anti-cheating audit finds no fake evidence, fail-open auth, secret/media leak, tracked generated output, or Primer database coupling.
+- [ ] Final anti-cheating audit finds no fake evidence, fail-open auth, secret/media leak, tracked generated output, or Primer DB coupling.

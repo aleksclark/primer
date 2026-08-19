@@ -2,14 +2,17 @@
 
 ## Goal
 
-Add the first student-facing agentic verifier. A parent can configure a reading
-task with an `agent_dialogue` requirement such as “answer three questions about
-chapter 4.” The student opens the occurrence in web or Android, participates in
-a streamed requirement-scoped conversation, and receives completion only after
-the verification engine has three durable accepted answer evaluations.
+Add the first student-facing agentic verifier to the web product. A parent can
+configure a reading task with an `agent_dialogue` requirement such as “answer
+three questions about chapter 4.” The student opens the occurrence in the
+student SPA, participates in a streamed requirement-scoped conversation, and
+receives completion only after the verification engine has three durable
+accepted answer evaluations.
 
 The dialogue agent may assess answers and coach briefly, but it cannot manage
 other tasks, reveal answer keys, or mark an occurrence complete directly.
+Native-client dialogue work is owned by a separate continuation plan and does
+not block this phase.
 
 ## BDD Success Criteria
 
@@ -17,7 +20,7 @@ other tasks, reveal answer keys, or mark an occurrence complete directly.
 
 - **Given** a published reading task whose dialogue requirement snapshots the
   source/context, question count 3, rubric, and retry policy
-- **When** the bound student starts verification and gives three substantively
+- **When** the bound student uses the web SPA to give three substantively
   accepted answers to distinct questions
 - **Then** questions, answers, and criterion evaluations are durable and
   attributed to one attempt
@@ -34,7 +37,7 @@ other tasks, reveal answer keys, or mark an occurrence complete directly.
 
 #### Scenario: Reconnect resumes the same attempt
 
-- **Given** two accepted questions and a disconnected browser/app
+- **Given** two accepted questions and a disconnected browser tab
 - **When** the same student reconnects and opens the occurrence
 - **Then** the server restores the durable conversation and accepted count and
   asks only the remaining question
@@ -50,7 +53,7 @@ other tasks, reveal answer keys, or mark an occurrence complete directly.
 - **And** the response redirects to the current verification without leaking
   protected context.
 
-#### Scenario: Parent authored source remains authoritative
+#### Scenario: Parent-authored source remains authoritative
 
 - **Given** task revision context and a student message containing prompt
   injection or contradictory “source” text
@@ -58,9 +61,9 @@ other tasks, reveal answer keys, or mark an occurrence complete directly.
 - **Then** server-loaded revision context and rubric remain authoritative
 - **And** student content is never promoted into system/tool policy.
 
-#### Scenario: Concurrent devices cannot race completion
+#### Scenario: Concurrent browser clients cannot race completion
 
-- **Given** the same student is paired on web and Android
+- **Given** the same student opens the occurrence in two browser contexts
 - **When** both submit messages concurrently to one attempt
 - **Then** message sequence/idempotency rules serialize or clearly conflict the
   turn, accepted count never exceeds policy, and exactly one terminal decision
@@ -96,84 +99,70 @@ other tasks, reveal answer keys, or mark an occurrence complete directly.
    requirement/attempt IDs.
 3. Build a requirement-scoped Fantasy agent with only tools such as
    `get_dialogue_state`, `record_question`, and `record_answer_evaluation`.
-   - Tool context fixes tenant, student, occurrence, requirement, attempt, and
-     policy version.
-   - `record_question` enforces distinct IDs/count and strips answer-key leakage.
-   - `record_answer_evaluation` validates rubric fields, binds exactly one student
-     message/question, and is idempotent.
-   - The verification engine, not the tool/model, counts accepted evaluations
-     and commits the final decision.
+   Tool context fixes tenant, student, occurrence, requirement, attempt, and
+   policy version. Server code enforces distinct questions/count, binds each
+   evaluation to one student message/question, and keeps all writes idempotent.
+   The verification engine—not the tool/model—commits final acceptance.
 4. Use a custom `PrepareStep`/stop policy to restrict active tools by turn, cap
    steps/tokens/time, and prevent further tool calls after terminal state.
    Preserve the phase-3 no-raw-reasoning progress mapping.
 5. Build model messages from server-owned revision context plus bounded durable
-   dialogue history. Clearly delimit untrusted student text. Do not let clients
-   provide system prompts, rubrics, question count, completion status, or source
+   dialogue history. Clearly delimit untrusted student text. Clients never
+   supply system prompts, rubrics, question count, completion status, or source
    substitutions.
-6. Add student WebSocket authorization using Android bearer headers or student
-   browser cookie; never query-string tokens. The same protocol gains
-   attempt-subscribe, student-message, and verification state events. Enforce
-   student binding at upgrade, subscribe, replay, and every command.
+6. Authenticate student WebSockets with the host-only student browser session;
+   never accept query-string credentials. Enforce binding at upgrade, subscribe,
+   replay, and every command.
 7. Make user messages durable before enqueueing the agent run. Use client message
    idempotency keys and expected sequence/version. Concurrent turns either
    serialize deterministically or return a typed conflict with resumable state.
 8. Add parent task-form support for dialogue configuration with schema-driven
-   validation and preview. Do not expose hidden prompts; show parent-owned source,
-   rubric, required question count, and retry policy.
-9. Add student web and Android System C **Decide/Learn** transcript screens:
-   current question, ruled history, typing state, generic thinking/evaluating
-   progress, retry/error/offline explanation, and completion summary. No bubbles,
-   raw score gamification, or raw model reasoning.
+   validation and preview. Show only parent-owned source, rubric, required count,
+   and retry policy—not hidden prompts.
+9. Add a System C **Decide/Learn** student SPA transcript: current question,
+   ruled history, typing state, generic thinking/evaluating progress,
+   retry/error/offline explanation, and completion summary. No bubbles, raw score
+   gamification, or raw model reasoning.
 10. Add parent **Inspect** timeline with student-authored text clearly separated
     from agent/evaluation records, safe rationale, provenance, usage, overrides,
-    and retention controls. Parent override uses an explicit domain operation and
-    cannot alter immutable prior evidence.
-11. Extend generated REST/WS clients and Android socket façade. Backgrounding the
-    app disconnects delivery but not the run; reopening fetches/replays durable
-    state.
+    and retention controls. Parent override appends an audited decision and never
+    alters prior evidence.
+11. Extend generated REST/WS TypeScript clients and keep raw WebSocket creation
+    inside the owned client façade.
 12. Include a curated deterministic chapter fixture and scripted model that
     requires three distinct correct concepts, rejects an insufficient answer,
-    and emits tool calls. This proves wiring/policy, not educational model quality.
+    and emits real Fantasy tool calls. This proves wiring/policy, not educational
+    model quality.
 
 ## End-to-End Test Plan
 
 ### Browser exploratory acceptance
 
 - Parent creates a chapter-reading task requiring three questions and schedules
-  it. Student browser answers two correctly, one incorrectly, follows up, and
-  completes. Parent inspects the complete transcript/evidence.
+  it. Student answers two correctly, one incorrectly, follows up, and completes.
+  Parent inspects the complete transcript/evidence.
 - Disconnect after two accepted answers, reconnect, and verify only one remains.
 - Attempt prompt injection, answer-key request, cross-task/cross-tenant subscribe,
   message replay, concurrent tabs, malformed provider output, timeout, and parent
   override.
 - Inspect wire/DB/logs for no reasoning deltas and no client-supplied policy.
-
-### Android emulator acceptance
-
-- On the paired emulator, open the reading task, stream questions/progress,
-  background/kill after two answers, reopen and finish, then observe checked state.
-- Run concurrent web/app submission and verify typed conflict/recovery without
-  duplicate evaluation.
-- Revoke device mid-attempt and verify subsequent subscribe/message denial while
-  durable parent audit remains.
+- Review desktop/mobile dark/light layouts, keyboard/focus behavior, clean
+  console/network, and axe evidence.
 
 ### Promoted automation
 
 - After exploratory PASS, add Playwright specs for three-question success,
   incorrect/follow-up, reconnect, prompt injection, foreign subscription,
   concurrent turns, provider failure, parent inspect, and override.
-- Add emulator-backed dialogue/restart/revocation tests using the real WebSocket
-  and scripted Fantasy provider.
-- Add real-Postgres process tests for message/evaluation idempotency, two-device
+- Add real-Postgres process tests for message/evaluation idempotency, two-client
   races, exactly one decision/completion, and agent tool allowlist negatives.
-- Run repeated stream/cancel/reconnect tests under race detector.
+- Run repeated stream/cancel/reconnect tests under the race detector.
 
 Commands:
 
 ```bash
-make tasks-test tasks-cover tasks-agent-compat tasks-clients tasks-web tasks-android
+make tasks-test tasks-cover tasks-agent-compat tasks-clients tasks-web
 make tasks-e2e
-cd primer-tasks/android && ./gradlew connectedDebugAndroidTest
 cd primer-tasks && go test -race ./internal/verification/... ./internal/agent/... ./internal/api/... -count=10
 ```
 
@@ -199,10 +188,10 @@ cd primer-tasks && go test -race ./internal/verification/... ./internal/agent/..
 ## Completion Gate
 
 - [ ] All dialogue BDD scenarios pass with the curated three-question fixture.
-- [ ] Dedicated browser and Android exploratory agents PASS before promotion.
-- [ ] Playwright and emulator dialogue suites are green.
-- [ ] Two-device/idempotency/exactly-once process and race tests pass.
+- [ ] Dedicated browser exploratory agent PASS precedes promotion.
+- [ ] Promoted Playwright dialogue suite is green.
+- [ ] Multi-client/idempotency/exactly-once process and race tests pass.
 - [ ] Parent inspect/override evidence is immutable and tenant-scoped.
 - [ ] No raw reasoning or client policy reaches wire, DB, logs, or UI.
-- [ ] Generated REST/WS clients, Go coverage/build/vet, web gates, Android gates, and diff checks pass.
+- [ ] Generated REST/WS clients, Go coverage/build/vet, web gates, and diff checks pass.
 - [ ] Anti-cheating audit finds no model-direct completion, broad student tools, fake conversation, or tenancy leak.
