@@ -561,7 +561,7 @@ func TestUnsupportedGrantsHaveZeroDBSideEffects(t *testing.T) {
 		"resource":   {fx.redirect.ResourceURI},
 		"client_id":  {fx.client.ClientID},
 	}
-	assertTokenError(t, postToken(creds, nil), http.StatusBadRequest, oauth.ErrorUnsupportedGrantType, false)
+	assertTokenError(t, postToken(creds, nil), http.StatusBadRequest, oauth.ErrorInvalidRequest, false)
 	assertCodeUnconsumed(t, fx)
 	assertZeroIssuance(t, fx)
 }

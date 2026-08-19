@@ -12,12 +12,23 @@ import (
 )
 
 type ServiceCredential struct {
-	ID, ServicePrincipalID, OAuthClientID             uuid.UUID
-	SubjectRef                                        string
-	SecretHash                                        []byte
-	PepperVersion                                     int16
-	AllowedResources, AllowedAudiences, AllowedScopes []string
-	NotAfter                                          *time.Time
+	ID, ServicePrincipalID, OAuthClientID uuid.UUID
+	SubjectRef                            string
+	SecretHash                            []byte
+	PepperVersion                         int16
+	ResourceURI                           string
+	Audience                              string
+	AllowedScopes                         []string
+	NotAfter                              *time.Time
+}
+
+type ServiceCredentialInput struct {
+	ID, ServicePrincipalID, OAuthClientID uuid.UUID
+	SecretHash                            []byte
+	PepperVersion                         int16
+	ResourceURI                           string
+	Audience                              string
+	AllowedScopes                         []string
 }
 
 func GetActiveServiceCredential(ctx context.Context, q Querier, clientID uuid.UUID) (*ServiceCredential, error) {
@@ -26,16 +37,61 @@ func GetActiveServiceCredential(ctx context.Context, q Querier, clientID uuid.UU
 	}
 	out := &ServiceCredential{}
 	err := q.QueryRow(ctx, `
-SELECT c.id,c.service_principal_id,c.oauth_client_id,p.subject_ref,c.secret_hash,c.pepper_version,c.allowed_resources,c.allowed_audiences,c.allowed_scopes,p.disabled_at
+SELECT c.id,c.service_principal_id,c.oauth_client_id,p.subject_ref,c.secret_hash,c.pepper_version,c.resource_uri,c.audience,c.allowed_scopes,p.disabled_at
 FROM oauth_service_credentials c
 JOIN oauth_service_principals p ON p.id=c.service_principal_id
 JOIN oauth_clients oc ON oc.id=c.oauth_client_id
-WHERE c.oauth_client_id=$1 AND oc.enabled AND p.enabled AND c.revoked_at IS NULL
-ORDER BY c.created_at DESC LIMIT 1`, clientID).Scan(&out.ID, &out.ServicePrincipalID, &out.OAuthClientID, &out.SubjectRef, &out.SecretHash, &out.PepperVersion, &out.AllowedResources, &out.AllowedAudiences, &out.AllowedScopes, &out.NotAfter)
+WHERE c.oauth_client_id=$1 AND oc.enabled AND p.enabled AND c.status='active' AND c.revoked_at IS NULL
+ORDER BY c.created_at DESC LIMIT 1`, clientID).Scan(&out.ID, &out.ServicePrincipalID, &out.OAuthClientID, &out.SubjectRef, &out.SecretHash, &out.PepperVersion, &out.ResourceURI, &out.Audience, &out.AllowedScopes, &out.NotAfter)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, wrapf("get service credential", domain.ErrNotFound)
 	}
 	return out, wrapf("get service credential", err)
+}
+
+// CreateServiceCredential persists only a peppered hash. The caller owns the
+// plaintext secret and must zero it after hashing; this package never returns it.
+func CreateServiceCredential(ctx context.Context, q Querier, in ServiceCredentialInput) (uuid.UUID, error) {
+	if in.ID == uuid.Nil {
+		in.ID = uuid.New()
+	}
+	if in.ServicePrincipalID == uuid.Nil || in.OAuthClientID == uuid.Nil || len(in.SecretHash) != 32 || in.PepperVersion <= 0 || in.ResourceURI == "" || in.Audience == "" || len(in.AllowedScopes) == 0 {
+		return uuid.Nil, wrapf("create service credential", domain.ErrInvalid)
+	}
+	var id uuid.UUID
+	err := q.QueryRow(ctx, `INSERT INTO oauth_service_credentials(id,service_principal_id,oauth_client_id,secret_hash,pepper_version,resource_uri,audience,allowed_scopes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, in.ID, in.ServicePrincipalID, in.OAuthClientID, in.SecretHash, in.PepperVersion, in.ResourceURI, in.Audience, in.AllowedScopes).Scan(&id)
+	return id, wrapf("create service credential", err)
+}
+
+// RotateServiceCredential atomically revokes the active credential and creates
+// its replacement. The old hash remains only as an audit-safe revoked row.
+func RotateServiceCredential(ctx context.Context, q Querier, oldID uuid.UUID, in ServiceCredentialInput, now time.Time) (uuid.UUID, error) {
+	if oldID == uuid.Nil || now.IsZero() {
+		return uuid.Nil, wrapf("rotate service credential", domain.ErrInvalid)
+	}
+	if _, err := q.Exec(ctx, `UPDATE oauth_service_credentials SET status='revoked',revoked_at=$2,rotated_at=$2 WHERE id=$1 AND status='active' AND revoked_at IS NULL`, oldID, now.UTC()); err != nil {
+		return uuid.Nil, wrapf("rotate service credential", err)
+	}
+	if in.ServicePrincipalID == uuid.Nil || in.OAuthClientID == uuid.Nil {
+		return uuid.Nil, wrapf("rotate service credential", domain.ErrInvalid)
+	}
+	return CreateServiceCredential(ctx, q, in)
+}
+
+func RevokeServiceCredential(ctx context.Context, q Querier, id uuid.UUID, now time.Time) error {
+	if id == uuid.Nil || now.IsZero() {
+		return wrapf("revoke service credential", domain.ErrInvalid)
+	}
+	_, err := q.Exec(ctx, `UPDATE oauth_service_credentials SET status='revoked',revoked_at=$2 WHERE id=$1 AND status='active'`, id, now.UTC())
+	return wrapf("revoke service credential", err)
+}
+
+func DisableServicePrincipal(ctx context.Context, q Querier, id uuid.UUID, now time.Time) error {
+	if id == uuid.Nil || now.IsZero() {
+		return wrapf("disable service principal", domain.ErrInvalid)
+	}
+	_, err := q.Exec(ctx, `UPDATE oauth_service_principals SET enabled=false,disabled_at=$2 WHERE id=$1 AND enabled`, id, now.UTC())
+	return wrapf("disable service principal", err)
 }
 
 func CreateServiceGrant(ctx context.Context, q Querier, principalID, clientID uuid.UUID, resource, audience string, scopes []string, now, notAfter time.Time) (uuid.UUID, error) {

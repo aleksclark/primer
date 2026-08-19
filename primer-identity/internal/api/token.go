@@ -171,7 +171,7 @@ func validateClientCredentialsTokenForm(form url.Values, authMethod string) erro
 		allowed["client_assertion_type"] = struct{}{}
 		allowed["client_assertion"] = struct{}{}
 	default:
-		return nil
+		return tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
 	}
 	for name := range form {
 		if _, ok := allowed[name]; !ok {

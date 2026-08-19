@@ -35,7 +35,7 @@ import (
 	"github.com/aleksclark/primer/identity/internal/token"
 )
 
-func TestRefreshAndClientCredentialsAreUnsupported(t *testing.T) {
+func TestRefreshIsUnsupportedAndClientCredentialsRequiresAuth(t *testing.T) {
 	now := time.Date(2026, 8, 17, 16, 0, 0, 0, time.UTC)
 	fx := issuedPublicCode(t, now)
 	svc := newTestService(t, fx.secrets, frozenClock{now: now})
@@ -46,7 +46,7 @@ func TestRefreshAndClientCredentialsAreUnsupported(t *testing.T) {
 
 	_, err = svc.Exchange(context.Background(), oauth.ExchangeRequest{GrantType: oauth.GrantClientCredentials, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
 	require.Error(t, err)
-	assert.Equal(t, oauth.ErrorUnsupportedGrantType, oauth.ErrorCodeOf(err))
+	assert.Equal(t, oauth.ErrorInvalidRequest, oauth.ErrorCodeOf(err))
 }
 
 func TestWrongBindingsAndPKCEAreInvalidGrant(t *testing.T) {

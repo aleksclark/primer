@@ -241,7 +241,7 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 	}
 	if req.GrantType == GrantClientCredentials {
 		if auth.Method == "" || auth.Method == AuthNone {
-			return TokenResponse{}, oauthErr(ErrorUnsupportedGrantType, "grant type is not supported")
+			return TokenResponse{}, oauthErr(ErrorInvalidRequest, "client authentication is required")
 		}
 		return s.exchangeClientCredentials(ctx, req, auth)
 	}
@@ -459,14 +459,16 @@ func (s *Service) exchangeClientCredentials(ctx context.Context, req ExchangeReq
 				return oauthErr(ErrorInvalidClient, "client authentication failed")
 			}
 		}
-		if !contains(cred.AllowedResources, req.Resource) || len(cred.AllowedAudiences) != 1 {
+		// A credential carries exactly one registered resource/audience tuple.
+		// Never derive an audience from an independently configured list.
+		if cred.ResourceURI != req.Resource {
 			return oauthErr("invalid_target", "the requested target is invalid")
 		}
 		scopes, scopeErr := requestedServiceScopes(req.Scope, cred.AllowedScopes)
 		if scopeErr != nil {
 			return scopeErr
 		}
-		audience := cred.AllowedAudiences[0]
+		audience := cred.Audience
 		notAfter := now.Add(s.cfg.AccessTTL)
 		if cred.NotAfter != nil && cred.NotAfter.Before(notAfter) {
 			notAfter = cred.NotAfter.UTC()
@@ -522,6 +524,13 @@ func contains(values []string, want string) bool {
 	return false
 }
 func requestedServiceScopes(requested string, allowed []string) ([]string, error) {
+	// Service authority is deliberately narrower than human authorization:
+	// only explicit read/draft capabilities may be registered or requested.
+	for _, scope := range allowed {
+		if scope != "studio.read" && scope != "studio.draft" || strings.Contains(scope, "*") {
+			return nil, oauthErr("invalid_scope", "the requested scope is invalid")
+		}
+	}
 	if requested == "" {
 		return domain.CanonicalScopes(allowed), nil
 	}
@@ -531,7 +540,7 @@ func requestedServiceScopes(requested string, allowed []string) ([]string, error
 	}
 	canon := domain.CanonicalScopes(scopes)
 	for _, scope := range canon {
-		if !contains(allowed, scope) {
+		if (scope != "studio.read" && scope != "studio.draft") || strings.Contains(scope, "*") || !contains(allowed, scope) {
 			return nil, oauthErr("invalid_scope", "the requested scope is invalid")
 		}
 	}
