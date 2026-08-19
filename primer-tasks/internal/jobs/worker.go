@@ -54,11 +54,27 @@ func (r *PostgresRepository) Enqueue(ctx context.Context, j Job) error {
 	return err
 }
 func (r *PostgresRepository) Claim(ctx context.Context, owner string, lease time.Duration, maxTenants int) (j Job, ok bool, err error) {
-	err = r.DB.QueryRow(ctx, `WITH candidate AS (SELECT j.id FROM agent_jobs j WHERE j.status='queued' AND j.available_at<=now() AND (j.lease_until IS NULL OR j.lease_until<now()) AND j.attempts<j.max_attempts AND ($3<=0 OR EXISTS (SELECT 1 FROM agent_jobs active WHERE active.status='running' AND active.tenant_id=j.tenant_id) OR (SELECT count(DISTINCT tenant_id) FROM agent_jobs active WHERE active.status='running')<$3) ORDER BY j.available_at,j.id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE agent_jobs a SET status='running',lease_owner=$1,lease_until=now()+$2::interval,attempts=attempts+1,updated_at=now() FROM candidate WHERE a.id=candidate.id RETURNING a.id,a.tenant_id,a.run_id,a.status,a.attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until`, owner, fmt.Sprintf("%f seconds", lease.Seconds()), maxTenants).Scan(&j.ID, &j.TenantID, &j.RunID, &j.Status, &j.Attempts, &j.MaxAttempts, &j.AvailableAt, &j.LeaseOwner, &j.LeaseUntil)
+	tx, err := r.DB.Begin(ctx)
+	if err != nil {
+		return Job{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	// Serialize the count-and-claim decision globally. Without this admission
+	// lock two workers can both observe a free tenant slot and exceed the cap.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('primer.tasks.agent_jobs.tenant_admission',0))`); err != nil {
+		return Job{}, false, err
+	}
+	err = tx.QueryRow(ctx, `WITH candidate AS (SELECT j.id FROM agent_jobs j WHERE j.status='queued' AND j.available_at<=now() AND (j.lease_until IS NULL OR j.lease_until<now()) AND j.attempts<j.max_attempts AND ($3<=0 OR EXISTS (SELECT 1 FROM agent_jobs active WHERE active.status='running' AND active.tenant_id=j.tenant_id) OR (SELECT count(DISTINCT tenant_id) FROM agent_jobs active WHERE active.status='running')<$3) ORDER BY j.available_at,j.id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE agent_jobs a SET status='running',lease_owner=$1,lease_until=now()+$2::interval,attempts=attempts+1,updated_at=now() FROM candidate WHERE a.id=candidate.id RETURNING a.id,a.tenant_id,a.run_id,a.status,a.attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until`, owner, fmt.Sprintf("%f seconds", lease.Seconds()), maxTenants).Scan(&j.ID, &j.TenantID, &j.RunID, &j.Status, &j.Attempts, &j.MaxAttempts, &j.AvailableAt, &j.LeaseOwner, &j.LeaseUntil)
 	if err == pgx.ErrNoRows {
 		return Job{}, false, nil
 	}
-	return j, err == nil, err
+	if err != nil {
+		return Job{}, false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Job{}, false, err
+	}
+	return j, true, nil
 }
 func (r *PostgresRepository) Renew(ctx context.Context, id, owner string, lease time.Duration) error {
 	var renewed bool
