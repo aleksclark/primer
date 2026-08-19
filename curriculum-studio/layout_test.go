@@ -67,7 +67,7 @@ func TestServerPackagesDoNotImportClients(t *testing.T) {
 			// client façade (clients/go-grpc). This is an explicitly allowed
 			// exception: only *_test.go files here may import clients; production
 			// server code (non-test .go) in internal/ still cannot.
-			if strings.Contains(path, "internal/grpcapi/e2e") && strings.HasSuffix(path, "_test.go") {
+			if (strings.Contains(path, "internal/grpcapi/e2e") || strings.Contains(path, "internal/conformance")) && strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 			raw, err := os.ReadFile(path)

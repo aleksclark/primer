@@ -36,11 +36,30 @@ type names, error codes) must match across OpenAPI, protobuf (suffix after
 enum prefix), and DB CHECK constraints. Documented in the foundation
 crosswalk.
 
-Authoring OpenAPI is now regenerated from Huma handler signatures with
+Authoring OpenAPI is regenerated from Huma handler signatures with
 `make contracts-openapi-emit`; the emitted document is the live generation
-input. This YAML is retained only as the frozen compatibility baseline. Verify
-it with `./scripts/check-baseline.sh`; an intentional baseline refresh must use
-the explicit `BASELINE_BOOTSTRAP=1` procedure and commit the digest change.
+input. The Huma surface is now live at runtime and this YAML is retained only
+as the frozen compatibility baseline. Verify it with
+`./scripts/check-baseline.sh`; an intentional baseline refresh must use the
+explicit `BASELINE_BOOTSTRAP=1` procedure and commit the digest change.
+
+The C11 conformance matrix runs the generated Go REST and gRPC clients against
+loopback Huma/gRPC servers and emits deterministic traceability evidence at
+`tools/contract-gates/evidence/conformance-coverage.json`:
+
+```bash
+make contracts-conformance
+make contracts-ci
+```
+
+The matrix covers the generated-client loopback surfaces and the in-memory
+integration harness. The following remain explicit handoff blockers rather
+than claimed completion: the live Primer Identity token broker/JWKS hosting
+and client-credentials issuance, full materialization agent workflows and
+artifact storage, the Studio UI BFF cookie integration, LMS production
+cutover from static secrets, and the deferred Studio-to-LMS import adapter.
+DB-backed authoring CRUD is owned by the Studio platform wave and is not
+reimplemented in this contract harness.
 
 LMS `web/openapi.yaml` / `tv-web/openapi.yaml` remain Huma-generated LMS/TV
 contracts. They are not Studio contracts.
@@ -133,7 +152,23 @@ curriculum-studio/contracts/
 Sibling package map (server edge, clients, gates): see `OWNERS.md` and
 `../Makefile` targets `contracts-validate`, `contracts-ownership`,
 `contracts-buf-generate`, `clients-go-grpc-build`, `contracts-parity`,
-`contracts-gates`.
+`contracts-gates`, and `contracts-conformance`.
+
+### Current conformance evidence
+
+| Evidence | Command / proof |
+| --- | --- |
+| E11-01 REST tour | `internal/conformance`, generated Go REST client → loopback Huma |
+| E11-02 gRPC tour | `internal/conformance`, generated Go gRPC façade → TCP loopback |
+| E11-03 error coherence | generated REST problem response and gRPC unauthenticated status |
+| E11-04 inventory | emitted Huma operation and protobuf service descriptors |
+| E11-05 traceability | deterministic coverage JSON, registry completeness, orphan rejection |
+| E11-06 evidence bundle | coverage artifact validation in the conformance package |
+| E11-07 LMS import proof | `clients/go-grpc/examples/lms_compile/main.go`, compiled by `go test ./clients/go-grpc/...` |
+
+The LMS sample intentionally imports only `clients/go-grpc` and protobuf
+messages. It does not import `internal/grpcapi`, the Studio server, or the
+Studio database; it is an interface compile proof, not a production adapter.
 
 ## Closed-enum parity (C2)
 
