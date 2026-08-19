@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aleksclark/primer/identity/internal/domain"
 )
@@ -231,6 +232,67 @@ func CountSigningKeysByStatus(ctx context.Context, q Querier, status string) (in
 	return n, nil
 }
 
+// RotateSigningKey retires the current active key and promotes the registered
+// next key in one transaction, preserving overlap for already-issued JWTs.
+func RotateSigningKey(ctx context.Context, q Querier, nextKid string, at time.Time) (*SigningKeyRecord, error) {
+	if err := domain.ValidateSigningKid(nextKid); err != nil {
+		return nil, wrapf("rotate signing key", err)
+	}
+	if at.IsZero() {
+		return nil, wrapf("rotate signing key", fmt.Errorf("%w: timestamp is required", domain.ErrInvalid))
+	}
+	if pool, ok := q.(*pgxpool.Pool); ok {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return nil, wrapf("rotate signing key", err)
+		}
+		got, err := rotateSigningKeyTx(ctx, tx, nextKid, at)
+		if err != nil {
+			_ = tx.Rollback(context.Background())
+			return nil, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(context.Background())
+			return nil, wrapf("rotate signing key", err)
+		}
+		return got, nil
+	}
+	return rotateSigningKeyTx(ctx, q, nextKid, at)
+}
+
+func rotateSigningKeyTx(ctx context.Context, q Querier, nextKid string, at time.Time) (*SigningKeyRecord, error) {
+	if _, err := q.Exec(ctx, `UPDATE signing_keys SET status=$1,retired_at=$2 WHERE status=$3`, domain.SigningKeyStatusRetired, at, domain.SigningKeyStatusActive); err != nil {
+		return nil, wrapf("rotate signing key", err)
+	}
+	return activateSigningKey(ctx, q, nextKid, at)
+}
+
+// RetireSigningKey removes a key from signing authority while retaining its
+// private material for the configured verification overlap window.
+func RetireSigningKey(ctx context.Context, q Querier, kid string, at time.Time) error {
+	if err := domain.ValidateSigningKid(kid); err != nil {
+		return wrapf("retire signing key", err)
+	}
+	if at.IsZero() {
+		return wrapf("retire signing key", fmt.Errorf("%w: timestamp is required", domain.ErrInvalid))
+	}
+	_, err := q.Exec(ctx, `UPDATE signing_keys SET status=$2,retired_at=$3 WHERE kid=$1 AND status=$4`, kid, domain.SigningKeyStatusRetired, at, domain.SigningKeyStatusActive)
+	return wrapf("retire signing key", err)
+}
+
+// DestroySigningKey terminalizes a retired key and removes its sealed private
+// bytes. The public JWK remains for audit/JWKS history but cannot sign.
+func DestroySigningKey(ctx context.Context, q Querier, kid string, at time.Time) error {
+	if err := domain.ValidateSigningKid(kid); err != nil {
+		return wrapf("destroy signing key", err)
+	}
+	if at.IsZero() {
+		return wrapf("destroy signing key", fmt.Errorf("%w: timestamp is required", domain.ErrInvalid))
+	}
+	_, err := q.Exec(ctx, `UPDATE signing_keys SET status=$2,destroyed_at=$3,sealed_private_key=NULL WHERE kid=$1 AND status=$4 AND retired_at IS NOT NULL AND retired_at <= $3`, kid, domain.SigningKeyStatusDestroyed, at, domain.SigningKeyStatusRetired)
+	return wrapf("destroy signing key", err)
+}
+
 // ActivateSigningKey promotes an authenticated next row to the single active key.
 func ActivateSigningKey(ctx context.Context, q Querier, kid string, activatedAt time.Time) (*SigningKeyRecord, error) {
 	if err := domain.ValidateSigningKid(kid); err != nil {
@@ -239,11 +301,11 @@ func ActivateSigningKey(ctx context.Context, q Querier, kid string, activatedAt 
 	if activatedAt.IsZero() {
 		return nil, wrapf("activate signing key", fmt.Errorf("%w: activated_at is required", domain.ErrInvalid))
 	}
-	const sqlStr = `
-UPDATE signing_keys
-SET status = $2, activated_at = $3
-WHERE kid = $1 AND status = $4
-RETURNING ` + signingKeyColumns
+	return activateSigningKey(ctx, q, kid, activatedAt)
+}
+
+func activateSigningKey(ctx context.Context, q Querier, kid string, activatedAt time.Time) (*SigningKeyRecord, error) {
+	const sqlStr = `UPDATE signing_keys SET status = $2, activated_at = $3 WHERE kid = $1 AND status = $4 RETURNING ` + signingKeyColumns
 	got, err := scanSigningKey(q.QueryRow(ctx, sqlStr, kid, domain.SigningKeyStatusActive, activatedAt, domain.SigningKeyStatusNext))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

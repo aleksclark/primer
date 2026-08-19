@@ -108,6 +108,28 @@ func TestInsertSigningKeyEnforcesAtMostOneActiveAndNext(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrConflict)
 }
 
+func TestRotateRetireAndDestroySigningKeyLifecycle(t *testing.T) {
+	ctx := context.Background()
+	tx := signingTx(t)
+	active, err := repo.InsertSigningKey(ctx, tx, sealedRecord(t, domain.SigningKeyStatusActive))
+	require.NoError(t, err)
+	next, err := repo.InsertSigningKey(ctx, tx, sealedRecord(t, domain.SigningKeyStatusNext))
+	require.NoError(t, err)
+	at := time.Now().UTC().Add(time.Minute)
+	promoted, err := repo.RotateSigningKey(ctx, tx, next.Kid, at)
+	require.NoError(t, err)
+	require.Equal(t, domain.SigningKeyStatusActive, promoted.Status)
+	old, err := repo.GetSigningKeyByKid(ctx, tx, active.Kid)
+	require.NoError(t, err)
+	require.Equal(t, domain.SigningKeyStatusRetired, old.Status)
+	require.NotNil(t, old.RetiredAt)
+	require.NoError(t, repo.DestroySigningKey(ctx, tx, active.Kid, at.Add(time.Minute)))
+	destroyed, err := repo.GetSigningKeyByKid(ctx, tx, active.Kid)
+	require.NoError(t, err)
+	require.Equal(t, domain.SigningKeyStatusDestroyed, destroyed.Status)
+	require.Nil(t, destroyed.SealedPrivateKey)
+}
+
 func TestCountSigningKeysByStatus(t *testing.T) {
 	tx := signingTx(t)
 	ctx := context.Background()
