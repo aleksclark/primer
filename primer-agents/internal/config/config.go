@@ -5,6 +5,8 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -41,12 +43,21 @@ type Config struct {
 	// WorkerEnabled enables the background job worker (Phase 2+).
 	WorkerEnabled bool `envconfig:"WORKER_ENABLED" default:"false"`
 
-	// Provider fields — reserved for Phase 2 runtime composition.
-	// Credentials are never defaulted; absence is safe in Phase 1.
+	// Provider fields — ordinary startup never composes a billable provider.
+	// Credentials are never defaulted and these fields are not provider keys.
 	ProviderMode      string `envconfig:"PROVIDER_MODE"`
 	ProviderBaseURL   string `envconfig:"PROVIDER_BASE_URL"`
 	ProviderModel     string `envconfig:"PROVIDER_MODEL"`
 	ProviderSecretRef string `envconfig:"PROVIDER_SECRET_REF"`
+
+	// LiveLLM fields are deliberately namespaced and opt-in. The API key is
+	// read separately only when LiveLLMEnabled is true; ordinary config.Load
+	// never inspects an ambient provider variable.
+	LiveLLMEnabled  bool          `envconfig:"LIVE_LLM" default:"false"`
+	LiveLLMModel    string        `envconfig:"LIVE_LLM_MODEL" default:"gpt-4o-mini"`
+	LiveLLMBaseURL  string        `envconfig:"LIVE_LLM_BASE_URL"`
+	LiveLLMTimeout  time.Duration `envconfig:"LIVE_LLM_TIMEOUT" default:"20s"`
+	LiveLLMMaxCalls int           `envconfig:"LIVE_LLM_MAX_CALLS" default:"1"`
 
 	// Identity endpoint fields for JWT validation (Phase 3+).
 	// In production both must be HTTPS non-loopback URLs; absence disables
@@ -121,7 +132,50 @@ func (c *Config) Validate() error {
 	if err := c.validateIdentityConfig(); err != nil {
 		return err
 	}
+	if err := c.validateLiveLLMConfig(); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// LiveLLMAPIKey returns the explicitly namespaced live key only after the
+// caller has opted in. It intentionally never falls back to an ambient
+// provider credential.
+func (c *Config) LiveLLMAPIKey() string {
+	if c == nil || !c.LiveLLMEnabled {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv("PRIMER_AGENTS_LIVE_LLM_API_KEY"))
+}
+
+func (c *Config) validateLiveLLMConfig() error {
+	if !c.LiveLLMEnabled {
+		return nil
+	}
+	if c.Env == "production" {
+		return fmt.Errorf("agents config: live billable LLM is forbidden in production")
+	}
+	if strings.TrimSpace(c.LiveLLMAPIKey()) == "" {
+		return fmt.Errorf("agents config: PRIMER_AGENTS_LIVE_LLM_API_KEY is required when PRIMER_AGENTS_LIVE_LLM=1")
+	}
+	if strings.TrimSpace(c.LiveLLMModel) != "gpt-4o-mini" {
+		return fmt.Errorf("agents config: live LLM model must be the fixed cheap model gpt-4o-mini")
+	}
+	if c.LiveLLMMaxCalls != 1 {
+		return fmt.Errorf("agents config: live LLM max calls must be exactly 1")
+	}
+	if c.LiveLLMTimeout <= 0 || c.LiveLLMTimeout > 30*time.Second {
+		return fmt.Errorf("agents config: live LLM timeout must be between 1ns and 30s")
+	}
+	raw := strings.TrimSpace(c.LiveLLMBaseURL)
+	if raw == "" {
+		return fmt.Errorf("agents config: PRIMER_AGENTS_LIVE_LLM_BASE_URL is required when live LLM is enabled (no billable URL default)")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != "api.openai.com" || u.Path != "/v1" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("agents config: live LLM base URL must be explicit https://api.openai.com/v1")
+	}
 	return nil
 }
 

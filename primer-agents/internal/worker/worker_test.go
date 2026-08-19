@@ -59,6 +59,7 @@ func scriptedWorkerCfg(t *testing.T, updates ...*mafagent.ResponseUpdate) worker
 	cfg.CancelPollInterval = 50 * time.Millisecond
 	cfg.PollInterval = 20 * time.Millisecond
 	cfg.MaxConcurrent = 1
+	cfg.RunTimeout = 30 * time.Second
 	pc := prov.ProviderConfig()
 	cfg.ProviderCfg = &pc
 	return cfg

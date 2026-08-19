@@ -13,6 +13,7 @@ bin/
 
 # content-ingest working artifacts (manifest + review stay tracked)
 curriculum/ingest-reports/
+tmp/
 curriculum/ytdlp-archive.txt
 
 # Node

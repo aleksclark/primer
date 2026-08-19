@@ -13,6 +13,7 @@ import (
 
 	"github.com/aleksclark/primer/agents/internal/authn"
 	"github.com/aleksclark/primer/agents/internal/domain"
+	"github.com/aleksclark/primer/agents/internal/profile"
 	"github.com/aleksclark/primer/agents/internal/repo"
 	"github.com/aleksclark/primer/agents/internal/sse"
 )
@@ -331,6 +332,12 @@ type runOut struct {
 
 func (s *server) handleCreateRun(ctx context.Context, in *createRunInput) (*runOut, error) {
 	p, _ := PrincipalFromContext(ctx)
+	// Generic runs are parent/admin only. Student and job profiles have
+	// dedicated routes with server-selected policy and must never be smuggled
+	// through this request-controlled profile field.
+	if _, err := profile.AdmitParentAdmin(p, profile.Name(in.Body.Profile)); err != nil {
+		return nil, huma.Error403Forbidden("requested profile is not admitted")
+	}
 	run, err := s.svc.CreateRun(ctx, CreateRunCmd{
 		OwnerNamespace: p.Namespace(),
 		IdempotencyKey: in.IdempotencyKey,

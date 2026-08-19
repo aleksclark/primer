@@ -316,6 +316,25 @@ func mint(t *testing.T, key *jwttest.Keypair, now time.Time, sub string) string 
 	return jwttest.Mint(t, key, jwttest.ValidHumanClaims(now, sub))
 }
 
+func TestCreateRunRejectsStudentProfile(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	key := jwttest.GenerateKey(t)
+	srv := serveJWKS(t, key)
+	h := newHandler(t, newValidator(t, srv.URL, func() time.Time { return now }))
+	tok := mint(t, key, now, "identity:"+uuid.NewString())
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/v1/runs",
+		strings.NewReader(`{"profile":"student"}`))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "student-generic-route")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
 func TestCreateRunReturnsQueued(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)

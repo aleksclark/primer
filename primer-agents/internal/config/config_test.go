@@ -32,6 +32,49 @@ func TestLoadDefaultsInDevelopment(t *testing.T) {
 	assert.Equal(t, "0.0.0.0:8091", cfg.Addr())
 }
 
+func TestDisabledLiveLLMDoesNotInspectAmbientProviderKey(t *testing.T) {
+	t.Setenv("PRIMER_AGENTS_ENV", "development")
+	t.Setenv("PRIMER_AGENTS_DATABASE_URL", "postgres://agents:x@localhost:5432/primer_agents?sslmode=disable")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM", "0")
+	t.Setenv("OPENAI_API_KEY", "ambient-marker-must-not-be-read")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_API_KEY", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.LiveLLMEnabled)
+	assert.Empty(t, cfg.LiveLLMAPIKey())
+}
+
+func TestLiveLLMRequiresExplicitBoundedConfiguration(t *testing.T) {
+	t.Setenv("PRIMER_AGENTS_ENV", "development")
+	t.Setenv("PRIMER_AGENTS_DATABASE_URL", "postgres://agents:x@localhost:5432/primer_agents?sslmode=disable")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM", "1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_API_KEY", "named-live-key")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_BASE_URL", "https://api.openai.com/v1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_MODEL", "gpt-4o-mini")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_MAX_CALLS", "1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_TIMEOUT", "20s")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-4o-mini", cfg.LiveLLMModel)
+	assert.Equal(t, 1, cfg.LiveLLMMaxCalls)
+	assert.Equal(t, "named-live-key", cfg.LiveLLMAPIKey())
+}
+
+func TestLiveLLMRejectsUnsafeOrExpensiveConfiguration(t *testing.T) {
+	t.Setenv("PRIMER_AGENTS_ENV", "development")
+	t.Setenv("PRIMER_AGENTS_DATABASE_URL", "postgres://agents:x@localhost:5432/primer_agents?sslmode=disable")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM", "1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_API_KEY", "named-live-key")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_BASE_URL", "http://127.0.0.1:1234/v1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_MODEL", "expensive-model")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "model")
+}
+
 func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("PRIMER_AGENTS_HOST", "127.0.0.1")
 	t.Setenv("PRIMER_AGENTS_PORT", "9099")
