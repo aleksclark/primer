@@ -1,6 +1,7 @@
 # Primer Tasks Phase 2 — final integration evidence
 
 Branch: `impl/tasks-p2-checklist`
+Final implementation tip before review: `26522b1`
 Base reviewed tip: `6bf51be7755ec05fd7b17f81d94dc72f24e8947c`
 
 ## Final result

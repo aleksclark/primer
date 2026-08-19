@@ -1,6 +1,6 @@
 # Phase 2 Android promotion — Terra final
 
-**Result: PASS** — current final tip `47c1672`.
+**Result: PASS** — current final tip `26522b1`.
 
 | Gate | Result | Evidence |
 |---|---|---|
