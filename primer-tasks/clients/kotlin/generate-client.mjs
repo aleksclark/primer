@@ -63,8 +63,16 @@ object PrimerTasksOperations {
     const val DEVICE_PAIR = "${endpoint("device-pair")}"
     const val DEVICE_PROFILE = "${endpoint("device-profile")}"
     const val DEVICE_CHECKLIST = "${endpoint("device-checklist")}"
+    const val DEVICE_TODAY = "${endpoint("device-today")}"
+    const val DEVICE_UPCOMING = "${endpoint("device-upcoming")}"
+    const val DEVICE_OCCURRENCE = "${endpoint("device-occurrence")}"
+    const val DEVICE_OCCURRENCE_START = "${endpoint("device-occurrence-start")}"
     const val STUDENT_PROFILE = "${endpoint("student-profile")}"
     const val STUDENT_CHECKLIST = "${endpoint("student-checklist")}"
+    const val STUDENT_TODAY = "${endpoint("student-today")}"
+    const val STUDENT_UPCOMING = "${endpoint("student-upcoming")}"
+    const val STUDENT_OCCURRENCE = "${endpoint("student-occurrence")}"
+    const val STUDENT_OCCURRENCE_START = "${endpoint("student-occurrence-start")}"
 }
 
 ${model("PairCode")}
@@ -76,6 +84,12 @@ ${model("StudentProfile", "Student")}
 ${model("ChecklistResponse", "Checklist")}
 
 ${model("ChecklistItem")}
+
+${model("Occurrence2")}
+
+${model("OccurrencePageResponse", "OccurrencePage2")}
+
+${model("DecisionInput", "DecisionInput2")}
 `;
 
 await mkdir(path.dirname(output), { recursive: true });

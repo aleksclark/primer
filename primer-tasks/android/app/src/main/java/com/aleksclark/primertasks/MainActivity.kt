@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.aleksclark.primertasks.client.ChecklistItem
+import com.aleksclark.primertasks.client.OccurrenceResponse
 import com.aleksclark.primertasks.client.TasksClient
 import com.aleksclark.primertasks.client.TasksHttpException
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,8 @@ private fun PrimerTasksApp(context: android.content.Context) {
     var token by remember { mutableStateOf<String?>(null) }
     var metadata by remember { mutableStateOf<StudentMetadata?>(null) }
     var checklist by remember { mutableStateOf<List<ChecklistItem>>(emptyList()) }
+    var occurrences by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
+    var selectedOccurrence by remember { mutableStateOf<OccurrenceResponse?>(null) }
     var busy by remember { mutableStateOf(true) }
     var scanning by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -87,6 +90,7 @@ private fun PrimerTasksApp(context: android.content.Context) {
             val client = TasksClient(savedMetadata.origin)
             val profile = client.studentProfile(savedToken)
             checklist = client.studentChecklist(savedToken).items
+            occurrences = client.studentToday(savedToken).items
             metadata = savedMetadata.copy(displayName = profile.displayName, studentId = profile.id)
             busy = false
         } catch (error: TasksHttpException) {
@@ -141,6 +145,7 @@ private fun PrimerTasksApp(context: android.content.Context) {
                 val paired = client.pairDevice(qr.code)
                 val profile = client.studentProfile(paired.token)
                 checklist = client.studentChecklist(paired.token).items
+                occurrences = client.studentToday(paired.token).items
                 tokenStore.save(paired.token)
                 val savedMetadata = StudentMetadata(paired.studentId, profile.displayName, origin, qr.pairingId)
                 metadataStore.save(savedMetadata)
@@ -195,7 +200,25 @@ private fun PrimerTasksApp(context: android.content.Context) {
         Surface(Modifier.fillMaxSize()) {
             when {
                 busy && metadata == null -> LoadingScreen()
-                metadata != null && token != null -> ChecklistScreen(metadata!!.displayName, checklist, message)
+                metadata != null && token != null && selectedOccurrence != null -> OccurrenceDetailScreen(
+                    occurrence = selectedOccurrence!!,
+                    onBack = { selectedOccurrence = null },
+                    onRefresh = {
+                        scope.launch {
+                            try { selectedOccurrence = TasksClient(metadata!!.origin).studentOccurrence(token!!, selectedOccurrence!!.id) }
+                            catch (_: Exception) { message = "Unable to refresh this task." }
+                        }
+                    },
+                    onStart = {
+                        scope.launch {
+                            try {
+                                TasksClient(metadata!!.origin).startStudentOccurrence(token!!, selectedOccurrence!!.id)
+                                selectedOccurrence = TasksClient(metadata!!.origin).studentOccurrence(token!!, selectedOccurrence!!.id)
+                            } catch (error: Exception) { message = if (error is TasksHttpException && error.statusCode == 403) "This task is not available to this student." else "Unable to start this task." }
+                        }
+                    },
+                )
+                metadata != null && token != null -> ChecklistScreen(metadata!!.displayName, checklist, occurrences, message, onOpen = { selectedOccurrence = it })
                 scanning -> PairingScanner(onQr = ::pair, onCancel = { scanning = false })
                 else -> PairingScreen(
                     message = message,
@@ -348,20 +371,32 @@ private class QrAnalyzer(
 }
 
 @Composable
-private fun ChecklistScreen(name: String, items: List<ChecklistItem>, message: String?) {
+private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrences: List<OccurrenceResponse>, message: String?, onOpen: (OccurrenceResponse) -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("PRIMER TASKS", style = MaterialTheme.typography.labelLarge)
         Text(name, style = MaterialTheme.typography.headlineMedium)
-        Text("Today’s checklist", style = MaterialTheme.typography.titleLarge)
-        if (items.isEmpty()) {
-            Text("Nothing assigned yet. Your checklist is empty.")
-        } else {
-            items.forEach { item ->
-                Text("• ${item.title}", style = MaterialTheme.typography.bodyLarge)
-                if (item.description.isNotBlank()) Text(item.description, style = MaterialTheme.typography.bodySmall)
+        Text("Today", style = MaterialTheme.typography.titleLarge)
+        if (occurrences.isEmpty() && items.isEmpty()) Text("Nothing assigned yet. Your checklist is empty.")
+        occurrences.forEach { occurrence ->
+            OutlinedButton(onClick = { onOpen(occurrence) }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) { Text(occurrence.title, style = MaterialTheme.typography.bodyLarge); Text(occurrence.status, style = MaterialTheme.typography.bodySmall) }
             }
         }
+        if (occurrences.isEmpty()) items.forEach { item -> Text("• ${item.title}", style = MaterialTheme.typography.bodyLarge) }
         if (message != null) Text(message, color = MaterialTheme.colorScheme.error)
         Text("One student · one device", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun OccurrenceDetailScreen(occurrence: OccurrenceResponse, onBack: () -> Unit, onRefresh: () -> Unit, onStart: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("TASK DETAIL", style = MaterialTheme.typography.labelLarge)
+        Text(occurrence.title, style = MaterialTheme.typography.headlineMedium)
+        Text(occurrence.instructions)
+        Text("Status: ${occurrence.status}", style = MaterialTheme.typography.titleMedium)
+        if (occurrence.status == "pending") Button(onClick = onStart) { Text("Start task") }
+        Button(onClick = onRefresh) { Text("Refresh from server") }
+        OutlinedButton(onClick = onBack) { Text("Back to today") }
     }
 }

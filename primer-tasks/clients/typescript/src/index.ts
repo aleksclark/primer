@@ -12,6 +12,16 @@ type CreateStudentBody = JsonBody<"/students", "post">;
 type UpdateStudentBody = JsonBody<"/students/{id}", "patch">;
 type PairStudentBody = JsonBody<"/student/pair", "post">;
 type StudentListQuery = Query<"/students", "get">;
+type TaskListQuery = Query<"/tasks", "get">;
+type OccurrenceListQuery = Query<"/occurrences", "get">;
+type TaskInputBody = JsonBody<"/tasks", "post">;
+type ScheduleInputBody = JsonBody<"/schedules", "post">;
+type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
+export type Task = components["schemas"]["TaskRevision"];
+export type TaskPage = components["schemas"]["TaskPage2"];
+export type Schedule = components["schemas"]["Schedule2"];
+export type Occurrence = components["schemas"]["Occurrence2"];
+export type OccurrencePage = components["schemas"]["OccurrencePage2"];
 
 export interface TasksClientOptions {
   baseUrl?: string;
@@ -118,6 +128,63 @@ export function createTasksClient(options: TasksClientOptions = {}) {
 
     async studentChecklist(options: RequestOptions = {}) {
       return unwrap(transport.GET("/student/checklist", { ...options }));
+    },
+    async listTasks(query: TaskListQuery = {}, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/tasks", { ...options, params: { query } }));
+    },
+    async createTask(body: TaskInputBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/tasks", { ...options, body }));
+    },
+    async publishTask(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/tasks/{id}/publish", { ...options, params: { path: { id } } }));
+    },
+    async retireTask(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/tasks/{id}/retire", { ...options, params: { path: { id } } }));
+    },
+    async createSchedule(body: ScheduleInputBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/schedules", { ...options, body }));
+    },
+    async listOccurrences(query: OccurrenceListQuery = {}, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/occurrences", { ...options, params: { query } }));
+    },
+    async getOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/occurrences/{id}", { ...options, params: { path: { id } } }));
+    },
+    async decideOccurrence(id: string, body: DecisionInputBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/decision", { ...options, params: { path: { id } }, body }));
+    },
+    async retryOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/retry", { ...options, params: { path: { id } } }));
+    },
+    async skipOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/skip", { ...options, params: { path: { id } } }));
+    },
+    async cancelOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/cancel", { ...options, params: { path: { id } } }));
+    },
+    async studentToday(options: RequestOptions = {}) {
+      return unwrap(transport.GET("/student/today", { ...options }));
+    },
+    async studentUpcoming(options: RequestOptions = {}) {
+      return unwrap(transport.GET("/student/upcoming", { ...options }));
+    },
+    async studentOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/student/occurrences/{id}", { ...options, params: { path: { id } } }));
+    },
+    async startStudentOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/student/occurrences/{id}/start", { ...options, params: { path: { id } } }));
+    },
+    async deviceToday(options: RequestOptions = {}) {
+      return unwrap(transport.GET("/device/today", { ...options }));
+    },
+    async deviceUpcoming(options: RequestOptions = {}) {
+      return unwrap(transport.GET("/device/upcoming", { ...options }));
+    },
+    async deviceOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/device/occurrences/{id}", { ...options, params: { path: { id } } }));
+    },
+    async startDeviceOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/device/occurrences/{id}/start", { ...options, params: { path: { id } } }));
     },
   };
 }

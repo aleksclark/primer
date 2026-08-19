@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { TasksApiError, tasksClient, type Student } from "@primer-tasks/client";
+import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { TasksApiError, tasksClient, type Occurrence, type Student } from "@primer-tasks/client";
 import "./index.css";
 
 type Theme = "dark" | "light";
@@ -86,6 +86,8 @@ function ParentShell({ children }: { children: ReactNode }) {
         <div className="nav-section">
           <p className="system-label" style={{ padding: "0 20px" }}>Parent workspace</p>
           <NavLink className="nav-link" to="/parent/students">Students</NavLink>
+          <NavLink className="nav-link" to="/parent/tasks">Tasks</NavLink>
+          <NavLink className="nav-link" to="/parent/occurrences">Occurrences</NavLink>
         </div>
         <div className="nav-section">
           <p className="system-label" style={{ padding: "0 20px" }}>Student access</p>
@@ -108,7 +110,7 @@ function ParentAuthGate() {
   }, []);
   if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
   if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} />;
-  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
+  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
 }
 
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -221,7 +223,7 @@ function PairingDisplay({ pairing }: { pairing: Awaited<ReturnType<typeof tasksC
 
 function StudentShell() {
   const { theme, toggle } = useTheme();
-  return <div className="app-shell"><aside className="app-nav"><Brand /><div className="nav-body"><div className="nav-section"><p className="system-label" style={{ padding: "0 20px" }}>Student workspace</p><NavLink className="nav-link" to="/student">Checklist</NavLink></div></div><div className="nav-footer"><ThemeButton theme={theme} toggle={toggle} /><p className="system-label">One student · one session</p></div></aside><main className="main"><div className="content"><Routes><Route path="" element={<StudentChecklistPage />} /><Route path="pair" element={<StudentPairPage />} /><Route path="*" element={<Navigate to="/student" replace />} /></Routes></div></main></div>;
+  return <div className="app-shell"><aside className="app-nav"><Brand /><div className="nav-body"><div className="nav-section"><p className="system-label" style={{ padding: "0 20px" }}>Student workspace</p><NavLink className="nav-link" to="/student">Checklist</NavLink></div></div><div className="nav-footer"><ThemeButton theme={theme} toggle={toggle} /><p className="system-label">One student · one session</p></div></aside><main className="main"><div className="content"><Routes><Route path="" element={<StudentChecklistPage />} /><Route path="occurrences/:id" element={<StudentOccurrencePage />} /><Route path="pair" element={<StudentPairPage />} /><Route path="*" element={<Navigate to="/student" replace />} /></Routes></div></main></div>;
 }
 
 function StudentPairPage() {
@@ -233,16 +235,58 @@ function StudentPairPage() {
   return <><PageHeader eyebrow="Student access / Pair" title="Connect this browser" lede="Enter the one-use code shown by your parent. This browser will remain bound to one student." /><section className="pair-card" style={{ maxWidth: 560, marginTop: 28 }}><form onSubmit={submit} style={{ display: "grid", gap: 18 }}><div className="field"><label htmlFor="pair-code">Pairing code</label><input id="pair-code" className="input code" inputMode="text" autoComplete="one-time-code" autoCapitalize="characters" maxLength={32} value={code} onChange={(event) => setCode(event.target.value)} aria-invalid={Boolean(error)} /><p className="meta">Codes are one-use and expire quickly.</p></div>{state !== "ready" && state !== "loading" && <ErrorNotice error={error ?? new TasksApiError(state === "denied" ? 403 : state === "expired" ? 410 : 500, state, state)} />}{state === "loading" && <StateNotice state="loading" />}<button className="button" type="submit" disabled={state === "loading" || !code.trim()}>Pair this browser</button></form></section></>;
 }
 
+function TasksPage() {
+  const [params, setParams] = useSearchParams();
+  const [tasks, setTasks] = useState<NonNullable<Awaited<ReturnType<typeof tasksClient.listTasks>>["items"]>>([]);
+  const [title, setTitle] = useState("");
+  const instructions = "Complete the task, then ask a parent to check it.";
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [studentId, setStudentId] = useState("");
+  const [scheduleTaskId, setScheduleTaskId] = useState("");
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [rrule, setRrule] = useState("");
+  const q = params.get("q") ?? "";
+  const load = useCallback(() => tasksClient.listTasks({ q, limit: 20, offset: 0, sort: "title", dir: "asc" }).then((p) => setTasks(p.items ?? [])).catch(setError), [q]);
+  useEffect(() => { void load(); void tasksClient.listStudents({ limit: 100, offset: 0 }).then((p) => setStudents(p.items ?? [])).catch(setError); }, [load]);
+  const create = async (event: FormEvent) => { event.preventDefault(); if (!title.trim()) return; setBusy(true); setError(null); try { await tasksClient.createTask({ title: title.trim(), instructions, requirements: [{ id: "parent-approval", kind: "parent_approval", configVersion: 1, config: {}, interaction: "parent_action", executor: "human" }] }); setTitle(""); await load(); } catch (e) { setError(e); } finally { setBusy(false); } };
+  return <><PageHeader eyebrow="Parent workspace / Explore + Configure" title="Tasks" lede="Published revisions are immutable. Parent approval is the only verification driver enabled in this phase." />
+    <section className="record"><form className="record-toolbar" onSubmit={create}><input className="input" aria-label="Task title" placeholder="Brush your teeth" value={title} onChange={(e) => setTitle(e.target.value)} /><button className="button" type="submit" disabled={busy || !title.trim()}>Create draft</button></form><form className="record-toolbar" onSubmit={(event) => { event.preventDefault(); const task = tasks.find((x) => x.id === scheduleTaskId); if (!task || !studentId || !scheduleAt) return; void tasksClient.createSchedule({ studentId, templateId: task.templateId, revisionId: task.id, kind: rrule.trim() ? "recurrence" : "one_off", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt: new Date(scheduleAt).toISOString(), rrule: rrule.trim() || undefined, dueOffsetMinutes: 0 }).then(() => { setScheduleAt(""); setRrule(""); window.alert("Schedule saved and occurrences materialized."); }).catch(setError); }}><select className="input" aria-label="Task to schedule" value={scheduleTaskId} onChange={(e) => setScheduleTaskId(e.target.value)}><option value="">Choose a published task</option>{tasks.filter((x) => x.status === "published").map((x) => <option value={x.id} key={x.id}>{x.title} · v{x.version}</option>)}</select><select className="input" aria-label="Student to schedule" value={studentId} onChange={(e) => setStudentId(e.target.value)}><option value="">Choose a student</option>{students.map((x) => <option value={x.id} key={x.id}>{x.displayName}</option>)}</select><input className="input" aria-label="Schedule start" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} /><input className="input" aria-label="RRULE" placeholder="Optional: FREQ=DAILY;COUNT=7" value={rrule} onChange={(e) => setRrule(e.target.value)} /><button className="button secondary" type="submit" disabled={!scheduleTaskId || !studentId || !scheduleAt}>Schedule task</button></form><div className="record-toolbar"><input className="input" aria-label="Search tasks" placeholder="Search tasks" value={q} onChange={(e) => { const next = new URLSearchParams(params); if (e.target.value) next.set("q", e.target.value); else next.delete("q"); setParams(next); }} /></div>{error ? <ErrorNotice error={error} onRetry={load} /> : null}<div className="table-wrap"><table><thead><tr><th>Task</th><th>Revision</th><th>Status</th><th>Action</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}><td><strong>{task.title}</strong><span className="secondary-cell">{task.templateId}</span></td><td className="meta">v{task.version}</td><td><span className="status">{task.status}</span></td><td>{task.status === "draft" ? <button className="button" type="button" onClick={() => void tasksClient.publishTask(task.id).then(load).catch(setError)}>Publish</button> : task.status === "published" ? <button className="button danger" type="button" onClick={() => void tasksClient.retireTask(task.templateId).then(load).catch(setError)}>Retire</button> : null}</td></tr>)}</tbody></table></div>{tasks.length === 0 && <div className="empty"><h2>No tasks match</h2><p>Create a draft to begin a versioned task.</p></div>}</section>
+  </>;
+}
+
+function OccurrencesPage() {
+  const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
+  const [error, setError] = useState<unknown>(null);
+  const load = useCallback(() => tasksClient.listOccurrences({ limit: 50, offset: 0, sort: "nominalAt", dir: "asc" }).then((p) => setOccurrences(p.items ?? [])).catch(setError), []);
+  useEffect(() => { void load(); }, [load]);
+  const decide = (id: string, accepted: boolean) => void tasksClient.decideOccurrence(id, { accepted, reason: accepted ? "Parent observed completion." : "Try again with care." }).then(load).catch(setError);
+  return <><PageHeader eyebrow="Parent workspace / Operate + Inspect" title="Occurrences" lede="Approval and rejection are durable decisions. The student never writes completion state." />{error && <ErrorNotice error={error} onRetry={load} />}<section className="record"><div className="table-wrap"><table><thead><tr><th>Task</th><th>Student</th><th>Due</th><th>Status</th><th>Decision</th></tr></thead><tbody>{occurrences.map((o) => <tr key={o.id}><td><strong>{o.title}</strong><span className="secondary-cell">{o.id}</span></td><td className="meta">{o.studentId}</td><td className="meta">{formatDate(o.dueAt)}</td><td><span className="status">{o.status}</span></td><td>{o.status !== "completed" && o.status !== "canceled" && <div className="row-actions"><button className="button" type="button" onClick={() => decide(o.id, true)}>Approve</button><button className="button danger" type="button" onClick={() => decide(o.id, false)}>Reject</button>{o.status === "pending" && <button className="button secondary" type="button" onClick={() => void tasksClient.retryOccurrence(o.id).then(load).catch(setError)}>Retry</button>}</div>}</td></tr>)}</tbody></table></div>{occurrences.length === 0 && <div className="empty"><h2>No issued work</h2><p>Publish a task and create a schedule before occurrences appear here.</p></div>}</section></>;
+}
+
+function StudentOccurrencePage() {
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const [occurrence, setOccurrence] = useState<Occurrence | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const load = useCallback(() => tasksClient.studentOccurrence(id).then(setOccurrence).catch(setError), [id]);
+  useEffect(() => { void load(); }, [load]);
+  if (!occurrence) return <><PageHeader eyebrow="Student workspace / Inspect" title="Task detail" />{error ? <ErrorNotice error={error} onRetry={load} /> : <StateNotice state="loading" />}</>;
+  return <><PageHeader eyebrow="Student workspace / Inspect" title={occurrence.title} lede="The server owns this state. Ask a parent to approve after you finish." actions={<button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button>} /><section className="pair-card"><p>{occurrence.instructions}</p><p className="status">{occurrence.status}</p>{occurrence.status === "pending" && <button className="button" type="button" onClick={() => void tasksClient.startStudentOccurrence(id).then(load).catch(setError)}>Start task</button>}{occurrence.status === "awaiting_verification" && <p className="meta">Waiting for parent approval.</p>}{occurrence.status === "completed" && <p className="status active">Checked by parent</p>}</section></>;
+}
+
 function StudentChecklistPage() {
   const [profile, setProfile] = useState<Awaited<ReturnType<typeof tasksClient.studentProfile>> | null>(null);
   const [items, setItems] = useState<Awaited<ReturnType<typeof tasksClient.studentChecklist>>["items"]>([]);
+  const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [state, setState] = useState<RequestState>("loading");
   const [error, setError] = useState<unknown>(null);
-  const load = useCallback(() => { setState("loading"); Promise.all([tasksClient.studentProfile(), tasksClient.studentChecklist()]).then(([nextProfile, checklist]) => { setProfile(nextProfile); setItems(checklist.items); setState(checklist.items.length ? "ready" : "empty"); }).catch((nextError) => { setError(nextError); setState(apiState(nextError)); }); }, []);
+  const load = useCallback(() => { setState("loading"); Promise.all([tasksClient.studentProfile(), tasksClient.studentChecklist(), tasksClient.studentToday()]).then(([nextProfile, checklist, today]) => { setProfile(nextProfile); setItems(checklist.items); setOccurrences(today.items ?? []); setState((today.items ?? []).length || checklist.items.length ? "ready" : "empty"); }).catch((nextError) => { setError(nextError); setState(apiState(nextError)); }); }, []);
   useEffect(load, [load]);
   if (state === "loading") return <><PageHeader eyebrow="Student workspace / Operate" title="Today" /><StateNotice state="loading" /></>;
   if (state === "error" || state === "denied" || state === "revoked" || state === "expired") return <><PageHeader eyebrow="Student workspace / Operate" title="Today" /><ErrorNotice error={error} onRetry={load} /><p className="meta">If access was revoked or expired, ask a parent for a new pairing code.</p></>;
-  return <><PageHeader eyebrow="Student workspace / Operate" title={`Today with ${profile?.displayName ?? "you"}`} lede="Your checklist is server-owned. Completing a task will appear here only after its verification succeeds." /><section className="checklist" aria-live="polite">{state === "empty" ? <div className="empty"><h2>Nothing assigned yet</h2><p>Your parent has not scheduled anything for today. This empty checklist is ready for the next task.</p></div> : items.map((item) => <div className="checklist-row" key={item.id}><div><h3>{item.title}</h3>{item.description && <p>{item.description}</p>}</div><span className="status">{item.status}</span></div>)}</section></>;
+  return <><PageHeader eyebrow="Student workspace / Operate" title={`Today with ${profile?.displayName ?? "you"}`} lede="Your checklist is server-owned. Completing a task will appear here only after its verification succeeds." /><section className="checklist" aria-live="polite">{state === "empty" ? <div className="empty"><h2>Nothing assigned yet</h2><p>Your parent has not scheduled anything for today. This empty checklist is ready for the next task.</p></div> : <>{occurrences.map((item) => <NavLink className="checklist-row" to={`/student/occurrences/${item.id}`} key={item.id}><div><h3>{item.title}</h3><p>{item.instructions}</p></div><span className="status">{item.status}</span></NavLink>)}{items.map((item) => <div className="checklist-row" key={item.id}><div><h3>{item.title}</h3>{item.description && <p>{item.description}</p>}</div><span className="status">{item.status}</span></div>)}</>}</section></>;
 }
 
 function Pagination({ offset, limit, total, onChange }: { offset: number; limit: number; total: number; onChange: (offset: number) => void }) {

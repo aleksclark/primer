@@ -102,6 +102,7 @@ services:
       # must supply TASKS_AUTH_MODE=jwks and a real TASKS_ISSUER_URL; the
       # server exits before listening when production is misconfigured.
       TASKS_AUTH_MODE: ${TASKS_AUTH_MODE-test}
+      TASKS_MODEL_PROVIDER: ${TASKS_MODEL_PROVIDER-disabled}
       # The test issuer is a Compose-DNS address. Override this with the live
       # Identity issuer and TASKS_AUTH_MODE=oidc for a real authorization flow.
       TASKS_ISSUER_URL: ${TASKS_ISSUER_URL-http://test-issuer:8091}

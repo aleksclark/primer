@@ -300,6 +300,7 @@ func (s *Server) humaAPI() huma.API {
 		return &ChecklistOutput{ResponseHeaders: headers, Body: body}, err
 	})
 
+	s.registerPhase2(api)
 	return api
 }
 

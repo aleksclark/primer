@@ -5,7 +5,7 @@ DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi clients tasks-client tasks-typecheck tasks-lint \
-	web tasks-web browser-test android e2e
+	web tasks-web browser-test android e2e tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
 
 check:
 	$(DEV) check
@@ -67,8 +67,14 @@ tasks-web: web
 browser-test:
 	npm --prefix web run browser:test
 
-android:
-	cd android && ./gradlew assembleDebug
+android: clients
+	cd android && ./gradlew testDebugUnitTest assembleDebug
+
+tasks-test: test
+tasks-cover: cover
+tasks-clients: clients
+tasks-android: android
+tasks-e2e: e2e
 
 # Keep the historical E2E entry point honest: it is the gated browser
 # boundary until exploratory PASS authorizes a real runner.
