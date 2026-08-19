@@ -63,18 +63,10 @@ func TestGenerateOpenAPIYAMLIncludesTokenAndStaysPolicyClean(t *testing.T) {
 	assertRevokeOpenAPIContract(t, parseOpenAPI(t, spec))
 }
 
-func TestCheckIdentityOpenAPIPolicyRejectsPlantedRefreshGrantAndProviderSchema(t *testing.T) {
+func TestCheckIdentityOpenAPIPolicyRejectsPlantedProviderSchema(t *testing.T) {
 	t.Parallel()
 
 	planted := plantedIB1Spec(t)
-	planted["paths"].(map[string]any)["/oauth/token"].(map[string]any)["post"].(map[string]any)["description"] = "grant_type: refresh_token"
-	raw, err := yaml.Marshal(planted)
-	require.NoError(t, err)
-	err = api.CheckIdentityOpenAPIPolicy(raw)
-	require.Error(t, err)
-	assert.Contains(t, strings.ToLower(err.Error()), "refresh_token")
-
-	planted = plantedIB1Spec(t)
 	components, _ := planted["components"].(map[string]any)
 	if components == nil {
 		components = map[string]any{}
@@ -90,7 +82,7 @@ func TestCheckIdentityOpenAPIPolicyRejectsPlantedRefreshGrantAndProviderSchema(t
 			"session_jwt": map[string]any{"type": "string"},
 		},
 	}
-	raw, err = yaml.Marshal(planted)
+	raw, err := yaml.Marshal(planted)
 	require.NoError(t, err)
 	err = api.CheckIdentityOpenAPIPolicy(raw)
 	require.Error(t, err)

@@ -18,3 +18,12 @@ func TestClientCredentialsFormPolicyAndResponseShape(t *testing.T) {
 	require.Error(t, validateClientCredentialsTokenForm(basic, oauth.AuthNone))
 	require.Error(t, validateClientCredentialsTokenForm(basic, ""))
 }
+
+func TestRefreshTokenFormPolicy(t *testing.T) {
+	base := url.Values{"grant_type": {oauth.GrantRefreshToken}, "refresh_token": {"opaque"}, "resource": {"https://resource.example"}, "client_id": {"public"}}
+	require.NoError(t, validateRefreshTokenForm(base, oauth.AuthNone))
+	private := url.Values{"grant_type": {oauth.GrantRefreshToken}, "refresh_token": {"opaque"}, "resource": {"r"}, "client_id": {"service"}, "client_assertion_type": {tokenAssertionTypeURN}, "client_assertion": {"assertion"}}
+	require.NoError(t, validateRefreshTokenForm(private, oauth.AuthPrivateKeyJWT))
+	require.Error(t, validateRefreshTokenForm(url.Values{"grant_type": {oauth.GrantRefreshToken}, "unexpected": {"x"}}, oauth.AuthBasic))
+	require.Error(t, validateRefreshTokenForm(url.Values{"grant_type": {oauth.GrantRefreshToken}, "refresh_token": {"opaque"}, "resource": {"r"}, "unexpected": {"x"}}, oauth.AuthNone))
+}

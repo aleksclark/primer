@@ -50,6 +50,51 @@ func (s keyServiceSignerSource) CurrentForTx(ctx context.Context, tx pgx.Tx) (to
 	return s.svc.ActiveSignerForTx(ctx, tx)
 }
 
+func TestPublicRefreshRotatesAndReuseTerminalizes(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	now := time.Date(2026, 8, 17, 16, 0, 0, 0, time.UTC)
+	fx := issuedPublicCode(t, now)
+	require.NoError(t, pool.QueryRow(ctx, `UPDATE oauth_clients SET allowed_grants=ARRAY['authorization_code','refresh_token'] WHERE id=$1 RETURNING id`, fx.client.ID).Scan(&fx.client.ID))
+	svc := newTestService(t, fx.secrets, frozenClock{now: now})
+	first, err := svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantAuthorizationCode, Code: fx.rawCode, ClientID: fx.client.ClientID, RedirectURI: fx.redirect.RedirectURI, Resource: fx.redirect.ResourceURI, CodeVerifier: testVerifier}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.NoError(t, err)
+	second, err := svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantRefreshToken, RefreshToken: first.RefreshToken, ClientID: fx.client.ClientID, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.NoError(t, err)
+	require.NotEqual(t, first.RefreshToken, second.RefreshToken)
+	require.NotEmpty(t, second.AccessToken)
+	_, err = svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantRefreshToken, RefreshToken: "not-a-refresh-token", ClientID: fx.client.ClientID, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.Equal(t, oauth.ErrorInvalidGrant, oauth.ErrorCodeOf(err))
+	_, err = svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantRefreshToken, RefreshToken: second.RefreshToken, Scope: "studio.publish", ClientID: fx.client.ClientID, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.Equal(t, "invalid_scope", oauth.ErrorCodeOf(err))
+	_, err = svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantRefreshToken, RefreshToken: first.RefreshToken, ClientID: fx.client.ClientID, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.Equal(t, oauth.ErrorInvalidGrant, oauth.ErrorCodeOf(err))
+	var status, grantStatus string
+	var live int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT f.status,g.status,(SELECT count(*) FROM oauth_refresh_tokens t WHERE t.family_id=f.id AND t.consumed_at IS NULL AND t.revoked_at IS NULL) FROM oauth_refresh_families f JOIN oauth_grants g ON g.id=f.grant_id WHERE f.grant_id=$1`, fx.grant.ID).Scan(&status, &grantStatus, &live))
+	require.Equal(t, domain.RefreshFamilyStatusReuseDetected, status)
+	require.Equal(t, "revoked", grantStatus)
+	require.Zero(t, live)
+}
+
+func TestExpiredRefreshTerminalizes(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.DB(t)
+	now := time.Date(2026, 8, 17, 16, 0, 0, 0, time.UTC)
+	fx := issuedPublicCode(t, now)
+	require.NoError(t, pool.QueryRow(ctx, `UPDATE oauth_clients SET allowed_grants=ARRAY['authorization_code','refresh_token'] WHERE id=$1 RETURNING id`, fx.client.ID).Scan(&fx.client.ID))
+	svc := newTestService(t, fx.secrets, frozenClock{now: now})
+	issued, err := svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantAuthorizationCode, Code: fx.rawCode, ClientID: fx.client.ClientID, RedirectURI: fx.redirect.RedirectURI, Resource: fx.redirect.ResourceURI, CodeVerifier: testVerifier}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE oauth_refresh_families SET last_rotated_at=$2,idle_expires_at=$3 WHERE grant_id=$1`, fx.grant.ID, now.Add(-time.Hour), now.Add(-time.Minute))
+	require.NoError(t, err)
+	_, err = svc.Exchange(ctx, oauth.ExchangeRequest{GrantType: oauth.GrantRefreshToken, RefreshToken: issued.RefreshToken, ClientID: fx.client.ClientID, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
+	require.Equal(t, oauth.ErrorInvalidGrant, oauth.ErrorCodeOf(err))
+	var status string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM oauth_refresh_families WHERE grant_id=$1`, fx.grant.ID).Scan(&status))
+	require.Equal(t, domain.RefreshFamilyStatusExpired, status)
+}
+
 func TestPublicClientAuthorizationCodeExchangeIssuesJWTAndRefresh(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.DB(t)

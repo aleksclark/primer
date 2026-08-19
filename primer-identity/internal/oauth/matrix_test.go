@@ -42,7 +42,7 @@ func TestRefreshIsUnsupportedAndClientCredentialsRequiresAuth(t *testing.T) {
 
 	_, err := svc.Exchange(context.Background(), oauth.ExchangeRequest{GrantType: oauth.GrantRefreshToken, RefreshToken: "opaque"}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
 	require.Error(t, err)
-	assert.Equal(t, oauth.ErrorUnsupportedGrantType, oauth.ErrorCodeOf(err))
+	assert.Equal(t, oauth.ErrorInvalidRequest, oauth.ErrorCodeOf(err))
 
 	_, err = svc.Exchange(context.Background(), oauth.ExchangeRequest{GrantType: oauth.GrantClientCredentials, Resource: fx.redirect.ResourceURI}, oauth.ClientAuth{Method: oauth.AuthNone, ClientID: fx.client.ClientID})
 	require.Error(t, err)
