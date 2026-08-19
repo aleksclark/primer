@@ -1,0 +1,4 @@
+serial=emulator-5558
+fresh_wipe=yes
+avd=pixel-picker-acceptance-second (Pixel 6 clone)
+same_exact_qr1=yes

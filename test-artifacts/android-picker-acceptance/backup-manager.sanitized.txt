@@ -1,0 +1,18 @@
+Running incremental backup for 1 requested packages.
+Backup finished with result: Backup is not allowed
+Unable to run backup
+Transport whitelist:
+    com.android.encryptedlocaltransport/.EncryptedLocalTransportService
+    com.android.localtransport/.LocalTransportService
+    com.google.android.apps.restore/.transport.D2dTransportService
+    com.google.android.gms/.backup.component.D2dTransportService
+    com.google.android.gms/.backup.BackupTransportService
+    com.google.android.apps.restore/.transport.BackupTransportService
+Available transports:
+    com.android.localtransport/.LocalTransport
+    com.google.android.gms/.backup.migrate.service.D2dTransport
+  * com.google.android.gms/.backup.BackupTransportService
+Transport clients created: 3
+Current transport clients: 0
+	Package: com.aleksclark.primertasks
+	Package: com.aleksclark.primertasks
