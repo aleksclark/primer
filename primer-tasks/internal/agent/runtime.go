@@ -115,6 +115,9 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 		},
 	}
 	result, err := r.Agent.Stream(ctx, call)
+	if ctx.Err() != nil {
+		return Execution{}, ctx.Err()
+	}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return Execution{}, ctx.Err()
