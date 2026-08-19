@@ -90,7 +90,7 @@ export type AgentEvent =
   | (AgentEventBase & { kind: "text_end"; text?: string })
   | (AgentEventBase & { kind: "thinking_start" })
   | (AgentEventBase & { kind: "thinking_end" })
-  | (AgentEventBase & { kind: "tool_progress"; label: string; phase: string })
+  | (AgentEventBase & { kind: "tool_progress"; label: string; phase: string; confirmationId?: string; summary?: string; expiresAt?: string })
   | (AgentEventBase & { kind: "retry"; retry: number; retryAfterMs: number })
   | (AgentEventBase & { kind: "terminal"; status: string; text?: string })
   | (AgentEventBase & { kind: "error"; code: string })
@@ -170,7 +170,7 @@ export function parseAgentEvent(input: unknown): AgentEvent | null {
     case "tool_progress": {
       const label = stringField(input, "label");
       const phase = stringField(input, "phase");
-      return label === null || phase === null ? null : { ...base, kind, label, phase };
+      return label === null || phase === null ? null : { ...base, kind, label, phase, confirmationId: stringField(input, "confirmationId") ?? undefined, summary: stringField(input, "summary") ?? undefined, expiresAt: stringField(input, "expiresAt") ?? undefined };
     }
     case "retry": {
       const retry = numberField(input, "retry");

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import {
   createAgentClient,
   safeAgentToolLabel,
+  tasksClient,
   type AgentClient,
   type AgentClientSnapshot,
   type AgentEvent,
@@ -24,6 +25,7 @@ type TranscriptItem = {
   kind: "user" | "assistant" | "thinking" | "tool" | "confirmation" | "retry" | "error" | "status";
   text: string;
   label?: string;
+  confirmationId?: string;
   tone?: "active" | "attention";
 };
 
@@ -67,7 +69,7 @@ function buildTranscript(events: readonly AgentEvent[], submitted: readonly Subm
         break;
       case "tool_progress": {
         const isConfirmation = event.phase === "awaiting_confirmation";
-        items.push({ key: `tool-${event.sequence}`, sequence: event.sequence, kind: isConfirmation ? "confirmation" : "tool", text: isConfirmation ? "A server preview is waiting for explicit parent confirmation." : safeAgentToolLabel(event.label), label: isConfirmation ? "Confirmation required" : event.phase === "started" || event.phase === "called" ? "Working" : event.phase === "completed" ? "Complete" : "Progress", tone: isConfirmation ? "attention" : event.phase === "failed" ? "attention" : "active" });
+        items.push({ key: `tool-${event.sequence}`, sequence: event.sequence, kind: isConfirmation ? "confirmation" : "tool", text: isConfirmation ? (event.summary ?? "A server preview is waiting for explicit parent confirmation.") : safeAgentToolLabel(event.label), label: isConfirmation ? "Confirmation required" : event.phase === "started" || event.phase === "called" ? "Working" : event.phase === "completed" ? "Complete" : "Progress", confirmationId: event.confirmationId, tone: isConfirmation ? "attention" : event.phase === "failed" ? "attention" : "active" });
         break;
       }
       case "retry":
@@ -124,7 +126,7 @@ function AgentTranscript({ items, client, snapshot }: { items: TranscriptItem[];
       <p>{item.text || "Working…"}</p>
       {item.kind === "confirmation" && <span className="meta">The server owns the preview and requires an explicit confirmation command.</span>}
     </div>)}
-    {items.some((item) => item.kind === "confirmation") && <div className="agent-confirmation-actions" aria-label="Confirmation state"><p className="meta">No mutation is implied by this progress record. The server must provide the bound confirmation handle before a confirmation command can be sent.</p><button className="button secondary" type="button" onClick={() => client.cancel(snapshot.runId)}>Cancel request</button></div>}
+    {items.some((item) => item.kind === "confirmation") && <div className="agent-confirmation-actions" aria-label="Confirmation state"><p className="meta">No mutation is implied until you confirm this single-use server preview.</p>{[...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)?.confirmationId && <button className="button" type="button" onClick={() => client.confirm([...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)!.confirmationId!, snapshot.runId)}>Confirm preview</button>}<button className="button secondary" type="button" onClick={() => client.cancel(snapshot.runId)}>Cancel request</button></div>}
   </section>;
 }
 
@@ -140,18 +142,23 @@ function AgentComposer({ client, disabled }: { client: AgentClient; disabled: bo
 }
 
 export default function AgentCommandPage() {
-  const client = useMemo(() => createAgentClient({ conversationId: "parent" }), []);
-  const [snapshot, setSnapshot] = useState<AgentClientSnapshot>(() => client.snapshot());
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationError, setConversationError] = useState<unknown>(null);
   const [submitted, setSubmitted] = useState<SubmittedMessage[]>([]);
   useEffect(() => {
+    let active = true;
+    tasksClient.createAgentConversation().then((conversation) => active && setConversationId(conversation.id)).catch((error) => active && setConversationError(error));
+    return () => { active = false; };
+  }, []);
+  const client = useMemo(() => conversationId ? createAgentClient({ conversationId }) : null, [conversationId]);
+  const [snapshot, setSnapshot] = useState<AgentClientSnapshot>({ connectionState: "idle", cursor: 0, events: [], queuedMessages: 0 });
+  useEffect(() => {
+    if (!client) return;
     const unsubscribe = client.subscribe(setSnapshot);
     client.connect();
-    return () => {
-      unsubscribe();
-      client.disconnect();
-    };
+    return () => { unsubscribe(); client.disconnect(); };
   }, [client]);
-  const sendWrappedClient = useMemo(() => ({
+  const sendWrappedClient = useMemo(() => client && ({
     ...client,
     sendMessage(text: string) {
       const clientMessageId = client.sendMessage(text);
@@ -159,7 +166,8 @@ export default function AgentCommandPage() {
       return clientMessageId;
     },
   }), [client]);
-  const items = useMemo(() => buildTranscript(snapshot.events, submitted), [snapshot.events, submitted]);
+  if (!client || !sendWrappedClient) return <><PageHeader eyebrow="Parent workspace / Command + Inspect" title="Parent agent" lede="Preparing an authenticated conversation…" />{conversationError ? <ErrorNotice error={conversationError} /> : <div className="notice" role="status"><p>Opening the durable parent conversation.</p></div>}</>;
+  const items = buildTranscript(snapshot.events, submitted);
   const status = latestRunStatus(snapshot.events);
   const disabled = status === "disabled";
   const active = status === "queued" || status === "running" || status === "awaiting_confirmation";
@@ -167,7 +175,7 @@ export default function AgentCommandPage() {
     {snapshot.error && <ErrorNotice error={snapshot.error} onRetry={() => client.connect()} />}
     {disabled && <div className="notice attention" role="status"><div><strong>Agent unavailable</strong><p>Provider-backed commands are disabled. No chat response or mutation is simulated. Continue in <a href="/parent/tasks">Tasks</a> or <a href="/parent/schedules">Schedules</a>.</p></div></div>}
     {snapshot.queuedMessages > 0 && <div className="agent-queued" role="status"><span className="status">Queued · {snapshot.queuedMessages}</span><span>Waiting for the server connection; commands will replay with their idempotency keys.</span></div>}
-    <div className="agent-layout"><div><AgentTranscript items={items} client={sendWrappedClient} snapshot={snapshot} /><AgentComposer client={sendWrappedClient} disabled={disabled} /></div><aside className="agent-inspector" aria-label="Agent run boundaries"><p className="eyebrow">Inspect / boundaries</p><dl><div><dt>Transport</dt><dd>Authenticated socket</dd></div><div><dt>Cursor</dt><dd className="meta">{snapshot.cursor || "—"}</dd></div><div><dt>Run state</dt><dd>{status ? status.replaceAll("_", " ") : "No active run"}</dd></div><div><dt>Authority</dt><dd>Server-owned Tasks and Schedules</dd></div></dl><p className="meta">Thinking is shown only as a generic state. Tool activity uses an allowlisted label; provider reasoning and raw tool arguments never render here.</p></aside></div>
+    <div className="agent-layout"><div><AgentTranscript items={items} client={sendWrappedClient} snapshot={snapshot} /><AgentComposer client={sendWrappedClient} disabled={disabled} /></div><aside className="agent-inspector" aria-label="Agent run boundaries"><p className="eyebrow">Inspect / boundaries</p><dl><div><dt>Transport</dt><dd>Authenticated WebSocket</dd></div><div><dt>Cursor</dt><dd className="meta">{snapshot.cursor || "—"}</dd></div><div><dt>Run state</dt><dd>{status ? status.replaceAll("_", " ") : "No active run"}</dd></div><div><dt>Authority</dt><dd>Server-owned Tasks and Schedules</dd></div></dl><p className="meta">Thinking is shown only as a generic state. Tool activity uses an allowlisted label; provider reasoning and raw tool arguments never render here.</p></aside></div>
   </>;
 }
 

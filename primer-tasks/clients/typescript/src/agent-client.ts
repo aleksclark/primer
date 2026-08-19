@@ -63,6 +63,11 @@ function defaultUrl(): string {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
+
+function defaultSocket(url: string): WebSocket {
+  const csrf = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("tasks_csrf="))?.slice("tasks_csrf=".length);
+  return csrf ? new WebSocket(url, [`primer-tasks.v1.csrf.${csrf}`]) : new WebSocket(url);
+}
 function defaultId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -82,7 +87,7 @@ export function createAgentClient(options: AgentClientOptions): AgentClient {
   const reconnectEnabled = options.reconnect ?? true;
   const reconnectBaseMs = options.reconnectBaseMs ?? DEFAULT_RECONNECT_BASE_MS;
   const reconnectMaxMs = options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS;
-  const makeSocket = options.webSocketFactory ?? ((url: string) => new WebSocket(url));
+  const makeSocket = options.webSocketFactory ?? defaultSocket;
   const schedule = options.setTimeout ?? globalThis.setTimeout;
   const cancelSchedule = options.clearTimeout ?? globalThis.clearTimeout;
   const makeId = options.randomId ?? defaultId;

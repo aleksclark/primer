@@ -48,6 +48,7 @@ export type TaskPage = components["schemas"]["TaskPage2"];
 export type Schedule = components["schemas"]["Schedule2"];
 export type Occurrence = components["schemas"]["Occurrence2"];
 export type OccurrencePage = components["schemas"]["OccurrencePage2"];
+export type AgentConversation = components["schemas"]["AgentConversation"];
 
 export interface TasksClientOptions {
   baseUrl?: string;
@@ -107,6 +108,9 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     },
     async parentSession(options: RequestOptions = {}) {
       return unwrap(transport.GET("/auth/session", { ...options }));
+    },
+    async createAgentConversation(options: RequestOptions = {}) {
+      return unwrap(transport.POST("/agent/conversations", { ...options }));
     },
 
     /** Start the real BFF authorization-code flow; provider credentials stay server-side. */

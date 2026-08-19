@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -92,7 +93,21 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 			return next(protocol.ToolProgress(runID, seq+1, r.label(c.ToolName), "called"))
 		},
 		OnToolResult: func(c fantasy.ToolResultContent) error {
-			return next(protocol.ToolProgress(runID, seq+1, r.label(c.ToolName), "completed"))
+			if err := next(protocol.ToolProgress(runID, seq+1, r.label(c.ToolName), "completed")); err != nil {
+				return err
+			}
+			// A confirmation preview is a safe, server-issued handle. Only its
+			// opaque handle, human summary, and expiry may cross the protocol.
+			b, _ := json.Marshal(c.Result)
+			var preview struct {
+				Handle    string    `json:"handle"`
+				Summary   string    `json:"summary"`
+				ExpiresAt time.Time `json:"expiresAt"`
+			}
+			if json.Unmarshal(b, &preview) == nil && preview.Handle != "" && !preview.ExpiresAt.IsZero() {
+				return next(protocol.Confirmation(runID, seq+1, preview.Handle, preview.Summary, preview.ExpiresAt))
+			}
+			return nil
 		},
 		OnRetry: func(_ *fantasy.ProviderError, delay time.Duration) {
 			retries++

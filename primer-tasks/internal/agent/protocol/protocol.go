@@ -78,25 +78,29 @@ const (
 	EventThinkingEnd   EventKind = "thinking_end"
 	EventToolProgress  EventKind = "tool_progress"
 	EventRetry         EventKind = "retry"
+	EventConfirmation  EventKind = "confirmation_required"
 	EventTerminal      EventKind = "terminal"
 	EventError         EventKind = "error"
 	EventReplayGap     EventKind = "replay_gap"
 )
 
 type Event struct {
-	Protocol     int       `json:"protocol"`
-	Kind         EventKind `json:"kind"`
-	RunID        string    `json:"runId"`
-	Sequence     int64     `json:"sequence"`
-	Cursor       int64     `json:"cursor"`
-	Time         time.Time `json:"time"`
-	Text         string    `json:"text,omitempty"`
-	Label        string    `json:"label,omitempty"`
-	Phase        string    `json:"phase,omitempty"`
-	Status       string    `json:"status,omitempty"`
-	Code         string    `json:"code,omitempty"`
-	Retry        int       `json:"retry,omitempty"`
-	RetryAfterMS int       `json:"retryAfterMs,omitempty"`
+	Protocol       int       `json:"protocol"`
+	Kind           EventKind `json:"kind"`
+	RunID          string    `json:"runId"`
+	Sequence       int64     `json:"sequence"`
+	Cursor         int64     `json:"cursor"`
+	Time           time.Time `json:"time"`
+	Text           string    `json:"text,omitempty"`
+	Label          string    `json:"label,omitempty"`
+	Phase          string    `json:"phase,omitempty"`
+	Status         string    `json:"status,omitempty"`
+	Code           string    `json:"code,omitempty"`
+	Retry          int       `json:"retry,omitempty"`
+	RetryAfterMS   int       `json:"retryAfterMs,omitempty"`
+	ConfirmationID string    `json:"confirmationId,omitempty"`
+	Summary        string    `json:"summary,omitempty"`
+	ExpiresAt      time.Time `json:"expiresAt,omitempty"`
 }
 
 func base(kind EventKind, run string, sequence int64) Event {
@@ -123,6 +127,11 @@ func Retry(run string, seq int64, n int, after time.Duration) Event {
 	e.RetryAfterMS = int(after / time.Millisecond)
 	return e
 }
+func Confirmation(run string, seq int64, id, summary string, expires time.Time) Event {
+	e := base(EventConfirmation, run, seq)
+	e.ConfirmationID, e.Summary, e.ExpiresAt = id, summary, expires
+	return e
+}
 func Terminal(run string, seq int64, status string) Event {
 	e := base(EventTerminal, run, seq)
 	e.Status = status
@@ -147,8 +156,8 @@ func Schema() map[string]any {
 	return map[string]any{
 		"protocol":    Version,
 		"commands":    []string{"hello", "subscribe", "unsubscribe", "user_message", "cancel", "confirm"},
-		"events":      []string{"hello", "text_start", "text_delta", "text_end", "thinking_start", "thinking_end", "tool_progress", "retry", "terminal", "error", "replay_gap"},
-		"eventFields": map[string][]string{"text_delta": {"text"}, "tool_progress": {"label", "phase"}, "retry": {"retry", "retryAfterMs"}, "terminal": {"status"}, "error": {"code"}},
+		"events":      []string{"hello", "text_start", "text_delta", "text_end", "thinking_start", "thinking_end", "tool_progress", "confirmation_required", "retry", "terminal", "error", "replay_gap"},
+		"eventFields": map[string][]string{"text_delta": {"text"}, "tool_progress": {"label", "phase"}, "confirmation_required": {"confirmationId", "summary", "expiresAt"}, "retry": {"retry", "retryAfterMs"}, "terminal": {"status"}, "error": {"code"}},
 	}
 }
 func SchemaJSON() ([]byte, error) { return json.MarshalIndent(Schema(), "", "  ") }

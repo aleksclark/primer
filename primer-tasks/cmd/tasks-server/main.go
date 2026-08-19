@@ -44,7 +44,9 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
 	go worker.Run(workerCtx)
-	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: api.New(pool, cfg.Env).Routes(), ReadHeaderTimeout: 10 * time.Second}
+	tasksAPI := api.New(pool, cfg.Env)
+	tasksAPI.StartAgentWorker(workerCtx)
+	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: tasksAPI.Routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("tasks server listening", "addr", srv.Addr)
 		if e := srv.ListenAndServe(); e != nil && e != http.ErrServerClosed {

@@ -24,8 +24,11 @@ func (c Config) Validate() error {
 	if c.AuthMode != "test" && c.AuthMode != "oidc" {
 		return fmt.Errorf("TASKS_AUTH_MODE must be test or oidc")
 	}
-	if c.ModelProvider != "" && c.ModelProvider != "disabled" {
-		return fmt.Errorf("TASKS_MODEL_PROVIDER must be disabled in Phase 2")
+	if c.ModelProvider != "" && c.ModelProvider != "disabled" && c.ModelProvider != "scripted" && c.ModelProvider != "bedrock" && c.ModelProvider != "openrouter" {
+		return fmt.Errorf("TASKS_MODEL_PROVIDER must be disabled, scripted, bedrock, or openrouter")
+	}
+	if c.Env == "production" && c.ModelProvider == "scripted" {
+		return fmt.Errorf("scripted model provider is forbidden in production")
 	}
 	if c.Env == "production" && c.AuthMode == "test" {
 		return fmt.Errorf("test authentication is forbidden in production")

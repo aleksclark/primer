@@ -27,6 +27,7 @@ type Server struct {
 	SecureCookie bool
 	Auth         AuthConfig
 	StartedAt    time.Time
+	agentHub     *agentHub
 }
 type scope struct{ Tenant, Subject string }
 
@@ -63,7 +64,7 @@ type Student struct {
 }
 
 func New(db *pgxpool.Pool, env string) *Server {
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC()}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
 }
 
 func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
@@ -77,7 +78,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC()}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
 }
 func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
 
@@ -231,6 +232,7 @@ func (s *Server) parentSession(w http.ResponseWriter, r *http.Request) {
 		problem(w, 401, "unauthorized", "parent session required")
 		return
 	}
+	s.csrfToken(w, r)
 	jsonOK(w, map[string]string{"subjectRef": sc.Subject, "tenantId": sc.Tenant})
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

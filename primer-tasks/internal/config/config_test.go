@@ -94,9 +94,16 @@ func TestValidationAcceptsModelDisabled(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	c.ModelProvider = "bedrock"
+	for _, provider := range []string{"scripted", "bedrock", "openrouter"} {
+		c.ModelProvider = provider
+		if err := c.Validate(); err != nil {
+			t.Fatalf("model provider %q rejected: %v", provider, err)
+		}
+	}
+	c.Env = "production"
+	c.ModelProvider = "scripted"
 	if err := c.Validate(); err == nil {
-		t.Fatal("model provider was accepted in Phase 2")
+		t.Fatal("scripted provider was accepted in production")
 	}
 }
 
