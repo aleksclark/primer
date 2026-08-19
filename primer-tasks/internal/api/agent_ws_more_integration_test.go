@@ -14,6 +14,34 @@ import (
 	"primer-tasks/internal/domain/parent"
 )
 
+func TestScriptedPreviewInputsChooseActiveRows(t *testing.T) {
+	call := fantasy.Call{Prompt: fantasy.Prompt{
+		{Role: fantasy.MessageRoleAssistant, Content: []fantasy.MessagePart{fantasy.ToolCallPart{ToolCallID: "s", ToolName: "list_schedules"}, fantasy.ToolCallPart{ToolCallID: "t", ToolName: "list_tasks"}}},
+		{Role: fantasy.MessageRoleTool, Content: []fantasy.MessagePart{fantasy.ToolResultPart{ToolCallID: "s", Output: fantasy.ToolResultOutputContentText{Text: `[{"id":"schedule-1","enabled":true,"version":2}]`}}, fantasy.ToolResultPart{ToolCallID: "t", Output: fantasy.ToolResultOutputContentText{Text: `[{"id":"task-1","status":"published","version":3}]`}}}},
+	}}
+	if got := scriptedSchedulePreviewInput(call); !strings.Contains(got, "schedule-1") || !strings.Contains(got, `"expectedVersion":2`) {
+		t.Fatalf("schedule preview=%s", got)
+	}
+	if got := scriptedPreviewInput(call); !strings.Contains(got, "task-1") || !strings.Contains(got, `"expectedVersion":3`) {
+		t.Fatalf("task preview=%s", got)
+	}
+}
+
+func TestScriptedDelayIsBoundedAndContextCancelable(t *testing.T) {
+	for _, raw := range []string{"", "bad", "30001"} {
+		t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", raw)
+		if !scriptedDelay(context.Background()) {
+			t.Fatalf("non-blocking delay %q canceled unexpectedly", raw)
+		}
+	}
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if scriptedDelay(ctx) {
+		t.Fatal("canceled scripted delay reported success")
+	}
+}
+
 func TestAgentSubscriberSendFillsTimeWithoutSocketWrites(t *testing.T) {
 	s := &Server{agentHub: newAgentHub()}
 	sub := &agentSubscriber{queue: make(chan wireAgentEvent, 1), done: make(chan struct{})}
