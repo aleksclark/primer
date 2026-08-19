@@ -103,6 +103,7 @@ services:
       # server exits before listening when production is misconfigured.
       TASKS_AUTH_MODE: ${TASKS_AUTH_MODE-test}
       TASKS_MODEL_PROVIDER: ${TASKS_MODEL_PROVIDER-disabled}
+      TASKS_AGENT_SCRIPTED_DELAY_MS: ${TASKS_AGENT_SCRIPTED_DELAY_MS-0}
       # Parent agent tooling is explicit and server-owned. Empty/unknown values
       # fail closed in parent.ProviderConfig; this development default is only
       # used when a scripted qualification run is deliberately enabled.
