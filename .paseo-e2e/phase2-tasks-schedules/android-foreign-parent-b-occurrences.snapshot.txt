@@ -1,0 +1,150 @@
+uid=99_0 RootWebArea "Primer Tasks" url="http://127.0.0.1:37949/parent/occurrences?dir=asc"
+  uid=99_1 ignored
+    uid=99_2 ignored
+      uid=99_3 generic
+        uid=99_4 ignored
+          uid=99_5 complementary
+            uid=99_6 link "Primer Tasks home" url="http://127.0.0.1:37949/parent/students"
+              uid=99_7 ignored
+              uid=99_8 ignored
+                uid=99_9 StaticText "Primer"
+                  uid=99_10 InlineTextBox "Primer"
+                uid=99_11 strong
+                  uid=99_12 StaticText "Tasks"
+                    uid=99_10 InlineTextBox "Tasks"
+              uid=99_13 ignored
+                uid=99_14 StaticText "SYSTEM C · HMR BASELINE"
+                  uid=99_10 InlineTextBox "SYSTEM C · HMR BASELINE"
+            uid=99_15 generic
+              uid=99_16 ignored
+                uid=99_17 paragraph
+                  uid=99_18 StaticText "PARENT WORKSPACE"
+                    uid=99_10 InlineTextBox "PARENT WORKSPACE"
+                uid=99_19 link "Students" url="http://127.0.0.1:37949/parent/students"
+                  uid=99_20 StaticText "Students"
+                    uid=99_10 InlineTextBox "Students"
+                uid=99_21 link "Tasks" url="http://127.0.0.1:37949/parent/tasks"
+                  uid=99_22 StaticText "Tasks"
+                    uid=99_10 InlineTextBox "Tasks"
+                uid=99_23 link "Schedules" url="http://127.0.0.1:37949/parent/schedules"
+                  uid=99_24 StaticText "Schedules"
+                    uid=99_10 InlineTextBox "Schedules"
+                uid=99_25 link "Occurrences" url="http://127.0.0.1:37949/parent/occurrences"
+                  uid=99_26 StaticText "Occurrences"
+                    uid=99_10 InlineTextBox "Occurrences"
+              uid=99_27 ignored
+                uid=99_28 paragraph
+                  uid=99_29 StaticText "STUDENT ACCESS"
+                    uid=99_10 InlineTextBox "STUDENT ACCESS"
+                uid=99_30 link "Pair a browser" url="http://127.0.0.1:37949/student/pair"
+                  uid=99_31 StaticText "Pair a browser"
+                    uid=99_10 InlineTextBox "Pair a browser"
+            uid=99_32 ignored
+              uid=99_33 paragraph
+                uid=99_34 StaticText "SYSTEM C · PRIMER TASKS"
+                  uid=99_10 InlineTextBox "SYSTEM C · PRIMER TASKS"
+              uid=99_35 button "Switch to light theme"
+                uid=99_36 StaticText "LIGHT"
+                  uid=99_10 InlineTextBox "LIGHT"
+                uid=99_37 StaticText " THEME"
+                  uid=99_10 InlineTextBox " THEME"
+              uid=99_38 button "SIGN OUT"
+                uid=99_39 StaticText "SIGN OUT"
+                  uid=99_10 InlineTextBox "SIGN OUT"
+          uid=99_40 main
+            uid=99_41 ignored
+              uid=99_42 sectionheader
+                uid=99_43 ignored
+                  uid=99_44 paragraph
+                    uid=99_45 StaticText "PARENT WORKSPACE / OPERATE + INSPECT"
+                      uid=99_10 InlineTextBox "PARENT WORKSPACE / OPERATE + INSPECT"
+                  uid=99_46 heading "Occurrences" level="1"
+                    uid=99_47 StaticText "Occurrences"
+                      uid=99_10 InlineTextBox "Occurrences"
+                  uid=99_48 paragraph
+                    uid=99_49 StaticText "Approval and rejection are durable decisions. The student never writes completion state."
+                      uid=99_10 InlineTextBox "Approval and rejection are durable decisions. The student never writes completion state."
+                uid=99_50 ignored
+                  uid=99_51 button "REFRESH SERVER STATE"
+                    uid=99_52 StaticText "REFRESH SERVER STATE"
+                      uid=99_10 InlineTextBox "REFRESH SERVER STATE"
+              uid=99_53 generic
+                uid=99_54 ignored
+                  uid=99_55 LabelText
+                    uid=99_56 ignored
+                      uid=99_57 StaticText "STATUS FILTER"
+                        uid=99_10 InlineTextBox "STATUS FILTER"
+                    uid=99_58 combobox "Occurrence status filter" expandable haspopup="menu" value="All statuses"
+                      uid=99_59 MenuListPopup
+                        uid=99_60 ignored
+                          uid=99_61 option "All statuses" selectable selected value="All statuses"
+                          uid=99_62 option "Pending" selectable value="Pending"
+                          uid=99_63 option "Awaiting verification" selectable value="Awaiting verification"
+                          uid=99_64 option "Completed" selectable value="Completed"
+                  uid=99_65 LabelText
+                    uid=99_66 ignored
+                      uid=99_67 StaticText "SORT DIRECTION"
+                        uid=99_10 InlineTextBox "SORT DIRECTION"
+                    uid=99_68 combobox "Occurrence sort direction" expandable haspopup="menu" value="Soonest first"
+                      uid=99_69 MenuListPopup
+                        uid=99_70 ignored
+                          uid=99_71 option "Soonest first" selectable selected value="Soonest first"
+                          uid=99_72 option "Latest first" selectable value="Latest first"
+                uid=99_73 ignored
+                  uid=99_74 table
+                    uid=99_75 rowgroup
+                      uid=99_76 row
+                        uid=99_77 columnheader "TASK"
+                          uid=99_78 StaticText "TASK"
+                            uid=99_10 InlineTextBox "TASK"
+                        uid=99_79 columnheader "STUDENT"
+                          uid=99_80 StaticText "STUDENT"
+                            uid=99_10 InlineTextBox "STUDENT"
+                        uid=99_81 columnheader "DUE"
+                          uid=99_82 StaticText "DUE"
+                            uid=99_10 InlineTextBox "DUE"
+                        uid=99_83 columnheader "STATUS"
+                          uid=99_84 StaticText "STATUS"
+                            uid=99_10 InlineTextBox "STATUS"
+                        uid=99_85 columnheader "DECISION"
+                          uid=99_86 StaticText "DECISION"
+                            uid=99_10 InlineTextBox "DECISION"
+                    uid=99_87 ignored
+                      uid=99_88 row
+                        uid=99_89 cell "Android Foreign Parent B Task 62b79178-af55-4ca7-8cb8-8f4000252d2b"
+                          uid=99_90 strong
+                            uid=99_91 StaticText "Android Foreign Parent B Task"
+                              uid=99_10 InlineTextBox "Android Foreign "
+                              uid=99_10 InlineTextBox "Parent B Task"
+                          uid=99_92 ignored
+                            uid=99_93 StaticText "62b79178-af55-4ca7-8cb8-8f4000252d2b"
+                              uid=99_10 InlineTextBox "62b79178-af55-4ca7-"
+                              uid=99_10 InlineTextBox "8cb8-8f4000252d2b"
+                        uid=99_94 cell "3E2A2310-90C1-484E-953F-3EBDA5101FFD"
+                          uid=99_95 StaticText "3E2A2310-90C1-484E-953F-3EBDA5101FFD"
+                            uid=99_10 InlineTextBox "3E2A2310-90C1-484E-"
+                            uid=99_10 InlineTextBox "953F-3EBDA5101FFD"
+                        uid=99_96 cell "AUG 20, 2026, 2:00 PM CDT · AMERICA/CHICAGO"
+                          uid=99_97 StaticText "AUG 20, 2026, 2:00 PM CDT · AMERICA/CHICAGO"
+                            uid=99_10 InlineTextBox "AUG 20, 2026, 2:00 PM "
+                            uid=99_10 InlineTextBox "CDT · AMERICA/CHICAGO"
+                        uid=99_98 cell "PENDING"
+                          uid=99_99 StaticText "PENDING"
+                            uid=99_10 InlineTextBox "PENDING"
+                        uid=99_100 cell "APPROVE REJECT RETRY SKIP CANCEL"
+                          uid=99_101 ignored
+                            uid=99_102 button "APPROVE"
+                              uid=99_103 StaticText "APPROVE"
+                                uid=99_10 InlineTextBox "APPROVE"
+                            uid=99_104 button "REJECT"
+                              uid=99_105 StaticText "REJECT"
+                                uid=99_10 InlineTextBox "REJECT"
+                            uid=99_106 button "RETRY"
+                              uid=99_107 StaticText "RETRY"
+                                uid=99_10 InlineTextBox "RETRY"
+                            uid=99_108 button "SKIP"
+                              uid=99_109 StaticText "SKIP"
+                                uid=99_10 InlineTextBox "SKIP"
+                            uid=99_110 button "CANCEL"
+                              uid=99_111 StaticText "CANCEL"
+                                uid=99_10 InlineTextBox "CANCEL"

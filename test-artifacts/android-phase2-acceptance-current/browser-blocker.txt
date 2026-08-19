@@ -1,0 +1,6 @@
+Chrome DevTools MCP blocker while attempting required public parent UI:
+
+chrome-devtools_new_page and chrome-devtools_list_pages both failed with:
+"The browser is already running for /home/aleks/.cache/chrome-devtools-mcp/paseo-e2e-profile. Use --isolated to run multiple browser instances."
+
+An isolated browser context would not contain the existing authenticated parent-A session. No credentials, browser storage, direct API, or alternate non-public UI was used.

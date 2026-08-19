@@ -1,0 +1,3 @@
+Container: primer-tasks-primer-tasks-p2-api-1 (916be8cb6714)
+TASKS_MODEL_PROVIDER=disabled
+Observed by Docker runtime configuration inspection; no API endpoint was called.

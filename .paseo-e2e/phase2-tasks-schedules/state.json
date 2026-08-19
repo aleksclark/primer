@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "suiteId": "phase2-tasks-schedules",
+  "functionality": "Stacklane Primer Tasks Phase 2 parent and student task/schedule lifecycle, including approval, recurrence, collections, lifecycle controls, restart/DST, disabled-model, and tenant-isolation behavior.",
+  "phase": "codify",
+  "callCount": 15,
+  "baseUrl": "http://127.0.0.1:37949/",
+  "requestedBaseUrl": "http://web.primer-tasks-p2.primer-tasks.test/",
+  "acceptance": [
+    "Parent can test-authenticate, create a parent-approval brushing task, publish it, and schedule a one-off occurrence with an explicit timezone.",
+    "Parent can create bounded daily and weekly recurrence schedules with explicit timezones.",
+    "Student can use today's browser checklist, view task detail, start a task, and submit a checked state for parent approval.",
+    "Parent can reject for retry and subsequently approve the completed task.",
+    "Task, schedule, and occurrence collections expose and preserve q/filter/sort/page URL state.",
+    "Parent lifecycle controls retire a task, skip an occurrence, and cancel a schedule.",
+    "Restart and DST behavior, model-disabled flow, and two-tenant isolation are observable through public UI/API boundaries."
+  ],
+  "updatedAt": "2026-08-19T08:48:37.664838+00:00",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/phase2-tasks-schedules/exploration.md",
+    "screenshots": [
+      ".paseo-e2e/phase2-tasks-schedules/desktop-initial.png",
+      ".paseo-e2e/phase2-tasks-schedules/mobile-initial.png",
+      ".paseo-e2e/phase2-tasks-schedules/call2-parent-b-desktop.png",
+      ".paseo-e2e/phase2-tasks-schedules/call2-student-mobile.png",
+      ".paseo-e2e/phase2-tasks-schedules/call7-dst-offsets-desktop.png",
+      ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr.png",
+      ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr-current.png",
+      ".paseo-e2e/phase2-tasks-schedules/android-qr-final.png"
+    ],
+    "snapshots": [
+      ".paseo-e2e/phase2-tasks-schedules/desktop-initial.snapshot.txt",
+      ".paseo-e2e/phase2-tasks-schedules/desktop-auth-error.snapshot.txt",
+      ".paseo-e2e/phase2-tasks-schedules/mobile-initial.snapshot.txt"
+    ],
+    "playwrightConfig": null,
+    "specFiles": [],
+    "packageJsonScript": null,
+    "lastRun": null,
+    "androidFreshPairingEvidence": {
+      "note": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr.md",
+      "screenshot": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr.png",
+      "snapshot": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr.snapshot.txt",
+      "currentScreenshot": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr-current.png",
+      "currentSnapshot": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr-current.snapshot.txt",
+      "finalScreenshot": ".paseo-e2e/phase2-tasks-schedules/android-qr-final.png",
+      "finalSnapshot": ".paseo-e2e/phase2-tasks-schedules/android-qr-final.snapshot.txt"
+    }
+  },
+  "qualityGates": {
+    "independentChromeVerification": true,
+    "playwrightGreen": false,
+    "relaxed": false
+  },
+  "coordination": "Android foreign-negative target: Parent-B student Android Foreign Parent B Student (3e2a2310-90c1-484e-953f-3ebda5101ffd), occurrence 62b79178-af55-4ca7-8cb8-8f4000252d2b, due Aug 20 2026 2:00 PM CDT."
+}
