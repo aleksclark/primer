@@ -357,7 +357,7 @@ func (s *Server) agentConfirm(ctx context.Context, sc scope, cmd agentCommand) {
 	var digest []byte
 	err := s.DB.QueryRow(ctx, `SELECT action,action_digest FROM parent_confirmation_previews WHERE handle_hash=$1 AND tenant_id=$2 AND actor_id=$3`, parentHandleHash(handle), sc.Tenant, sc.Subject).Scan(&actionJSON, &digest)
 	if err != nil {
-		s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "error", ProtocolVersion: 1, ConversationID: cmd.ConversationID, Code: "confirmation_rejected", Message: "confirmation is expired, altered, or unavailable", Retryable: false, TenantID: sc.Tenant})
+		s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "error", ProtocolVersion: 1, ConversationID: cmd.ConversationID, RunID: cmd.RunID, Code: "confirmation_rejected", Message: "confirmation is expired, altered, or unavailable", Retryable: false, TenantID: sc.Tenant})
 		return
 	}
 	var action parent.Action
@@ -375,7 +375,7 @@ func (s *Server) agentConfirm(ctx context.Context, sc scope, cmd agentCommand) {
 	tools := s.parentTools()
 	_, err = tools.ConfirmAction(ctx, parent.Context{TenantID: sc.Tenant, ActorID: sc.Subject, IdempotencyKey: uuid.NewString(), Tools: toolSet}, parent.ConfirmActionInput{Handle: handle, Action: action})
 	if err != nil {
-		s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "error", ProtocolVersion: 1, ConversationID: cmd.ConversationID, Code: "confirmation_rejected", Message: "confirmation was not applied", Retryable: false, TenantID: sc.Tenant})
+		s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "error", ProtocolVersion: 1, ConversationID: cmd.ConversationID, RunID: cmd.RunID, Code: "confirmation_rejected", Message: "confirmation was not applied", Retryable: false, TenantID: sc.Tenant})
 		return
 	}
 	s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "tool_progress", ProtocolVersion: 1, ConversationID: cmd.ConversationID, RunID: cmd.RunID, Tool: "Confirm change", ToolStatus: "completed", Phase: "completed", Summary: "Confirmed change applied through the Tasks service.", TenantID: sc.Tenant})

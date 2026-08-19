@@ -81,6 +81,13 @@ func TestAgentCommandsCancelConfirmAndWorkerStartupUseDurableState(t *testing.T)
 	if taskStatus != "retired" {
 		t.Fatalf("confirmed task status=%s", taskStatus)
 	}
+	var confirmationEvents int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM agent_run_events WHERE run_id=$1 AND event_type='tool_progress'`, runID).Scan(&confirmationEvents); err != nil {
+		t.Fatal(err)
+	}
+	if confirmationEvents != 1 {
+		t.Fatalf("confirmation acknowledgement events=%d", confirmationEvents)
+	}
 
 	cancelConversationID, cancelMessageID, cancelRunID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	if err = repo.CreateConversation(ctx, agent.Conversation{ID: cancelConversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
