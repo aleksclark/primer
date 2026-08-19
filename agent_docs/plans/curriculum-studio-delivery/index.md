@@ -101,13 +101,17 @@ dependencies, acceptance commands, review protocol, and stop gates.
 | Primer Identity token broker, JWKS, Stytch B2B validation, BFF contract, service principals, LMS/TV migration S0–S7, MCP client/resource registration support | Identity | `I1`–`I14` | Studio product authz roles |
 | Streamable HTTP MCP `/mcp` adapter + tools | Platform | `S19` | Token mint; OpenAPI/proto authorship |
 
-**Database track cursor:** **D11 complete** (transactional plan graph,
-publish/supersede consistency, validation reports, learner/class snapshots,
-fenced workflows, materialized items, export refs, outbox events, webhook
-leases, and idempotency; D10 merged in `6ac59a1`, D11 at `b8bac62`). The next
-database wave is **D12 — audit, retention, backup, and observability**. This
-cursor covers only the Database-owned rows below; the Identity, Platform, and
-Contracts cursors above remain independent.
+**Database track cursor:** **D12 complete** (audit, retention, backup drill,
+and database metrics; merged in PR #45 at `9473f09`, implementation
+`5957f77`). This cursor covers only the Database-owned rows below; the
+Identity, Platform, and Contracts cursors above remain independent. The
+required `make studio-cover` gate remains an honest residual: `origin/master`
+reports **75.2%** against the unchanged **85%** floor (with generated clients
+present), while the D11 parent reports **74.8%** under the same generated-client
+setup. This is pre-existing package coverage, not a D12 regression; the floor
+remains 85% and is not reported as green. A clean checkout also needs the
+existing contract-generation step before `studio-cover`, because generated Go
+clients are intentionally ignored.
 
 Detailed BDD/E2E remain in the four plan directories. This roadmap only sequences and assigns.
 

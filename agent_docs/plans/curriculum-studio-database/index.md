@@ -9,12 +9,18 @@ checkpointing, materialized-item edit/lock/supersession/provenance, exports and
 object refs, transactional outbox/webhook leases/idempotency, and
 audit/retention/backup/restore with observability and operational gates.
 
-**Database track cursor:** **D11 complete** (export refs, transactional
-publish outbox events, webhook delivery leases, and inbound idempotency;
-implemented through `b8bac62`). The next wave is **D12 — audit, retention,
-backup, and observability**. D1–D11 evidence is present on this branch with
-real-Postgres repository, migration, and race tests; the full-module generated
-gRPC client gate is green on the merged tip.
+**Database track cursor:** **D12 complete** (audit, retention, backup drill,
+and database metrics; merged in PR #45 at `9473f09`, implementation
+`5957f77`). D1–D12 evidence is present with real-Postgres repository,
+migration, and race tests; the full-module generated gRPC client gate is green
+on the merged tip. The required `make studio-cover` gate remains an honest
+residual: `origin/master` reports **75.2%** against the unchanged **85%**
+floor (with generated clients present), while the D11 parent reports **74.8%**
+under the same generated-client setup. The shortfall is therefore pre-existing
+package coverage rather than a D12 regression; the floor is not lowered or
+declared green. A clean checkout also needs the existing contract-generation
+step before `studio-cover`, because generated Go clients are intentionally
+ignored.
 
 **Branch / base:** `planning/curriculum-studio-plan-db` @
 `66449725337165c2ef00f7c269633696313e0be2`
