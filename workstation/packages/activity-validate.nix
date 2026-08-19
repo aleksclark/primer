@@ -2,7 +2,7 @@
 {
   lib,
   buildGoModule,
-  go_1_25 ? null,
+  go_1_26 ? null,
   go,
   primerServerSrc,
   curriculumActivities ? null,
@@ -10,10 +10,10 @@
 
 let
   goToolchain =
-    if go_1_25 != null then go_1_25
-    else if lib.versionAtLeast go.version "1.25" then go
+    if go_1_26 != null then go_1_26
+    else if lib.versionAtLeast go.version "1.26.6" then go
     else
-      throw "activity-validate requires Go >= 1.25 (got ${go.version})";
+      throw "activity-validate requires Go >= 1.26.6 (got ${go.version})";
 in
 (buildGoModule.override { go = goToolchain; }) {
   pname = "activity-validate";
