@@ -79,6 +79,12 @@ func TestDialogueQuestionsAreBoundToTheParentSource(t *testing.T) {
 	if _, err := dialogueQuestions(domain.DialogueConfig{SourceText: "student supplied replacement source", LearningFocus: "focus", RequiredQuestions: 3, Rubric: []string{"criterion"}, AllowedFollowUps: 1, MaxAttempts: 1, MaxTurns: 3, RetentionPolicy: "retain"}); !errors.Is(err, errDialogueSourceUnsupported) {
 		t.Fatalf("unsupported source error=%v", err)
 	}
+	state := verificationStateForWorkerTest()
+	state.Questions = []verification.DialogueQuestion{{ID: "wall", QuestionKey: "wall"}, {ID: "mortar", QuestionKey: "mortar"}}
+	state.Evaluations = []verification.DialogueEvaluation{{QuestionID: "wall", Accepted: true}}
+	if got := nextDialogueKey(state); got != "mortar" {
+		t.Fatalf("current unanswered question=%q", got)
+	}
 }
 
 func TestDialogueSourceBindingAndStarterPromptFailClosed(t *testing.T) {

@@ -110,6 +110,23 @@ func TestDialogueEvaluationRejectsTerminalAndUnsafeRationale(t *testing.T) {
 	}
 }
 
+func TestDialogueStateRejectsInvalidCounters(t *testing.T) {
+	base := dialogueState()
+	for name, mutate := range map[string]func(*DialogueState){
+		"accepted overflow": func(s *DialogueState) { s.AcceptedCount = s.Config.RequiredQuestions + 1 },
+		"negative turns":    func(s *DialogueState) { s.TurnCount = -1 },
+		"invalid config":    func(s *DialogueState) { s.Config.RequiredQuestions = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := base
+			mutate(&state)
+			if err := state.Validate(); err == nil {
+				t.Fatal("invalid dialogue state accepted")
+			}
+		})
+	}
+}
+
 func TestDialogueQuestionLimitAndEvaluationIdentityValidation(t *testing.T) {
 	s := dialogueState()
 	s.Config.MaxTurns = 3
