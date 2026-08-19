@@ -82,6 +82,7 @@ type Occurrence2 struct {
 	Status        string    `json:"status"`
 	NominalAt     time.Time `json:"nominalAt"`
 	DueAt         time.Time `json:"dueAt"`
+	Timezone      string    `json:"timezone"`
 	AttemptNumber int       `json:"attemptNumber"`
 }
 type OccurrencePage2 struct {
@@ -293,7 +294,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -302,7 +303,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	out := []Occurrence2{}
 	for rows.Next() {
 		var x Occurrence2
-		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.AttemptNumber); e != nil {
+		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber); e != nil {
 			problem(w, 500, "internal", e.Error())
 			return
 		}
@@ -311,7 +312,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	jsonOK(w, OccurrencePage2{out, total, limit, offset})
 }
 func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -320,7 +321,7 @@ func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id 
 	out := []Occurrence2{}
 	for rows.Next() {
 		var x Occurrence2
-		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.AttemptNumber); e != nil {
+		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber); e != nil {
 			problem(w, 500, "internal", e.Error())
 			return
 		}
@@ -440,7 +441,7 @@ func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc
 }
 func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	var x Occurrence2
-	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id WHERE o.tenant_id=$1 AND o.id=$2`, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.AttemptNumber)
+	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.tenant_id=$1 AND o.id=$2`, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
@@ -453,7 +454,7 @@ func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc
 }
 func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var x Occurrence2
-	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id WHERE o.student_id=$1 AND o.id=$2`, id, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.AttemptNumber)
+	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.student_id=$1 AND o.id=$2`, id, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
