@@ -1,0 +1,271 @@
+# Primer Stacklane-compatible local DEV stack.
+# Lifecycle: scripts/compose-dev.sh (always pass -p primer-<instance>).
+# Publish ONLY 127.0.0.1::<containerPort> (ephemeral host port). Never 0.0.0.0 / fixed host ports / :80.
+#
+# Host paths are unchanged: `make dev-db`, `make test`, `make investor-web-dev`.
+# Compose project name is set only via `docker compose -p` (never hardcoded here).
+# No provider tokens. Identity/Jellyfin/agents stay unset (fail-closed / disabled).
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6
+    environment:
+      POSTGRES_USER: primer
+      POSTGRES_PASSWORD: primer
+      POSTGRES_DB: primer
+    volumes:
+      - primer_pg_data:/var/lib/postgresql/data
+      - ./scripts/compose-postgres-init.sh:/docker-entrypoint-initdb.d/02-create-tv.sh:ro
+    ports:
+      - "127.0.0.1::5432"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      stacklane.endpoint: "postgres"
+      stacklane.port: "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U primer -d primer && pg_isready -U primer -d primer_tv"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /src/server
+    command: ["air", "-c", ".air.lms.toml"]
+    environment:
+      STACKLANE_INSTANCE: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      STACKLANE_BASE_DOMAIN: ${STACKLANE_BASE_DOMAIN:-test}
+      DATABASE_URL: postgres://primer:primer@postgres:5432/primer?sslmode=disable
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      ENV: development
+      CORS_ORIGINS: ${LMS_CORS_ORIGINS:-http://web.${STACKLANE_INSTANCE}.primer.${STACKLANE_BASE_DOMAIN:-test}:3000}
+      TUTOR_PROVIDER: fake
+      TUTOR_ENABLED: "true"
+      AGENT_RUNTIME_ENABLED: "false"
+      PRIMER_AGENTS_ENABLED: "false"
+      GOWORK: "off"
+      GOPATH: /go
+      GOCACHE: /go-cache
+      GOMODCACHE: /go/pkg/mod
+    volumes:
+      - .:/src
+      - primer_go_mod_cache:/go/pkg/mod
+      - primer_lms_go_cache:/go-cache
+      - primer_lms_air_tmp:/src/server/tmp
+    ports:
+      - "127.0.0.1::8080"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      stacklane.endpoint: "api"
+      stacklane.port: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+  tv:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /src/server
+    command: ["air", "-c", ".air.tv.toml"]
+    environment:
+      STACKLANE_INSTANCE: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      STACKLANE_BASE_DOMAIN: ${STACKLANE_BASE_DOMAIN:-test}
+      TV_DATABASE_URL: postgres://primer:primer@postgres:5432/primer_tv?sslmode=disable
+      TV_HOST: "0.0.0.0"
+      TV_PORT: "8081"
+      TV_ENV: development
+      TV_CORS_ORIGINS: ${TV_CORS_ORIGINS:-http://tv-web.${STACKLANE_INSTANCE}.primer.${STACKLANE_BASE_DOMAIN:-test}:3001}
+      TV_PRIMER_BASE_URL: http://api:8080
+      GOWORK: "off"
+      GOPATH: /go
+      GOCACHE: /go-cache
+      GOMODCACHE: /go/pkg/mod
+    volumes:
+      - .:/src
+      - primer_go_mod_cache:/go/pkg/mod
+      - primer_tv_go_cache:/go-cache
+      - primer_tv_air_tmp:/src/server/tmp
+    ports:
+      - "127.0.0.1::8081"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      stacklane.endpoint: "tv"
+      stacklane.port: "8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.dev
+    working_dir: /src/web
+    command: ["npx", "--no-install", "vite", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    environment:
+      STACKLANE_INSTANCE: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      STACKLANE_BASE_DOMAIN: ${STACKLANE_BASE_DOMAIN:-test}
+      VITE_API_PROXY_TARGET: http://api:8080
+      VITE_DEV_HOST: "0.0.0.0"
+      VITE_DEV_PORT: "5173"
+      VITE_HMR_HOST: ${VITE_HMR_HOST-web.${STACKLANE_INSTANCE}.primer.${STACKLANE_BASE_DOMAIN:-test}}
+      VITE_HMR_CLIENT_PORT: ${VITE_HMR_CLIENT_PORT-3000}
+      VITE_HMR_PROTOCOL: ${VITE_HMR_PROTOCOL-ws}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-.${STACKLANE_BASE_DOMAIN:-test},localhost,127.0.0.1}
+      npm_config_cache: /npm/cache
+    volumes:
+      - .:/src
+      - primer_web_node_modules:/src/web/node_modules
+      - primer_npm_cache:/npm/cache
+    ports:
+      - "127.0.0.1::5173"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      stacklane.endpoint: "web"
+      stacklane.port: "3000"
+      stacklane.target_port: "5173"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+
+  tv-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.dev
+    working_dir: /src/tv-web
+    command: ["npx", "--no-install", "vite", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    environment:
+      STACKLANE_INSTANCE: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      STACKLANE_BASE_DOMAIN: ${STACKLANE_BASE_DOMAIN:-test}
+      VITE_API_PROXY_TARGET: http://tv:8081
+      VITE_DEV_HOST: "0.0.0.0"
+      VITE_DEV_PORT: "5173"
+      VITE_HMR_HOST: ${VITE_HMR_HOST_TV-tv-web.${STACKLANE_INSTANCE}.primer.${STACKLANE_BASE_DOMAIN:-test}}
+      VITE_HMR_CLIENT_PORT: ${VITE_HMR_CLIENT_PORT_TV-3001}
+      VITE_HMR_PROTOCOL: ${VITE_HMR_PROTOCOL-ws}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-.${STACKLANE_BASE_DOMAIN:-test},localhost,127.0.0.1}
+      npm_config_cache: /npm/cache
+    volumes:
+      - .:/src
+      - primer_tv_web_node_modules:/src/tv-web/node_modules
+      - primer_npm_cache:/npm/cache
+    ports:
+      - "127.0.0.1::5173"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      stacklane.endpoint: "tv-web"
+      stacklane.port: "3001"
+      stacklane.target_port: "5173"
+    depends_on:
+      tv:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+
+  investor:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.dev
+    working_dir: /src/investor-web
+    command: ["npx", "--no-install", "vite", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    environment:
+      STACKLANE_INSTANCE: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      STACKLANE_BASE_DOMAIN: ${STACKLANE_BASE_DOMAIN:-test}
+      VITE_DEV_HOST: "0.0.0.0"
+      VITE_DEV_PORT: "5173"
+      VITE_HMR_HOST: ${VITE_HMR_HOST_INVESTOR-investor.${STACKLANE_INSTANCE}.primer.${STACKLANE_BASE_DOMAIN:-test}}
+      VITE_HMR_CLIENT_PORT: ${VITE_HMR_CLIENT_PORT_INVESTOR-3002}
+      VITE_HMR_PROTOCOL: ${VITE_HMR_PROTOCOL-ws}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-.${STACKLANE_BASE_DOMAIN:-test},localhost,127.0.0.1}
+      npm_config_cache: /npm/cache
+    volumes:
+      - .:/src
+      - primer_investor_node_modules:/src/investor-web/node_modules
+      - primer_npm_cache:/npm/cache
+    ports:
+      - "127.0.0.1::5173"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer"
+      stacklane.instance: ${STACKLANE_INSTANCE:?set by scripts/compose-dev.sh}
+      stacklane.endpoint: "investor"
+      stacklane.port: "3002"
+      stacklane.target_port: "5173"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  primer_pg_data:
+  primer_go_mod_cache:
+  primer_lms_go_cache:
+  primer_tv_go_cache:
+  primer_lms_air_tmp:
+  primer_tv_air_tmp:
+  primer_web_node_modules:
+  primer_tv_web_node_modules:
+  primer_investor_node_modules:
+  primer_npm_cache:
