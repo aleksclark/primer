@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 func TestAgentCommandsCancelConfirmAndWorkerStartupUseDurableState(t *testing.T) {
+	t.Setenv("TASKS_AGENT_ACTIVE_TOOLS", strings.Join(defaultToolNames(), ","))
 	pool := integrationPool(t)
 	seedIntegration(t, pool)
 	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("agent-commands"), IssuerSecret: []byte("agent-commands")})
@@ -35,7 +37,19 @@ func TestAgentCommandsCancelConfirmAndWorkerStartupUseDurableState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.agentConfirm(ctx, scope{Tenant: serviceScope.TenantID, Subject: serviceScope.ActorID}, agentCommand{ConversationID: uuid.NewString(), ConfirmationID: preview.Handle})
+	conversationID, messageID, runID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	repo := agent.NewPostgresRepository(pool)
+	now := time.Now().UTC()
+	if err = repo.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, inserted, e := repo.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenantA, ConversationID: conversationID, ClientMessageID: "confirm-command", Role: agent.RoleUser, Content: "confirm", Sequence: 1, CreatedAt: now}); e != nil || !inserted {
+		t.Fatalf("confirmation message inserted=%v err=%v", inserted, e)
+	}
+	if err = repo.CreateRun(ctx, agent.Run{ID: runID, TenantID: tenantA, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Minute), CreatedAt: now, Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}}); err != nil {
+		t.Fatal(err)
+	}
+	s.agentConfirm(ctx, scope{Tenant: serviceScope.TenantID, Subject: serviceScope.ActorID}, agentCommand{ConversationID: conversationID, RunID: runID, ConfirmationID: preview.Handle})
 	var taskStatus string
 	if err = pool.QueryRow(ctx, `SELECT status FROM task_templates WHERE tenant_id=$1 AND id=$2`, tenantA, draft.TemplateID).Scan(&taskStatus); err != nil {
 		t.Fatal(err)
@@ -44,20 +58,18 @@ func TestAgentCommandsCancelConfirmAndWorkerStartupUseDurableState(t *testing.T)
 		t.Fatalf("confirmed task status=%s", taskStatus)
 	}
 
-	conversationID, messageID, runID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	repo := agent.NewPostgresRepository(pool)
-	now := time.Now().UTC()
-	if err = repo.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+	cancelConversationID, cancelMessageID, cancelRunID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if err = repo.CreateConversation(ctx, agent.Conversation{ID: cancelConversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if _, inserted, e := repo.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenantA, ConversationID: conversationID, ClientMessageID: "cancel-command", Role: agent.RoleUser, Content: "cancel", Sequence: 1, CreatedAt: now}); e != nil || !inserted {
+	if _, inserted, e := repo.AppendUserMessage(ctx, agent.Message{ID: cancelMessageID, TenantID: tenantA, ConversationID: cancelConversationID, ClientMessageID: "cancel-command", Role: agent.RoleUser, Content: "cancel", Sequence: 1, CreatedAt: now}); e != nil || !inserted {
 		t.Fatalf("message inserted=%v err=%v", inserted, e)
 	}
-	if err = repo.CreateRun(ctx, agent.Run{ID: runID, TenantID: tenantA, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Minute), CreatedAt: now, Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}}); err != nil {
+	if err = repo.CreateRun(ctx, agent.Run{ID: cancelRunID, TenantID: tenantA, ConversationID: cancelConversationID, UserMessageID: cancelMessageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Minute), CreatedAt: now, Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}}); err != nil {
 		t.Fatal(err)
 	}
-	s.agentCancel(ctx, scope{Tenant: serviceScope.TenantID, Subject: serviceScope.ActorID}, agentCommand{RunID: runID})
-	run, err := repo.GetRun(ctx, tenantA, runID)
+	s.agentCancel(ctx, scope{Tenant: serviceScope.TenantID, Subject: serviceScope.ActorID}, agentCommand{RunID: cancelRunID})
+	run, err := repo.GetRun(ctx, tenantA, cancelRunID)
 	if err != nil || !run.CancelRequested || run.Status != agent.RunCancelRequested {
 		t.Fatalf("cancelled run=%+v err=%v", run, err)
 	}

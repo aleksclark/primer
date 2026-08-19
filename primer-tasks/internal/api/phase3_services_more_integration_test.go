@@ -94,8 +94,8 @@ func TestPhase3ServiceAdaptersCoverTaskScheduleAndOccurrencePaths(t *testing.T) 
 		t.Fatalf("disabled=%+v err=%v", disabled, err)
 	}
 	staleResult, staleErr := services.DisableSchedule(ctx, scope, sch.ID, updated.Version)
-	if staleErr != nil || staleResult.Enabled || staleResult.Version != disabled.Version {
-		t.Fatalf("stale disable changed schedule=%+v err=%v", staleResult, staleErr)
+	if staleErr == nil || staleResult.ID != "" {
+		t.Fatalf("stale disable was accepted: schedule=%+v err=%v", staleResult, staleErr)
 	}
 	second, err := services.CreateSchedule(ctx, scope, input)
 	if err != nil {

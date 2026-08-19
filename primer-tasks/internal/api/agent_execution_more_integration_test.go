@@ -58,7 +58,7 @@ func TestScriptedAgentExecutionUsesServerToolsAndPersistsSafeProgress(t *testing
 		t.Fatalf("run=%+v err=%v", run, err)
 	}
 	var drafted int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task_revisions WHERE tenant_id=$1 AND title='Scripted parent task' AND status='draft'`, tenant).Scan(&drafted); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task_revisions WHERE tenant_id=$1 AND title='Scripted parent task' AND status='published'`, tenant).Scan(&drafted); err != nil {
 		t.Fatal(err)
 	}
 	if drafted < 1 {
@@ -171,8 +171,8 @@ func TestAgentExecutionHelpersFailClosedAndMapProtocolEvents(t *testing.T) {
 	if len(defaultToolNames()) < 10 {
 		t.Fatal("active parent tool surface unexpectedly narrowed")
 	}
-	if _, err := safeToolJSON(map[string]string{"secret": "not returned"}, errors.New("provider credential")); err != nil {
-		t.Fatal(err)
+	if _, err := safeToolJSON(map[string]string{"secret": "not returned"}, errors.New("provider credential")); err == nil {
+		t.Fatal("tool error was reported as success")
 	}
 	response, err := safeToolJSON(map[string]string{"ok": "yes"}, nil)
 	if err != nil {
