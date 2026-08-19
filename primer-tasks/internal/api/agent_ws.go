@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -719,6 +720,20 @@ func (m *scriptedParentModel) StreamObject(context.Context, fantasy.ObjectCall) 
 }
 func (m *scriptedParentModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	m.calls++
+	// Development-only pacing lets the real browser harness exercise
+	// disconnect/reconnect and cancellation while the durable worker owns the
+	// run. Production never enables scripted mode, and the delay is bounded.
+	if raw := strings.TrimSpace(os.Getenv("TASKS_AGENT_SCRIPTED_DELAY_MS")); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms > 0 && ms <= 30000 {
+			timer := time.NewTimer(time.Duration(ms) * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
 	lower := strings.ToLower(m.prompt)
 	if strings.Contains(lower, "ambiguous") || strings.Contains(lower, "alex") {
 		if m.calls == 1 {
