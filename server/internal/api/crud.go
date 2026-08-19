@@ -88,10 +88,20 @@ type CRUDOption func(*crudConfig)
 // security scheme it enforces, so an authenticated resource does not have to
 // hand-roll its endpoints.
 func Guard(middleware func(huma.Context, func(huma.Context)), scheme string) CRUDOption {
+	return GuardWithSecurity(middleware, scheme)
+}
+
+// GuardWithSecurity applies one middleware and documents multiple alternative
+// security schemes for the operation. Each scheme is emitted as a separate
+// OpenAPI security requirement, so callers may authenticate with any one of
+// them while the middleware remains the source of truth.
+func GuardWithSecurity(middleware func(huma.Context, func(huma.Context)), schemes ...string) CRUDOption {
 	return func(c *crudConfig) {
 		c.middleware = append(c.middleware, middleware)
-		if scheme != "" {
-			c.security = append(c.security, map[string][]string{scheme: {}})
+		for _, scheme := range schemes {
+			if scheme != "" {
+				c.security = append(c.security, map[string][]string{scheme: {}})
+			}
 		}
 		c.errors = append(c.errors, http.StatusUnauthorized)
 	}

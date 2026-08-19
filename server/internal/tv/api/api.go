@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	baseapi "github.com/aleksclark/primer/server/internal/api"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	baserepo "github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tv/jellyfin"
 	"github.com/aleksclark/primer/server/internal/tv/primer"
@@ -35,9 +36,13 @@ type Options struct {
 	// Jellyfin is the media source client. It may be nil when the API is
 	// constructed purely for OpenAPI spec generation.
 	Jellyfin jellyfin.Client
-	// AdminKey guards the admin API. Empty leaves the admin surface open, which
-	// suits spec generation and a bare local checkout but not a deployment.
+	// AdminKey guards the admin API for service-to-service callers (content-
+	// ingest, LMS). Empty disables the shared-secret path.
 	AdminKey string
+	// IdentityVerifier verifies Primer Identity JWTs for admin authentication.
+	// Nil leaves the JWT path inactive. When both AdminKey and IdentityVerifier
+	// are unset, the admin surface fails closed.
+	IdentityVerifier *identityauth.Verifier
 	// GrantTTL is how long an issued play grant stays redeemable.
 	GrantTTL time.Duration
 	// PairingTTL is how long an unclaimed pairing code stays valid.
@@ -68,6 +73,7 @@ type Server struct {
 	q                       baserepo.Querier
 	jellyfin                jellyfin.Client
 	adminKey                string
+	identityVerifier        *identityauth.Verifier
 	grantTTL                time.Duration
 	pairingTTL              time.Duration
 	channelLocation         *time.Location
@@ -104,7 +110,13 @@ func New(q baserepo.Querier, opts Options) (huma.API, http.Handler) {
 			Type:        "apiKey",
 			In:          "header",
 			Name:        adminKeyHeader,
-			Description: "Admin API key, presented by the admin SPA and by Primer.",
+			Description: "Service-to-service admin API key (content-ingest, LMS).",
+		},
+		adminJWTSecurityScheme: {
+			Type:         "http",
+			Scheme:       "bearer",
+			BearerFormat: "JWT",
+			Description:  "Primer Identity JWT (ES256, typ=at+jwt) for human admin authentication.",
 		},
 	}
 
@@ -121,6 +133,7 @@ func RegisterRoutes(humaAPI huma.API, q baserepo.Querier, opts Options) {
 		q:                       q,
 		jellyfin:                opts.Jellyfin,
 		adminKey:                opts.AdminKey,
+		identityVerifier:        opts.IdentityVerifier,
 		grantTTL:                opts.GrantTTL,
 		pairingTTL:              opts.PairingTTL,
 		channelLocation:         ChannelLocation(opts.ChannelTimezone),

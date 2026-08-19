@@ -73,6 +73,23 @@ func TestAdminAPIKeyDefaultsToOpen(t *testing.T) {
 	assert.Equal(t, "s3cret", cfg.AdminAPIKey)
 }
 
+func TestIdentityConfigDefaultsToEmpty(t *testing.T) {
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.IdentityIssuer, "no identity config by default")
+	assert.Empty(t, cfg.IdentityAudience)
+	assert.Empty(t, cfg.IdentityJWKSURL)
+
+	t.Setenv("TV_IDENTITY_ISSUER", "https://identity.primer.local")
+	t.Setenv("TV_IDENTITY_AUDIENCE", "primer-tv")
+	t.Setenv("TV_IDENTITY_JWKS_URL", "https://identity.primer.local/.well-known/jwks.json")
+	cfg, err = config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "https://identity.primer.local", cfg.IdentityIssuer)
+	assert.Equal(t, "primer-tv", cfg.IdentityAudience)
+	assert.Equal(t, "https://identity.primer.local/.well-known/jwks.json", cfg.IdentityJWKSURL)
+}
+
 func TestPrimerReportingDefaultsToOff(t *testing.T) {
 	cfg, err := config.Load()
 	require.NoError(t, err)

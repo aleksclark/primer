@@ -107,6 +107,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/content-manifest-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List content-manifest-entries
+         * @description List content-manifest-entries with pagination, search (slug, title, notes, last_error), sorting (slug, title, kind, status, priority, attempt_count, last_attempt_at, created_at, updated_at), and filters (slug, kind, status, class).
+         */
+        get: operations["list-content-manifest-entries"];
+        put?: never;
+        /** Create a content-manifest-entry */
+        post: operations["create-content-manifest-entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/content-manifest-entries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a content-manifest-entry */
+        get: operations["get-content-manifest-entry"];
+        put?: never;
+        post?: never;
+        /** Delete a content-manifest-entry */
+        delete: operations["delete-content-manifest-entry"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a content-manifest-entry
+         * @description Partial update: only provided fields are changed.
+         */
+        patch: operations["update-content-manifest-entry"];
+        trace?: never;
+    };
+    "/content-manifest-entries/{slug}/attempt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an acquisition attempt
+         * @description Increments attempt_count for a missing entry. Marks the entry failed when TV_MANIFEST_FAIL_MAX_ATTEMPTS or TV_MANIFEST_FAIL_MAX_DAYS is exceeded.
+         */
+        post: operations["record-content-manifest-attempt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/content-manifest-entries/{slug}/present": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a catalog entry present
+         * @description Records that the title is available in Jellyfin (and usually imported as media_items).
+         */
+        post: operations["mark-content-manifest-present"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/content-manifest/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upsert the desired-state content catalog
+         * @description Mirrors curriculum/content-manifest.yaml into the TV database. Acquisition status and attempt counters on existing rows are preserved.
+         */
+        post: operations["sync-content-manifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devices": {
         parameters: {
             query?: never;
@@ -319,11 +422,14 @@ export interface paths {
         };
         /**
          * List media-items
-         * @description List media-items with pagination, search (title, sort_title, overview), sorting (id, title, sort_title, class, runtime_seconds, created_at, updated_at), and filters (class, direct_play_ok, jellyfin_item_id).
+         * @description List media-items with pagination, search (title, sort_title, overview, youtube_video_id), sorting (id, title, sort_title, class, runtime_seconds, created_at, updated_at), and filters (class, direct_play_ok, jellyfin_item_id, youtube_video_id, manifest_slug).
          */
         get: operations["list-media-items"];
         put?: never;
-        /** Create a media-item */
+        /**
+         * Create a media item
+         * @description Imports a Jellyfin item into the curated library. Optional YouTube provenance fields may be set; lock flags default to false and are not client-settable.
+         */
         post: operations["create-media-item"];
         delete?: never;
         options?: never;
@@ -347,10 +453,30 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a media-item
-         * @description Partial update: only provided fields are changed.
+         * Update a media item
+         * @description Partial update: only provided fields are changed. Patching title, overview, or classification fields sets the corresponding lock so Jellyfin sync will not clobber curator edits. jellyfinItemId is immutable.
          */
         patch: operations["update-media-item"];
+        trace?: never;
+    };
+    "/media-items/{id}/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile a media item from ingest
+         * @description Partial automated metadata update. Unlike curator PATCH, title, overview, and classification changes do not set metadata locks.
+         */
+        post: operations["ingest-media-item"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/media/{id}/grant": {
@@ -802,6 +928,114 @@ export interface components {
             /** Format: int64 */
             watchedSeconds: number;
         };
+        ContentManifestEntry: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ContentManifestEntry.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            attemptCount: number;
+            /** @enum {string} */
+            class: "educational" | "entertainment" | "mixed";
+            /** Format: date-time */
+            createdAt: string;
+            excludeEpisodes: string[] | null;
+            /** Format: date-time */
+            failedAt?: string;
+            /** Format: date-time */
+            firstAttemptAt?: string;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "movie" | "series" | "youtube_channel" | "youtube_playlist" | "manual";
+            /** Format: date-time */
+            lastAttemptAt?: string;
+            lastError: string;
+            /** Format: int64 */
+            maxEpisodes: number;
+            notes: string;
+            /** Format: date-time */
+            presentAt?: string;
+            /** Format: int64 */
+            priority: number;
+            slug: string;
+            standardCodes: string[] | null;
+            /** @enum {string} */
+            status: "missing" | "present" | "failed" | "manual";
+            subjectTags: string[] | null;
+            title: string;
+            /** Format: int64 */
+            tmdbId: number;
+            /** Format: int64 */
+            tvdbId: number;
+            /** Format: date-time */
+            updatedAt: string;
+            url: string;
+            /** Format: int64 */
+            year: number;
+        };
+        ContentManifestEntryCreate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ContentManifestEntryCreate.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            class: "educational" | "entertainment" | "mixed";
+            excludeEpisodes?: string[];
+            /** @enum {string} */
+            kind: "movie" | "series" | "youtube_channel" | "youtube_playlist" | "manual";
+            /** Format: int64 */
+            maxEpisodes?: number;
+            notes?: string;
+            /** Format: int64 */
+            priority?: number;
+            slug: string;
+            standardCodes?: string[];
+            subjectTags?: string[];
+            title: string;
+            /** Format: int64 */
+            tmdbId?: number;
+            /** Format: int64 */
+            tvdbId?: number;
+            url?: string;
+            /** Format: int64 */
+            year?: number;
+        };
+        ContentManifestEntryUpdate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ContentManifestEntryUpdate.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            class?: "educational" | "entertainment" | "mixed";
+            excludeEpisodes?: string[];
+            /** @enum {string} */
+            kind?: "movie" | "series" | "youtube_channel" | "youtube_playlist" | "manual";
+            lastError?: string;
+            /** Format: int64 */
+            maxEpisodes?: number;
+            notes?: string;
+            /** Format: int64 */
+            priority?: number;
+            standardCodes?: string[];
+            /** @enum {string} */
+            status?: "missing" | "present" | "failed" | "manual";
+            subjectTags?: string[];
+            title?: string;
+            /** Format: int64 */
+            tmdbId?: number;
+            /** Format: int64 */
+            tvdbId?: number;
+            url?: string;
+            /** Format: int64 */
+            year?: number;
+        };
         CopyWeekRequest: {
             /**
              * Format: uri
@@ -945,13 +1179,21 @@ export interface components {
             readonly $schema?: string;
             /** Format: date-time */
             expiresAt: string;
+            /**
+             * Format: int64
+             * @description Furthest playhead position this device has reached on the item. On-demand seek ceiling; zero when fresh.
+             */
+            furthestPositionSeconds: number;
             /** Format: uuid */
             grantId: string;
             /** @enum {string} */
             mode: "on_demand" | "programmed";
             /** Format: date-time */
             serverTime: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where the player should start. On demand this is resume-30s from the furthest position; programmed is the broadcast offset.
+             */
             startOffsetSeconds: number;
             streamUrl: string;
         };
@@ -1003,6 +1245,57 @@ export interface components {
              */
             watchedSeconds?: number;
         };
+        ManifestAttemptBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ManifestAttemptBody.json
+             */
+            readonly $schema?: string;
+            error?: string;
+        };
+        ManifestPresentBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ManifestPresentBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            presentAt?: string;
+        };
+        ManifestSyncBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ManifestSyncBody.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["ContentManifestEntryCreate"][] | null;
+        };
+        ManifestSyncResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/ManifestSyncResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Rows inserted.
+             */
+            created: number;
+            /**
+             * Format: int64
+             * @description Items in the request.
+             */
+            total: number;
+            /**
+             * Format: int64
+             * @description Rows whose desired-state fields changed.
+             */
+            updated: number;
+        };
         MediaItem: {
             /**
              * Format: uri
@@ -1013,17 +1306,21 @@ export interface components {
             audioCodec: string;
             /** @enum {string} */
             class: "educational" | "entertainment" | "mixed";
+            classificationLocked: boolean;
             container: string;
             /** Format: date-time */
             createdAt: string;
             directPlayOk: boolean;
+            episodeKey: string;
             /** Format: uuid */
             id: string;
             imageTag: string;
             jellyfinItemId: string;
+            manifestSlug: string;
             /** Format: date-time */
             orphanedAt?: string;
             overview: string;
+            overviewLocked: boolean;
             qualityNotes: string;
             /** Format: int64 */
             runtimeSeconds: number;
@@ -1031,9 +1328,13 @@ export interface components {
             standardCodes: string[] | null;
             subjectTags: string[] | null;
             title: string;
+            titleLocked: boolean;
             /** Format: date-time */
             updatedAt: string;
+            /** Format: date */
+            uploadDate?: string;
             videoCodec: string;
+            youtubeVideoId?: string;
         };
         MediaItemCreate: {
             /**
@@ -1047,8 +1348,11 @@ export interface components {
             class: "educational" | "entertainment" | "mixed";
             container?: string;
             directPlayOk?: boolean;
+            /** @description Ledger episode key, e.g. S01E007. */
+            episodeKey?: string;
             imageTag?: string;
             jellyfinItemId: string;
+            manifestSlug?: string;
             overview?: string;
             qualityNotes?: string;
             /** Format: int64 */
@@ -1057,7 +1361,11 @@ export interface components {
             standardCodes?: string[];
             subjectTags?: string[];
             title: string;
+            /** @description Upload calendar day as YYYY-MM-DD. */
+            uploadDate?: string;
             videoCodec?: string;
+            /** @description 11-char YouTube video id when known. */
+            youtubeVideoId?: string;
         };
         MediaItemUpdate: {
             /**
@@ -1071,7 +1379,9 @@ export interface components {
             class?: "educational" | "entertainment" | "mixed";
             container?: string;
             directPlayOk?: boolean;
+            episodeKey?: string;
             imageTag?: string;
+            manifestSlug?: string;
             /** Format: date-time */
             orphanedAt?: string;
             overview?: string;
@@ -1082,7 +1392,10 @@ export interface components {
             standardCodes?: string[];
             subjectTags?: string[];
             title?: string;
+            /** @description Upload calendar day as YYYY-MM-DD. */
+            uploadDate?: string;
             videoCodec?: string;
+            youtubeVideoId?: string;
         };
         MetricsResponse: {
             /**
@@ -1150,6 +1463,24 @@ export interface components {
              */
             readonly $schema?: string;
             items: components["schemas"]["AvailabilityWindow"][] | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total rows matching the query, ignoring pagination.
+             */
+            totalCount: number;
+        };
+        PageBodyContentManifestEntry: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example /api/v1/schemas/PageBodyContentManifestEntry.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["ContentManifestEntry"][] | null;
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -1956,6 +2287,428 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-content-manifest-entries": {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description Rows to skip. */
+                offset?: number;
+                /** @description Free-text search across the resource's searchable columns. */
+                q?: string;
+                /** @description Column to sort by (whitelisted per resource). */
+                sort?: string;
+                /** @description Sort direction. */
+                dir?: "asc" | "desc";
+                /** @description Exact-match filters as column:value pairs, e.g. filter=status:active. Repeatable. */
+                filter?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageBodyContentManifestEntry"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-content-manifest-entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContentManifestEntryCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentManifestEntry"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-content-manifest-entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentManifestEntry"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-content-manifest-entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-content-manifest-entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContentManifestEntryUpdate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentManifestEntry"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "record-content-manifest-attempt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stable curriculum slug (manifest item id). */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManifestAttemptBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentManifestEntry"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "mark-content-manifest-present": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stable curriculum slug (manifest item id). */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManifestPresentBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentManifestEntry"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "sync-content-manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManifestSyncBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManifestSyncResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2786,6 +3539,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ErrorModel"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -2909,7 +3671,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Entity ID. */
+                /** @description Media item ID. */
                 id: string;
             };
             cookie?: never;
@@ -2931,6 +3693,114 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Method Not Allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "ingest-media-item": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Media item ID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaItemUpdate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaItem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Method Not Allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

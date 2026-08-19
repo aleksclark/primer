@@ -794,9 +794,10 @@ func TestAdminKeyDoesNotBlockDeviceEndpoints(t *testing.T) {
 		"the admin key is not a device credential")
 }
 
-func TestAdminIsOpenWhenNoKeyIsConfigured(t *testing.T) {
+func TestAdminFailsClosedWhenAuthConfigured(t *testing.T) {
 	t.Parallel()
-	// Spec generation and a bare local checkout must keep working.
-	h, _, _ := tvtestutil.API(t)
-	assert.Equal(t, http.StatusOK, h.Get("/devices").Code)
+	// When admin key is configured, anonymous requests are rejected.
+	h, _, _ := tvtestutil.API(t, tvtestutil.Options{AdminKey: "enforced"})
+	assert.Equal(t, http.StatusUnauthorized, h.Get("/devices").Code,
+		"admin API rejects anonymous when key is configured")
 }
