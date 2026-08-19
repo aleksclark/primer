@@ -252,7 +252,11 @@ func publishRevision(ctx context.Context, q Querier, id uuid.UUID, subjectRef st
 	if _, e := q.Exec(ctx, `UPDATE curriculum_studio.curricula SET status='active',published_revision_id=$2,current_draft_revision_id=NULL,updated_at=now() WHERE id=$1`, curriculumID, id); e != nil {
 		return e
 	}
-	_, e := q.Exec(ctx, `INSERT INTO curriculum_studio.outbox_events(workspace_id,event_type,aggregate_kind,aggregate_id,payload) VALUES($1,'plan_revision.published','plan_revision',$2,$3)`, workspaceID, id, json.RawMessage(fmt.Sprintf(`{"revision_id":%q}`, id.String())))
+	payload := json.RawMessage(fmt.Sprintf(`{"revision_id":%q}`, id.String()))
+	if _, e := q.Exec(ctx, `INSERT INTO curriculum_studio.outbox_events(workspace_id,event_type,aggregate_kind,aggregate_id,payload) VALUES($1,'plan_revision.published','plan_revision',$2,$3)`, workspaceID, id, payload); e != nil {
+		return e
+	}
+	_, e := q.Exec(ctx, `INSERT INTO curriculum_studio.audit_events(workspace_id,actor_subject_ref,action,entity_kind,entity_id,before,after) VALUES($1,$2,'plan_revision.published','plan_revision',$3,'{}'::jsonb,$4)`, workspaceID, subjectRef, id, payload)
 	return e
 }
 func (r *PlanRevisionRepo) Supersede(ctx context.Context, workspaceID, id uuid.UUID) error {

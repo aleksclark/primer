@@ -77,6 +77,12 @@ func (f *Factory) WebhookDeliveries() *WebhookDeliveryRepo { return NewWebhookDe
 // IdempotencyKeys returns inbound idempotency persistence.
 func (f *Factory) IdempotencyKeys() *IdempotencyRepo { return NewIdempotencyRepo(f.Q) }
 
+// Retention returns operational-row retention persistence.
+func (f *Factory) Retention() *RetentionRepo { return NewRetentionRepo(f.Q) }
+
+// Metrics returns DB-layer operational metrics queries.
+func (f *Factory) Metrics() *MetricsRepo { return NewMetricsRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}

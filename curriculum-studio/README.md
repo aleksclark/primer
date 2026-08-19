@@ -117,6 +117,22 @@ Postgres is **mandatory** for durable Studio state. There is no in-memory produc
 repository path. Integration tests use real PostgreSQL via testcontainers or
 `STUDIO_TEST_DATABASE_URL` only (never ambient bare `TEST_DATABASE_URL` / LMS DSN).
 
+## Operations (D12)
+
+- `make studio-test` runs the complete module suite.
+- `make studio-db-pytest` runs the real-Postgres/schema Python suite.
+- Root `make studio-cover` enforces the repository `COVER_MIN` gate (85%; never lower).
+- `go run ./cmd/retention -workspace <uuid> -dry-run=true` reports eligible
+  operational rows; deletion requires an explicit `-dry-run=false`.
+- `make studio-backup-drill` runs the disposable `pg_dump`/`pg_restore` drill
+  with `STUDIO_BACKUP_DSN` and `STUDIO_RESTORE_DSN`.
+
+Operational dashboards should expose migration version, oldest unpublished
+outbox age, pending/failed webhook deliveries, and expired workflow leases.
+Runbooks require redaction of snapshot/PII fields and never store credentials
+or provider tokens in audit rows or backup logs. See
+[`db/runbooks/backup-restore.md`](db/runbooks/backup-restore.md).
+
 ```bash
 cd curriculum-studio
 go test ./internal/db/... ./internal/repo/... ./internal/testutil/... -count=1
