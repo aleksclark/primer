@@ -17,6 +17,22 @@ android { namespace="com.aleksclark.primertasks"; compileSdk=35
 
 private fun String.quoteForBuildConfig(): String = "\"${replace("\"", "\\\\\"")}\""
 
+val assertRequiredManifestPermissions by tasks.registering {
+    doLast {
+        val manifest = file("src/main/AndroidManifest.xml").readText()
+        check("android.permission.CAMERA" in manifest) {
+            "The Tasks APK must declare CAMERA for the primary CameraX pairing path"
+        }
+        check("android.permission.INTERNET" in manifest) {
+            "The Tasks APK must declare INTERNET for the real pairing API path"
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(assertRequiredManifestPermissions)
+}
+
 dependencies {
  implementation("androidx.core:core-ktx:1.13.1"); implementation("androidx.activity:activity-compose:1.9.3")
  implementation(platform("androidx.compose:compose-bom:2024.10.01")); implementation("androidx.compose.ui:ui"); implementation("androidx.compose.ui:ui-tooling-preview"); implementation("androidx.compose.material3:material3")
