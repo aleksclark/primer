@@ -726,7 +726,16 @@ func (m *scriptedParentModel) Stream(ctx context.Context, call fantasy.Call) (fa
 		}
 		return scriptedStream(ctx, "Please clarify which student you mean; I will not guess."), nil
 	}
-	if strings.Contains(lower, "retire") || strings.Contains(lower, "disable") {
+	if strings.Contains(lower, "disable") || strings.Contains(lower, "cancel schedule") {
+		if m.calls == 1 {
+			return scriptedToolStream(ctx, "list_schedules", `{"includeDisabled":false,"limit":20}`), nil
+		}
+		if m.calls == 2 {
+			return scriptedToolStream(ctx, "preview_action", scriptedSchedulePreviewInput(call)), nil
+		}
+		return scriptedStream(ctx, "I prepared a server preview. No destructive change was made without your confirmation."), nil
+	}
+	if strings.Contains(lower, "retire") {
 		if m.calls == 1 {
 			return scriptedToolStream(ctx, "list_tasks", `{"query":"","limit":20}`), nil
 		}
@@ -808,6 +817,28 @@ func scriptedScheduleInput(call fantasy.Call) string {
 	revisionID, _ := task["id"].(string)
 	return fmt.Sprintf(`{"studentId":%q,"studentName":"","templateId":%q,"revisionId":%q,"kind":"one_off","timezone":"UTC","startAt":%q,"rrule":"","dueOffsetMinutes":0}`, id, templateID, revisionID, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339))
 }
+func scriptedSchedulePreviewInput(call fantasy.Call) string {
+	schedules := toolResultJSON(call, "list_schedules")
+	id, version := "", 1
+	if items, ok := schedules["items"].([]any); ok {
+		for _, item := range items {
+			row, rowOK := item.(map[string]any)
+			if !rowOK {
+				continue
+			}
+			if enabled, _ := row["enabled"].(bool); !enabled {
+				continue
+			}
+			id, _ = row["id"].(string)
+			if n, ok := row["version"].(float64); ok {
+				version = int(n)
+			}
+			break
+		}
+	}
+	return fmt.Sprintf(`{"kind":"disable_schedule","targetIds":[%q],"payload":{"expectedVersion":%d},"summary":"Disable schedule"}`, id, version)
+}
+
 func scriptedPreviewInput(call fantasy.Call) string {
 	tasks := toolResultJSON(call, "list_tasks")
 	id, _ := tasks["id"].(string)
