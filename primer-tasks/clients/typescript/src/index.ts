@@ -25,6 +25,8 @@ export type {
   AgentUnsubscribeCommand,
 } from "./agent-protocol";
 export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client";
+export { STUDENT_DIALOGUE_PROTOCOL_VERSION, parseStudentDialogueEvent } from "./student-dialogue-protocol";
+export type { StudentDialogueCommand, StudentDialogueEvent } from "./student-dialogue-protocol";
 export { createDialogueClient } from "./dialogue-client";
 export type {
   AgentClient,
