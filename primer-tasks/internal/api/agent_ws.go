@@ -279,7 +279,8 @@ func (s *Server) agentMessage(ctx context.Context, sc scope, cmd agentCommand) {
 	var sequence int64
 	_ = s.DB.QueryRow(ctx, `SELECT COALESCE(max(sequence),0)+1 FROM agent_messages WHERE tenant_id=$1 AND conversation_id=$2`, sc.Tenant, cmd.ConversationID).Scan(&sequence)
 	repo := agent.NewPostgresRepository(s.DB)
-	message, inserted, err := repo.AppendUserMessage(ctx, agent.Message{ID: uuid.NewString(), TenantID: sc.Tenant, ConversationID: cmd.ConversationID, ClientMessageID: cmd.ClientMessageID, Content: strings.TrimSpace(cmd.Text), Sequence: sequence})
+	now := time.Now().UTC()
+	message, inserted, err := repo.AppendUserMessage(ctx, agent.Message{ID: uuid.NewString(), TenantID: sc.Tenant, ConversationID: cmd.ConversationID, ClientMessageID: cmd.ClientMessageID, Content: strings.TrimSpace(cmd.Text), Sequence: sequence, CreatedAt: now})
 	if err != nil {
 		return
 	}
@@ -292,7 +293,7 @@ func (s *Server) agentMessage(ctx context.Context, sc scope, cmd agentCommand) {
 		cfg = parent.ProviderConfig{Mode: parent.ProviderDisabled, MaxSteps: 12, MaxTokens: 4096, MaxDuration: 120 * time.Second, MaxRetries: 0}
 	}
 	digest := sha256.Sum256([]byte(message.Content))
-	run := agent.Run{ID: runID, TenantID: sc.Tenant, ConversationID: cmd.ConversationID, UserMessageID: message.ID, Status: agent.RunQueued, MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: time.Now().UTC().Add(cfg.MaxDuration), Provenance: agent.Provenance{Provider: string(cfg.Mode), PolicyVersion: "parent.v1", PromptDigest: hex.EncodeToString(digest[:])}}
+	run := agent.Run{ID: runID, TenantID: sc.Tenant, ConversationID: cmd.ConversationID, UserMessageID: message.ID, Status: agent.RunQueued, MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: now.Add(cfg.MaxDuration), CreatedAt: now, Provenance: agent.Provenance{Provider: string(cfg.Mode), PolicyVersion: "parent.v1", PromptDigest: hex.EncodeToString(digest[:])}}
 	if err := repo.CreateRun(ctx, run); err != nil {
 		return
 	}
