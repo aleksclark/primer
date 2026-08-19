@@ -323,10 +323,12 @@ func (s *Server) humaAPI() huma.API {
 	})
 
 	s.registerPhase2(api)
+	s.registerDialogueRoutes(api)
 	// WebSocket transport is an owned protocol adapter, not an OpenAPI
 	// operation. It shares this production router so offline REST emission and
 	// runtime routes cannot drift.
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
+	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))
 	return api
 }
 
