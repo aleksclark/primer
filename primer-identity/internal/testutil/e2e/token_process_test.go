@@ -444,7 +444,7 @@ func TestProcessTokenConcurrencyReplayBindingsAndUnsupportedGrants(t *testing.T)
 	credsResp := postProcessToken(t, freshSrv.baseURL, creds, nil)
 	credsStatus, credsBody, _ := readJSON(t, credsResp)
 	assert.Equal(t, http.StatusBadRequest, credsStatus)
-	assert.Equal(t, oauth.ErrorUnsupportedGrantType, credsBody["error"])
+	assert.Equal(t, oauth.ErrorInvalidRequest, credsBody["error"])
 }
 
 func TestProcessTokenMetadataPublishesRevokeAndReadyRequiresKeyBootstrap(t *testing.T) {

@@ -159,7 +159,7 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 		}
 		return out, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "createCurriculum", Method: http.MethodPost, Path: "/studio/v1/workspaces/{workspaceId}/curricula", Tags: []string{"Curricula"}, DefaultStatus: http.StatusCreated}, func(ctx context.Context, in *createCurriculumInput) (*curriculumResponse, error) {
+	huma.Register(api, huma.Operation{OperationID: "create-curriculum", Method: http.MethodPost, Path: "/studio/v1/workspaces/{workspaceId}/curricula", Tags: []string{"Curricula"}, DefaultStatus: http.StatusCreated}, func(ctx context.Context, in *createCurriculumInput) (*curriculumResponse, error) {
 		ws, m, err := workspaceIDFromPathForServer(s, ctx, in.WorkspaceID)
 		if err != nil {
 			return nil, huma.Error404NotFound("not found")

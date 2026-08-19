@@ -72,7 +72,12 @@ func NewMinter(source SignerSource, issuer string, clock Clock) (*Minter, error)
 
 // IssueHuman signs a human access token, then invokes persist before returning it.
 func (m *Minter) IssueHuman(ctx context.Context, in HumanInput, persist PersistFunc) (IssuedToken, error) {
-	return m.finishIssue(ctx, in, persist, nil, nil)
+	return m.finishIssue(ctx, in, persist, nil, nil, false)
+}
+
+// IssueServiceWithSigner issues a service token using the caller's transaction-bound signer.
+func (m *Minter) IssueServiceWithSigner(ctx context.Context, in ServiceInput, signer Signer, meta *domain.SigningKey, persist PersistFunc) (IssuedToken, error) {
+	return m.finishIssue(ctx, HumanInput{Subject: in.Subject, Audience: in.Audience, ClientID: in.ClientID, Scope: in.Scope, TTL: in.TTL, GrantNotAfter: in.GrantNotAfter}, persist, signer, meta, true)
 }
 
 // IssueHumanWithSigner signs with an already-prepared signer and metadata.
@@ -82,14 +87,14 @@ func (m *Minter) IssueHumanWithSigner(ctx context.Context, in HumanInput, signer
 	if signer == nil || meta == nil {
 		return IssuedToken{}, denyUnavailable()
 	}
-	return m.finishIssue(ctx, in, persist, signer, meta)
+	return m.finishIssue(ctx, in, persist, signer, meta, false)
 }
 
-func (m *Minter) finishIssue(ctx context.Context, in HumanInput, persist PersistFunc, signer Signer, meta *domain.SigningKey) (IssuedToken, error) {
+func (m *Minter) finishIssue(ctx context.Context, in HumanInput, persist PersistFunc, signer Signer, meta *domain.SigningKey, service bool) (IssuedToken, error) {
 	if persist == nil {
 		return IssuedToken{}, denyUnavailable()
 	}
-	issued, err := m.issueHuman(ctx, in, signer, meta)
+	issued, err := m.issueHuman(ctx, in, signer, meta, service)
 	if err != nil {
 		return IssuedToken{}, err
 	}
@@ -102,7 +107,7 @@ func (m *Minter) finishIssue(ctx context.Context, in HumanInput, persist Persist
 	return issued, nil
 }
 
-func (m *Minter) issueHuman(ctx context.Context, in HumanInput, prepared Signer, preparedMeta *domain.SigningKey) (IssuedToken, error) {
+func (m *Minter) issueHuman(ctx context.Context, in HumanInput, prepared Signer, preparedMeta *domain.SigningKey, service bool) (IssuedToken, error) {
 	if m == nil || m.source == nil {
 		return IssuedToken{}, denyUnavailable()
 	}
@@ -121,7 +126,11 @@ func (m *Minter) issueHuman(ctx context.Context, in HumanInput, prepared Signer,
 	if _, err := freshness.sample(0, false); err != nil {
 		return IssuedToken{}, err
 	}
-	if err := requireHumanSubject(in.Subject); err != nil {
+	if service {
+		if err := requireServiceSubject(in.Subject); err != nil {
+			return IssuedToken{}, err
+		}
+	} else if err := requireHumanSubject(in.Subject); err != nil {
 		return IssuedToken{}, err
 	}
 	if err := requireAudience(in.Audience); err != nil {

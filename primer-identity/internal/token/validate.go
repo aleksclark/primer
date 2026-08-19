@@ -259,18 +259,18 @@ func requireHumanSubject(value string) error {
 	return requireUUID(value)
 }
 
+func requireServiceSubject(value string) error {
+	if !strings.HasPrefix(value, "identity:svc:") || strings.TrimPrefix(value, "identity:svc:") == "" {
+		return denyInvalid()
+	}
+	return boundedUTF8("sub", value, maxServiceSubject)
+}
+
 func classifySubject(value string) (Kind, error) {
 	if requireUUID(value) == nil {
 		return KindHuman, nil
 	}
-	if strings.HasPrefix(value, "identity:svc:") {
-		rest := strings.TrimPrefix(value, "identity:svc:")
-		if err := boundedUTF8("sub", value, maxServiceSubject); err != nil {
-			return "", err
-		}
-		if rest == "" {
-			return "", denyInvalid()
-		}
+	if requireServiceSubject(value) == nil {
 		return KindService, nil
 	}
 	return "", denyInvalid()

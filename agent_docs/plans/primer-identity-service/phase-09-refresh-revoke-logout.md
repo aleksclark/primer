@@ -1,6 +1,6 @@
 # 09: IB5 / Primer-owned service principals
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: IMPLEMENTATION PRESENT at commit `ce3c17c`.** The IB0 exact-tip design review passed at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical/Important/Minor findings; the former dependency STOP is cleared. Credential-free service-principal tables, hashed credentials, `client_credentials`, service JWT claims, scope/resource/audience bounds, no-refresh issuance, and OpenAPI/client parity are implemented and tested. This wave must still receive a fresh exact-tip security review before any production service-token or BFF/MCP claim.
 
 ## Goal
 

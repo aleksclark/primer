@@ -117,7 +117,7 @@ func CheckIdentityOpenAPIPolicy(spec []byte) error {
 			return fmt.Errorf("openapi policy: forbidden schema %s", needle)
 		}
 	}
-	for _, needle := range []string{"client_credentials", "grant_type: refresh_token"} {
+	for _, needle := range []string{"grant_type: refresh_token"} {
 		if strings.Contains(raw, needle) {
 			return fmt.Errorf("openapi policy: forbidden surface %s", needle)
 		}
