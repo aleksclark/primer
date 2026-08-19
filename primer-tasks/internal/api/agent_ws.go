@@ -284,7 +284,6 @@ func (s *Server) agentMessage(ctx context.Context, sc scope, cmd agentCommand) {
 	}
 	runID := uuid.NewString()
 	if !inserted {
-		_ = s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "user_message", ProtocolVersion: agentProtocolVersion, ConversationID: cmd.ConversationID, ClientMessageID: message.ClientMessageID, MessageID: message.ID, Text: message.Content, TenantID: sc.Tenant})
 		return
 	}
 	cfg, cfgErr := parent.LoadProviderConfig()
@@ -298,7 +297,6 @@ func (s *Server) agentMessage(ctx context.Context, sc scope, cmd agentCommand) {
 	}
 	jobRepo := jobsRepository(s.DB)
 	_ = jobRepo.Enqueue(ctx, jobRecord(runID, sc.Tenant, cfg.MaxRetries+1))
-	s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "user_message", ProtocolVersion: agentProtocolVersion, ConversationID: cmd.ConversationID, RunID: runID, ClientMessageID: message.ClientMessageID, MessageID: message.ID, Text: message.Content, TenantID: sc.Tenant})
 }
 
 func jobRecord(runID, tenant string, attempts int) jobs.Job {
@@ -421,7 +419,6 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunRunning, run.DurableStep, run.Usage)
-	_ = s.emitAgent(ctx, job.TenantID, conversation, job.RunID, wireAgentEvent{Type: "run_status", Status: "running"})
 	execution, err := rt.Execute(context.Background(), job.RunID, prompt, func(event agentprotocol.Event) error {
 		return s.emitProtocolEvent(ctx, job.TenantID, conversation, event)
 	})
