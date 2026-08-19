@@ -42,16 +42,7 @@ import androidx.core.content.ContextCompat
 import com.aleksclark.primertasks.client.ChecklistItem
 import com.aleksclark.primertasks.client.TasksClient
 import com.aleksclark.primertasks.client.TasksHttpException
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.NotFoundException
-import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.common.HybridBinarizer
 import kotlinx.coroutines.launch
-import java.nio.ByteBuffer
-import java.util.EnumMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -230,6 +221,8 @@ private fun CameraQrScanner(onQr: (String) -> Unit, modifier: Modifier = Modifie
             val provider = providerFuture.get()
             val cameraPreview = Preview.Builder().build().also { it.surfaceProvider = preview.surfaceProvider }
             val analysis = ImageAnalysis.Builder()
+                // Decode the actual packed CameraX frame instead of assuming a tightly packed Y plane.
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             val mainExecutor = ContextCompat.getMainExecutor(context)
@@ -247,69 +240,38 @@ private fun CameraQrScanner(onQr: (String) -> Unit, modifier: Modifier = Modifie
 }
 
 private class QrAnalyzer(private val onQr: (String) -> Unit) : ImageAnalysis.Analyzer {
-    private val hints = EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
-        put(DecodeHintType.POSSIBLE_FORMATS, listOf(BarcodeFormat.QR_CODE))
-        put(DecodeHintType.TRY_HARDER, true)
-        put(DecodeHintType.ALSO_INVERTED, true)
-    }
-    private val reader = MultiFormatReader().apply { setHints(hints) }
     private val delivered = AtomicBoolean(false)
 
     override fun analyze(image: ImageProxy) {
         try {
             if (!delivered.get()) {
-                val source = image.source()
-                val result = runCatching { reader.decode(BinaryBitmap(HybridBinarizer(source))) }
-                    .recoverCatching { reader.reset(); reader.decode(BinaryBitmap(com.google.zxing.common.GlobalHistogramBinarizer(source))) }
-                    .getOrThrow()
-                if (delivered.compareAndSet(false, true)) onQr(result.text)
+                val plane = image.planes.singleOrNull()
+                if (plane != null) {
+                    // Copy the complete plane from offset zero. Decoder offsets are based on
+                    // CameraX's row/pixel stride and crop metadata, not ByteBuffer's current cursor.
+                    val buffer = plane.buffer.duplicate().apply { position(0) }
+                    val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
+                    val crop = image.cropRect
+                    val text = QrFrameDecoder.decode(
+                        RgbaFrame(
+                            bytes = bytes,
+                            width = crop.width(),
+                            height = crop.height(),
+                            rowStride = plane.rowStride,
+                            pixelStride = plane.pixelStride,
+                            cropLeft = crop.left,
+                            cropTop = crop.top,
+                        ),
+                        image.imageInfo.rotationDegrees,
+                    )
+                    if (text != null && delivered.compareAndSet(false, true)) onQr(text)
+                }
             }
-        } catch (_: NotFoundException) {
-            reader.reset()
         } catch (_: Exception) {
-            reader.reset()
+            // Frames can be closed or malformed while the camera is rebinding. Drop only this frame.
         } finally {
             image.close()
         }
-    }
-
-    private fun ImageProxy.source(): PlanarYUVLuminanceSource {
-        val plane = planes.first().buffer
-        val data = plane.toLumaBytes(width, height, planes.first().rowStride, planes.first().pixelStride)
-        val rotated = rotate(data, width, height, imageInfo.rotationDegrees)
-        val rotatedWidth = if (imageInfo.rotationDegrees == 90 || imageInfo.rotationDegrees == 270) height else width
-        val rotatedHeight = if (imageInfo.rotationDegrees == 90 || imageInfo.rotationDegrees == 270) width else height
-        return PlanarYUVLuminanceSource(rotated, rotatedWidth, rotatedHeight, 0, 0, rotatedWidth, rotatedHeight, false)
-    }
-
-    private fun ByteBuffer.toLumaBytes(width: Int, height: Int, rowStride: Int, pixelStride: Int): ByteArray {
-        val copy = duplicate()
-        val result = ByteArray(width * height)
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                result[y * width + x] = copy.get(y * rowStride + x * pixelStride)
-            }
-        }
-        return result
-    }
-
-    private fun rotate(input: ByteArray, width: Int, height: Int, degrees: Int): ByteArray = when (degrees) {
-        90 -> ByteArray(input.size) { index ->
-            val x = index % height
-            val y = index / height
-            input[(height - 1 - x) * width + y]
-        }
-        180 -> ByteArray(input.size) { index ->
-            val x = index % width
-            val y = index / width
-            input[(height - 1 - y) * width + (width - 1 - x)]
-        }
-        270 -> ByteArray(input.size) { index ->
-            val x = index % height
-            val y = index / height
-            input[x * width + (width - 1 - y)]
-        }
-        else -> input
     }
 }
 
