@@ -73,6 +73,20 @@ func TestAgentWSOriginCSRFDisabledRunAndSafeTerminal(t *testing.T) {
 	if err := wsjson.Read(context.Background(), conn, &hello); err != nil || hello.Type != "hello" || hello.ProtocolVersion != agentProtocolVersion || hello.ConnectionID == "" {
 		t.Fatalf("hello=%+v err=%v", hello, err)
 	}
+	if err := wsjson.Write(context.Background(), conn, agentCommand{Type: "hello", ProtocolVersion: agentProtocolVersion + 1}); err != nil {
+		t.Fatal(err)
+	}
+	var protocolError wireAgentEvent
+	if err := wsjson.Read(context.Background(), conn, &protocolError); err != nil || protocolError.Type != "error" || protocolError.Code != "protocol_version" {
+		t.Fatalf("protocol error=%+v err=%v", protocolError, err)
+	}
+	if err := wsjson.Write(context.Background(), conn, agentCommand{Type: "unknown", ProtocolVersion: agentProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	var unknownError wireAgentEvent
+	if err := wsjson.Read(context.Background(), conn, &unknownError); err != nil || unknownError.Type != "error" || unknownError.Code != "unknown_command" {
+		t.Fatalf("unknown error=%+v err=%v", unknownError, err)
+	}
 	if err := wsjson.Write(context.Background(), conn, agentCommand{Type: "subscribe", ProtocolVersion: agentProtocolVersion, ConversationID: conversation.ID, Cursor: 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +123,14 @@ func TestAgentWSOriginCSRFDisabledRunAndSafeTerminal(t *testing.T) {
 	}
 	if terminal.Status != "disabled" || terminal.Code != "" || terminal.Text == "" || containsAny(terminal.Text, "reasoning", "secret", "api_key", "authorization") {
 		t.Fatalf("unsafe/incorrect disabled terminal=%+v", terminal)
+	}
+	for _, command := range []agentCommand{
+		{Type: "cancel", ProtocolVersion: agentProtocolVersion, RunID: runID},
+		{Type: "unsubscribe", ProtocolVersion: agentProtocolVersion, ConversationID: conversation.ID},
+		{Type: "ack", ProtocolVersion: agentProtocolVersion, Cursor: terminal.Cursor},
+	} {
+		if err := wsjson.Write(context.Background(), conn, command); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

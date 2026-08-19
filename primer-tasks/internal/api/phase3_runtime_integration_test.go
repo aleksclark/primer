@@ -35,6 +35,19 @@ func TestPostgresAgentRepositoryTransitionsLeasesReplayRestartAndConfirm(t *test
 	if err := store.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenant, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "parent.v1", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
+	conversation, err := store.GetConversation(ctx, tenant, conversationID)
+	if err != nil || conversation.ActorID != "parent-a" {
+		t.Fatalf("conversation=%+v err=%v", conversation, err)
+	}
+	if _, err = store.GetConversation(ctx, tenantB, conversationID); !errors.Is(err, agent.ErrNotFound) {
+		t.Fatalf("foreign conversation=%v", err)
+	}
+	if err = store.AppendMessage(ctx, agent.Message{ID: uuid.NewString(), TenantID: tenant, ConversationID: conversationID, Role: agent.RoleUser, Content: "wrong API", Sequence: 99}); err == nil {
+		t.Fatal("user message bypassed idempotent append")
+	}
+	if err = store.AppendMessage(ctx, agent.Message{ID: uuid.NewString(), TenantID: tenant, ConversationID: conversationID, Role: agent.RoleAssistant, Content: "assistant", Sequence: 2}); err != nil {
+		t.Fatal(err)
+	}
 	message, inserted, err := store.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenant, ConversationID: conversationID, ClientMessageID: "client-retry", Content: "list students", Sequence: 1, CreatedAt: now})
 	if err != nil || !inserted || message.ID != messageID {
 		t.Fatalf("first message=%+v inserted=%v err=%v", message, inserted, err)
@@ -42,6 +55,9 @@ func TestPostgresAgentRepositoryTransitionsLeasesReplayRestartAndConfirm(t *test
 	duplicate, inserted, err := store.AppendUserMessage(ctx, agent.Message{ID: uuid.NewString(), TenantID: tenant, ConversationID: conversationID, ClientMessageID: "client-retry", Content: "different text", Sequence: 9})
 	if err != nil || inserted || duplicate.ID != messageID || duplicate.Content != "list students" {
 		t.Fatalf("idempotent retry=%+v inserted=%v err=%v", duplicate, inserted, err)
+	}
+	if err := store.CreateRun(ctx, agent.Run{ID: uuid.NewString(), TenantID: tenant, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 0, MaxTokens: 1, Deadline: now.Add(time.Hour)}); err == nil {
+		t.Fatal("invalid run limits accepted by repository")
 	}
 	run := agent.Run{ID: runID, TenantID: tenant, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 4, MaxTokens: 100, Deadline: now.Add(time.Hour), Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "parent.v1", PromptDigest: "digest"}, CreatedAt: now}
 	if err := store.CreateRun(ctx, run); err != nil {
@@ -299,6 +315,17 @@ func TestParentToolsUseTenantScopedDomainServicesAndSQLConfirmation(t *testing.T
 	}
 	if _, err = tools.ConfirmAction(ctx, a, parent.ConfirmActionInput{Handle: expiredPreview.Handle, Action: expiredPreview.Action}); !errors.Is(err, parent.ErrConfirmationExpired) {
 		t.Fatalf("expired confirmation=%v", err)
+	}
+	corruptPreview, err := tools.PreviewAction(ctx, a, parent.RetireTaskAction(staleDraft.ID, staleDraft.Version+1), "Corrupt this preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE parent_confirmation_previews SET action='[]'::jsonb WHERE id=$1`, corruptPreview.ID); err != nil {
+		t.Fatal(err)
+	}
+	corruptStore := &parent.SQLConfirmationStore{DB: pool}
+	if _, err = corruptStore.Consume(ctx, corruptPreview.Handle, tenantA, "parent-a", corruptPreview.ActionDigest); !errors.Is(err, parent.ErrConfirmationRejected) {
+		t.Fatalf("corrupt confirmation=%v", err)
 	}
 
 	// The service, not the tool input, supplies the student tenant boundary.

@@ -83,6 +83,9 @@ func TestEventLogPersistsBeforePublishingAndRejectsBadEvents(t *testing.T) {
 }
 
 func TestHubReplayCursorAndSlowSubscriberAreBounded(t *testing.T) {
+	if NewHub(0).max != 1 {
+		t.Fatal("hub did not clamp zero queue")
+	}
 	h := NewHub(2)
 	replay := func(_ context.Context, after int64, limit int) ([]protocol.Event, error) {
 		if after != 1 || limit != 2 {
