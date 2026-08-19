@@ -15,9 +15,9 @@ import (
 	"github.com/aleksclark/primer/server/internal/studentclient/contracts"
 )
 
-func registerParentCourse(h huma.API, q repo.Querier) {
+func registerParentCourse(h huma.API, q repo.Querier, opts Options) {
 	// Publish course document (JSON body) as an immutable curriculum revision.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "publish-course-document",
 		Method:        http.MethodPost,
 		Path:          "/courses/publish",
@@ -41,7 +41,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Publish course from a server-local path (admin convenience for basic_linux).
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "publish-course-path",
 		Method:        http.MethodPost,
 		Path:          "/courses/publish-path",
@@ -79,7 +79,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// List curriculum revisions.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-curriculum-revisions",
 		Method:      http.MethodGet,
 		Path:        "/curriculum-revisions",
@@ -105,7 +105,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Enroll student in a course revision (extends enrollments).
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "enroll-student-course",
 		Method:        http.MethodPost,
 		Path:          "/students/{id}/enrollments",
@@ -166,7 +166,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Pause enrollment.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "pause-enrollment",
 		Method:      http.MethodPost,
 		Path:        "/enrollments/{id}/pause",
@@ -186,7 +186,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Resume enrollment.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "resume-enrollment",
 		Method:      http.MethodPost,
 		Path:        "/enrollments/{id}/resume",
@@ -206,7 +206,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Pin next activity.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "pin-enrollment-activity",
 		Method:      http.MethodPost,
 		Path:        "/enrollments/{id}/pin",
@@ -227,7 +227,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Override prerequisite for a slug.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "override-enrollment-prereq",
 		Method:      http.MethodPost,
 		Path:        "/enrollments/{id}/override",
@@ -248,7 +248,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Eligibility preview / course map.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "enrollment-eligibility",
 		Method:      http.MethodGet,
 		Path:        "/enrollments/{id}/eligibility",
@@ -266,7 +266,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// Enrollment progress (alias of eligibility with lighter name for parents).
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "enrollment-progress",
 		Method:      http.MethodGet,
 		Path:        "/enrollments/{id}/progress",
@@ -284,7 +284,7 @@ func registerParentCourse(h huma.API, q repo.Querier) {
 	})
 
 	// List audit events.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-enrollment-audit",
 		Method:      http.MethodGet,
 		Path:        "/enrollments/{id}/audit",

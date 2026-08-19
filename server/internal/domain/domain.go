@@ -10,13 +10,14 @@ import "time"
 // Educator is a parent or administrator who manages the system.
 // PasswordHash is never serialized; it is loaded only for authentication.
 type Educator struct {
-	ID           string    `json:"id" db:"id" format:"uuid"`
-	Email        string    `json:"email" db:"email" format:"email"`
-	Name         string    `json:"name" db:"name"`
-	Role         string    `json:"role" db:"role" enum:"parent,admin,tutor"`
-	PasswordHash string    `json:"-" db:"password_hash"`
-	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
-	UpdatedAt    time.Time `json:"updatedAt" db:"updated_at"`
+	ID              string    `json:"id" db:"id" format:"uuid"`
+	Email           string    `json:"email" db:"email" format:"email"`
+	Name            string    `json:"name" db:"name"`
+	Role            string    `json:"role" db:"role" enum:"parent,admin,tutor"`
+	PasswordHash    string    `json:"-" db:"password_hash"`
+	IdentitySubject *string   `json:"identitySubject,omitempty" db:"identity_subject"`
+	CreatedAt       time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt       time.Time `json:"updatedAt" db:"updated_at"`
 }
 
 // ParentSession is a server-side parent/admin login session.

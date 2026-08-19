@@ -127,3 +127,45 @@ func DeleteParentSession(ctx context.Context, q Querier, token string) error {
 	}
 	return nil
 }
+
+// EducatorByIdentitySubject looks up an educator by their Primer Identity
+// subject (the JWT sub claim). Returns ErrNotFound when no educator is linked
+// to that subject. This is the Primer JWT path of the dual-login guard.
+func EducatorByIdentitySubject(ctx context.Context, q Querier, subject string) (*domain.Educator, error) {
+	if subject == "" {
+		return nil, ErrNotFound
+	}
+	const sqlStr = `
+SELECT id, email, name, role, password_hash, created_at, updated_at
+FROM educators WHERE identity_subject = $1`
+	rows, err := q.Query(ctx, sqlStr, subject)
+	if err != nil {
+		return nil, fmt.Errorf("query educator by identity subject: %w", err)
+	}
+	ed, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByNameLax[domain.Educator])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("scan educator: %w", err)
+	}
+	return &ed, nil
+}
+
+// LinkEducatorIdentity sets the identity_subject for an educator, binding them
+// to a Primer Identity account. This is an admin/migration operation.
+func LinkEducatorIdentity(ctx context.Context, q Querier, educatorID, subject string) error {
+	if subject == "" {
+		return fmt.Errorf("identity subject must not be empty")
+	}
+	tag, err := q.Exec(ctx,
+		`UPDATE educators SET identity_subject = $2, updated_at = now() WHERE id = $1`,
+		educatorID, subject)
+	if err != nil {
+		return fmt.Errorf("link educator identity: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

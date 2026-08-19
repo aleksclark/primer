@@ -191,7 +191,7 @@ func registerArtifactsAndImport(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Parent: promote artifact to portfolio / fixture bundle.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "promote-artifact",
 		Method:        http.MethodPost,
 		Path:          "/portfolio/promote",
@@ -224,7 +224,7 @@ func registerArtifactsAndImport(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Parent: list portfolio.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "list-student-portfolio",
 		Method:      http.MethodGet,
 		Path:        "/students/{id}/portfolio",
@@ -244,7 +244,7 @@ func registerArtifactsAndImport(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Parent: bind continuity on an assignment.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "bind-assignment-continuity",
 		Method:        http.MethodPost,
 		Path:          "/assignments/{id}/continuity",
@@ -269,7 +269,7 @@ func registerArtifactsAndImport(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Curriculum import plan (read-only).
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID: "curriculum-import-plan",
 		Method:      http.MethodPost,
 		Path:        "/curriculum/import/plan",
@@ -302,7 +302,7 @@ func registerArtifactsAndImport(h huma.API, q repo.Querier, opts Options) {
 	})
 
 	// Curriculum import apply-by-digest.
-	huma.Register(h, parentOp(h, q, huma.Operation{
+	huma.Register(h, parentOpWith(h, q, opts, huma.Operation{
 		OperationID:   "curriculum-import-apply",
 		Method:        http.MethodPost,
 		Path:          "/curriculum/import/apply",

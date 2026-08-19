@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
+
+	"github.com/aleksclark/primer/server/internal/identityauth"
 )
 
 // Config holds all runtime configuration, populated from the environment.
@@ -50,6 +52,17 @@ type Config struct {
 	AgentRuntimeAPIKey    string        `envconfig:"AGENT_RUNTIME_API_KEY" default:""`
 	AgentRuntimeModel     string        `envconfig:"AGENT_RUNTIME_MODEL" default:""`
 	AgentRuntimeRunBudget time.Duration `envconfig:"AGENT_RUNTIME_RUN_BUDGET" default:"2m"`
+
+	// ── Primer Identity (IB8 dual-login) ─────────────────────────────────────
+	// IdentityIssuer is the expected "iss" claim in Primer Identity access
+	// tokens. Empty disables the JWT path (fail-closed).
+	IdentityIssuer string `envconfig:"IDENTITY_ISSUER"`
+	// IdentityAudience is the expected "aud" claim, typically "primer-lms".
+	IdentityAudience string `envconfig:"IDENTITY_AUDIENCE"`
+	// IdentityJWKSURL is the Identity service's /.well-known/jwks.json.
+	// All three Identity* fields must be set for the JWT auth path to activate;
+	// if any is empty the verifier is nil and every JWT is rejected.
+	IdentityJWKSURL string `envconfig:"IDENTITY_JWKS_URL"`
 
 	// ── primer-agents remote service integration ──────────────────────────────
 	// PrimerAgentsEnabled enables the remote primer-agents service.
@@ -108,4 +121,15 @@ func isHTTPS(url string) bool {
 // Addr returns the host:port bind address.
 func (c *Config) Addr() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
+// IdentityAuthConfig returns the identity verification configuration derived
+// from environment variables. If any field is empty the returned Config yields
+// a nil Verifier (fail-closed).
+func (c *Config) IdentityAuthConfig() identityauth.Config {
+	return identityauth.Config{
+		Issuer:   c.IdentityIssuer,
+		Audience: c.IdentityAudience,
+		JWKSURL:  c.IdentityJWKSURL,
+	}
 }

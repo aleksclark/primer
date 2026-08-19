@@ -11,6 +11,7 @@ import (
 
 	"github.com/aleksclark/primer/server/internal/agent"
 	"github.com/aleksclark/primer/server/internal/artifacts"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tutor"
 )
@@ -20,8 +21,7 @@ type Options struct {
 	// CORSOrigins is the list of allowed origins; empty disables CORS headers.
 	CORSOrigins []string
 	// ServiceToken authenticates machine-to-machine callers on the ingest
-	// endpoints. Empty leaves them open, which suits spec generation and a
-	// bare local checkout but not a deployment.
+	// endpoints. Empty fails closed at the request boundary.
 	ServiceToken string
 	// Tutor is the server-owned coaching service. Nil uses a default fake+policy stack.
 	Tutor tutor.Service
@@ -35,6 +35,10 @@ type Options struct {
 	// AgentController enables the authenticated, process-local MAF runtime
 	// boundary. Nil keeps the preview runtime disabled.
 	AgentController *agent.Controller
+	// IdentityVerifier verifies Primer Identity access tokens (ES256,
+	// typ=at+jwt). Nil means the JWT path is inactive (fail-closed): only
+	// legacy opaque session tokens are accepted.
+	IdentityVerifier *identityauth.Verifier
 }
 
 // New builds the Huma API and its HTTP handler. The Querier may be nil when

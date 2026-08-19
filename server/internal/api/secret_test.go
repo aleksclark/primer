@@ -66,7 +66,21 @@ func TestSharedSecretGuardIsInertWithoutASecret(t *testing.T) {
 	h := guardedAPI(t, "")
 
 	assert.Equal(t, http.StatusNoContent, h.Get("/guarded").Code,
-		"an unconfigured guard must not lock a local checkout out of its own API")
+		"the generic guard remains usable for local/spec-only surfaces")
+}
+
+func TestFailClosedSharedSecretGuardRejectsWithoutASecret(t *testing.T) {
+	t.Parallel()
+	_, testAPI := humatest.New(t)
+	huma.Register(testAPI, huma.Operation{
+		OperationID: "failClosedGuarded",
+		Method:      http.MethodGet,
+		Path:        "/guarded",
+		Middlewares: huma.Middlewares{FailClosedSharedSecretGuard(testAPI, "", "X-Test-Key", "credentials required")},
+	}, func(_ context.Context, _ *struct{}) (*struct{}, error) { return &struct{}{}, nil })
+
+	assert.Equal(t, http.StatusUnauthorized, testAPI.Get("/guarded").Code,
+		"a machine boundary with no secret must fail closed")
 }
 
 func TestSharedSecretGuardRejectsOverHTTP(t *testing.T) {

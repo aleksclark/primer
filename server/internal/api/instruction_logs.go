@@ -95,7 +95,7 @@ func registerInstructionLogs(h huma.API, q repo.Querier, opts Options) {
 		Tags:          []string{instructionLogsTag},
 		DefaultStatus: http.StatusCreated,
 		Security:      []map[string][]string{{serviceSecurityScheme: {}}},
-		Middlewares:   huma.Middlewares{SharedSecretGuard(h, opts.ServiceToken, serviceTokenHeader, "service credentials required")},
+		Middlewares:   huma.Middlewares{FailClosedSharedSecretGuard(h, opts.ServiceToken, serviceTokenHeader, "service credentials required")},
 		Errors:        []int{http.StatusUnauthorized, http.StatusUnprocessableEntity},
 		// The replay answer is declared by hand: Huma documents only an
 		// operation's default status, and a client needs to know that 200 is a
