@@ -42,8 +42,11 @@ func (c CommandEnvelope) Validate() error {
 	switch c.Kind {
 	case CommandHello:
 	case CommandSubscribe:
-		if c.RunID == "" {
-			return errors.New("runId is required")
+		// A conversation-only subscription is the durable remount boundary:
+		// the client may not know the last run yet, but the server can replay
+		// the conversation from its cursor. Reconnects may include both.
+		if c.RunID == "" && c.ConversationID == "" {
+			return errors.New("runId or conversationId is required")
 		}
 	case CommandUnsubscribe:
 		if c.RunID == "" {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   createAgentClient,
   safeAgentToolLabel,
@@ -151,13 +151,48 @@ function AgentComposer({ client, disabled }: { client: AgentClient; disabled: bo
   return <form className="agent-composer" onSubmit={submit}><label className="system-label" htmlFor="agent-command">Parent command</label><textarea id="agent-command" rows={3} value={text} onChange={(event) => setText(event.target.value)} placeholder="List the tasks for this week" disabled={disabled} /><div className="agent-composer-footer"><span className="meta">Enter a request; the server decides scope and available tools.</span><button className="button" type="submit" disabled={disabled || !text.trim()}>Send command</button></div></form>;
 }
 
+const conversationIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function durableConversationKey(tenantId: string, subjectRef: string) {
+  return `primer.tasks.agent.conversation.v1:${tenantId}:${subjectRef}`;
+}
+
+function readDurableConversation(key: string): string | null {
+  try {
+    const value = window.sessionStorage.getItem(key);
+    return value && conversationIdPattern.test(value) ? value : null;
+  } catch {
+    throw new Error("Durable agent conversation storage is unavailable.");
+  }
+}
+
+function writeDurableConversation(key: string, conversationId: string) {
+  if (!conversationIdPattern.test(conversationId)) throw new Error("The server returned an invalid agent conversation.");
+  try {
+    window.sessionStorage.setItem(key, conversationId);
+  } catch {
+    throw new Error("Durable agent conversation storage is unavailable.");
+  }
+}
+
 export default function AgentCommandPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationError, setConversationError] = useState<unknown>(null);
   const [submitted, setSubmitted] = useState<SubmittedMessage[]>([]);
+  const conversationOpen = useRef<Promise<string> | null>(null);
   useEffect(() => {
     let active = true;
-    tasksClient.createAgentConversation().then((conversation) => active && setConversationId(conversation.id)).catch((error) => active && setConversationError(error));
+    if (!conversationOpen.current) {
+      conversationOpen.current = tasksClient.parentSession().then(async (session) => {
+        const key = durableConversationKey(session.tenantId, session.subjectRef);
+        const existing = readDurableConversation(key);
+        if (existing) return existing;
+        const conversation = await tasksClient.createAgentConversation();
+        writeDurableConversation(key, conversation.id);
+        return conversation.id;
+      });
+    }
+    conversationOpen.current.then((id) => active && setConversationId(id)).catch((error) => active && setConversationError(error));
     return () => { active = false; };
   }, []);
   const client = useMemo(() => conversationId ? createAgentClient({ conversationId }) : null, [conversationId]);

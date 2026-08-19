@@ -11,6 +11,7 @@ func TestCommandValidationRejectsMalformedAndAcceptsAllKinds(t *testing.T) {
 	valid := []CommandEnvelope{
 		{Protocol: Version, Kind: CommandHello},
 		{Protocol: Version, Kind: CommandSubscribe, RunID: "run"},
+		{Protocol: Version, Kind: CommandSubscribe, ConversationID: "conversation"},
 		{Protocol: Version, Kind: CommandUnsubscribe, RunID: "run"},
 		{Protocol: Version, Kind: CommandUserMessage, ConversationID: "conversation", ClientMessageID: "client", Text: "hello"},
 		{Protocol: Version, Kind: CommandCancel, RunID: "run"},

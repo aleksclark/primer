@@ -26,7 +26,9 @@ export interface AgentSubscribeCommand {
   protocol: typeof AGENT_PROTOCOL_VERSION;
   kind: "subscribe";
   requestId?: string;
-  runId: string;
+  /** Durable remounts identify the conversation before they know a run. */
+  conversationId: string;
+  runId?: string;
   cursor?: number;
 }
 

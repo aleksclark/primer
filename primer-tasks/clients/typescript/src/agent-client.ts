@@ -180,9 +180,17 @@ export function createAgentClient(options: AgentClientOptions): AgentClient {
       reconnectAttempt = 0;
       setConnectionState("connected", undefined);
       socket?.send(JSON.stringify({ protocol: AGENT_PROTOCOL_VERSION, kind: "hello", requestId: makeId() }));
-      if (current.runId) {
-        socket?.send(JSON.stringify({ protocol: AGENT_PROTOCOL_VERSION, kind: "subscribe", requestId: makeId(), runId: current.runId, ...(current.cursor ? { cursor: current.cursor } : {}) }));
-      }
+      // Subscribe by conversation on every mount. A remounted page starts
+      // without a run ID, but the durable conversation still owns its event
+      // cursor; reconnects add the run ID as an optimization.
+      socket?.send(JSON.stringify({
+        protocol: AGENT_PROTOCOL_VERSION,
+        kind: "subscribe",
+        requestId: makeId(),
+        conversationId: options.conversationId,
+        ...(current.runId ? { runId: current.runId } : {}),
+        ...(current.cursor ? { cursor: current.cursor } : {}),
+      }));
       flush();
     };
     socket.onmessage = (message) => {
