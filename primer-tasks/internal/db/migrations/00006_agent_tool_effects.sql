@@ -11,8 +11,7 @@ CREATE TABLE IF NOT EXISTS agent_tool_effects (
   result jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (tenant_id, run_id, step),
-  UNIQUE (tenant_id, run_id, tool_name, action_digest),
+  PRIMARY KEY (tenant_id, run_id, tool_name, action_digest),
   CONSTRAINT agent_tool_effects_run_fk FOREIGN KEY (tenant_id, run_id)
     REFERENCES agent_runs(tenant_id, id)
 );
