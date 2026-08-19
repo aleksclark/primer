@@ -1,5 +1,6 @@
 package com.aleksclark.primertasks
 
+import android.graphics.Bitmap
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -38,8 +39,39 @@ object QrFrameDecoder {
     /** Returns the QR text, or null when this frame does not contain a QR code. */
     fun decode(frame: RgbaFrame, rotationDegrees: Int = 0): String? {
         val normalizedRotation = ((rotationDegrees % 360) + 360) % 360
-        val rgb = frame.toRotatedRgb(normalizedRotation)
-        val (decodedWidth, decodedHeight) = rotatedSize(frame.width, frame.height, normalizedRotation)
+        return decodeRgb(
+            rgb = frame.toRotatedRgb(normalizedRotation),
+            width = frame.width,
+            height = frame.height,
+            rotationDegrees = normalizedRotation,
+        )
+    }
+
+    /** Decodes a bounded Photo Picker bitmap with the same ZXing reader as CameraX. */
+    fun decode(bitmap: Bitmap): String? {
+        val width = bitmap.width
+        val height = bitmap.height
+        require(width > 0 && height > 0)
+        require(width.toLong() * height.toLong() <= DecodePolicy.MAX_DECODED_PIXELS) {
+            "Bitmap exceeds the QR decode bound"
+        }
+        val pixels = IntArray(width * height)
+        return try {
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+            decodeRgb(pixels, width, height, rotationDegrees = 0)
+        } finally {
+            // Do not leave image pixels in a heap buffer after decoding.
+            pixels.fill(0)
+        }
+    }
+
+    private fun decodeRgb(
+        rgb: IntArray,
+        width: Int,
+        height: Int,
+        rotationDegrees: Int,
+    ): String? {
+        val (decodedWidth, decodedHeight) = rotatedSize(width, height, rotationDegrees)
         val source = RGBLuminanceSource(decodedWidth, decodedHeight, rgb)
         val reader = MultiFormatReader().apply { setHints(hints) }
         val bitmap = BinaryBitmap(HybridBinarizer(source))

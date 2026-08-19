@@ -2,10 +2,12 @@ package com.aleksclark.primertasks
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -36,13 +38,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.aleksclark.primertasks.client.ChecklistItem
 import com.aleksclark.primertasks.client.TasksClient
 import com.aleksclark.primertasks.client.TasksHttpException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -122,7 +128,8 @@ private fun PrimerTasksApp(context: android.content.Context) {
             )
         }
         if (qr == null || origin == null) {
-            message = "That QR code is not a valid Primer pairing code."
+            busy = false
+            message = "That QR code is not a valid Primer pairing code. Choose a Primer pairing QR."
             return
         }
         scope.launch {
@@ -143,16 +150,46 @@ private fun PrimerTasksApp(context: android.content.Context) {
             } catch (error: TasksHttpException) {
                 busy = false
                 message = if (error.statusCode == 401 || error.statusCode == 403) {
-                    "This pairing is not authorized. Scan a new QR code."
+                    "That pairing QR is expired or has already been used. Request a new QR code."
                 } else {
-                    "Pairing failed or the QR code has expired."
+                    "Pairing failed. Check the server and try again."
                 }
             } catch (_: Exception) {
                 busy = false
-                message = "Unable to reach the Primer server. Try again."
+                message = "Unable to reach the Primer server. Check your connection and try again."
             }
         }
     }
+
+    fun importPairingImage(uri: Uri) {
+        scope.launch {
+            busy = true
+            val result = withContext(Dispatchers.IO) {
+                QrImageImporter(context.contentResolver).decode(uri)
+            }
+            when (result) {
+                is QrImageImporter.Result.Decoded -> {
+                    // Feed the decoded text into the exact same parser/API path as CameraX.
+                    pair(result.payload)
+                }
+                is QrImageImporter.Result.Failure -> {
+                    busy = false
+                    message = when (result.reason) {
+                        QrImageImporter.Failure.UNREADABLE ->
+                            "Couldn't read that image. Choose another QR image."
+                        QrImageImporter.Failure.TOO_LARGE ->
+                            "That image is too large to scan safely. Choose a smaller QR image."
+                        QrImageImporter.Failure.NO_QR ->
+                            "No valid Primer pairing QR code was found in that image."
+                    }
+                }
+            }
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> uri?.let(::importPairingImage) }
 
     MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF3DE0F0))) {
         Surface(Modifier.fillMaxSize()) {
@@ -160,7 +197,14 @@ private fun PrimerTasksApp(context: android.content.Context) {
                 busy && metadata == null -> LoadingScreen()
                 metadata != null && token != null -> ChecklistScreen(metadata!!.displayName, checklist, message)
                 scanning -> PairingScanner(onQr = ::pair, onCancel = { scanning = false })
-                else -> PairingScreen(message, onScan = { message = null; scanning = true })
+                else -> PairingScreen(
+                    message = message,
+                    onScan = { message = null; scanning = true },
+                    onImportImage = {
+                        message = null
+                        imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                )
             }
         }
     }
@@ -174,7 +218,11 @@ private fun LoadingScreen() {
 }
 
 @Composable
-private fun PairingScreen(message: String?, onScan: () -> Unit) {
+internal fun PairingScreen(
+    message: String?,
+    onScan: () -> Unit,
+    onImportImage: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -182,7 +230,16 @@ private fun PairingScreen(message: String?, onScan: () -> Unit) {
         Text("PRIMER TASKS", style = MaterialTheme.typography.labelLarge)
         Text("Pair this device", style = MaterialTheme.typography.headlineMedium)
         Text("Scan the one-use QR code shown by your parent.")
+        // Camera scanning is deliberately the primary pairing action.
         Button(onClick = onScan) { Text("Scan pairing QR") }
+        OutlinedButton(
+            onClick = onImportImage,
+            modifier = Modifier.semantics {
+                contentDescription = "Import pairing QR image"
+            },
+        ) {
+            Text("Import pairing QR image")
+        }
         if (message != null) Text(message, color = MaterialTheme.colorScheme.error)
     }
 }
