@@ -520,8 +520,12 @@ type workspaceListInput struct {
 	WorkspaceID string `path:"workspaceId"`
 }
 type curriculumListInput struct {
-	authoringListQuery
 	WorkspaceID string `path:"workspaceId"`
+	Limit int `query:"limit" minimum:"1" maximum:"200" default:"25"`
+	Offset int `query:"offset" minimum:"0" default:"0"`
+	Q string `query:"q"`
+	Sort string `query:"sort"`
+	Dir string `query:"dir" enum:"asc,desc" default:"asc"`
 }
 type revisionListInput struct {
 	authoringListQuery
@@ -675,58 +679,9 @@ func authoringOperation(id, method, path, tag, summary string) huma.Operation {
 func emptyPage[T any]() T { var page T; return page }
 
 func registerAuthoringRoutes(api huma.API) {
-	// The shared registration function is called by both studio-api and
-	// openapi-gen. Handlers are intentionally fixture-only until S3+.
-	huma.Register(api, authoringOperation("list-curricula", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/curricula", "Curricula", "List curricula"), func(context.Context, *curriculumListInput) (*curriculumPageResponse, error) {
-		return &curriculumPageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-curriculum", http.MethodPost, "/studio/v1/workspaces/{workspaceId}/curricula", "Curricula", "Create a curriculum"), func(context.Context, *createCurriculumInput) (*curriculumResponse, error) {
-		return &curriculumResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-curriculum", http.MethodGet, "/studio/v1/curricula/{curriculumId}", "Curricula", "Get a curriculum"), func(context.Context, *curriculumPath) (*curriculumResponse, error) { return &curriculumResponse{}, nil })
-	huma.Register(api, authoringOperation("update-curriculum", http.MethodPatch, "/studio/v1/curricula/{curriculumId}", "Curricula", "Update a curriculum"), func(context.Context, *updateCurriculumInput) (*curriculumResponse, error) {
-		return &curriculumResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("list-revisions", http.MethodGet, "/studio/v1/curricula/{curriculumId}/revisions", "Revisions", "List plan revisions"), func(context.Context, *revisionListInput) (*revisionPageResponse, error) {
-		return &revisionPageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-revision", http.MethodPost, "/studio/v1/curricula/{curriculumId}/revisions", "Revisions", "Create a plan revision"), func(context.Context, *createRevisionInput) (*revisionResponse, error) {
-		return &revisionResponse{}, nil
-	})
-
-	huma.Register(api, authoringOperation("get-revision", http.MethodGet, "/studio/v1/revisions/{revisionId}", "Revisions", "Get a plan revision"), func(context.Context, *revisionPath) (*revisionResponse, error) { return &revisionResponse{}, nil })
-	huma.Register(api, authoringOperation("update-revision", http.MethodPatch, "/studio/v1/revisions/{revisionId}", "Revisions", "Update a plan revision"), func(context.Context, *updateRevisionInput) (*revisionResponse, error) {
-		return &revisionResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("publish-revision", http.MethodPost, "/studio/v1/revisions/{revisionId}/publish", "Revisions", "Publish a revision"), func(context.Context, *revisionActionInput) (*revisionResponse, error) {
-		return &revisionResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("validate-revision", http.MethodPost, "/studio/v1/revisions/{revisionId}/validate", "Validation", "Validate a revision"), func(context.Context, *revisionActionInput) (*validationResponse, error) {
-		return &validationResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-plan-graph", http.MethodGet, "/studio/v1/revisions/{revisionId}/graph", "Graph", "Get a plan graph"), func(context.Context, *revisionPath) (*graphResponse, error) { return &graphResponse{}, nil })
-	huma.Register(api, authoringOperation("put-plan-graph", http.MethodPut, "/studio/v1/revisions/{revisionId}/graph", "Graph", "Replace a plan graph"), func(context.Context, *graphInput) (*graphResponse, error) { return &graphResponse{}, nil })
-	huma.Register(api, authoringOperation("create-plan-node", http.MethodPost, "/studio/v1/revisions/{revisionId}/nodes", "Graph", "Create a plan node"), func(context.Context, *nodeWriteInput) (*nodeResponse, error) { return &nodeResponse{}, nil })
-	huma.Register(api, authoringOperation("update-plan-node", http.MethodPatch, "/studio/v1/revisions/{revisionId}/nodes/{nodeId}", "Graph", "Update a plan node"), func(context.Context, *nodeUpdateInput) (*nodeResponse, error) { return &nodeResponse{}, nil })
-	huma.Register(api, authoringOperation("delete-plan-node", http.MethodDelete, "/studio/v1/revisions/{revisionId}/nodes/{nodeId}", "Graph", "Delete a plan node"), func(context.Context, *nodePath) (*struct{}, error) { return &struct{}{}, nil })
-	huma.Register(api, authoringOperation("create-plan-edge", http.MethodPost, "/studio/v1/revisions/{revisionId}/edges", "Graph", "Create a plan edge"), func(context.Context, *edgeWriteInput) (*edgeResponse, error) { return &edgeResponse{}, nil })
-	huma.Register(api, authoringOperation("delete-plan-edge", http.MethodDelete, "/studio/v1/revisions/{revisionId}/edges/{edgeId}", "Graph", "Delete a plan edge"), func(context.Context, *edgePath) (*struct{}, error) { return &struct{}{}, nil })
-
-	// Standards routes are registered by the S4 catalog handlers. C6 consumes
-	// that shared registration rather than shadowing durable handlers with
-	// fixture routes.
-
-	huma.Register(api, authoringOperation("list-resources", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/resources", "Resources", "List resources"), func(context.Context, *resourceListInput) (*resourcePageResponse, error) {
-		return &resourcePageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-resource", http.MethodPost, "/studio/v1/workspaces/{workspaceId}/resources", "Resources", "Create a resource"), func(context.Context, *createResourceInput) (*resourceResponse, error) {
-		return &resourceResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-resource", http.MethodGet, "/studio/v1/resources/{resourceId}", "Resources", "Get a resource"), func(context.Context, *resourcePath) (*resourceResponse, error) { return &resourceResponse{}, nil })
-	huma.Register(api, authoringOperation("update-resource", http.MethodPatch, "/studio/v1/resources/{resourceId}", "Resources", "Update a resource"), func(context.Context, *updateResourceInput) (*resourceResponse, error) {
-		return &resourceResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("delete-resource", http.MethodDelete, "/studio/v1/resources/{resourceId}", "Resources", "Delete a resource"), func(context.Context, *resourcePath) (*struct{}, error) { return &struct{}{}, nil })
+	// Remaining authoring operations are contract placeholders until their
+	// domain waves land. Curricula, revisions, graphs, and resources are wired
+	// to durable handlers by Server.RegisterRoutes.
 
 	huma.Register(api, authoringOperation("list-materializations", http.MethodGet, "/studio/v1/revisions/{revisionId}/materializations", "Materializations", "List materializations"), func(context.Context, *materializationListInput) (*materializationPageResponse, error) {
 		return &materializationPageResponse{}, nil

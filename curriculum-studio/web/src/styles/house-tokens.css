@@ -1,0 +1,262 @@
+/* Editorial Instrument house tokens — copy on create, then select one accent.
+ * Required fonts: Archivo 400/500/600/700, Newsreader 400/600,
+ * IBM Plex Mono 400/500. Do not substitute by choice.
+ */
+
+/* Tailwind v4 semantic aliases; plain CSS consumers ignore this at-rule. */
+@theme inline {
+  --color-background: var(--house-bg-canvas);
+  --color-foreground: var(--house-text-primary);
+  --color-card: var(--house-bg-surface);
+  --color-card-foreground: var(--house-text-primary);
+  --color-popover: var(--house-bg-surface);
+  --color-popover-foreground: var(--house-text-primary);
+  --color-primary: var(--house-accent);
+  --color-primary-foreground: var(--house-accent-ink);
+  --color-secondary: transparent;
+  --color-secondary-foreground: var(--house-text-secondary);
+  --color-muted: var(--house-bg-raised);
+  --color-muted-foreground: var(--house-text-tertiary);
+  --color-accent: var(--house-selected-bg);
+  --color-accent-foreground: var(--house-text-primary);
+  --color-destructive: var(--house-status-danger);
+  --color-border: var(--house-rule-subtle);
+  --color-input: var(--house-rule-strong);
+  --color-ring: var(--house-focus);
+  --font-sans: var(--house-font-product);
+  --font-mono: var(--house-font-technical);
+  --radius-sm: var(--house-radius-sm);
+  --radius-md: var(--house-radius-md);
+  --radius-lg: var(--house-radius-md);
+}
+
+:root,
+:root[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+
+  /* Choose exactly one. Default: violet. */
+  --house-accent-base: #B98BFF;
+  --house-accent-ink: #15170e;
+
+  --house-bg-canvas: oklch(0.178 0.008 250);
+  --house-bg-sunken: oklch(0.152 0.008 250);
+  --house-bg-surface: oklch(0.212 0.009 250);
+  --house-bg-raised: oklch(0.252 0.010 250);
+  --house-rule-subtle: oklch(0.298 0.010 250);
+  --house-rule-strong: oklch(0.392 0.012 250);
+  --house-text-primary: oklch(0.955 0.005 250);
+  --house-text-secondary: oklch(0.822 0.007 250);
+  --house-text-tertiary: oklch(0.668 0.009 250);
+
+  --house-status-ok: oklch(0.80 0.14 152);
+  --house-status-warning: oklch(0.83 0.15 78);
+  --house-status-danger: oklch(0.72 0.16 26);
+  --house-status-info: oklch(0.80 0.08 235);
+  --house-status-danger-ink: oklch(0.18 0.04 26);
+
+  --house-status-ok-bg: color-mix(in oklab, var(--house-status-ok) 12%, var(--house-bg-canvas));
+  --house-status-warning-bg: color-mix(in oklab, var(--house-status-warning) 12%, var(--house-bg-canvas));
+  --house-status-danger-bg: color-mix(in oklab, var(--house-status-danger) 12%, var(--house-bg-canvas));
+  --house-status-info-bg: color-mix(in oklab, var(--house-status-info) 10%, var(--house-bg-canvas));
+}
+
+:root[data-theme="light"],
+.light {
+  color-scheme: light;
+
+  --house-bg-canvas: oklch(0.985 0.003 250);
+  --house-bg-sunken: oklch(0.952 0.004 250);
+  --house-bg-surface: oklch(1 0 0);
+  --house-bg-raised: oklch(0.938 0.005 250);
+  --house-rule-subtle: oklch(0.882 0.006 250);
+  --house-rule-strong: oklch(0.782 0.010 250);
+  --house-text-primary: oklch(0.215 0.012 250);
+  --house-text-secondary: oklch(0.405 0.012 250);
+  --house-text-tertiary: oklch(0.538 0.012 250);
+
+  --house-status-ok: oklch(0.48 0.13 152);
+  --house-status-warning: oklch(0.52 0.13 68);
+  --house-status-danger: oklch(0.50 0.18 26);
+  --house-status-info: oklch(0.45 0.09 235);
+  --house-status-danger-ink: #fff;
+
+  --house-status-ok-bg: color-mix(in oklab, var(--house-status-ok) 9%, var(--house-bg-canvas));
+  --house-status-warning-bg: color-mix(in oklab, var(--house-status-warning) 9%, var(--house-bg-canvas));
+  --house-status-danger-bg: color-mix(in oklab, var(--house-status-danger) 8%, var(--house-bg-canvas));
+  --house-status-info-bg: color-mix(in oklab, var(--house-status-info) 8%, var(--house-bg-canvas));
+}
+
+:root[data-accent="violet"] { --house-accent-base: #B98BFF; }
+:root[data-accent="cyan"] { --house-accent-base: #3DE0F0; }
+:root[data-accent="mint"] { --house-accent-base: #7CFFB2; }
+
+:root {
+  --house-accent: var(--house-accent-base);
+  --house-accent-strong: color-mix(in oklab, var(--house-accent-base) 72%, black);
+  --house-focus: var(--house-accent-base);
+  --house-selected-bg: color-mix(in oklab, var(--house-accent-base) 11%, var(--house-bg-canvas));
+
+  --house-font-product: "Archivo", sans-serif;
+  --house-font-editorial: "Newsreader", serif;
+  --house-font-technical: "IBM Plex Mono", monospace;
+
+  --house-type-display: 48px;
+  --house-type-page-title: 30px;
+  --house-type-section: 15px;
+  --house-type-lede: 14px;
+  --house-type-body: 14px;
+  --house-type-body-compact: 13px;
+  --house-type-control: 13px;
+  --house-type-label: 12px;
+  --house-type-metadata: 11px;
+  --house-type-eyebrow: 10px;
+  --house-type-data: 30px;
+  --house-type-code: 12px;
+
+  --house-leading-display: 1.05;
+  --house-leading-title: 1.12;
+  --house-leading-section: 1.2;
+  --house-leading-body: 1.6;
+  --house-leading-control: 1;
+  --house-leading-metadata: 1.5;
+
+  --house-space-1: 4px;
+  --house-space-2: 8px;
+  --house-space-3: 12px;
+  --house-space-4: 16px;
+  --house-space-6: 24px;
+  --house-space-8: 32px;
+  --house-space-12: 48px;
+
+  --house-radius-sm: 2px;
+  --house-radius-md: 2px;
+  --house-radius-pill: 999px;
+  --house-rule-width: 1px;
+  --house-rule-selected: 2px;
+  --house-focus-width: 2px;
+  --house-focus-offset: 2px;
+
+  --house-control-height: 34px;
+  --house-row-height: 40px;
+  --house-page-gutter: 28px;
+  --house-nav-width: 218px;
+  --house-read-width: 960px;
+  --house-target-mobile: 44px;
+
+  --house-icon-grid: 24px;
+  --house-icon-stroke: 1.75;
+  --house-icon-default: 16px;
+  --house-icon-compact: 14px;
+  --house-icon-emphasis: 18px;
+
+  --house-motion-enter: 170ms ease-out;
+  --house-shadow-modal: 0 18px 48px rgb(0 0 0 / 55%);
+  --house-shadow-toast: 0 12px 32px rgb(0 0 0 / 32%);
+}
+
+:root[data-density="compact"] {
+  --house-control-height: 28px;
+  --house-row-height: 30px;
+  --house-page-gutter: 20px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --house-type-display: 32px;
+    --house-type-page-title: 22px;
+    --house-type-data: 22px;
+    --house-control-height: 44px;
+    --house-row-height: 48px;
+    --house-page-gutter: 16px;
+    --house-nav-width: 0px;
+    --house-read-width: 100%;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { background: var(--house-bg-canvas); }
+body {
+  margin: 0;
+  min-height: 100svh;
+  background: var(--house-bg-canvas);
+  color: var(--house-text-primary);
+  font: 400 var(--house-type-body) / var(--house-leading-body) var(--house-font-product);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus { outline: none; }
+:focus-visible {
+  outline: var(--house-focus-width) solid var(--house-focus);
+  outline-offset: var(--house-focus-offset);
+}
+
+.house-type-display { font: 400 var(--house-type-display) / var(--house-leading-display) var(--house-font-editorial); }
+.house-type-title { font: 700 var(--house-type-page-title) / var(--house-leading-title) var(--house-font-product); letter-spacing: -0.022em; }
+.house-type-section { font: 600 var(--house-type-section) / var(--house-leading-section) var(--house-font-product); }
+.house-type-lede { font: 400 var(--house-type-lede) / 1.55 var(--house-font-product); color: var(--house-text-secondary); }
+.house-type-body { font: 400 var(--house-type-body) / var(--house-leading-body) var(--house-font-product); }
+.house-type-body-compact { font: 400 var(--house-type-body-compact) / 1.5 var(--house-font-product); }
+.house-type-control { font: 500 var(--house-type-control) / var(--house-leading-control) var(--house-font-product); }
+.house-type-label { font: 500 var(--house-type-label) / 1.3 var(--house-font-product); }
+.house-type-meta { font: 400 var(--house-type-metadata) / var(--house-leading-metadata) var(--house-font-technical); color: var(--house-text-tertiary); }
+.house-type-eyebrow { font: 500 var(--house-type-eyebrow) / 1 var(--house-font-technical); letter-spacing: .16em; text-transform: uppercase; }
+.house-type-data { font: 500 var(--house-type-data) / 1 var(--house-font-technical); font-variant-numeric: tabular-nums; }
+.house-type-code { font: 400 var(--house-type-code) / 1.7 var(--house-font-technical); }
+
+.house-icon {
+  width: var(--house-icon-default);
+  height: var(--house-icon-default);
+  display: inline-block;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--house-icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.house-icon--compact { width: var(--house-icon-compact); height: var(--house-icon-compact); }
+.house-icon--emphasis { width: var(--house-icon-emphasis); height: var(--house-icon-emphasis); }
+
+.house-button {
+  min-height: var(--house-control-height);
+  padding: 0 var(--house-space-4);
+  border-radius: var(--house-radius-md);
+  font: 500 var(--house-type-control) / var(--house-leading-control) var(--house-font-product);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--house-space-2);
+}
+.house-button--primary { border: 1px solid var(--house-accent); background: var(--house-accent); color: var(--house-accent-ink); }
+.house-button--secondary { border: 1px solid var(--house-rule-strong); background: transparent; color: var(--house-text-secondary); }
+.house-button--ghost { border: 1px solid transparent; background: transparent; color: var(--house-text-secondary); }
+.house-button--destructive { border: 1px solid var(--house-status-danger); background: transparent; color: var(--house-status-danger); }
+
+.house-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--house-space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--house-radius-sm);
+  padding: var(--house-space-1) var(--house-space-2);
+  font: 500 var(--house-type-metadata) / 1.3 var(--house-font-technical);
+}
+.house-status--ok { color: var(--house-status-ok); background: var(--house-status-ok-bg); }
+.house-status--warning { color: var(--house-status-warning); background: var(--house-status-warning-bg); }
+.house-status--danger { color: var(--house-status-danger); background: var(--house-status-danger-bg); }
+.house-status--info { color: var(--house-status-info); background: var(--house-status-info-bg); }
+
+.house-surface { background: var(--house-bg-surface); border: 1px solid var(--house-rule-subtle); border-radius: var(--house-radius-md); }
+.house-sunken { background: var(--house-bg-sunken); }
+.house-modal { box-shadow: var(--house-shadow-modal); }
+.house-toast { box-shadow: var(--house-shadow-toast); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
