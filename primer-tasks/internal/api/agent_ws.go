@@ -806,7 +806,7 @@ func scriptedScheduleInput(call fantasy.Call) string {
 	}
 	templateID, _ := task["templateId"].(string)
 	revisionID, _ := task["id"].(string)
-	return fmt.Sprintf(`{"studentId":%q,"templateId":%q,"revisionId":%q,"kind":"one_off","timezone":"UTC","startAt":%q,"dueOffsetMinutes":0}`, id, templateID, revisionID, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339))
+	return fmt.Sprintf(`{"studentId":%q,"studentName":"","templateId":%q,"revisionId":%q,"kind":"one_off","timezone":"UTC","startAt":%q,"rrule":"","dueOffsetMinutes":0}`, id, templateID, revisionID, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339))
 }
 func scriptedPreviewInput(call fantasy.Call) string {
 	tasks := toolResultJSON(call, "list_tasks")
