@@ -16,5 +16,5 @@ EOF
   exit 2
 fi
 
-browser_command="${PRIMER_TASKS_BROWSER_COMMAND:-npm --prefix web run browser:promoted}"
+browser_command="${PRIMER_TASKS_BROWSER_COMMAND:-npm run browser:promoted}"
 exec bash -lc "$browser_command"
