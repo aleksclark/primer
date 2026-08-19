@@ -99,6 +99,7 @@ This is “durable enough” for cross-app identity, status, cancellation, and r
 | [Phase 6: Jobs and sandboxed student policy](./phase-06-jobs-and-student-policy.md) | Add on-demand/scheduled jobs and a separate fail-closed student tutoring profile. | Phases 4–5 |
 | [Phase 7: Caller integration and gradual cutover](./phase-07-caller-integration-and-cutover.md) | Integrate LMS admin and workstation through generated clients while preserving opt-in Fantasy/LMS rollback; leave Studio/MCP honest and later. | Phases 3, 5–6 |
 | [Phase 8: Deployment, recovery, and release hardening](./phase-08-deployment-recovery-and-hardening.md) | Ship image/Make/CI/deployment/runbooks and prove process restart, isolation, redaction, and rollback. | Phases 1–7 |
+| [Phase 9: Opt-in live billable LLM qualification](./phase-09-live-billable-llm.md) | Qualify one bounded real provider request through the real process and loopback Identity boundary without changing default safety gates. | Phase 8 |
 
 ## Capability traceability
 
@@ -120,16 +121,17 @@ This is “durable enough” for cross-app identity, status, cancellation, and r
 | Gradual cutover preserving Fantasy and LMS paths | 1, 7, 8 | Disabled-by-default flags, dual-path acceptance, rollback drill |
 | Docker/Makefile/CI/deploy parallel to Identity/Studio | 8 | Image start, migration, service health, root/module targets and CI gates |
 | CONDITIONAL GO and pinned MAF | 1, 4, 8 | Automated pin/public-import/stock-collection audit and compatibility suite |
-| Live billable proof stays blocked | All, especially 8 | No ambient credential use; runbook marks proof BLOCKED and CI uses local fixtures |
+| Live billable proof is opt-in and bounded | 9 | Explicit flag/env file, fixed cheap model, real process + loopback Identity JWT, one request, redacted SHA/model/count evidence |
 | No Studio S19/live Stytch/August prototypes | 7, 8 | Scope/import/history audit; no `/mcp`, Stytch SDK, or prototype copy |
 | Existing `make test`/`make cover` gates not lowered | Every phase, 8 | Existing gates plus agents-specific coverage/race/E2E pass unchanged |
 
 ## External prerequisites and blockers
 
 - Caller deployments need an Identity OAuth client/grant capable of obtaining an access JWT whose single audience is `primer-agents` and whose scopes match the caller profile. Credential-free test Identity/JWKS is sufficient for implementation and E2E. Production live-Stytch/BFF qualification remains outside this plan and must not be implied by passing local JWT tests.
+- Phase 9 is the sole live billable LLM qualification surface. It is never part of default CI or ordinary service operation; its approved provider key, explicit endpoint, and env file are external prerequisites and must not be committed.
 - The workstation student path needs a reviewed Identity-issued human/service credential strategy. Until that credential exists, the student remote feature flag stays off; the service still implements and proves the fail-closed student API with Identity-signed test credentials.
 - Studio runtime integration is intentionally later. Publishing generated clients does not implement Studio phase S19 or any MCP transport.
 
 ## Completion rule
 
-The plan is complete only when every phase BDD scenario passes through its stated public boundary; a real `primer-agents` process with real PostgreSQL survives restart without losing accepted run/session/event identity or status; cancel and SSE replay are proven independently of request lifetime; parent, job, and student profiles pass their authorization/policy negatives; generated clients are current and used by opted-in callers; the exact MAF pin/public-import/streaming-child conditions pass; deployment and rollback drills are recorded; existing root `make test`, `make cover`, and build gates plus agents-specific ≥85% coverage/race/E2E gates pass unchanged; and reviewers find no in-memory substitute, hard-coded success, raw Stytch acceptance, hidden cross-DB coupling, Studio MCP claim, live billable claim, or resurrected prototype code.
+The plan is complete only when every phase BDD scenario passes through its stated public boundary; a real `primer-agents` process with real PostgreSQL survives restart without losing accepted run/session/event identity or status; cancel and SSE replay are proven independently of request lifetime; parent, job, and student profiles pass their authorization/policy negatives; generated clients are current and used by opted-in callers; the exact MAF pin/public-import/streaming-child conditions pass; deployment and rollback drills are recorded; existing root `make test`, `make cover`, and build gates plus agents-specific ≥85% coverage/race/E2E gates pass unchanged; and reviewers find no in-memory substitute, hard-coded success, raw Stytch acceptance, hidden cross-DB coupling, Studio MCP claim, unbounded or ambient live billable claim, or resurrected prototype code.
