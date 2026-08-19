@@ -1,7 +1,7 @@
 # Primer Tasks Phase 2 — integration evidence
 
 Branch: `impl/tasks-p2-checklist`
-Reviewed implementation tip: `4140732` (durable scheduler and decision-integrity fixes)
+Reviewed implementation tip: `3e97ff2` (LazyColumn Android accessibility and focused model tests); scheduler/decision fixes are in `4140732`.
 
 ## Implementation checkpoints
 
@@ -49,7 +49,7 @@ No Playwright suite was promoted yet because the required Android exploratory ac
 
 ## Android exploratory evidence
 
-`test-artifacts/android-phase2-final/acceptance-report.md` records the real CameraX-first then exact system Photo Picker pairing, server-derived identity, Today and Upcoming, detail/start/awaiting, parent rejection/retry/approval coordination, completed state, force-stop persistence, and accessible upcoming rows. The paired device façade has no direct completion/approval method.
+`test-artifacts/android-phase2-final/acceptance-report.md` records the real CameraX-first then exact system Photo Picker pairing, server-derived identity, Today and Upcoming, detail/start/awaiting, parent rejection/retry/approval coordination, completed state, force-stop persistence, and accessible upcoming rows. The paired device façade has no direct completion/approval method. Terra final Android exploratory evidence (`test-artifacts/android-phase2-final-pass/acceptance-report.md`) passes pairing, LazyColumn Today/Upcoming, start/awaiting, parent reject/retry/approve, checked persistence, skip/cancel, and force-stop. The concise failed-run report is retained at `test-artifacts/android-phase2-final-pass/failed-run-report.md`.
 
 The remaining fail-closed item is the foreign-occurrence/forged-completion negative through the generated device façade. The app UI intentionally exposes only device-owned records and Start; the Android acceptance agent refused to substitute a private/raw API call. A real Parent-B occurrence was subsequently created through public UI (`62b79178-af55-4ca7-8cb8-8f4000252d2b`) for the prescribed generated-client negative, but the final façade denial run was not completed before this evidence checkpoint.
 
