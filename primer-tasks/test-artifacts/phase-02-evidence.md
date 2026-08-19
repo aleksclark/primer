@@ -37,17 +37,15 @@ reviewed tip is accepted; no Phase 3 work was started here.
   own detail; generic `TASK UNAVAILABLE` for foreign without title/ID leak;
   and retained pairing/LazyColumn/start/reject-retry-approve/checked,
   skip-cancel, and force-stop evidence.
-- Promotion followed exploratory PASS. Playwright
-  `web/e2e/phase2-tasks-schedules.spec.ts` passed against the real server and
-  covers task publish, schedule materialization, collection URL state,
-  student start, parent reject/retry/approve, checked state, and tenant
-  isolation. The connected Android promotion test
-  `OccurrenceDeepLinkConnectedTest` passed own completed detail and foreign
-  generic unavailable/no-leak against the real configured API using public
-  IDs and the generated Kotlin façade. The existing Photo Picker connected
-  test also passes when run in its required clean/unpaired emulator class
-  invocation; the deep-link class is run after public pairing with the
-  documented install-preserving instrumentation command.
+- Promotion followed exploratory PASS. The final Terra promotion rerun is
+  summarized in `test-artifacts/phase2-android-promotion-final/summary.md`:
+  it preflighted live web `127.0.0.1:37952` and APK origin `10.0.2.2:37952`,
+  passed isolated unpaired `PhotoPickerFlowTest`, re-paired with a fresh
+  Parent-A QR through the real system Photo Picker, retained pairing across
+  `adb install -r` of only the test APK, and passed isolated
+  `OccurrenceDeepLinkConnectedTest` (own completed detail and foreign generic
+  unavailable/no-leak). The promoted Playwright rerun also passed. The
+  generated Kotlin façade and real API were used; no raw transport or seam.
 
 Historical failed runs remain concise and truthful: the initial Terra leaf is
 retained at `test-artifacts/android-phase2-acceptance-final/acceptance-report.md`
@@ -73,6 +71,8 @@ as final evidence.
 - Model-disabled mode was observed in the public browser flow and the
   promoted manual verification flow has no model dependency.
 
-No generated client/spec/build outputs were added to the worktree. The
-remaining untracked files are retained acceptance evidence only and will be
-selectively cleaned before final review.
+The earlier failed Android pairing leaf remains as the concise reference in
+`test-artifacts/phase2-android-promotion-final/old-failure-reference.md`.
+No generated client/spec/build outputs are tracked; bulky screenshots, UI
+XML, logs, and QR-derived artifacts are selectively cleaned before final
+review.
