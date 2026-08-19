@@ -95,11 +95,41 @@ func (s *Server) runDialogueJob(ctx context.Context, j jobs.DialogueJob) error {
 	if err != nil {
 		return err
 	}
-	if evaluationForMessage(state, j.MessageID) == nil {
+	evaluation := evaluationForMessage(state, j.MessageID)
+	if evaluation == nil {
 		if runErr != nil {
 			return runErr
 		}
 		return errors.New("dialogue provider returned no evaluation")
+	}
+	// An accepted answer advances to a newly recorded question before the
+	// student reconnects. The follow-up run receives only state/question tools,
+	// so a provider cannot evaluate the prior answer against the next question.
+	if evaluation.Accepted && !state.Terminal {
+		questionKey := nextDialogueKey(state)
+		if questionKey != "" {
+			questionTools := tools[:2]
+			var questionModel fantasy.LanguageModel
+			if cfg.Mode == parent.ProviderScripted {
+				questionModel = &scriptedDialogueModel{questionKey: questionKey, config: state.Config, questionOnly: true}
+			} else {
+				questionModel, err = s.agentModel(ctx, cfg, dialoguePrompt(state, ""))
+				if err != nil {
+					return err
+				}
+			}
+			questionRuntime, runtimeErr := agent.NewFantasyAgent(questionModel, questionTools, agent.Limits{MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: cfg.MaxDuration, MaxRetries: cfg.MaxRetries})
+			if runtimeErr != nil {
+				return runtimeErr
+			}
+			if _, runtimeErr = questionRuntime.Execute(ctx, j.AttemptID+"-question", dialoguePrompt(state, ""), func(agentprotocol.Event) error { return nil }); runtimeErr != nil {
+				return runtimeErr
+			}
+			state, err = r.GetDialogueState(ctx, scope)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return s.publishDialogueResult(ctx, scope, state)
 }
@@ -170,14 +200,22 @@ func nextDialogueKey(s verification.DialogueState) string {
 	if err != nil || len(f) == 0 {
 		return ""
 	}
-	for i := len(s.Evaluations) - 1; i >= 0; i-- {
-		if s.Evaluations[i].Accepted {
-			break
-		}
-		for _, q := range s.Questions {
-			if q.ID == s.Evaluations[i].QuestionID {
-				return q.QuestionKey
+	// A question recorded after the previous accepted answer is the current
+	// turn. Evaluate that question before selecting another unseen question.
+	for i := len(s.Questions) - 1; i >= 0; i-- {
+		q := s.Questions[i]
+		evaluated := false
+		for _, e := range s.Evaluations {
+			if e.QuestionID == q.ID {
+				evaluated = true
+				if !e.Accepted {
+					return q.QuestionKey
+				}
+				break
 			}
+		}
+		if !evaluated {
+			return q.QuestionKey
 		}
 	}
 	for _, q := range f {
@@ -232,6 +270,7 @@ func (s *Server) publishDialogueResult(ctx context.Context, scope verification.D
 type scriptedDialogueModel struct {
 	answer, questionKey string
 	config              domain.DialogueConfig
+	questionOnly        bool
 	calls               int
 }
 
@@ -266,6 +305,9 @@ func (m *scriptedDialogueModel) Stream(ctx context.Context, _ fantasy.Call) (fan
 			}
 		}
 		return scriptedToolStream(ctx, agent.ToolRecordQuestion, fmt.Sprintf(`{"questionKey":%q,"prompt":%q}`, m.questionKey, p)), nil
+	}
+	if m.questionOnly {
+		return scriptedStream(ctx, ""), nil
 	}
 	answer := strings.ToLower(strings.TrimSpace(m.answer))
 	accepted := false
