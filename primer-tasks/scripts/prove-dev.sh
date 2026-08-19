@@ -234,6 +234,11 @@ for _ in $(seq 1 90); do
     [[ "$(compose_for "$INSTANCE_A" ps -q api)" == "$API_A_CONTAINER" ]] || fail "Go response change required an API container restart"
     echo "prove-dev: PASS Go response reloaded without container restart"
     backend_restore_pending=0
+    # Air may still be coalescing the mutation event when the new process first
+    # answers. Let that build settle before restoring the exact original bytes;
+    # otherwise the restore event can be lost and the proof reports a false
+    # failure while leaving the watcher on the nonce build.
+    sleep 2
     cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/server.go"
     cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/server.go" || fail "backend restore checksum mismatch"
     BACKEND_RESTORED=1
