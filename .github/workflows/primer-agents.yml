@@ -93,12 +93,9 @@ jobs:
       - name: coverage gate
         working-directory: primer-agents
         run: |
-          bash ../scripts/enforce-module-cover.sh . 78 agents
-        # NOTE: gate is 78% (current honest measurement: 78.7%).
-        # Blocker to 85%: large goroutine paths in worker/execute and
-        # SSE LISTEN/NOTIFY branches require live provider/DB fixtures that
-        # are not available in CI without a billable provider.
-        # See agent_docs/runbooks/coverage-blockers.md
+          bash ../scripts/enforce-module-cover.sh . 85 agents
+        # The 85% threshold is intentionally not lowered. Current honest
+        # measurement is below the release gate; see coverage-blockers.md.
 
       - name: TypeScript client check
         working-directory: primer-agents/client/ts
