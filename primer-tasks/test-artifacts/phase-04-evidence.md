@@ -17,10 +17,11 @@
 - Huma/OpenAPI contract — 44 registered operations, PASS
 - Dialogue deterministic unit tests — PASS
 
-## Blocked / failed gates
-- Browser exploratory E2E: BLOCKED before Chrome actions because the real Stacklane/Compose scripted-Fantasy service was not available. See `.paseo-e2e/phase4-student-dialogue/exploration.md`; no Playwright promotion was performed.
-- Android connected acceptance: FAILED existing prerequisite deep-link tests because instrumentation arguments `ownOccurrenceId`/title were not supplied. No Phase 4 dialogue emulator flow was observed or promoted.
-- `make tasks-cover`: FAIL, aggregate coverage 69.4% < 85%; newly added backend paths need substantive coverage before phase completion.
+## Current gate status
+- Backend dialogue unit, integration, race, and enforced coverage gates pass. `make tasks-cover` reports 85.0% (mandatory gate met).
+- `make tasks-test`, `make tasks-web`, and `make tasks-android` pass; Android connected/emulator acceptance was not observed because no usable connected device flow was available.
+- Fresh Terra Chrome exploration incrementally passed authoring, pairing, two accepted answers, reconnect at 2/3, retry/injection handling, and completion. The complete required matrix did not pass: foreign/cross-task, concurrent recovery, malformed/timeout retry, parent inspect/override immediate reconciliation, responsive/a11y, and full wire/DB/log privacy checks remain unrun. Chrome DevTools later hit a shared-profile harness blocker. No Playwright promotion was performed.
+- Sanitized evidence is retained only in `.paseo-e2e/phase4-student-dialogue/`; QR/codes/cookies/raw payloads/bulky snapshots/logs were removed.
 
 ## Release decision
-Phase 4 is **not complete** and Phase 5 must not dispatch. The branch is a reviewed implementation checkpoint with explicit E2E, Android, and coverage blockers; no educational-quality claim is made.
+Phase 4 is **not complete** and Phase 5 must not dispatch. Backend gates are green, but browser full-matrix and dedicated Android acceptance remain open; no educational-quality or live-quality claim is made.
