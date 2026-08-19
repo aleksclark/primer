@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -60,7 +59,6 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	logger := logging.NewJSONLogger(out, cfg.LogLevel)
-	slog.SetDefault(logger)
 
 	if !opts.SkipMigrate {
 		if err := agentsdb.Migrate(ctx, cfg.DatabaseURL); err != nil {
@@ -98,6 +96,7 @@ func Run(ctx context.Context, opts Options) error {
 		Validator: validator,
 		Service:   svcAdapter,
 		Env:       cfg.Env,
+		Logger:    logger,
 	})
 	bounded := http.MaxBytesHandler(handler, cfg.HTTPMaxBodyBytes)
 

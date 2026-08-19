@@ -38,6 +38,7 @@ type Options struct {
 	Service   AgentService
 	Env       string
 	Service_  string // service label for logs (field clash: use ServiceName)
+	Logger    *slog.Logger
 }
 
 // New builds a chi HTTP handler with /healthz, /readyz, and /agents/v1 routes.
@@ -61,15 +62,20 @@ func newAPI(opts Options) (huma.API, http.Handler) {
 	}
 	svcName := "primer-agents"
 
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	r := chi.NewMux()
 	r.Use(middleware.Recoverer)
 	r.Use(RequestIDMiddleware)
-	r.Use(accessLogMiddleware(env, svcName))
+	r.Use(accessLogMiddleware(logger, env, svcName))
 	r.Use(authnMiddleware(opts.Validator))
 
 	// Unprotected probes.
 	r.Get("/healthz", handleHealthz)
-	r.Get("/readyz", handleReadyz(opts.Pool))
+	r.Get("/readyz", handleReadyz(logger, opts.Pool))
 
 	// Authenticated control-plane under /agents/v1.
 	cfg := huma.DefaultConfig("Primer Agents API", "0.1.0")
@@ -99,7 +105,7 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
-func handleReadyz(pool Pinger) http.HandlerFunc {
+func handleReadyz(logger *slog.Logger, pool Pinger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if pool == nil {
 			http.Error(w, `{"status":"unavailable"}`, http.StatusServiceUnavailable)
@@ -108,7 +114,7 @@ func handleReadyz(pool Pinger) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := pool.Ping(ctx); err != nil {
-			slog.Error("readiness ping failed", "error", err,
+			logger.Error("readiness ping failed", "error", err,
 				"request_id", RequestIDFromContext(r.Context()))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -162,7 +168,7 @@ func RequestIDFromContext(ctx context.Context) string {
 
 // ── Access log ────────────────────────────────────────────────────────────────
 
-func accessLogMiddleware(env, service string) func(http.Handler) http.Handler {
+func accessLogMiddleware(logger *slog.Logger, env, service string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -176,7 +182,7 @@ func accessLogMiddleware(env, service string) func(http.Handler) http.Handler {
 			if status == 0 {
 				status = http.StatusOK
 			}
-			slog.Info("request",
+			logger.Info("request",
 				"method", r.Method,
 				"path", path,
 				"status", status,
