@@ -141,12 +141,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if returnTo == "" || !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") {
 		returnTo = "/parent/students"
 	}
+	redirectURI, publicIssuer := s.Auth.RedirectURL, s.Auth.PublicIssuerURL
+	if s.Env != "production" {
+		host := r.Header.Get("X-Forwarded-Host")
+		if host == "" {
+			host = r.Host
+		}
+		if strings.HasPrefix(host, "127.") || strings.HasPrefix(host, "localhost") {
+			browserBase := "http://" + host
+			redirectURI = browserBase + "/auth/callback"
+			publicIssuer = browserBase + "/issuer"
+		}
+	}
 	ciphertext, err := s.seal(verifier)
 	if err != nil {
 		problem(w, 500, "internal", "unable to create authorization state")
 		return
 	}
-	_, err = s.DB.Exec(r.Context(), `INSERT INTO auth_states(state_hash,verifier_ciphertext,redirect_uri,return_path,client_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`, hash(state), ciphertext, s.Auth.RedirectURL, returnTo, s.Auth.ClientID)
+	_, err = s.DB.Exec(r.Context(), `INSERT INTO auth_states(state_hash,verifier_ciphertext,redirect_uri,return_path,client_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`, hash(state), ciphertext, redirectURI, returnTo, s.Auth.ClientID)
 	if err != nil {
 		problem(w, 500, "internal", "unable to persist authorization state")
 		return
@@ -154,11 +166,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// The state cookie is only a browser binding. The verifier and expiry live in
 	// Postgres, so a process restart cannot turn an authorization into a login.
 	http.SetCookie(w, &http.Cookie{Name: "tasks_oauth_state", Value: state, Path: "/auth", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 600})
-	q := url.Values{"response_type": {"code"}, "client_id": {s.Auth.ClientID}, "redirect_uri": {s.Auth.RedirectURL}, "scope": {"openid profile"}, "state": {state}, "code_challenge": {pkceChallenge(verifier)}, "code_challenge_method": {"S256"}}
+	q := url.Values{"response_type": {"code"}, "client_id": {s.Auth.ClientID}, "redirect_uri": {redirectURI}, "scope": {"openid profile"}, "state": {state}, "code_challenge": {pkceChallenge(verifier)}, "code_challenge_method": {"S256"}}
 	if p := r.URL.Query().Get("principal"); s.Auth.Mode == "test" && p != "" {
 		q.Set("login_hint", p)
 	}
-	http.Redirect(w, r, s.Auth.PublicIssuerURL+"/oauth/authorize?"+q.Encode(), http.StatusFound)
+	http.Redirect(w, r, strings.TrimRight(publicIssuer, "/")+"/oauth/authorize?"+q.Encode(), http.StatusFound)
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
