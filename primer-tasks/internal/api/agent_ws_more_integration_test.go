@@ -14,6 +14,30 @@ import (
 	"primer-tasks/internal/domain/parent"
 )
 
+func TestAgentSubscriberSendFillsTimeWithoutSocketWrites(t *testing.T) {
+	s := &Server{agentHub: newAgentHub()}
+	sub := &agentSubscriber{queue: make(chan wireAgentEvent, 1), done: make(chan struct{})}
+	s.agentHub.add(sub)
+	s.sendAgentToSubscriber(sub, wireAgentEvent{Type: "error"})
+	select {
+	case event := <-sub.queue:
+		if event.Time.IsZero() {
+			t.Fatal("subscriber event did not receive a server timestamp")
+		}
+	default:
+		t.Fatal("subscriber event was not queued")
+	}
+	s.agentHub.remove(sub)
+}
+
+func TestParentConfirmationHandleHashIsOpaqueAndDomainSeparated(t *testing.T) {
+	first := parentHandleHash("handle-1")
+	second := parentHandleHash("handle-2")
+	if len(first) != 32 || len(second) != 32 || string(first) == string(second) || string(first) == "handle-1" {
+		t.Fatalf("unsafe handle hashes: %x %x", first, second)
+	}
+}
+
 func TestAgentCommandsCancelConfirmAndWorkerStartupUseDurableState(t *testing.T) {
 	t.Setenv("TASKS_AGENT_ACTIVE_TOOLS", strings.Join(defaultToolNames(), ","))
 	pool := integrationPool(t)

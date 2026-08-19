@@ -90,6 +90,45 @@ func TestParentStudentResolutionAndConfirmationActions(t *testing.T) {
 	}
 }
 
+func TestParentToolsFailClosedOnMissingServicesAndInvalidInputs(t *testing.T) {
+	ctx := testContext(t, ToolListTasks, ToolGetTask, ToolDraftTask, ToolUpdateTask, ToolPublishTask, ToolListSchedules, ToolListOccurrences, ToolCreateSchedule, ToolUpdateSchedule, ToolPreviewAction)
+	empty := &Tools{}
+	if _, err := empty.ListTasks(context.Background(), ctx, TaskQuery{}); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("list tasks=%v", err)
+	}
+	if _, err := empty.GetTask(context.Background(), ctx, "task"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("get task=%v", err)
+	}
+	if _, err := empty.DraftTask(context.Background(), ctx, TaskDraftInput{Title: "x"}); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("draft=%v", err)
+	}
+	if _, err := empty.UpdateTask(context.Background(), ctx, TaskUpdateInput{TaskID: "task"}); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("update=%v", err)
+	}
+	if _, err := empty.PublishTask(context.Background(), ctx, "task"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("publish=%v", err)
+	}
+	if _, err := empty.ListSchedules(context.Background(), ctx, ScheduleQuery{}); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("schedules=%v", err)
+	}
+	if _, err := empty.ListOccurrences(context.Background(), ctx, OccurrenceQuery{}); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("occurrences=%v", err)
+	}
+	withTasks := &Tools{Tasks: &fakeTasks{}}
+	if _, err := withTasks.GetTask(context.Background(), ctx, ""); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("empty get=%v", err)
+	}
+	if _, err := withTasks.UpdateTask(context.Background(), ctx, TaskUpdateInput{}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("empty update=%v", err)
+	}
+	if _, err := withTasks.PublishTask(context.Background(), ctx, ""); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("empty publish=%v", err)
+	}
+	if _, err := (&Tools{Confirmations: NewMemoryConfirmationStore()}).PreviewAction(context.Background(), ctx, Action{}, ""); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("invalid preview=%v", err)
+	}
+}
+
 func TestParentContextAndProviderValidationBranches(t *testing.T) {
 	if _, err := NewContext("", "actor", "id", []string{ToolListStudents}); !errors.Is(err, ErrInvalidContext) {
 		t.Fatalf("empty tenant=%v", err)
