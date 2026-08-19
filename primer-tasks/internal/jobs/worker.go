@@ -49,7 +49,7 @@ func (r *PostgresRepository) Enqueue(ctx context.Context, j Job) error {
 	if j.MaxAttempts < 1 || j.MaxAttempts > 10 {
 		return errors.New("invalid max attempts")
 	}
-	_, err := r.DB.Exec(ctx, `INSERT INTO agent_jobs(id,tenant_id,run_id,status,attempts,max_attempts,available_at) VALUES($1,$2,$3,'queued',0,$4,COALESCE($5,now()))`, j.ID, j.TenantID, j.RunID, j.MaxAttempts, j.AvailableAt)
+	_, err := r.DB.Exec(ctx, `INSERT INTO agent_jobs(id,tenant_id,run_id,kind,status,attempts,max_attempts,available_at) VALUES($1,$2,$3,'agent_run','queued',0,$4,COALESCE($5,now()))`, j.ID, j.TenantID, j.RunID, j.MaxAttempts, j.AvailableAt)
 	return err
 }
 func (r *PostgresRepository) Claim(ctx context.Context, owner string, lease time.Duration) (j Job, ok bool, err error) {
