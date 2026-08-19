@@ -15,6 +15,7 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 .PHONY: help \
 	build test cover test-race e2e \
 	migrate migrate-up migrate-down migrate-status freeze-check freeze-write db-test \
+	studio-test studio-cover studio-db-pytest studio-backup-drill \
 	contracts-validate \
 	contracts-ownership \
 	contracts-buf-generate \
@@ -83,8 +84,18 @@ freeze-check:
 freeze-write:
 	go run ./cmd/migrate -write-freeze
 
-db-test:
+db-test studio-db-pytest:
 	cd db && python3 -m pytest tests -q
+
+studio-test:
+	go test ./... -count=1
+
+studio-cover:
+	@echo "Use root 'make studio-cover' for the enforced COVER_MIN gate (>=85%)."
+	@cd .. && make studio-cover
+
+studio-backup-drill:
+	./db/scripts/backup_restore_drill.sh
 
 # --- Contracts (C1+) ---
 
