@@ -23,7 +23,7 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 	clients-ts-rest-generate clients-ts-rest-build \
 	clients-generate \
 	contracts-parity \
-	contracts-gates \
+	contracts-gates contracts-ci gates-red-proof \
 	contracts-spikes
 
 help:
@@ -131,9 +131,12 @@ clients-generate: contracts-openapi-emit contracts-buf-generate clients-go-rest-
 contracts-parity:
 	bash "$(CONTRACTS)/scripts/parity.sh"
 
-contracts-gates: contracts-ownership
+contracts-gates: contracts-ownership contracts-openapi-emit
 	bash "$(CONTRACTS)/scripts/check-baseline.sh"
+	bash "$(CONTRACTS)/scripts/check-buf-breaking.sh"
+	bash "$(CONTRACTS)/scripts/check-openapi-breaking.sh"
 	bash "$(GATES)/check_no_tracked_generated.sh"
+	bash "$(GATES)/check-raw-transport.sh"
 	bash "$(GATES)/check_no_tracked_generated.sh" --self-test
 	bash "$(CONTRACTS)/scripts/bootstrap_local_plugins.sh" --self-test
 	# Nested spike harness must not pollute production module requirements.
@@ -142,6 +145,19 @@ contracts-gates: contracts-ownership
 	@test -f "$(GATES)/spikes/go/harness/go.mod" || { echo "FAIL: missing nested harness go.mod" >&2; exit 1; }
 	@grep -q '^module spike.local/harness$$' "$(GATES)/spikes/go/harness/go.mod" \
 		|| { echo "FAIL: harness go.mod must declare module spike.local/harness" >&2; exit 1; }
+
+contracts-ci: contracts-validate contracts-openapi-emit clients-generate
+	OPENAPI_PATH="$(CONTRACTS)/.tmp/openapi.emitted.yaml" bash "$(CONTRACTS)/scripts/parity.sh"
+	bash "$(CONTRACTS)/scripts/check-buf-breaking.sh"
+	bash "$(CONTRACTS)/scripts/check-openapi-breaking.sh"
+	bash "$(GATES)/check-raw-transport.sh"
+	cd "$(STUDIO_ROOT)" && GOWORK=off go test ./... -count=1
+	bash "$(GATES)/check_no_tracked_generated.sh"
+	git diff --check
+
+# Planted reds must fail their target and leave the checkout unchanged.
+gates-red-proof:
+	bash "$(CONTRACTS)/scripts/red-proof.sh"
 
 # C3 qualification spikes
 contracts-spikes:

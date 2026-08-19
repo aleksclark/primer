@@ -1,0 +1,8 @@
+# One repository-relative prefix per line. These own transport plumbing or
+# generated client façades; product consumers must import a façade instead.
+curriculum-studio/internal/api/
+curriculum-studio/internal/grpcapi/
+curriculum-studio/cmd/openapi-gen/
+curriculum-studio/contracts/
+curriculum-studio/clients/
+curriculum-studio/tools/
