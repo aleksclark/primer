@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { TasksApiError, tasksClient, type Occurrence, type Student } from "@primer-tasks/client";
+import { TasksApiError, tasksClient, type Occurrence, type Schedule, type Student } from "@primer-tasks/client";
 import "./index.css";
 
 type Theme = "dark" | "light";
@@ -87,6 +87,7 @@ function ParentShell({ children }: { children: ReactNode }) {
           <p className="system-label" style={{ padding: "0 20px" }}>Parent workspace</p>
           <NavLink className="nav-link" to="/parent/students">Students</NavLink>
           <NavLink className="nav-link" to="/parent/tasks">Tasks</NavLink>
+          <NavLink className="nav-link" to="/parent/schedules">Schedules</NavLink>
           <NavLink className="nav-link" to="/parent/occurrences">Occurrences</NavLink>
         </div>
         <div className="nav-section">
@@ -110,7 +111,7 @@ function ParentAuthGate() {
   }, []);
   if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
   if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} />;
-  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
+  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
 }
 
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -256,13 +257,27 @@ function TasksPage() {
   </>;
 }
 
+function SchedulesPage() {
+  const [params, setParams] = useSearchParams();
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [error, setError] = useState<unknown>(null);
+  const status = params.get("status") ?? "active";
+  const load = useCallback(() => tasksClient.listSchedules({ limit: 50, offset: 0, status }).then((p) => setSchedules((p.items ?? []) as Schedule[])).catch(setError), [status]);
+  useEffect(() => { void load(); }, [load]);
+  return <><PageHeader eyebrow="Parent workspace / Explore + Configure" title="Schedules" lede="Every schedule has an explicit timezone and bounded recurrence. Changes are versioned; issued occurrences remain unchanged." actions={<button className="button secondary" type="button" onClick={load}>Refresh server state</button>} />{error ? <ErrorNotice error={error} onRetry={load} /> : null}<section className="record"><div className="record-toolbar"><label className="field"><span className="system-label">Collection filter</span><select className="input" aria-label="Schedule status filter" value={status} onChange={(e) => { const next = new URLSearchParams(params); next.set("status", e.target.value); setParams(next); }}><option value="active">Active schedules</option><option value="all">All schedules</option></select></label><span className="meta">Server-owned schedule collection · IANA timezone required</span></div><div className="table-wrap"><table><thead><tr><th>Task / student</th><th>Cadence</th><th>Timezone</th><th>Version</th><th>Action</th></tr></thead><tbody>{schedules.map((schedule) => <tr key={schedule.id}><td><strong>{schedule.templateId}</strong><span className="secondary-cell">{schedule.studentId}</span></td><td>{schedule.kind === "recurrence" ? schedule.rrule : "One-off"}</td><td className="meta">{schedule.timezone}</td><td className="meta">v{schedule.version}</td><td>{schedule.enabled && <button className="button danger" type="button" onClick={() => void tasksClient.retireSchedule(schedule.id).then(load).catch(setError)}>Cancel schedule</button>}</td></tr>)}</tbody></table></div>{schedules.length === 0 && <div className="empty"><h2>No active schedules</h2><p>Publish a task and schedule it from the Tasks surface.</p></div>}</section></>;
+}
+
 function OccurrencesPage() {
+  const [params, setParams] = useSearchParams();
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [error, setError] = useState<unknown>(null);
-  const load = useCallback(() => tasksClient.listOccurrences({ limit: 50, offset: 0, sort: "nominalAt", dir: "asc" }).then((p) => setOccurrences(p.items ?? [])).catch(setError), []);
+  const status = params.get("status") ?? "";
+  const dir = params.get("dir") === "desc" ? "desc" : "asc";
+  const load = useCallback(() => tasksClient.listOccurrences({ limit: 50, offset: 0, sort: "nominalAt", dir, status: status || undefined }).then((p) => setOccurrences(p.items ?? [])).catch(setError), [dir, status]);
   useEffect(() => { void load(); }, [load]);
   const decide = (id: string, accepted: boolean) => void tasksClient.decideOccurrence(id, { accepted, reason: accepted ? "Parent observed completion." : "Try again with care." }).then(load).catch(setError);
-  return <><PageHeader eyebrow="Parent workspace / Operate + Inspect" title="Occurrences" lede="Approval and rejection are durable decisions. The student never writes completion state." />{error && <ErrorNotice error={error} onRetry={load} />}<section className="record"><div className="table-wrap"><table><thead><tr><th>Task</th><th>Student</th><th>Due</th><th>Status</th><th>Decision</th></tr></thead><tbody>{occurrences.map((o) => <tr key={o.id}><td><strong>{o.title}</strong><span className="secondary-cell">{o.id}</span></td><td className="meta">{o.studentId}</td><td className="meta">{formatDate(o.dueAt)}</td><td><span className="status">{o.status}</span></td><td>{o.status !== "completed" && o.status !== "canceled" && <div className="row-actions"><button className="button" type="button" onClick={() => decide(o.id, true)}>Approve</button><button className="button danger" type="button" onClick={() => decide(o.id, false)}>Reject</button>{o.status === "pending" && <button className="button secondary" type="button" onClick={() => void tasksClient.retryOccurrence(o.id).then(load).catch(setError)}>Retry</button>}</div>}</td></tr>)}</tbody></table></div>{occurrences.length === 0 && <div className="empty"><h2>No issued work</h2><p>Publish a task and create a schedule before occurrences appear here.</p></div>}</section></>;
+  const setCollection = (key: string, value: string) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next); };
+  return <><PageHeader eyebrow="Parent workspace / Operate + Inspect" title="Occurrences" lede="Approval and rejection are durable decisions. The student never writes completion state." actions={<button className="button secondary" type="button" onClick={load}>Refresh server state</button>} />{error ? <ErrorNotice error={error} onRetry={load} /> : null}<section className="record"><div className="record-toolbar"><label className="field"><span className="system-label">Status filter</span><select className="input" aria-label="Occurrence status filter" value={status} onChange={(e) => setCollection("status", e.target.value)}><option value="">All statuses</option><option value="pending">Pending</option><option value="awaiting_verification">Awaiting verification</option><option value="completed">Completed</option></select></label><label className="field"><span className="system-label">Sort direction</span><select className="input" aria-label="Occurrence sort direction" value={dir} onChange={(e) => setCollection("dir", e.target.value)}><option value="asc">Soonest first</option><option value="desc">Latest first</option></select></label></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Student</th><th>Due</th><th>Status</th><th>Decision</th></tr></thead><tbody>{occurrences.map((o) => <tr key={o.id}><td><strong>{o.title}</strong><span className="secondary-cell">{o.id}</span></td><td className="meta">{o.studentId}</td><td className="meta">{formatDate(o.dueAt)}</td><td><span className="status">{o.status}</span></td><td>{o.status !== "completed" && o.status !== "canceled" && <div className="row-actions"><button className="button" type="button" onClick={() => decide(o.id, true)}>Approve</button><button className="button danger" type="button" onClick={() => decide(o.id, false)}>Reject</button><button className="button secondary" type="button" onClick={() => void tasksClient.retryOccurrence(o.id).then(load).catch(setError)}>Retry</button><button className="button quiet" type="button" onClick={() => void tasksClient.skipOccurrence(o.id).then(load).catch(setError)}>Skip</button><button className="button quiet" type="button" onClick={() => void tasksClient.cancelOccurrence(o.id).then(load).catch(setError)}>Cancel</button></div>}</td></tr>)}</tbody></table></div>{occurrences.length === 0 && <div className="empty"><h2>No issued work</h2><p>Publish a task and create a schedule before occurrences appear here.</p></div>}</section></>;
 }
 
 function StudentOccurrencePage() {

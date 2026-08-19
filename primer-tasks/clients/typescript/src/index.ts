@@ -14,8 +14,9 @@ type PairStudentBody = JsonBody<"/student/pair", "post">;
 type StudentListQuery = Query<"/students", "get">;
 type TaskListQuery = Query<"/tasks", "get">;
 type OccurrenceListQuery = Query<"/occurrences", "get">;
-type TaskInputBody = JsonBody<"/tasks", "post">;
+type ScheduleListQuery = Query<"/schedules", "get">;
 type ScheduleInputBody = JsonBody<"/schedules", "post">;
+type TaskInputBody = JsonBody<"/tasks", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
 export type Task = components["schemas"]["TaskRevision"];
 export type TaskPage = components["schemas"]["TaskPage2"];
@@ -143,6 +144,15 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     },
     async createSchedule(body: ScheduleInputBody, options: RequestOptions = {}) {
       return unwrap(transport.POST("/schedules", { ...options, body }));
+    },
+    async listSchedules(query: ScheduleListQuery = {}, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/schedules", { ...options, params: { query } }));
+    },
+    async updateSchedule(id: string, body: ScheduleInputBody, options: RequestOptions = {}) {
+      return unwrap(transport.PATCH("/schedules/{id}", { ...options, params: { path: { id } }, body }));
+    },
+    async retireSchedule(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.DELETE("/schedules/{id}", { ...options, params: { path: { id } } }));
     },
     async listOccurrences(query: OccurrenceListQuery = {}, options: RequestOptions = {}) {
       return unwrap(transport.GET("/occurrences", { ...options, params: { query } }));

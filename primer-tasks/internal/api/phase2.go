@@ -530,12 +530,13 @@ func (s *Server) reviseTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 
 func (s *Server) listSchedules2(w http.ResponseWriter, r *http.Request, sc scope) {
 	limit, offset := parsePage(r)
+	all := r.URL.Query().Get("status") == "all"
 	var total int
-	if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM task_schedules WHERE tenant_id=$1 AND enabled`, sc.Tenant).Scan(&total); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM task_schedules WHERE tenant_id=$1 AND ($2 OR enabled)`, sc.Tenant, all).Scan(&total); err != nil {
 		problem(w, 500, "internal", err.Error())
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes,enabled,version FROM task_schedules WHERE tenant_id=$1 AND enabled ORDER BY start_local LIMIT $2 OFFSET $3`, sc.Tenant, limit, offset)
+	rows, err := s.DB.Query(r.Context(), `SELECT id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes,enabled,version FROM task_schedules WHERE tenant_id=$1 AND ($2 OR enabled) ORDER BY start_local LIMIT $3 OFFSET $4`, sc.Tenant, all, limit, offset)
 	if err != nil {
 		problem(w, 500, "internal", err.Error())
 		return

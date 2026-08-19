@@ -20,6 +20,10 @@ type TaskInputEnvelope2 struct {
 type ScheduleInputEnvelope2 struct {
 	Body ScheduleInput2 `required:"true"`
 }
+type ScheduleUpdateEnvelope2 struct {
+	ID   string         `path:"id"`
+	Body ScheduleInput2 `required:"true"`
+}
 type DecisionInputEnvelope2 struct {
 	ID   string         `path:"id"`
 	Body DecisionInput2 `required:"true"`
@@ -88,7 +92,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[Schedule2](ctx, s.requireParent(s.createSchedule2), in.Body)
 		return &ScheduleOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "schedules-update", Method: http.MethodPatch, Path: "/schedules/{id}", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *ScheduleInputEnvelope2) (*GenericJSONOutput2, error) {
+	register(api, huma.Operation{OperationID: "schedules-update", Method: http.MethodPatch, Path: "/schedules/{id}", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *ScheduleUpdateEnvelope2) (*GenericJSONOutput2, error) {
 		b, h, e := legacyJSON[map[string]any](ctx, s.requireParent(s.updateSchedule2), in.Body)
 		return &GenericJSONOutput2{h, b}, e
 	})
