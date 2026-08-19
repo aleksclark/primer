@@ -56,8 +56,8 @@ cleanup() {
 
   # Restoration precedes teardown so a watcher can observe the original bytes.
   if [[ -n "$BACKEND_BACKUP" ]]; then
-    cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/server.go"
-    if cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/server.go"; then
+    cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go"
+    if cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go"; then
       BACKEND_RESTORED=1
     else
       echo "prove-dev: FAIL backend source was not restored exactly" >&2
@@ -119,9 +119,9 @@ assert_absent "$PROJECT_B"
 
 TMPDIR_PROOF=$(mktemp -d)
 chmod 700 "$TMPDIR_PROOF"
-BACKEND_BACKUP="$TMPDIR_PROOF/server.go"
+BACKEND_BACKUP="$TMPDIR_PROOF/openapi.go"
 FRONTEND_BACKUP="$TMPDIR_PROOF/App.tsx"
-cp -- "$ROOT/internal/api/server.go" "$BACKEND_BACKUP"
+cp -- "$ROOT/internal/api/openapi.go" "$BACKEND_BACKUP"
 cp -- "$ROOT/web/src/App.tsx" "$FRONTEND_BACKUP"
 chmod 600 "$BACKEND_BACKUP" "$FRONTEND_BACKUP"
 
@@ -220,14 +220,14 @@ base_before_mutation=$(curl -fsS "http://127.0.0.1:${API_A_PORT}/health")
 # health endpoint can answer as soon as the binary starts, before fsnotify has
 # completed its baseline scan; mutating in that window can be silently missed.
 sleep 3
-python3 - "$ROOT/internal/api/server.go" "$BACKEND_NONCE" <<'PY'
+python3 - "$ROOT/internal/api/openapi.go" "$BACKEND_NONCE" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 nonce = sys.argv[2]
 raw = path.read_bytes()
-old = b'map[string]string{"status": "ok"}'
-new = ('map[string]string{"status": "' + nonce + '"}').encode()
+old = b'Health{Status: "ok"}'
+new = ('Health{Status: "' + nonce + '"}').encode()
 if raw.count(old) != 1:
     raise SystemExit("backend mutation anchor was not unique")
 path.write_bytes(raw.replace(old, new))
@@ -243,8 +243,8 @@ for _ in $(seq 1 90); do
     # otherwise the restore event can be lost and the proof reports a false
     # failure while leaving the watcher on the nonce build.
     sleep 2
-    cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/server.go"
-    cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/server.go" || fail "backend restore checksum mismatch"
+    cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go"
+    cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go" || fail "backend restore checksum mismatch"
     BACKEND_RESTORED=1
     break
   fi
