@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,4 +60,51 @@ func TestTutorConfigDefaults(t *testing.T) {
 	assert.Equal(t, "bedrock", cfg.TutorProvider)
 	assert.False(t, cfg.TutorEnabled)
 	assert.Equal(t, "https://example.invalid/invoke", cfg.TutorBedrockURL)
+}
+
+func TestPrimerAgentsDefaultsDisabled(t *testing.T) {
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.PrimerAgentsEnabled,
+		"PRIMER_AGENTS_ENABLED must default to false; all legacy paths must remain unchanged")
+	assert.Empty(t, cfg.PrimerAgentsBaseURL)
+	assert.Empty(t, cfg.PrimerAgentsTokenEnvVar)
+	assert.Equal(t, 30*time.Second, cfg.PrimerAgentsTimeout)
+}
+
+func TestPrimerAgentsEnabledRequiresBaseURL(t *testing.T) {
+	t.Setenv("PRIMER_AGENTS_ENABLED", "true")
+	// No base URL — must fail.
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PRIMER_AGENTS_BASE_URL")
+}
+
+func TestPrimerAgentsProductionRequiresHTTPS(t *testing.T) {
+	t.Setenv("ENV", "production")
+	t.Setenv("PRIMER_AGENTS_ENABLED", "true")
+	t.Setenv("PRIMER_AGENTS_BASE_URL", "http://insecure.example.com/agents")
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTPS")
+}
+
+func TestPrimerAgentsProductionAcceptsHTTPS(t *testing.T) {
+	t.Setenv("ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://primer:primer@localhost:5432/primer?sslmode=disable")
+	t.Setenv("PRIMER_AGENTS_ENABLED", "true")
+	t.Setenv("PRIMER_AGENTS_BASE_URL", "https://agents.example.com")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.PrimerAgentsEnabled)
+}
+
+func TestPrimerAgentsDevelopmentAllowsHTTP(t *testing.T) {
+	t.Setenv("ENV", "development")
+	t.Setenv("PRIMER_AGENTS_ENABLED", "true")
+	t.Setenv("PRIMER_AGENTS_BASE_URL", "http://localhost:8091")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.PrimerAgentsEnabled)
+	assert.Equal(t, "http://localhost:8091", cfg.PrimerAgentsBaseURL)
 }
