@@ -100,15 +100,15 @@ func TestPostgresAgentRepositoryTransitionsLeasesReplayRestartAndConfirm(t *test
 	if err := store.AppendEvent(ctx, agent.RunEvent{RunID: runID, TenantID: tenant, Sequence: 2, EventType: string(protocol.EventTerminal), Payload: agent.JSON(protocol.Terminal(runID, 2, "failed")), CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	events, err := store.ReplayEvents(ctx, tenant, runID, 0, 10)
+	events, err := store.ReplayEvents(ctx, tenant, conversationID, 0, 10)
 	if err != nil || len(events) != 2 || events[0].Sequence != 1 || events[1].Sequence != 2 {
 		t.Fatalf("replay=%+v err=%v", events, err)
 	}
-	cursor, err := store.ReplayEvents(ctx, tenant, runID, 1, 10)
+	cursor, err := store.ReplayEvents(ctx, tenant, conversationID, 1, 10)
 	if err != nil || len(cursor) != 1 || cursor[0].Sequence != 2 {
 		t.Fatalf("cursor replay=%+v err=%v", cursor, err)
 	}
-	foreign, err := store.ReplayEvents(ctx, tenantB, runID, 0, 10)
+	foreign, err := store.ReplayEvents(ctx, tenantB, conversationID, 0, 10)
 	if err != nil || len(foreign) != 0 {
 		t.Fatalf("foreign replay=%+v err=%v", foreign, err)
 	}
