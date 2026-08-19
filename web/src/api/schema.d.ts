@@ -2528,6 +2528,7 @@ export interface components {
             email: string;
             /** Format: uuid */
             id: string;
+            identitySubject?: string;
             name: string;
             /** @enum {string} */
             role: "parent" | "admin" | "tutor";
