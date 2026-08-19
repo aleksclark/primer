@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,8 +22,13 @@ import (
 	agentsdb "github.com/aleksclark/primer/agents/internal/db"
 	"github.com/aleksclark/primer/agents/internal/domain"
 	"github.com/aleksclark/primer/agents/internal/logging"
+	"github.com/aleksclark/primer/agents/internal/profile"
 	"github.com/aleksclark/primer/agents/internal/repo"
 	"github.com/aleksclark/primer/agents/internal/worker"
+	mafagent "github.com/microsoft/agent-framework-go/agent"
+	"github.com/microsoft/agent-framework-go/provider/openaiprovider"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 // Options customizes process bootstrap for tests.
@@ -84,7 +90,12 @@ func Run(ctx context.Context, opts Options) error {
 	workerCtx, stopWorker := context.WithCancel(ctx)
 	defer stopWorker()
 	if cfg.WorkerEnabled {
-		w := worker.New(pool, svc, worker.DefaultConfig())
+		workerCfg := worker.DefaultConfig()
+		if cfg.LiveLLMEnabled {
+			workerCfg.AgentFactory = liveLLMAgentFactory(cfg)
+			workerCfg.RunTimeout = cfg.LiveLLMTimeout
+		}
+		w := worker.New(pool, svc, workerCfg)
 		go func() {
 			if err := w.Start(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
 				logger.Error("worker: exited", "error", err)
@@ -192,6 +203,56 @@ func WaitReady(ctx context.Context, baseURL string) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// liveLLMAgentFactory builds the sole provider adapter permitted by the
+// opt-in qualification path. It is unreachable for ordinary startup and uses
+// a fixed cheap model with function auto-call disabled.
+func liveLLMAgentFactory(cfg *config.Config) func(profile.Spec) *mafagent.Agent {
+	key := cfg.LiveLLMAPIKey()
+	baseURL := cfg.LiveLLMBaseURL
+	model := cfg.LiveLLMModel
+	var calls atomic.Int64
+	transport := http.DefaultTransport
+	return func(spec profile.Spec) *mafagent.Agent {
+		client := openai.NewClient(
+			option.WithAPIKey(key),
+			option.WithBaseURL(baseURL),
+			option.WithMaxRetries(0),
+			option.WithHTTPClient(&http.Client{Transport: budgetTransport{
+				base:  transport,
+				calls: &calls,
+				max:   int64(cfg.LiveLLMMaxCalls),
+			}}),
+		)
+		return openaiprovider.NewChatCompletionsAgent(client, openaiprovider.AgentConfig{
+			Model:        model,
+			Instructions: spec.AgentSpec.Instructions,
+			Config: mafagent.Config{
+				Name:                spec.MAFConfig.Name,
+				Description:         spec.MAFConfig.Description,
+				DisableFuncAutoCall: true,
+				RunOptions: []mafagent.Option{
+					openaiprovider.ChatCompletionNewParams(openai.ChatCompletionNewParams{
+						MaxCompletionTokens: openai.Int(128),
+					}),
+				},
+			},
+		})
+	}
+}
+
+type budgetTransport struct {
+	base  http.RoundTripper
+	calls *atomic.Int64
+	max   int64
+}
+
+func (t budgetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.calls.Add(1) > t.max {
+		return nil, errors.New("live LLM provider call budget exceeded")
+	}
+	return t.base.RoundTrip(req)
 }
 
 // appServiceAdapter adapts *appservice.Service to api.AgentService by

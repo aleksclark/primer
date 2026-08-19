@@ -39,6 +39,11 @@ type Config struct {
 	// ProviderCfg is the MAF provider configuration. A nil/empty provider
 	// produces a scripted noop (tests). Production must supply a real config.
 	ProviderCfg *mafagent.ProviderConfig
+	// AgentFactory is used only by the explicitly opt-in live provider path.
+	// Ordinary workers leave it nil and use the deterministic provider config.
+	AgentFactory func(profile.Spec) *mafagent.Agent
+	// RunTimeout bounds one provider-backed run. Zero preserves test behavior.
+	RunTimeout time.Duration
 }
 
 // DefaultConfig returns safe defaults for development/test.
@@ -162,6 +167,11 @@ func (w *Worker) execute(ctx context.Context, run *domain.Run) error {
 	// worker, not by any HTTP request; it is cancelled by lease/cancel/error.
 	runCtx, cancelCause := context.WithCancelCause(ctx)
 	defer cancelCause(nil)
+	if w.cfg.RunTimeout > 0 {
+		timeoutCtx, cancelTimeout := context.WithTimeout(runCtx, w.cfg.RunTimeout)
+		defer cancelTimeout()
+		runCtx = timeoutCtx
+	}
 
 	// Mark provider_started before any provider call so process-death recovery
 	// can correctly classify this run as interrupted rather than re-queuing it.
@@ -277,7 +287,12 @@ func (w *Worker) runMAF(ctx context.Context, run *domain.Run, sink agentruntime.
 	}
 
 	provCfg := w.providerConfig()
-	mafAgent := profile.BuildAgent(spec, provCfg)
+	var mafAgent *mafagent.Agent
+	if w.cfg.AgentFactory != nil {
+		mafAgent = w.cfg.AgentFactory(spec)
+	} else {
+		mafAgent = profile.BuildAgent(spec, provCfg)
+	}
 	runner := agentruntime.NewRunner(spec.AgentSpec, mafAgent, sink)
 
 	input := ""

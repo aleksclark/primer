@@ -22,7 +22,7 @@ IDENTITY_COVER_MIN := 80
 	agents-build agents-vet agents-test agents-race agents-cover \
 	agents-openapi agents-clients-go agents-clients-ts agents-clients \
 	agents-contracts-check agents-maf-audit agents-migrate dev-db-agents \
-	docker-agents agents-no-live-billable \
+	docker-agents agents-live-llm agents-no-live-billable \
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
@@ -435,6 +435,17 @@ dev-db-agents:
 
 docker-agents:
 	docker build -f Dockerfile.agents -t primer-agents:local .
+
+## Opt-in live billable LLM qualification. Requires an explicitly named live
+## env file/key; never part of agents-test, agents-race, coverage, or CI.
+agents-live-llm:
+	@if [ "$${PRIMER_AGENTS_LIVE_LLM:-}" != "1" ]; then \
+		echo "agents-live-llm: set PRIMER_AGENTS_LIVE_LLM=1 to run (refusing billable endpoint)" >&2; \
+		exit 2; \
+	fi
+	@mkdir -p tmp
+	PRIMER_AGENTS_LIVE_LLM_REPORT_FILE="$${PRIMER_AGENTS_LIVE_LLM_REPORT_FILE:-tmp/primer-agents-live-llm-report.json}" \
+		bash -c 'cd primer-agents && go test -tags=live_llm ./internal/testutil/live/ -count=1 -timeout 60s -v'
 
 agents-no-live-billable:
 	@bash scripts/check-agents-maf.sh
