@@ -63,3 +63,55 @@ The full review output is preserved in the orchestrator session; this report rec
 ## Gate decision
 
 Do **not** commit a claim of Phase 1 PASS. Do **not** write/promote Playwright or emulator automation. Do **not** dispatch Phase 2. Resolve the reviewer blockers and obtain independent browser exploratory PASS plus Android emulator exploratory PASS first, then follow the required promotion order.
+
+## Remediation wave (uncommitted; current HEAD remains cba1399)
+
+The remediation worktree contains concrete, uncommitted fixes:
+
+- Durable PKCE state and a protocol-compatible PostgreSQL-backed test issuer with visible Parent A/Parent B selector; production validation now rejects test mode, test issuers, missing database/auth configuration before migration/listen.
+- Transactional pairing credential issuance, student-session/device revocation, composite tenant/student foreign keys, audit rows, and substantive config/API/database tests.
+- Offline route inventory contract emission with ignored TS/Kotlin build outputs and client façades.
+- CameraX + bundled ZXing scanner, QR-origin policy, Keystore/DataStore persistence, student profile/checklist and revocation clear-state behavior.
+- Compose test issuer, same-origin `/issuer` and `/auth` proxying, and Go/Vite/two-instance proof scripts.
+
+Focused results:
+
+```text
+go test ./primer-tasks/...                         PASS
+go vet ./primer-tasks/...                         PASS
+make tasks-clients tasks-web tasks-android         PASS
+cd primer-tasks/android && ./gradlew testDebugUnitTest assembleDebug   PASS
+./primer-tasks/scripts/prove-dev.sh                PASS
+# real PostgreSQL Compose PKCE/CRUD/pair/replay/archive smoke             PASS
+# current product Go coverage                              24.1% (BLOCKED; below 85%)
+```
+
+### Fresh browser exploratory result: PASS
+
+Dedicated suite `.paseo-e2e/tasks-foundation-remediation/` completed real Chrome exploration through the public Stacklane web origin. It observed:
+
+- Parent A and Parent B authorization-code + S256 PKCE flows through the real test issuer.
+- HttpOnly + SameSite=Lax callback headers from both fresh contexts, recorded in `call7-auth-callback-headers.md` with secrets redacted.
+- Student create/update/archive, QR/code issuance, student browser pairing, empty checklist and refresh persistence.
+- Pairing replay denial and archive-driven student session revocation.
+- Parent B URL, list-filter, and PATCH-body IDOR denials against Parent A data.
+- Empty browser JS cookie/local/session storage, no bearer exposure.
+- Dark desktop/mobile, light mobile, responsive menu, and Lighthouse accessibility 100 evidence.
+
+The exploratory agent's final result is `PASS` (`state.json` phase `codify-ready`). No Playwright suite was written because Android acceptance has not passed.
+
+### Fresh Android exploratory result: BLOCKED
+
+Dedicated emulator agent performed multiple honest retries, including a final real webcam0 loopback attempt:
+
+- Fresh wiped Pixel AVD, real current APK, CameraX permission and active camera frames were verified.
+- Fresh QR was issued through the real browser UI and independently validated with `zbarimg`.
+- `emulator -webcam-list` exposed `webcam0`; CameraX received live frames.
+- ZXing Hybrid/GlobalHistogram/ALSO_INVERTED retries did not decode the QR. The app remained on **Scan pairing QR**; no device token, bound profile, persistence, replay, revocation, or storage-leakage state was observed.
+- Evidence is in `test-artifacts/android-foundation-remediation/final-hybrid-global/` and the dedicated report `test-artifacts/android-foundation-remediation.md`.
+
+This is a hard acceptance blocker, not a substituted manual-code pass. Playwright and emulator automation remain unpromoted, and no independent final anti-cheat review was dispatched after a green Android gate.
+
+### Current verdict
+
+**BLOCKED. No remediation commit was created.** The browser gate is PASS, but Android QR decoding and the 85% product Go coverage gate remain unresolved. Phase 2 must not be dispatched. Current reviewed tip remains `cba13993dfe8863b795babb51de543711d18ce84`.

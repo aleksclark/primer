@@ -252,6 +252,9 @@ case "${1:-}" in
   endpoints)
     endpoints
     ;;
+  proof)
+    "$ROOT/scripts/prove-dev.sh"
+    ;;
   logs)
     echo "Following logs; Ctrl-C stops log following only and leaves the stack running." >&2
     shift
@@ -269,7 +272,7 @@ case "${1:-}" in
     compose down -v
     ;;
   *)
-    echo "usage: $0 {check|up|dev|status|endpoints|logs [service...]|down|destroy}" >&2
+    echo "usage: $0 {check|up|dev|status|endpoints|proof|logs [service...]|down|destroy}" >&2
     exit 2
     ;;
 esac

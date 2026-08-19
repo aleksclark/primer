@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,8 +25,35 @@ type Server struct {
 	DB           *pgxpool.Pool
 	Env          string
 	SecureCookie bool
+	Auth         AuthConfig
 }
 type scope struct{ Tenant, Subject string }
+
+type AuthConfig struct {
+	Mode            string
+	IssuerURL       string
+	PublicIssuerURL string
+	ClientID        string
+	RedirectURL     string
+	PublicOrigin    string
+	SessionSecret   []byte
+	IssuerSecret    []byte
+}
+
+func authConfigFromEnv(env string) AuthConfig {
+	secret := os.Getenv("TASKS_SESSION_SECRET")
+	if secret == "" {
+		secret = "primer-tasks-development-secret-change-me"
+	}
+	return AuthConfig{
+		Mode: envOr("TASKS_AUTH_MODE", "test"), IssuerURL: strings.TrimRight(envOr("TASKS_ISSUER_URL", "http://test-issuer:8091"), "/"), PublicIssuerURL: strings.TrimRight(envOr("TASKS_PUBLIC_ISSUER_URL", envOr("TASKS_ISSUER_URL", "http://test-issuer:8091")), "/"),
+		ClientID:     envOr("TASKS_OIDC_CLIENT_ID", "primer-tasks-web"),
+		RedirectURL:  envOr("TASKS_OIDC_REDIRECT_URL", envOr("TASKS_PUBLIC_ORIGIN", "http://127.0.0.1:8080")+"/auth/callback"),
+		PublicOrigin: envOr("TASKS_PUBLIC_ORIGIN", "http://127.0.0.1:8080"), SessionSecret: []byte(secret),
+		IssuerSecret: []byte(envOr("TASKS_TEST_ISSUER_SECRET", "primer-tasks-test-issuer-secret")),
+	}
+}
+
 type student struct {
 	ID          string     `json:"id"`
 	DisplayName string     `json:"displayName"`
@@ -33,13 +62,28 @@ type student struct {
 }
 
 func New(db *pgxpool.Pool, env string) *Server {
-	return &Server{DB: db, Env: env, SecureCookie: env == "production"}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env)}
+}
+
+func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
+	defaults := authConfigFromEnv(env)
+	if len(auth.SessionSecret) == 0 {
+		auth.SessionSecret = defaults.SessionSecret
+	}
+	if len(auth.IssuerSecret) == 0 {
+		auth.IssuerSecret = defaults.IssuerSecret
+	}
+	if auth.Mode == "" {
+		auth.Mode = defaults.Mode
+	}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth}
 }
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) { jsonOK(w, map[string]string{"status": "ok"}) })
 	r.Get("/openapi.yaml", s.openapi)
 	r.Get("/auth/login", s.login)
+	r.Get("/auth/callback", s.callback)
 	r.Get("/auth/session", s.parentSession)
 	r.Post("/auth/logout", s.logout)
 	r.Get("/students", s.requireParent(s.listStudents))
@@ -89,6 +133,10 @@ func (s *Server) requireDevice(next func(http.ResponseWriter, *http.Request, uui
 	}
 }
 func hash(v string) []byte { x := sha256.Sum256([]byte(v)); return x[:] }
+func pkceChallenge(verifier string) string {
+	x := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(x[:])
+}
 func randomString(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
@@ -104,28 +152,85 @@ func (s *Server) parentScope(r *http.Request) (scope, error) {
 	return out, err
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	if s.Env == "production" {
-		problem(w, 503, "identity_unconfigured", "production requires Primer Identity")
+	if s.Auth.IssuerURL == "" || s.Auth.ClientID == "" {
+		problem(w, 503, "identity_unconfigured", "identity provider is not configured")
 		return
 	}
-	sub := r.URL.Query().Get("principal")
-	if sub == "" {
-		sub = "parent-a"
+	state, verifier := randomString(32), randomString(48)
+	returnTo := r.URL.Query().Get("return_to")
+	if returnTo == "" || !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") {
+		returnTo = "/parent/students"
+	}
+	ciphertext, err := s.seal(verifier)
+	if err != nil {
+		problem(w, 500, "internal", "unable to create authorization state")
+		return
+	}
+	_, err = s.DB.Exec(r.Context(), `INSERT INTO auth_states(state_hash,verifier_ciphertext,redirect_uri,return_path,client_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`, hash(state), ciphertext, s.Auth.RedirectURL, returnTo, s.Auth.ClientID)
+	if err != nil {
+		problem(w, 500, "internal", "unable to persist authorization state")
+		return
+	}
+	// The state cookie is only a browser binding. The verifier and expiry live in
+	// Postgres, so a process restart cannot turn an authorization into a login.
+	http.SetCookie(w, &http.Cookie{Name: "tasks_oauth_state", Value: state, Path: "/auth", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 600})
+	q := url.Values{"response_type": {"code"}, "client_id": {s.Auth.ClientID}, "redirect_uri": {s.Auth.RedirectURL}, "scope": {"openid profile"}, "state": {state}, "code_challenge": {pkceChallenge(verifier)}, "code_challenge_method": {"S256"}}
+	if p := r.URL.Query().Get("principal"); s.Auth.Mode == "test" && p != "" {
+		q.Set("login_hint", p)
+	}
+	http.Redirect(w, r, s.Auth.PublicIssuerURL+"/oauth/authorize?"+q.Encode(), http.StatusFound)
+}
+
+func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
+	if providerError := r.URL.Query().Get("error"); providerError != "" {
+		problem(w, 401, "identity_denied", providerError)
+		return
+	}
+	state := r.URL.Query().Get("state")
+	cookie, err := r.Cookie("tasks_oauth_state")
+	if err != nil || state == "" || !hmac.Equal([]byte(state), []byte(cookie.Value)) {
+		problem(w, 400, "invalid_state", "authorization state does not match")
+		return
+	}
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		problem(w, 400, "invalid_request", "authorization code is required")
+		return
+	}
+	ctx := r.Context()
+	var ciphertext []byte
+	var redirectURI, returnTo, clientID string
+	if err = s.DB.QueryRow(ctx, `UPDATE auth_states SET consumed_at=now() WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now() RETURNING verifier_ciphertext,redirect_uri,return_path,client_id`, hash(state)).Scan(&ciphertext, &redirectURI, &returnTo, &clientID); err != nil {
+		problem(w, 400, "invalid_state", "authorization state is expired or already used")
+		return
+	}
+	verifier, err := s.open(ciphertext)
+	if err != nil {
+		problem(w, 500, "internal", "authorization state is unreadable")
+		return
+	}
+	claims, err := s.exchange(ctx, code, verifier, redirectURI, clientID)
+	if err != nil {
+		problem(w, 401, "identity_denied", "identity provider rejected the authorization")
+		return
 	}
 	var tenant string
-	err := s.DB.QueryRow(r.Context(), `SELECT tenant_id FROM parent_memberships WHERE subject_ref=$1 ORDER BY tenant_id LIMIT 1`, sub).Scan(&tenant)
-	if err != nil {
+	if err = s.DB.QueryRow(ctx, `SELECT tenant_id FROM parent_memberships WHERE subject_ref=$1 ORDER BY tenant_id LIMIT 1`, claims.Subject).Scan(&tenant); err != nil {
 		problem(w, 403, "denied", "principal is not provisioned")
 		return
 	}
 	raw := randomString(32)
-	_, err = s.DB.Exec(r.Context(), `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,expires_at) VALUES($1,$2,$3,now()+interval '8 hours')`, hash(raw), tenant, sub)
-	if err != nil {
-		problem(w, 500, "internal", err.Error())
+	if _, err = s.DB.Exec(ctx, `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES($1,$2,$3,'parent',now()+interval '8 hours')`, hash(raw), tenant, claims.Subject); err != nil {
+		problem(w, 500, "internal", "unable to create session")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "tasks_parent", Value: raw, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 28800})
-	http.Redirect(w, r, "/parent/students", http.StatusFound)
+	http.SetCookie(w, &http.Cookie{Name: "tasks_oauth_state", Value: "", Path: "/auth", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	to := returnTo
+	if !strings.HasPrefix(to, "/") || strings.HasPrefix(to, "//") {
+		to = "/parent/students"
+	}
+	http.Redirect(w, r, to, http.StatusFound)
 }
 func (s *Server) parentSession(w http.ResponseWriter, r *http.Request) {
 	sc, err := s.parentScope(r)
@@ -231,23 +336,51 @@ func (s *Server) updateStudent(w http.ResponseWriter, r *http.Request, sc scope)
 }
 func (s *Server) archiveStudent(w http.ResponseWriter, r *http.Request, sc scope) {
 	id := chi.URLParam(r, "id")
+	tx, e := s.DB.Begin(r.Context())
+	if e != nil {
+		problem(w, 500, "internal", "unable to begin archive")
+		return
+	}
+	defer tx.Rollback(r.Context())
 	var sid string
-	e := s.DB.QueryRow(r.Context(), `UPDATE students SET archived_at=now() WHERE tenant_id=$1 AND id=$2 AND archived_at IS NULL RETURNING id`, sc.Tenant, id).Scan(&sid)
+	e = tx.QueryRow(r.Context(), `UPDATE students SET archived_at=now() WHERE tenant_id=$1 AND id=$2 AND archived_at IS NULL RETURNING id`, sc.Tenant, id).Scan(&sid)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "student not found")
 		return
 	}
 	if e != nil {
-		problem(w, 500, "internal", e.Error())
+		problem(w, 500, "internal", "unable to archive student")
 		return
 	}
-	_, _ = s.DB.Exec(r.Context(), `UPDATE student_devices SET revoked_at=now() WHERE tenant_id=$1 AND student_id=$2 AND revoked_at IS NULL`, sc.Tenant, id)
-	audit(r.Context(), s.DB, sc, "student.archived", sid)
+	if _, e = tx.Exec(r.Context(), `UPDATE student_devices SET revoked_at=now() WHERE tenant_id=$1 AND student_id=$2 AND revoked_at IS NULL`, sc.Tenant, id); e != nil {
+		problem(w, 500, "internal", "unable to revoke devices")
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE student_sessions SET revoked_at=now() WHERE tenant_id=$1 AND student_id=$2 AND revoked_at IS NULL`, sc.Tenant, id); e != nil {
+		problem(w, 500, "internal", "unable to revoke sessions")
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE bff_sessions SET revoked_at=now() WHERE session_kind='student' AND subject_ref=$1 AND revoked_at IS NULL`, "student:"+id); e != nil {
+		problem(w, 500, "internal", "unable to revoke browser sessions")
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE pairing_codes SET revoked_at=now() WHERE tenant_id=$1 AND student_id=$2 AND claimed_at IS NULL AND revoked_at IS NULL`, sc.Tenant, id); e != nil {
+		problem(w, 500, "internal", "unable to revoke pairing codes")
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id,metadata) VALUES($1,$2,'student.archived',$3,$4)`, sc.Tenant, sc.Subject, sid, `{"revoked":"devices,sessions,pairing"}`); e != nil {
+		problem(w, 500, "internal", "unable to record archive")
+		return
+	}
+	if e = tx.Commit(r.Context()); e != nil {
+		problem(w, 500, "internal", "unable to commit archive")
+		return
+	}
 	w.WriteHeader(204)
 }
 func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) {
 	id := chi.URLParam(r, "id")
-	if _, e := s.findStudent(r.Context(), sc.Tenant, id); e != nil {
+	if found, e := s.findStudent(r.Context(), sc.Tenant, id); e != nil || found.ArchivedAt != nil {
 		problem(w, 404, "not_found", "student not found")
 		return
 	}
@@ -259,24 +392,56 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	payload := map[string]any{"v": 1, "api": "/api", "origin": "/student/pair", "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
+	audit(r.Context(), s.DB, sc, "student.pairing_issued", pid.String())
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = s.Auth.PublicOrigin
+	}
+	payload := map[string]any{"v": 1, "api": "/api", "origin": origin, "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
 	jsonOK(w, map[string]any{"pairingId": pid, "code": code, "expiresAt": exp, "qrPayload": string(mustJSON(payload))})
 }
-func (s *Server) claim(ctx context.Context, code string) (uuid.UUID, error) {
-	tx, e := s.DB.Begin(ctx)
-	if e != nil {
-		return uuid.Nil, e
+func (s *Server) claimCredential(ctx context.Context, code, kind string) (uuid.UUID, string, string, error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, "", "", err
 	}
 	defer tx.Rollback(ctx)
-	var id uuid.UUID
-	e = tx.QueryRow(ctx, `UPDATE pairing_codes SET claimed_at=now() WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at>now() RETURNING student_id`, hash(strings.ToUpper(strings.TrimSpace(code)))).Scan(&id)
-	if e != nil {
-		return uuid.Nil, e
+	var sid, pairingID uuid.UUID
+	var tenant string
+	if err = tx.QueryRow(ctx, `UPDATE pairing_codes SET claimed_at=now() WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at>now() RETURNING id,tenant_id,student_id`, hash(strings.ToUpper(strings.TrimSpace(code)))).Scan(&pairingID, &tenant, &sid); err != nil {
+		return uuid.Nil, "", "", err
 	}
-	if e = tx.Commit(ctx); e != nil {
-		return uuid.Nil, e
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id,metadata) VALUES($1,$2,'student.pairing_claimed',$3,$4)`, tenant, "student:"+sid.String(), pairingID, `{"kind":"`+kind+`"}`); err != nil {
+		return uuid.Nil, "", "", err
 	}
-	return id, nil
+	if kind == "browser" {
+		raw := randomString(32)
+		if _, err = tx.Exec(ctx, `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES($1,$2,$3,'student',now()+interval '90 days')`, hash(raw), tenant, "student:"+sid.String()); err != nil {
+			return uuid.Nil, "", "", err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO student_sessions(id,tenant_id,student_id,handle_hash,expires_at) VALUES($1,$2,$3,$4,now()+interval '90 days')`, uuid.New(), tenant, sid, hash(raw)); err != nil {
+			return uuid.Nil, "", "", err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id,metadata) VALUES($1,$2,'student.session_issued',$3,$4)`, tenant, "student:"+sid.String(), sid, `{"kind":"browser"}`); err != nil {
+			return uuid.Nil, "", "", err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return uuid.Nil, "", "", err
+		}
+		return sid, tenant, raw, nil
+	}
+	raw := randomString(48)
+	deviceID := uuid.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO student_devices(id,tenant_id,student_id,token_hash) VALUES($1,$2,$3,$4)`, deviceID, tenant, sid, hash(raw)); err != nil {
+		return uuid.Nil, "", "", err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id,metadata) VALUES($1,$2,'student.device_issued',$3,$4)`, tenant, "student:"+sid.String(), deviceID, `{"kind":"device"}`); err != nil {
+		return uuid.Nil, "", "", err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return uuid.Nil, "", "", err
+	}
+	return sid, tenant, raw, nil
 }
 func (s *Server) pairBrowser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -285,23 +450,12 @@ func (s *Server) pairBrowser(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	sid, e := s.claim(r.Context(), in.Code)
+	sid, _, raw, e := s.claimCredential(r.Context(), in.Code, "browser")
 	if e != nil {
 		problem(w, 410, "expired", "pairing code is used, expired, or revoked")
 		return
 	}
-	raw := randomString(32)
-	var tenant string
-	if e = s.DB.QueryRow(r.Context(), `SELECT tenant_id FROM students WHERE id=$1`, sid).Scan(&tenant); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	_, e = s.DB.Exec(r.Context(), `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,expires_at) VALUES($1,$2,$3,now()+interval '90 days')`, hash(raw), tenant, "student:"+sid.String())
-	if e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	http.SetCookie(w, &http.Cookie{Name: "tasks_student", Value: raw, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 7776000})
+	http.SetCookie(w, &http.Cookie{Name: "tasks_student", Value: raw, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 7776000})
 	jsonOK(w, map[string]string{"studentId": sid.String()})
 }
 func (s *Server) studentFromCookie(r *http.Request) (uuid.UUID, error) {
@@ -310,7 +464,7 @@ func (s *Server) studentFromCookie(r *http.Request) (uuid.UUID, error) {
 		return uuid.Nil, e
 	}
 	var ref string
-	e = s.DB.QueryRow(r.Context(), `SELECT subject_ref FROM bff_sessions WHERE handle_hash=$1 AND expires_at>now() AND revoked_at IS NULL AND subject_ref LIKE 'student:%'`, hash(c.Value)).Scan(&ref)
+	e = s.DB.QueryRow(r.Context(), `SELECT 'student:'||student_id::text FROM student_sessions WHERE handle_hash=$1 AND expires_at>now() AND revoked_at IS NULL`, hash(c.Value)).Scan(&ref)
 	if e != nil {
 		return uuid.Nil, e
 	}
@@ -335,20 +489,9 @@ func (s *Server) devicePair(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	sid, e := s.claim(r.Context(), in.Code)
+	sid, _, tok, e := s.claimCredential(r.Context(), in.Code, "device")
 	if e != nil {
 		problem(w, 410, "expired", "pairing code is used, expired, or revoked")
-		return
-	}
-	var tenant string
-	if e = s.DB.QueryRow(r.Context(), `SELECT tenant_id FROM students WHERE id=$1`, sid).Scan(&tenant); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	tok := randomString(48)
-	_, e = s.DB.Exec(r.Context(), `INSERT INTO student_devices(id,tenant_id,student_id,token_hash) VALUES($1,$2,$3,$4)`, uuid.New(), tenant, sid, hash(tok))
-	if e != nil {
-		problem(w, 500, "internal", e.Error())
 		return
 	}
 	jsonOK(w, map[string]string{"token": tok, "studentId": sid.String()})
@@ -387,34 +530,13 @@ func problem(w http.ResponseWriter, status int, code, message string) {
 }
 func (s *Server) openapi(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
-	_, _ = w.Write([]byte(openapiYAML))
+	_, _ = w.Write([]byte(generatedOpenAPI()))
 }
-func OpenAPI() string { return openapiYAML }
+func OpenAPI() string { return generatedOpenAPI() }
 
-const openapiYAML = `openapi: 3.0.3
-info:
-  title: Primer Tasks
-  version: 1.0.0
-paths:
-  /auth/session: {get: {responses: {'200': {description: session, content: {application/json: {schema: {type: object, properties: {subjectRef: {type: string}, tenantId: {type: string}}}}}}}}}
-  /auth/logout: {post: {responses: {'200': {description: signed out, content: {application/json: {schema: {type: object, properties: {status: {type: string}}}}}}}}}
-  /students:
-    get: {parameters: [{name: q, in: query, schema: {type: string}}, {name: limit, in: query, schema: {type: integer}}, {name: offset, in: query, schema: {type: integer}}], responses: {'200': {description: student page, content: {application/json: {schema: {$ref: '#/components/schemas/StudentPage'}}}}}
-    post: {requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateStudent'}}}}, responses: {'201': {description: student, content: {application/json: {schema: {$ref: '#/components/schemas/Student'}}}}}}
-  /students/{id}: {parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}], get: {responses: {'200': {description: student, content: {application/json: {schema: {$ref: '#/components/schemas/Student'}}}}}, patch: {requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/UpdateStudent'}}}}, responses: {'200': {description: student, content: {application/json: {schema: {$ref: '#/components/schemas/Student'}}}}}, delete: {responses: {'204': {description: archived}}}}
-  /students/{id}/pairing: {parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}], post: {responses: {'200': {description: pairing, content: {application/json: {schema: {$ref: '#/components/schemas/Pairing'}}}}}}
-  /student/pair: {post: {requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/Pair'}}}}, responses: {'200': {description: paired, content: {application/json: {schema: {type: object, properties: {studentId: {type: string}}}}}}}}
-  /student/profile: {get: {responses: {'200': {description: profile, content: {application/json: {schema: {$ref: '#/components/schemas/Student'}}}}}}}
-  /student/checklist: {get: {responses: {'200': {description: checklist, content: {application/json: {schema: {$ref: '#/components/schemas/Checklist'}}}}}}}
-components:
-  schemas:
-    Student: {type: object, required: [id, displayName, createdAt], properties: {id: {type: string}, displayName: {type: string}, createdAt: {type: string, format: date-time}, archivedAt: {type: string, format: date-time, nullable: true}}}
-    StudentPage: {type: object, required: [items, totalCount, limit, offset], properties: {items: {type: array, items: {$ref: '#/components/schemas/Student'}}, totalCount: {type: integer}, limit: {type: integer}, offset: {type: integer}}}
-    Pairing: {type: object, required: [pairingId, code, expiresAt, qrPayload], properties: {pairingId: {type: string}, code: {type: string}, expiresAt: {type: string, format: date-time}, qrPayload: {type: string}}}
-    Checklist: {type: object, required: [items], properties: {items: {type: array, items: {type: object, properties: {id: {type: string}, title: {type: string}, description: {type: string}, status: {type: string}}}}}}
-    UpdateStudent: {type: object, required: [displayName], properties: {displayName: {type: string}}}
-    CreateStudent: {type: object, required: [displayName], properties: {displayName: {type: string}}}
-    Pair: {type: object, required: [code], properties: {code: {type: string}}}
-`
-
-func init() { _ = os.Getenv("TASKS_ENV") }
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { QRCodeCanvas } from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { TasksApiError, tasksClient, type Student } from "@primer-tasks/client";
 import "./index.css";
@@ -7,6 +7,11 @@ import "./index.css";
 type Theme = "dark" | "light";
 
 type RequestState = "loading" | "ready" | "empty" | "error" | "denied" | "revoked" | "expired";
+
+// This visible marker is also the target of the real Vite HMR proof. Keeping
+// it in the application module proves React state updates without a document
+// reload; it is not a test-only fake response.
+const HMR_PROOF_MARKER = "System C · HMR baseline";
 
 function useTheme() {
   const [theme, setTheme] = useState<Theme>(() =>
@@ -66,6 +71,7 @@ function Brand() {
     <img className="brand-dark" src="/brand/logo-mark.svg" alt="" />
     <img className="brand-light" src="/brand/logo-mark-light.svg" alt="" />
     <span className="brand-wordmark">Primer<strong>Tasks</strong></span>
+    <span className="system-label hmr-proof-marker" data-hmr-proof-marker="true">{HMR_PROOF_MARKER}</span>
   </NavLink>;
 }
 
@@ -210,7 +216,7 @@ function StudentDetailPage() {
 }
 
 function PairingDisplay({ pairing }: { pairing: Awaited<ReturnType<typeof tasksClient.issuePairing>> }) {
-  return <div style={{ marginTop: 20 }}><p className="system-label">Show once · expires {formatDate(pairing.expiresAt)}</p><div className="qr-frame" role="img" aria-label="One-use student pairing QR code"><QRCodeCanvas value={pairing.qrPayload} size={200} includeMargin={false} /></div><span className="code">{pairing.code}</span><p style={{ color: "var(--muted)", fontSize: 13 }}>Keep this page open while the student scans or enters the code. Do not copy the credential into a message or URL.</p></div>;
+  return <div style={{ marginTop: 20 }}><p className="system-label">Show once · expires {formatDate(pairing.expiresAt)}</p><div className="qr-frame"><QRCodeSVG value={pairing.qrPayload} size={200} includeMargin={false} title="One-use student pairing QR code" role="img" aria-label="One-use student pairing QR code" /></div><span className="code">{pairing.code}</span><p style={{ color: "var(--muted)", fontSize: 13 }}>Keep this page open while the student scans or enters the code. Do not copy the credential into a message or URL.</p></div>;
 }
 
 function StudentShell() {

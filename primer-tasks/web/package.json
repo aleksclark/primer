@@ -9,6 +9,7 @@
     "generate:client": "npm --prefix ../clients/typescript ci --no-audit --no-fund && npm --prefix ../clients/typescript run generate",
     "typecheck": "tsc -b",
     "check:boundary": "node scripts/check-client-boundary.mjs",
+    "browser:test": "../scripts/browser-test",
     "build": "npm run typecheck && vite build",
     "lint": "npm run check:boundary && oxlint .",
     "preview": "vite preview"

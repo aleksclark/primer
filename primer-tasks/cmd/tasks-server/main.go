@@ -8,26 +8,27 @@ import (
 	"os"
 	"os/signal"
 	"primer-tasks/internal/api"
+	"primer-tasks/internal/config"
 	"primer-tasks/internal/db"
 	"syscall"
 	"time"
 )
 
 func main() {
-	env := os.Getenv("TASKS_ENV")
-	if env == "" {
-		env = "development"
-	}
-	if env == "production" && (os.Getenv("TASKS_AUTH_MODE") == "test" || os.Getenv("TASKS_ISSUER_URL") == "") {
-		slog.Error("production requires live identity issuer")
+	// Validate all security and identity configuration before opening a pool or
+	// running migrations. In particular, production test-auth failures cannot
+	// touch a database as a side effect of startup.
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid Tasks configuration", "error", err)
 		os.Exit(2)
 	}
-	if err := db.SafeDatabaseName(db.DSN()); err != nil {
+	if err := db.SafeDatabaseName(cfg.DatabaseURL); err != nil {
 		slog.Error("unsafe database", "error", err)
 		os.Exit(2)
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, db.DSN())
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +39,7 @@ func main() {
 	if err = seed(ctx, pool); err != nil {
 		panic(err)
 	}
-	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: api.New(pool, env).Routes(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: api.New(pool, cfg.Env).Routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("tasks server listening", "addr", srv.Addr)
 		if e := srv.ListenAndServe(); e != nil && e != http.ErrServerClosed {

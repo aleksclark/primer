@@ -47,6 +47,7 @@ a { color: inherit; }
 [data-theme="light"] .brand-light { display: block; }
 .brand-wordmark { font-size: 18px; font-weight: 500; letter-spacing: -.02em; }
 .brand-wordmark strong { font-weight: 700; }
+.hmr-proof-marker { margin-left: auto; white-space: nowrap; font-size: 9px; }
 .nav-body { flex: 1; padding: 16px 0; }
 .nav-section { margin-bottom: 24px; }
 .system-label, .eyebrow, .meta, .button-label, .state-label { font-family: var(--primer-font-system); text-transform: uppercase; letter-spacing: .08em; }
@@ -107,7 +108,7 @@ tr:hover td { background: color-mix(in srgb, var(--surface-raised) 72%, var(--te
 .pair-card { border: 1px solid var(--rule); background: var(--surface-raised); padding: 24px; }
 .pair-card h2 { margin: 6px 0 8px; font-size: 22px; font-weight: 500; }
 .qr-frame { display: grid; place-items: center; width: 240px; height: 240px; margin: 20px auto; padding: 16px; background: #fff; }
-.qr-frame canvas { max-width: 100%; height: auto; }
+.qr-frame canvas, .qr-frame svg { max-width: 100%; height: auto; }
 .code { display: block; padding: 14px; border: 1px solid var(--rule); color: var(--accent); font-family: var(--primer-font-system); font-size: 22px; letter-spacing: .16em; text-align: center; }
 .checklist { margin-top: 28px; border: 1px solid var(--rule); background: var(--surface-raised); }
 .checklist-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--rule); }

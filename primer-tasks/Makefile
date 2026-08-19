@@ -3,9 +3,9 @@
 
 DEV := ./scripts/dev
 
-.PHONY: check up dev status endpoints logs down destroy \
+.PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi clients tasks-client tasks-typecheck tasks-lint \
-	web tasks-web android e2e
+	web tasks-web browser-test android e2e
 
 check:
 	$(DEV) check
@@ -24,6 +24,9 @@ down:
 
 destroy:
 	$(DEV) destroy
+
+proof:
+	$(DEV) proof
 
 build:
 	go build ./...
@@ -44,6 +47,7 @@ openapi:
 clients: openapi
 	npm --prefix clients/typescript ci --no-audit --no-fund
 	npm --prefix clients/typescript run generate
+	node clients/kotlin/generate-client.mjs
 
 tasks-client: clients
 
@@ -61,8 +65,12 @@ web: clients
 
 tasks-web: web
 
+browser-test:
+	npm --prefix web run browser:test
+
 android:
 	cd android && ./gradlew assembleDebug
 
-e2e:
-	go test ./e2e/... -count=1
+# Keep the historical E2E entry point honest: it is the gated browser
+# boundary until exploratory PASS authorizes a real runner.
+e2e: browser-test

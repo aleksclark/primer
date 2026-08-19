@@ -26,7 +26,7 @@ IDENTITY_COVER_MIN := 80
 	identity-e2e identity-live-stytch dev-db-identity migrate-identity \
 	tasks-check tasks-up tasks-dev tasks-status tasks-endpoints tasks-logs tasks-down \
 	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients \
-	tasks-android tasks-e2e
+	tasks-android tasks-e2e tasks-browser-test tasks-proof
 
 all: build openapi openapi-tv client tv-client
 
@@ -456,3 +456,11 @@ tasks-android:
 
 tasks-e2e:
 	$(MAKE) -C primer-tasks e2e
+
+# Browser automation is intentionally gated on independent exploratory PASS;
+# this forwarding target does not author or promote Playwright prematurely.
+tasks-browser-test:
+	$(MAKE) -C primer-tasks browser-test
+
+tasks-proof:
+	$(MAKE) -C primer-tasks proof

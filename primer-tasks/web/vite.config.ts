@@ -41,6 +41,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      "/issuer": {
+        target: "http://test-issuer:8091",
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/issuer/, ""),
+      },
       "/ws": {
         target: proxyTarget,
         changeOrigin: true,

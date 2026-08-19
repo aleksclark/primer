@@ -5,16 +5,22 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"os"
+	"primer-tasks/internal/config"
 	"primer-tasks/internal/db"
 )
 
 func main() {
-	ctx := context.Background()
-	if err := db.SafeDatabaseName(db.DSN()); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	p, e := pgxpool.New(ctx, db.DSN())
+	ctx := context.Background()
+	if err := db.SafeDatabaseName(cfg.DatabaseURL); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	p, e := pgxpool.New(ctx, cfg.DatabaseURL)
 	if e != nil {
 		panic(e)
 	}

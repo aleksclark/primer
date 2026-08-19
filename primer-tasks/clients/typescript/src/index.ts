@@ -72,7 +72,10 @@ export function createTasksClient(options: TasksClientOptions = {}) {
 
     /** Start the real BFF authorization-code flow; provider credentials stay server-side. */
     beginParentLogin(returnTo = "/parent/students") {
-      const target = new URL("/auth/login", window.location.origin);
+      // Keep the browser on the same-origin BFF namespace. Vite (and the
+      // production reverse proxy) forwards /api/auth to the Tasks API's
+      // internal /auth routes without exposing a cross-origin URL.
+      const target = new URL("/api/auth/login", window.location.origin);
       target.searchParams.set("return_to", returnTo);
       window.location.assign(target.toString());
     },
