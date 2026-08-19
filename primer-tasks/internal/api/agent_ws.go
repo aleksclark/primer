@@ -813,9 +813,23 @@ func scriptedPreviewInput(call fantasy.Call) string {
 	id, _ := tasks["id"].(string)
 	version := 1
 	if items, ok := tasks["items"].([]any); ok && len(items) > 0 {
-		if row, ok := items[0].(map[string]any); ok {
-			id, _ = row["id"].(string)
-			if n, ok := row["version"].(float64); ok {
+		var selected map[string]any
+		for _, item := range items {
+			row, rowOK := item.(map[string]any)
+			if !rowOK {
+				continue
+			}
+			if selected == nil {
+				selected = row
+			}
+			if status, _ := row["status"].(string); status == "published" {
+				selected = row
+				break
+			}
+		}
+		if selected != nil {
+			id, _ = selected["id"].(string)
+			if n, ok := selected["version"].(float64); ok {
 				version = int(n)
 			}
 		}
