@@ -16,6 +16,7 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 	build test cover test-race e2e \
 	migrate migrate-up migrate-down migrate-status freeze-check freeze-write db-test \
 	studio-test studio-cover studio-db-pytest studio-backup-drill \
+	studio-mcp-e2e studio-mcp-external-e2e \
 	contracts-validate \
 	contracts-ownership \
 	contracts-buf-generate \
@@ -91,6 +92,16 @@ db-test studio-db-pytest:
 studio-test:
 	go test ./... -count=1
 
+studio-mcp-e2e:
+	GOWORK=off go test ./internal/mcp/... -v -run TestP19 -count=1 -timeout 60s
+
+# External-client conformance is opt-in because mcporter/Hermes is not a Go
+# dependency and is not guaranteed in every build image. Never silently pass.
+studio-mcp-external-e2e:
+	@test -n "$${STUDIO_MCP_URL:-}" || { echo "STUDIO_MCP_URL is required" >&2; exit 2; }
+	@test -n "$${STUDIO_MCP_TOKEN:-}" || { echo "STUDIO_MCP_TOKEN is required" >&2; exit 2; }
+	command -v "$${STUDIO_MCP_EXTERNAL_CLIENT:-mcporter}" >/dev/null || { echo "missing external MCP client: $${STUDIO_MCP_EXTERNAL_CLIENT:-mcporter}" >&2; exit 2; }
+	"$${STUDIO_MCP_EXTERNAL_CLIENT:-mcporter}" list --url "$${STUDIO_MCP_URL}" --header "Authorization: Bearer $${STUDIO_MCP_TOKEN}"
 studio-cover:
 	@echo "Use root 'make studio-cover' for the enforced COVER_MIN gate (>=85%)."
 	@cd .. && make studio-cover
