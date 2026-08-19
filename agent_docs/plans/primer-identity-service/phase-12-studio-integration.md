@@ -1,5 +1,7 @@
 # 12: IB8 / Studio integration and authorization proof
 
+**Status: IMPLEMENTATION PRESENT on `impl/I12-studio-integration`; credential-free validator proof pending PR gate. Live Stytch/browser promotion remains BLOCKED.**
+
 ## Goal
 
 Cut Studio to validator-only consumption of Primer tokens. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
