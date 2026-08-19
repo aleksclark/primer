@@ -1,5 +1,13 @@
 import createClient from "openapi-fetch";
 import type { paths, components } from "../generated/schema";
+import {
+  parseInspectTimeline,
+  parseStudentDialogueState,
+  validateOverrideInput,
+  type InspectTimeline,
+  type OverrideInput,
+  type StudentDialogueState,
+} from "./dialogue";
 
 export {
   AGENT_PROTOCOL_VERSION,
@@ -17,6 +25,7 @@ export type {
   AgentUnsubscribeCommand,
 } from "./agent-protocol";
 export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client";
+export { createDialogueClient } from "./dialogue-client";
 export type {
   AgentClient,
   AgentClientError,
@@ -24,6 +33,41 @@ export type {
   AgentClientSnapshot,
   AgentConnectionState,
 } from "./agent-client";
+export type {
+  DialogueClient,
+  DialogueClientError,
+  DialogueClientOptions,
+  DialogueClientSnapshot,
+  DialogueConnectionState,
+} from "./dialogue-client";
+export {
+  AGENT_DIALOGUE_CONFIG_VERSION,
+  AGENT_DIALOGUE_EXECUTOR,
+  AGENT_DIALOGUE_INTERACTION,
+  AGENT_DIALOGUE_KIND,
+  defaultDialogueConfig,
+  dialogueRequirement,
+  normalizeDialogueConfig,
+  parseInspectTimeline,
+  parseStudentDialogueState,
+  previewDialogueConfig,
+  stripUnsafeDialogueFields,
+  studentProgressCopy,
+  validateDialogueConfig,
+  validateOverrideInput,
+} from "./dialogue";
+export type {
+  DialogueConfig,
+  DialogueConfigIssue,
+  DialogueConfigPreview,
+  DialogueRequirement,
+  InspectEntry,
+  InspectTimeline,
+  OverrideInput,
+  OverrideRecord,
+  StudentDialogueState,
+  StudentDialogueStatus,
+} from "./dialogue";
 
 export type { components, paths } from "../generated/schema";
 export type Student = components["schemas"]["Student"];
@@ -100,6 +144,25 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       code = body.code;
     }
     throw new TasksApiError(result.response.status, message, code);
+  }
+
+  async function requestJSON<T>(path: string, init: RequestInit = {}, parse: (body: unknown) => T | null): Promise<T> {
+    const fetchImpl = options.fetch ?? globalThis.fetch;
+    const headers = new Headers(init.headers);
+    if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    const response = await fetchImpl(`${baseUrl}${path}`, { credentials: "include", ...init, headers, signal: init.signal });
+    let payload: unknown;
+    const text = await response.text();
+    if (text) {
+      try { payload = JSON.parse(text); } catch { payload = undefined; }
+    }
+    if (!response.ok) {
+      const body = payload && typeof payload === "object" ? payload as { detail?: string; message?: string; code?: string } : undefined;
+      throw new TasksApiError(response.status, body?.detail ?? body?.message ?? `Request failed (${response.status})`, body?.code);
+    }
+    const parsed = parse(payload);
+    if (parsed === null) throw new TasksApiError(response.status, "The server returned an unusable dialogue record.");
+    return parsed;
   }
 
   return {
@@ -203,6 +266,17 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     },
     async cancelOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/occurrences/{id}/cancel", { ...options, params: { path: { id } } }));
+    },
+    async inspectOccurrence(id: string, options: RequestOptions = {}): Promise<InspectTimeline> {
+      return requestJSON(`/occurrences/${encodeURIComponent(id)}/inspect`, { method: "GET", signal: options.signal }, parseInspectTimeline);
+    },
+    async overrideOccurrence(id: string, body: OverrideInput, options: RequestOptions = {}): Promise<InspectTimeline> {
+      const invalid = validateOverrideInput(body);
+      if (invalid) throw new TasksApiError(400, invalid, "invalid_request");
+      return requestJSON(`/occurrences/${encodeURIComponent(id)}/override`, { method: "POST", body: JSON.stringify(body), signal: options.signal }, parseInspectTimeline);
+    },
+    async studentDialogue(id: string, options: RequestOptions = {}): Promise<StudentDialogueState> {
+      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/dialogue`, { method: "GET", signal: options.signal }, parseStudentDialogueState);
     },
     async studentToday(options: RequestOptions = {}) {
       return unwrap(transport.GET("/student/today", { ...options }));
