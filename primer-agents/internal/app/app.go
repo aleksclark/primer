@@ -21,6 +21,7 @@ import (
 	agentsdb "github.com/aleksclark/primer/agents/internal/db"
 	"github.com/aleksclark/primer/agents/internal/domain"
 	"github.com/aleksclark/primer/agents/internal/logging"
+	"github.com/aleksclark/primer/agents/internal/worker"
 )
 
 // Options customizes process bootstrap for tests.
@@ -74,6 +75,18 @@ func Run(ctx context.Context, opts Options) error {
 
 	svc := appservice.New(pool)
 	svcAdapter := &appServiceAdapter{svc: svc}
+
+	// Start the background worker when enabled (PRIMER_AGENTS_WORKER_ENABLED=true).
+	// Default is false; the worker loop and HTTP server share the process but
+	// not request contexts.
+	if cfg.WorkerEnabled {
+		w := worker.New(pool, svc, worker.DefaultConfig())
+		go func() {
+			if err := w.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				slog.Error("worker: exited", "error", err)
+			}
+		}()
+	}
 
 	// Build the JWT validator if Identity is configured. Production requires
 	// JWKS/issuer; development/test may omit them (all /agents/v1 routes return

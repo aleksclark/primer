@@ -515,3 +515,11 @@ func (s *ScriptedProvider) ProviderConfig() mafagent.ProviderConfig {
 func NewScriptedAgent(cfg mafagent.Config, prov *ScriptedProvider) *mafagent.Agent {
 	return mafagent.New(prov.ProviderConfig(), cfg)
 }
+
+// TextUpdate builds a simple assistant text response update for scripted providers.
+func TextUpdate(text string) *mafagent.ResponseUpdate {
+	return &mafagent.ResponseUpdate{
+		Role:     message.RoleAssistant,
+		Contents: message.Contents{&message.TextContent{Text: text}},
+	}
+}
