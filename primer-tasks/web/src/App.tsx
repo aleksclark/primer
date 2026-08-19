@@ -298,6 +298,12 @@ function StudentOccurrencePage() {
   const load = useCallback(() => {
     tasksClient.studentOccurrence(id).then(async (next) => {
       setOccurrence(next);
+      // The dialogue projection is created by Start task. Do not probe it for
+      // a pending occurrence; a pre-start 404 is not an application failure.
+      if (next.status === "pending") {
+        setDialogue(null);
+        return;
+      }
       try { setDialogue(await tasksClient.studentDialogue(id)); } catch { setDialogue(null); }
     }).catch(setError);
   }, [id]);
