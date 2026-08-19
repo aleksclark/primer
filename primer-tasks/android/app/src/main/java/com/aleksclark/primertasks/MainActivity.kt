@@ -226,7 +226,13 @@ private fun CameraQrScanner(onQr: (String) -> Unit, modifier: Modifier = Modifie
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             val mainExecutor = ContextCompat.getMainExecutor(context)
-            analysis.setAnalyzer(executor, QrAnalyzer { raw -> mainExecutor.execute { onQr(raw) } })
+            analysis.setAnalyzer(
+                executor,
+                QrAnalyzer(
+                    onQr = { raw -> mainExecutor.execute { onQr(raw) } },
+                    frameCapture = QrFrameCaptureFactory.forContext(context),
+                ),
+            )
             provider.unbindAll()
             provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, cameraPreview, analysis)
         }
@@ -239,7 +245,10 @@ private fun CameraQrScanner(onQr: (String) -> Unit, modifier: Modifier = Modifie
     AndroidView(factory = { preview }, modifier = modifier)
 }
 
-private class QrAnalyzer(private val onQr: (String) -> Unit) : ImageAnalysis.Analyzer {
+private class QrAnalyzer(
+    private val onQr: (String) -> Unit,
+    private val frameCapture: QrFrameCapture = NoOpQrFrameCapture,
+) : ImageAnalysis.Analyzer {
     private val delivered = AtomicBoolean(false)
 
     override fun analyze(image: ImageProxy) {
@@ -252,18 +261,24 @@ private class QrAnalyzer(private val onQr: (String) -> Unit) : ImageAnalysis.Ana
                     val buffer = plane.buffer.duplicate().apply { position(0) }
                     val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
                     val crop = image.cropRect
-                    val text = QrFrameDecoder.decode(
-                        RgbaFrame(
-                            bytes = bytes,
-                            width = crop.width(),
-                            height = crop.height(),
-                            rowStride = plane.rowStride,
-                            pixelStride = plane.pixelStride,
-                            cropLeft = crop.left,
-                            cropTop = crop.top,
-                        ),
-                        image.imageInfo.rotationDegrees,
+                    val frame = RgbaFrame(
+                        bytes = bytes,
+                        width = crop.width(),
+                        height = crop.height(),
+                        rowStride = plane.rowStride,
+                        pixelStride = plane.pixelStride,
+                        cropLeft = crop.left,
+                        cropTop = crop.top,
                     )
+                    // This is a redacted, DEBUG-only diagnostic. It receives the same real
+                    // CameraX frame bytes as the decoder, but never persists those bytes.
+                    frameCapture.capture(
+                        frame = frame,
+                        imageWidth = image.width,
+                        imageHeight = image.height,
+                        rotationDegrees = image.imageInfo.rotationDegrees,
+                    )
+                    val text = QrFrameDecoder.decode(frame, image.imageInfo.rotationDegrees)
                     if (text != null && delivered.compareAndSet(false, true)) onQr(text)
                 }
             }
