@@ -39,7 +39,7 @@ type oauthTokenSuccess struct {
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	Scope        string `json:"scope"`
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
 type oauthTokenError struct {
@@ -142,6 +142,11 @@ func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oaut
 			return oauth.ExchangeRequest{}, oauth.ClientAuth{}, challenge, err
 		}
 	}
+	if form.Get("grant_type") == oauth.GrantClientCredentials {
+		if err := validateClientCredentialsTokenForm(form, auth.Method); err != nil {
+			return oauth.ExchangeRequest{}, oauth.ClientAuth{}, challenge, err
+		}
+	}
 	req := oauth.ExchangeRequest{
 		GrantType:           form.Get("grant_type"),
 		Code:                form.Get("code"),
@@ -152,8 +157,28 @@ func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oaut
 		ClientAssertionType: form.Get("client_assertion_type"),
 		ClientAssertion:     form.Get("client_assertion"),
 		RefreshToken:        form.Get("refresh_token"),
+		Scope:               form.Get("scope"),
 	}
 	return req, auth, challenge, nil
+}
+
+func validateClientCredentialsTokenForm(form url.Values, authMethod string) error {
+	allowed := map[string]struct{}{"grant_type": {}, "resource": {}, "scope": {}}
+	switch authMethod {
+	case oauth.AuthBasic:
+	case oauth.AuthPrivateKeyJWT:
+		allowed["client_id"] = struct{}{}
+		allowed["client_assertion_type"] = struct{}{}
+		allowed["client_assertion"] = struct{}{}
+	default:
+		return nil
+	}
+	for name := range form {
+		if _, ok := allowed[name]; !ok {
+			return tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
+		}
+	}
+	return nil
 }
 
 func validateAuthorizationCodeTokenForm(form url.Values, authMethod string) error {
@@ -483,6 +508,8 @@ func tokenRequestBody() *huma.RequestBody {
 	privateProperties["client_assertion_type"] = &huma.Schema{Type: huma.TypeString, Const: tokenAssertionTypeURN}
 	privateProperties["client_assertion"] = writeOnly()
 	privateRequired := append(append([]string(nil), baseRequired...), "client_id", "client_assertion_type", "client_assertion")
+	serviceBasic := map[string]*huma.Schema{"grant_type": {Type: huma.TypeString, Const: oauth.GrantClientCredentials}, "resource": plain(), "scope": plain()}
+	servicePrivate := map[string]*huma.Schema{"grant_type": {Type: huma.TypeString, Const: oauth.GrantClientCredentials}, "resource": plain(), "scope": plain(), "client_id": plain(), "client_assertion_type": {Type: huma.TypeString, Const: tokenAssertionTypeURN}, "client_assertion": writeOnly()}
 
 	return &huma.RequestBody{
 		Required:    true,
@@ -494,6 +521,8 @@ func tokenRequestBody() *huma.RequestBody {
 						variant(publicProperties, publicRequired),
 						variant(basicProperties, baseRequired),
 						variant(privateProperties, privateRequired),
+						variant(serviceBasic, []string{"grant_type", "resource"}),
+						variant(servicePrivate, []string{"grant_type", "resource", "client_id", "client_assertion_type", "client_assertion"}),
 					},
 				},
 			},

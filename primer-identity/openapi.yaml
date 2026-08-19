@@ -760,6 +760,43 @@ paths:
                     - client_assertion_type
                     - client_assertion
                   type: object
+                - additionalProperties: false
+                  properties:
+                    grant_type:
+                      const: client_credentials
+                      type: string
+                    resource:
+                      type: string
+                    scope:
+                      type: string
+                  required:
+                    - grant_type
+                    - resource
+                  type: object
+                - additionalProperties: false
+                  properties:
+                    client_assertion:
+                      type: string
+                      writeOnly: true
+                    client_assertion_type:
+                      const: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+                      type: string
+                    client_id:
+                      type: string
+                    grant_type:
+                      const: client_credentials
+                      type: string
+                    resource:
+                      type: string
+                    scope:
+                      type: string
+                  required:
+                    - grant_type
+                    - resource
+                    - client_id
+                    - client_assertion_type
+                    - client_assertion
+                  type: object
         description: OAuth token form
         required: true
       responses:

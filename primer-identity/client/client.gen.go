@@ -62,13 +62,13 @@ func (e OauthTokenFormdataBody1GrantType) Valid() bool {
 
 // Defines values for OauthTokenFormdataBody2ClientAssertionType.
 const (
-	UrnIetfParamsOauthClientAssertionTypeJwtBearer OauthTokenFormdataBody2ClientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+	OauthTokenFormdataBody2ClientAssertionTypeUrnIetfParamsOauthClientAssertionTypeJwtBearer OauthTokenFormdataBody2ClientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 )
 
 // Valid indicates whether the value is a known member of the OauthTokenFormdataBody2ClientAssertionType enum.
 func (e OauthTokenFormdataBody2ClientAssertionType) Valid() bool {
 	switch e {
-	case UrnIetfParamsOauthClientAssertionTypeJwtBearer:
+	case OauthTokenFormdataBody2ClientAssertionTypeUrnIetfParamsOauthClientAssertionTypeJwtBearer:
 		return true
 	default:
 		return false
@@ -84,6 +84,51 @@ const (
 func (e OauthTokenFormdataBody2GrantType) Valid() bool {
 	switch e {
 	case OauthTokenFormdataBody2GrantTypeAuthorizationCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody3GrantType.
+const (
+	OauthTokenFormdataBody3GrantTypeClientCredentials OauthTokenFormdataBody3GrantType = "client_credentials"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody3GrantType enum.
+func (e OauthTokenFormdataBody3GrantType) Valid() bool {
+	switch e {
+	case OauthTokenFormdataBody3GrantTypeClientCredentials:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody4ClientAssertionType.
+const (
+	OauthTokenFormdataBody4ClientAssertionTypeUrnIetfParamsOauthClientAssertionTypeJwtBearer OauthTokenFormdataBody4ClientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody4ClientAssertionType enum.
+func (e OauthTokenFormdataBody4ClientAssertionType) Valid() bool {
+	switch e {
+	case OauthTokenFormdataBody4ClientAssertionTypeUrnIetfParamsOauthClientAssertionTypeJwtBearer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthTokenFormdataBody4GrantType.
+const (
+	OauthTokenFormdataBody4GrantTypeClientCredentials OauthTokenFormdataBody4GrantType = "client_credentials"
+)
+
+// Valid indicates whether the value is a known member of the OauthTokenFormdataBody4GrantType enum.
+func (e OauthTokenFormdataBody4GrantType) Valid() bool {
+	switch e {
+	case OauthTokenFormdataBody4GrantTypeClientCredentials:
 		return true
 	default:
 		return false
@@ -262,6 +307,32 @@ type OauthTokenFormdataBody2ClientAssertionType string
 // OauthTokenFormdataBody2GrantType defines parameters for OauthToken.
 type OauthTokenFormdataBody2GrantType string
 
+// OauthTokenFormdataBody3 defines parameters for OauthToken.
+type OauthTokenFormdataBody3 struct {
+	GrantType OauthTokenFormdataBody3GrantType `json:"grant_type"`
+	Resource  string                           `json:"resource"`
+	Scope     *string                          `json:"scope,omitempty"`
+}
+
+// OauthTokenFormdataBody3GrantType defines parameters for OauthToken.
+type OauthTokenFormdataBody3GrantType string
+
+// OauthTokenFormdataBody4 defines parameters for OauthToken.
+type OauthTokenFormdataBody4 struct {
+	ClientAssertion     *string                                    `json:"client_assertion,omitempty"`
+	ClientAssertionType OauthTokenFormdataBody4ClientAssertionType `json:"client_assertion_type"`
+	ClientId            string                                     `json:"client_id"`
+	GrantType           OauthTokenFormdataBody4GrantType           `json:"grant_type"`
+	Resource            string                                     `json:"resource"`
+	Scope               *string                                    `json:"scope,omitempty"`
+}
+
+// OauthTokenFormdataBody4ClientAssertionType defines parameters for OauthToken.
+type OauthTokenFormdataBody4ClientAssertionType string
+
+// OauthTokenFormdataBody4GrantType defines parameters for OauthToken.
+type OauthTokenFormdataBody4GrantType string
+
 // OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError defines parameters for OauthToken.
 type OauthToken401ApplicationJSONCharsetUTF8ResponseBodyError string
 
@@ -339,6 +410,58 @@ func (t *OauthTokenFormdataBody) FromOauthTokenFormdataBody2(v OauthTokenFormdat
 
 // MergeOauthTokenFormdataBody2 performs a merge with any union data inside the OauthTokenFormdataBody, using the provided OauthTokenFormdataBody2
 func (t *OauthTokenFormdataBody) MergeOauthTokenFormdataBody2(v OauthTokenFormdataBody2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOauthTokenFormdataBody3 returns the union data inside the OauthTokenFormdataBody as a OauthTokenFormdataBody3
+func (t OauthTokenFormdataBody) AsOauthTokenFormdataBody3() (OauthTokenFormdataBody3, error) {
+	var body OauthTokenFormdataBody3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOauthTokenFormdataBody3 overwrites any union data inside the OauthTokenFormdataBody as the provided OauthTokenFormdataBody3
+func (t *OauthTokenFormdataBody) FromOauthTokenFormdataBody3(v OauthTokenFormdataBody3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOauthTokenFormdataBody3 performs a merge with any union data inside the OauthTokenFormdataBody, using the provided OauthTokenFormdataBody3
+func (t *OauthTokenFormdataBody) MergeOauthTokenFormdataBody3(v OauthTokenFormdataBody3) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOauthTokenFormdataBody4 returns the union data inside the OauthTokenFormdataBody as a OauthTokenFormdataBody4
+func (t OauthTokenFormdataBody) AsOauthTokenFormdataBody4() (OauthTokenFormdataBody4, error) {
+	var body OauthTokenFormdataBody4
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOauthTokenFormdataBody4 overwrites any union data inside the OauthTokenFormdataBody as the provided OauthTokenFormdataBody4
+func (t *OauthTokenFormdataBody) FromOauthTokenFormdataBody4(v OauthTokenFormdataBody4) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOauthTokenFormdataBody4 performs a merge with any union data inside the OauthTokenFormdataBody, using the provided OauthTokenFormdataBody4
+func (t *OauthTokenFormdataBody) MergeOauthTokenFormdataBody4(v OauthTokenFormdataBody4) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

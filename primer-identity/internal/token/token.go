@@ -103,6 +103,17 @@ type HumanInput struct {
 }
 
 // IssuedToken is the signed compact access token plus the exact lifetime used.
+// ServiceInput is the fail-closed Primer service mint request. Its subject is
+// always identity:svc:<uuid>; it has no provider or refresh-token fields.
+type ServiceInput struct {
+	Subject       string
+	Audience      string
+	ClientID      string
+	Scope         string
+	TTL           time.Duration
+	GrantNotAfter time.Time
+}
+
 type IssuedToken struct {
 	Compact   string
 	Lifetime  time.Duration

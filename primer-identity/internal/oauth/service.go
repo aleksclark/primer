@@ -97,6 +97,7 @@ type ExchangeRequest struct {
 	Resource            string
 	CodeVerifier        string
 	RefreshToken        string
+	Scope               string
 	ClientAssertionType string
 	ClientAssertion     string
 }
@@ -238,7 +239,13 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 	if ctx == nil || ctx.Err() != nil {
 		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "request canceled")
 	}
-	if req.GrantType == GrantRefreshToken || req.GrantType == GrantClientCredentials {
+	if req.GrantType == GrantClientCredentials {
+		if auth.Method == "" || auth.Method == AuthNone {
+			return TokenResponse{}, oauthErr(ErrorUnsupportedGrantType, "grant type is not supported")
+		}
+		return s.exchangeClientCredentials(ctx, req, auth)
+	}
+	if req.GrantType == GrantRefreshToken {
 		return TokenResponse{}, oauthErr(ErrorUnsupportedGrantType, "grant type is not supported")
 	}
 	if req.GrantType != GrantAuthorizationCode {
@@ -425,6 +432,112 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 }
 
 // PurgeExpiredAssertionReplays deletes expired private_key_jwt JTIs, bounded.
+func (s *Service) exchangeClientCredentials(ctx context.Context, req ExchangeRequest, auth ClientAuth) (TokenResponse, error) {
+	if req.Resource == "" {
+		return TokenResponse{}, oauthErr(ErrorInvalidRequest, "resource is required")
+	}
+	if auth.Method != AuthBasic && auth.Method != AuthPrivateKeyJWT {
+		return TokenResponse{}, oauthErr(ErrorInvalidClient, "client authentication failed")
+	}
+	now := s.clock.Now().UTC()
+	var response TokenResponse
+	err := repo.WithSerializableRetry(ctx, s.pool, func(tx pgx.Tx) error {
+		client, err := s.authenticateClient(ctx, tx, clientPresentation{ClientID: req.ClientID, ClientAssertionType: req.ClientAssertionType}, auth, now, s.cfg.TokenEndpoint, domain.AssertionEndpointToken)
+		if err != nil {
+			return err
+		}
+		if !hasGrant(client, GrantClientCredentials) {
+			return oauthErr(ErrorUnauthorizedClient, "client is not authorized for this grant")
+		}
+		cred, err := repo.GetActiveServiceCredential(ctx, tx, client.ID)
+		if err != nil {
+			return oauthErr(ErrorInvalidClient, "client authentication failed")
+		}
+		if auth.Method == AuthBasic {
+			computed, hashErr := secrethash.Hash(secrethash.Peppers(s.secrets.ClientSecretPeppers), int(cred.PepperVersion), clientSecretHashContext, []byte(auth.Secret))
+			if hashErr != nil || !secrethash.Equal(computed, cred.SecretHash) {
+				return oauthErr(ErrorInvalidClient, "client authentication failed")
+			}
+		}
+		if !contains(cred.AllowedResources, req.Resource) || len(cred.AllowedAudiences) != 1 {
+			return oauthErr("invalid_target", "the requested target is invalid")
+		}
+		scopes, scopeErr := requestedServiceScopes(req.Scope, cred.AllowedScopes)
+		if scopeErr != nil {
+			return scopeErr
+		}
+		audience := cred.AllowedAudiences[0]
+		notAfter := now.Add(s.cfg.AccessTTL)
+		if cred.NotAfter != nil && cred.NotAfter.Before(notAfter) {
+			notAfter = cred.NotAfter.UTC()
+		}
+		if !notAfter.After(now) {
+			return oauthErr(ErrorInvalidClient, "client credential is expired")
+		}
+		grantID, err := repo.CreateServiceGrant(ctx, tx, cred.ServicePrincipalID, client.ID, req.Resource, audience, scopes, now, notAfter)
+		if err != nil {
+			return oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
+		}
+		txSigner, txMeta, err := s.txSigner(ctx, tx)
+		if err != nil {
+			return oauthErr(ErrorTemporarilyUnavail, "signer is unavailable")
+		}
+		issued, err := s.minter.IssueServiceWithSigner(ctx, token.ServiceInput{Subject: cred.SubjectRef, Audience: audience, ClientID: client.ClientID, Scope: domain.FormatScopes(scopes), TTL: s.cfg.AccessTTL, GrantNotAfter: notAfter}, txSigner, txMeta, func(_ context.Context, issued token.IssuedToken) error {
+			jtiHash, hashErr := secrethash.Hash(secrethash.Peppers(s.secrets.AssertionPeppers), s.secrets.AssertionActiveVersion, accessJTIHashContext, []byte(issued.JTI))
+			if hashErr != nil {
+				return hashErr
+			}
+			_, auditErr := repo.CreateTokenIssuanceAudit(ctx, tx, domain.TokenIssuanceAudit{GrantID: grantID, SubjectRef: cred.SubjectRef, ClientID: client.ClientID, ResourceURI: req.Resource, Audience: audience, Scopes: scopes, JTIHash: jtiHash, Kid: issued.Kid, IssuedAt: issued.IssuedAt, ExpiresAt: issued.ExpiresAt, Outcome: domain.IssuanceOutcomeCommitted})
+			return auditErr
+		})
+		if err != nil {
+			return oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
+		}
+		response = TokenResponse{AccessToken: issued.Compact, TokenType: "Bearer", ExpiresIn: int(issued.Lifetime / time.Second), Scope: domain.FormatScopes(scopes)}
+		return nil
+	})
+	if err != nil {
+		if ErrorCodeOf(err) != "" {
+			return TokenResponse{}, err
+		}
+		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
+	}
+	return response, nil
+}
+
+func hasGrant(client *domain.OAuthClient, want string) bool {
+	for _, got := range client.AllowedGrants {
+		if got == want {
+			return true
+		}
+	}
+	return false
+}
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+func requestedServiceScopes(requested string, allowed []string) ([]string, error) {
+	if requested == "" {
+		return domain.CanonicalScopes(allowed), nil
+	}
+	scopes := strings.Fields(requested)
+	if err := domain.ValidateCanonicalScopes(domain.CanonicalScopes(scopes)); err != nil {
+		return nil, oauthErr("invalid_scope", "the requested scope is invalid")
+	}
+	canon := domain.CanonicalScopes(scopes)
+	for _, scope := range canon {
+		if !contains(allowed, scope) {
+			return nil, oauthErr("invalid_scope", "the requested scope is invalid")
+		}
+	}
+	return canon, nil
+}
+
 func (s *Service) PurgeExpiredAssertionReplays(ctx context.Context, now time.Time) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, oauthErr(ErrorTemporarilyUnavail, "service is unavailable")

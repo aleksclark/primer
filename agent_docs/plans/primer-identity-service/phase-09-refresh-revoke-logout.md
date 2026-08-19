@@ -1,6 +1,6 @@
 # 09: IB5 / Primer-owned service principals
 
-**Status: STOP — candidate dependency under independent exact-tip review; no dispatch.**
+**Status: IMPLEMENTATION IN PROGRESS on current master.** The IB0 exact-tip design review passed at `4bfd6d5c03412d134a635c32279ef37b1c4e0d9e` with 0 Critical/Important/Minor findings; the former dependency STOP is cleared. This wave must still receive a fresh exact-tip security review before any production service-token or BFF/MCP claim.
 
 ## Goal
 

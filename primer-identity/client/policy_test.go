@@ -145,7 +145,6 @@ func TestGeneratedClientHasNoTokenJWKSOrProviderResponseTypes(t *testing.T) {
 		"session_token",
 		"id_token",
 		"provider_payload",
-		"client_credentials",
 	} {
 		assert.NotContains(t, src, needle)
 	}
