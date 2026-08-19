@@ -78,7 +78,11 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	}
 	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth}
 }
-func (s *Server) Routes() http.Handler {
+func (s *Server) Routes() http.Handler { return s.router() }
+
+// router is the single production registration path. The offline OpenAPI
+// emitter walks this same chi router rather than maintaining a parallel list.
+func (s *Server) router() chi.Router {
 	r := chi.NewRouter()
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) { jsonOK(w, map[string]string{"status": "ok"}) })
 	r.Get("/openapi.yaml", s.openapi)
