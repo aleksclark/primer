@@ -246,7 +246,7 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 		return s.exchangeClientCredentials(ctx, req, auth)
 	}
 	if req.GrantType == GrantRefreshToken {
-		return TokenResponse{}, oauthErr(ErrorUnsupportedGrantType, "grant type is not supported")
+		return s.exchangeRefreshToken(ctx, req, auth)
 	}
 	if req.GrantType != GrantAuthorizationCode {
 		return TokenResponse{}, oauthErr(ErrorUnsupportedGrantType, "grant type is not supported")
@@ -429,6 +429,113 @@ func (s *Service) Exchange(ctx context.Context, req ExchangeRequest, auth Client
 		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
 	}
 	return response, nil
+}
+
+func (s *Service) exchangeRefreshToken(ctx context.Context, req ExchangeRequest, auth ClientAuth) (TokenResponse, error) {
+	if req.Resource == "" || req.RefreshToken == "" {
+		return TokenResponse{}, oauthErr(ErrorInvalidRequest, "refresh_token grant is incomplete")
+	}
+	if auth.Method != AuthNone && auth.Method != AuthBasic && auth.Method != AuthPrivateKeyJWT {
+		return TokenResponse{}, oauthErr(ErrorInvalidRequest, "client authentication is required")
+	}
+	scopes, err := requestedRefreshScopes(req.Scope)
+	if err != nil {
+		return TokenResponse{}, err
+	}
+	secret, err := base64.RawURLEncoding.DecodeString(req.RefreshToken)
+	if err != nil || len(secret) != refreshSecretBytes {
+		return TokenResponse{}, oauthErr(ErrorInvalidGrant, "refresh token is invalid")
+	}
+	defer zeroBytes(secret)
+	hashes, err := hashAcrossPeppers(s.secrets.RefreshTokenPeppers, s.secrets.RefreshTokenActiveVersion, refreshTokenHashContext, secret)
+	if err != nil {
+		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "token material is unavailable")
+	}
+	nextSecret, err := randomBytes(s.rand, refreshSecretBytes)
+	if err != nil {
+		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "token material is unavailable")
+	}
+	nextOpaque := base64.RawURLEncoding.EncodeToString(nextSecret)
+	nextHash, err := secrethash.Hash(secrethash.Peppers(s.secrets.RefreshTokenPeppers), s.secrets.RefreshTokenActiveVersion, refreshTokenHashContext, nextSecret)
+	zeroBytes(nextSecret)
+	if err != nil {
+		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "token material is unavailable")
+	}
+	now := s.clock.Now().UTC()
+	var response TokenResponse
+	var terminalErr error
+	err = repo.WithSerializableRetry(ctx, s.pool, func(tx pgx.Tx) error {
+		client, authErr := s.authenticateClient(ctx, tx, clientPresentation{ClientID: req.ClientID, ClientAssertionType: req.ClientAssertionType}, auth, now, s.cfg.TokenEndpoint, domain.AssertionEndpointToken)
+		if authErr != nil {
+			return authErr
+		}
+		if !hasGrant(client, GrantRefreshToken) {
+			return oauthErr(ErrorUnauthorizedClient, "client is not authorized for this grant")
+		}
+		redemption, redeemErr := repo.RedeemRefreshToken(ctx, tx, hashes, client.ID, req.Resource, scopes, nextHash, int16(s.secrets.RefreshTokenActiveVersion), now)
+		if redeemErr != nil {
+			if errors.Is(redeemErr, repo.ErrRefreshScopeWidening) {
+				return oauthErr("invalid_scope", "the requested scope is invalid")
+			}
+			if errors.Is(redeemErr, domain.ErrNotFound) || errors.Is(redeemErr, domain.ErrConflict) {
+				terminalErr = redeemErr
+				return nil // reuse terminalization, when applicable, must commit
+			}
+			return redeemErr
+		}
+		if redemption.Grant.AccountID == nil {
+			return oauthErr(ErrorInvalidGrant, "refresh token is invalid")
+		}
+		txSigner, txMeta, signerErr := s.txSigner(ctx, tx)
+		if signerErr != nil {
+			return oauthErr(ErrorTemporarilyUnavail, "signer is unavailable")
+		}
+		if closer, ok := txSigner.(io.Closer); ok {
+			defer func() { _ = closer.Close() }()
+		}
+		grantScopes := redemption.Grant.Scopes
+		if len(scopes) > 0 {
+			grantScopes = scopes
+		}
+		scope := domain.FormatScopes(grantScopes)
+		issued, issueErr := s.minter.IssueHumanWithSigner(ctx, token.HumanInput{Subject: redemption.Grant.AccountID.String(), Audience: redemption.Grant.Audience, ClientID: client.ClientID, Scope: scope, TTL: s.cfg.AccessTTL, GrantNotAfter: redemption.Grant.NotAfter, ProviderExpiresAt: redemption.Association.ProviderExpiresAt}, txSigner, txMeta, func(_ context.Context, issued token.IssuedToken) error {
+			jtiHash, hashErr := secrethash.Hash(secrethash.Peppers(s.secrets.AssertionPeppers), s.secrets.AssertionActiveVersion, accessJTIHashContext, []byte(issued.JTI))
+			if hashErr != nil {
+				return hashErr
+			}
+			_, auditErr := repo.CreateTokenIssuanceAudit(ctx, tx, domain.TokenIssuanceAudit{GrantID: redemption.Grant.ID, SubjectRef: domain.HumanSubjectRef(*redemption.Grant.AccountID), ClientID: client.ClientID, ResourceURI: redemption.Grant.ResourceURI, Audience: redemption.Grant.Audience, Scopes: grantScopes, JTIHash: jtiHash, Kid: issued.Kid, IssuedAt: issued.IssuedAt, ExpiresAt: issued.ExpiresAt, Outcome: domain.IssuanceOutcomeCommitted})
+			return auditErr
+		})
+		if issueErr != nil {
+			return oauthErr(ErrorTemporarilyUnavail, "signer is unavailable")
+		}
+		response = TokenResponse{AccessToken: issued.Compact, TokenType: "Bearer", ExpiresIn: int(issued.Lifetime / time.Second), Scope: scope, RefreshToken: nextOpaque}
+		return nil
+	})
+	if err != nil {
+		zeroString(&response.AccessToken)
+		zeroString(&response.RefreshToken)
+		if ErrorCodeOf(err) != "" {
+			return TokenResponse{}, err
+		}
+		return TokenResponse{}, oauthErr(ErrorTemporarilyUnavail, "token issuance is unavailable")
+	}
+	if terminalErr != nil {
+		return TokenResponse{}, oauthErr(ErrorInvalidGrant, "refresh token is invalid")
+	}
+	return response, nil
+}
+
+func requestedRefreshScopes(requested string) ([]string, error) {
+	if strings.TrimSpace(requested) == "" {
+		return nil, nil
+	}
+	scopes := strings.Fields(requested)
+	canon := domain.CanonicalScopes(scopes)
+	if err := domain.ValidateCanonicalScopes(canon); err != nil {
+		return nil, oauthErr("invalid_scope", "the requested scope is invalid")
+	}
+	return canon, nil
 }
 
 // PurgeExpiredAssertionReplays deletes expired private_key_jwt JTIs, bounded.

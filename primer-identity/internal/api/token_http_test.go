@@ -554,7 +554,7 @@ func TestUnsupportedGrantsHaveZeroDBSideEffects(t *testing.T) {
 		"resource":      {fx.redirect.ResourceURI},
 		"client_id":     {fx.client.ClientID},
 	}
-	assertTokenError(t, postToken(refresh, nil), http.StatusBadRequest, oauth.ErrorUnsupportedGrantType, false)
+	assertTokenError(t, postToken(refresh, nil), http.StatusBadRequest, oauth.ErrorInvalidGrant, false)
 
 	creds := url.Values{
 		"grant_type": {oauth.GrantClientCredentials},

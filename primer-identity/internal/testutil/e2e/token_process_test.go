@@ -438,7 +438,7 @@ func TestProcessTokenConcurrencyReplayBindingsAndUnsupportedGrants(t *testing.T)
 	refreshResp := postProcessToken(t, freshSrv.baseURL, refresh, nil)
 	refreshStatus, refreshBody, _ := readJSON(t, refreshResp)
 	assert.Equal(t, http.StatusBadRequest, refreshStatus)
-	assert.Equal(t, oauth.ErrorUnsupportedGrantType, refreshBody["error"])
+	assert.Equal(t, oauth.ErrorInvalidGrant, refreshBody["error"])
 
 	creds := url.Values{"grant_type": {oauth.GrantClientCredentials}, "client_id": {freshID}, "resource": {freshResource}}
 	credsResp := postProcessToken(t, freshSrv.baseURL, creds, nil)

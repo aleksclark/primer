@@ -147,6 +147,11 @@ func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oaut
 			return oauth.ExchangeRequest{}, oauth.ClientAuth{}, challenge, err
 		}
 	}
+	if form.Get("grant_type") == oauth.GrantRefreshToken {
+		if err := validateRefreshTokenForm(form, auth.Method); err != nil {
+			return oauth.ExchangeRequest{}, oauth.ClientAuth{}, challenge, err
+		}
+	}
 	req := oauth.ExchangeRequest{
 		GrantType:           form.Get("grant_type"),
 		Code:                form.Get("code"),
@@ -165,6 +170,27 @@ func (s *Server) parseTokenRequest(r *http.Request) (oauth.ExchangeRequest, oaut
 func validateClientCredentialsTokenForm(form url.Values, authMethod string) error {
 	allowed := map[string]struct{}{"grant_type": {}, "resource": {}, "scope": {}}
 	switch authMethod {
+	case oauth.AuthBasic:
+	case oauth.AuthPrivateKeyJWT:
+		allowed["client_id"] = struct{}{}
+		allowed["client_assertion_type"] = struct{}{}
+		allowed["client_assertion"] = struct{}{}
+	default:
+		return tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
+	}
+	for name := range form {
+		if _, ok := allowed[name]; !ok {
+			return tokenWire(oauth.ErrorInvalidRequest, descInvalidRequest, false)
+		}
+	}
+	return nil
+}
+
+func validateRefreshTokenForm(form url.Values, authMethod string) error {
+	allowed := map[string]struct{}{"grant_type": {}, "refresh_token": {}, "resource": {}, "scope": {}}
+	switch authMethod {
+	case oauth.AuthNone:
+		allowed["client_id"] = struct{}{}
 	case oauth.AuthBasic:
 	case oauth.AuthPrivateKeyJWT:
 		allowed["client_id"] = struct{}{}

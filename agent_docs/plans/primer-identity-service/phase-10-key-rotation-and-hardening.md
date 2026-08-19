@@ -1,5 +1,7 @@
 # 10: IB6 / refresh, logout, and lifecycle
 
+**Status: IMPLEMENTATION PRESENT on `impl/I10-lifecycle`; exact-tip review and CI gate pending.**
+
 ## Goal
 
 Complete Provider-plus-Primer lifecycle with no parallel human authority. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
