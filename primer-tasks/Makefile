@@ -35,8 +35,7 @@ test:
 	go test ./... -count=1
 
 cover:
-	mkdir -p build
-	go test ./... -count=1 -coverprofile=build/coverage.out
+	PRIMER_TASKS_COVERAGE_GATE=1 ../scripts/enforce-module-cover.sh . 85 tasks
 
 doc: openapi
 

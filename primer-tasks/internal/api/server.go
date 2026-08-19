@@ -289,7 +289,11 @@ func (s *Server) createStudent(w http.ResponseWriter, r *http.Request, sc scope)
 	var in struct {
 		DisplayName string `json:"displayName"`
 	}
-	if !decode(w, r, &in) || strings.TrimSpace(in.DisplayName) == "" {
+	if !decode(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.DisplayName) == "" {
+		problem(w, 400, "invalid_request", "display name is required")
 		return
 	}
 	x := student{ID: uuid.NewString(), DisplayName: strings.TrimSpace(in.DisplayName), CreatedAt: time.Now().UTC()}
@@ -322,7 +326,11 @@ func (s *Server) updateStudent(w http.ResponseWriter, r *http.Request, sc scope)
 	var in struct {
 		DisplayName string `json:"displayName"`
 	}
-	if !decode(w, r, &in) || strings.TrimSpace(in.DisplayName) == "" {
+	if !decode(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.DisplayName) == "" {
+		problem(w, 400, "invalid_request", "display name is required")
 		return
 	}
 	var x student

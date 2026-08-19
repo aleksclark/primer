@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,15 +68,75 @@ func TestRoutesExposeCallbackAndGeneratedContract(t *testing.T) {
 
 func TestVerifyIDTokenChecksIssuerAudienceExpiryAndSignature(t *testing.T) {
 	s := NewWithAuth(nil, "test", AuthConfig{IssuerURL: "https://issuer.test", PublicIssuerURL: "https://issuer.test", ClientID: "tasks", SessionSecret: []byte("state-secret"), IssuerSecret: []byte("secret")})
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	payload, _ := json.Marshal(map[string]any{"iss": "https://issuer.test", "sub": "parent-a", "aud": "tasks", "exp": time.Now().Add(time.Minute).Unix()})
-	part := base64.RawURLEncoding.EncodeToString(payload)
-	mac := hmacSHA256([]byte("secret"), []byte(header+"."+part))
-	if got, err := s.verifyIDToken(header + "." + part + "." + base64.RawURLEncoding.EncodeToString(mac)); err != nil || got.Subject != "parent-a" {
+	makeToken := func(claims map[string]any) string {
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+		payload, _ := json.Marshal(claims)
+		part := base64.RawURLEncoding.EncodeToString(payload)
+		mac := hmacSHA256([]byte("secret"), []byte(header+"."+part))
+		return header + "." + part + "." + base64.RawURLEncoding.EncodeToString(mac)
+	}
+	valid := map[string]any{"iss": "https://issuer.test", "sub": "parent-a", "aud": "tasks", "exp": time.Now().Add(time.Minute).Unix()}
+	if got, err := s.verifyIDToken(makeToken(valid)); err != nil || got.Subject != "parent-a" {
 		t.Fatalf("valid token rejected: %v", err)
 	}
-	if _, err := s.verifyIDToken(header + "." + part + ".bad"); err == nil {
+	arrayAudience := make(map[string]any, len(valid))
+	for k, v := range valid {
+		arrayAudience[k] = v
+	}
+	arrayAudience["aud"] = []any{"other", "tasks"}
+	if _, err := s.verifyIDToken(makeToken(arrayAudience)); err != nil {
+		t.Fatalf("array audience rejected: %v", err)
+	}
+	for name, edit := range map[string]func(map[string]any){
+		"bad issuer":      func(c map[string]any) { c["iss"] = "https://other.example" },
+		"bad audience":    func(c map[string]any) { c["aud"] = "other" },
+		"expired":         func(c map[string]any) { c["exp"] = time.Now().Add(-time.Minute).Unix() },
+		"missing subject": func(c map[string]any) { delete(c, "sub") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims := make(map[string]any, len(valid))
+			for k, v := range valid {
+				claims[k] = v
+			}
+			edit(claims)
+			if _, err := s.verifyIDToken(makeToken(claims)); err == nil {
+				t.Fatal("invalid claims accepted")
+			}
+		})
+	}
+	if _, err := s.verifyIDToken("malformed"); err == nil {
+		t.Fatal("malformed token accepted")
+	}
+	parts := strings.Split(makeToken(valid), ".")
+	parts[2] = "bad"
+	if _, err := s.verifyIDToken(strings.Join(parts, ".")); err == nil {
 		t.Fatal("bad signature accepted")
+	}
+}
+
+func TestOpenRejectsInvalidCiphertextAndLoginRequiresIdentity(t *testing.T) {
+	s := NewWithAuth(nil, "test", AuthConfig{SessionSecret: []byte("state-secret")})
+	if _, err := s.open(nil); err == nil {
+		t.Fatal("empty sealed state accepted")
+	}
+	if _, err := s.open([]byte("too short")); err == nil {
+		t.Fatal("short sealed state accepted")
+	}
+	unconfigured := NewWithAuth(nil, "test", AuthConfig{IssuerURL: "", ClientID: ""})
+	rec := httptest.NewRecorder()
+	unconfigured.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unconfigured login = %d, want 503", rec.Code)
+	}
+}
+
+func TestSealReportsRandomSourceFailure(t *testing.T) {
+	original := cryptoRandRead
+	cryptoRandRead = func([]byte) (int, error) { return 0, fmt.Errorf("entropy unavailable") }
+	t.Cleanup(func() { cryptoRandRead = original })
+	s := NewWithAuth(nil, "test", AuthConfig{SessionSecret: []byte("state-secret")})
+	if _, err := s.seal("verifier"); err == nil {
+		t.Fatal("expected random source failure")
 	}
 }
 

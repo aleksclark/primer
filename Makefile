@@ -446,7 +446,7 @@ tasks-test:
 	$(MAKE) -C primer-tasks test
 
 tasks-cover:
-	$(MAKE) -C primer-tasks cover
+	PRIMER_TASKS_COVERAGE_GATE=1 ./scripts/enforce-module-cover.sh primer-tasks $(COVER_MIN) tasks
 
 tasks-clients:
 	$(MAKE) -C primer-tasks clients
