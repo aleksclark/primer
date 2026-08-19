@@ -65,6 +65,18 @@ func (f *Factory) AssessmentSupports() *AssessmentSupportRepo { return NewAssess
 // Exports returns export-job metadata persistence.
 func (f *Factory) Exports() *ExportRepo { return NewExportRepo(f.Q) }
 
+// Outbox returns the durable event repository.
+func (f *Factory) Outbox() *OutboxRepo { return NewOutboxRepo(f.Q) }
+
+// WebhookEndpoints returns webhook subscription persistence.
+func (f *Factory) WebhookEndpoints() *WebhookEndpointRepo { return NewWebhookEndpointRepo(f.Q) }
+
+// WebhookDeliveries returns leased delivery persistence.
+func (f *Factory) WebhookDeliveries() *WebhookDeliveryRepo { return NewWebhookDeliveryRepo(f.Q) }
+
+// IdempotencyKeys returns inbound idempotency persistence.
+func (f *Factory) IdempotencyKeys() *IdempotencyRepo { return NewIdempotencyRepo(f.Q) }
+
 // Health is an optional thin health repository exposed via the factory.
 func (f *Factory) Health() *HealthRepo {
 	return &HealthRepo{Q: f.Q}

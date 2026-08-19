@@ -123,9 +123,9 @@ Focused package commands from detailed phases are **required in addition** when 
 | **D7** | Learner snapshots + mat runs — **complete** at `8079020` | Database | [phase-07](../curriculum-studio-database/phase-07-learner-snapshots-and-runs.md) | D5 | PG5c | `impl/D7-mat-runs` | G-studio-test; P7-E1–P7-E3 with real PostgreSQL and fingerprint contention — green | parallel D6 OK |
 | **D8** | Workflow checkpointing + fencing — **complete** at `973c8a4` | Database | [phase-08](../curriculum-studio-database/phase-08-workflow-checkpointing-and-fencing.md) | D7 | PG6b | `impl/D8-workflow-fencing` | G-studio-test -race; P8-E1–P8-E5 with real PostgreSQL — green | additive migration `00010` |
 | **D9** | Materialized items lifecycle — **complete** in merge `8e2c381` | Database | [phase-09](../curriculum-studio-database/phase-09-materialized-items-lifecycle.md) | D8 | PG7b | `impl/D9-items` | G-studio-test; P9-E1–P9-E6 with real PostgreSQL — green | — |
-| **D10** | Exports + object refs (no bytes) — **next** | Database | [phase-10](../curriculum-studio-database/phase-10-exports-and-object-refs.md) | D9 | PG8b | `impl/D10-export-refs` | G-studio-test; P10-E1–P10-E2 with real PostgreSQL | — |
-| **D11** | Outbox, webhook leases, idempotency keys | Database | [phase-11](../curriculum-studio-database/phase-11-outbox-webhooks-idempotency.md) | D5 (core); D7–D9 for mat events | PG8b | `impl/D11-outbox` | G-studio-test | — |
-| **D12** | Audit, retention, backup drill, DB metrics | Database | [phase-12](../curriculum-studio-database/phase-12-audit-retention-backup-observability.md) | D1–D11 | PG9b | `impl/D12-ops` | G-studio-cover ≥85%; backup drill | — |
+| **D10** | Exports + object refs (no bytes) — **complete** in merge `6ac59a1` | Database | [phase-10](../curriculum-studio-database/phase-10-exports-and-object-refs.md) | D9 | PG8b | `impl/D10-export-refs` | G-studio-test; P10-E1–P10-E2 with real PostgreSQL — green | — |
+| **D11** | Outbox, webhook leases, idempotency keys — **complete** at `b8bac62` | Database | [phase-11](../curriculum-studio-database/phase-11-outbox-webhooks-idempotency.md) | D5 (core); D7–D9 for mat events | PG8b | `impl/D11-outbox` | G-studio-test; P11-E1–P11-E4 with real PostgreSQL — green | — |
+| **D12** | Audit, retention, backup drill, DB metrics — **next** | Database | [phase-12](../curriculum-studio-database/phase-12-audit-retention-backup-observability.md) | D1–D11 | PG9b | `impl/D12-ops` | G-studio-cover ≥85%; backup drill | — |
 
 ### 3.4 Contracts track (`C*`)
 

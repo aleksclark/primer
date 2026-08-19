@@ -156,7 +156,7 @@ closed sets below are the contract:
 | `assessment_supports` | Assessment ↔ rubric / answer key |
 | `exports` | PDF / Markdown / DOCX / CSV / JSON / iCal |
 | `outbox_events` | Durable domain events |
-| `webhook_endpoints` / `webhook_deliveries` | Delivery + idempotency |
+| `webhook_endpoints` / `webhook_deliveries` | Delivery + idempotency + DB lease state |
 | `idempotency_keys` | Inbound API / callback idempotency |
 | `audit_events` | Authoring and integration audit trail |
 
@@ -215,3 +215,4 @@ Goose SQL, numbered:
 8. `00008_outcome_prerequisite_concurrency.sql`
 9. `00009_materialization_fingerprint_unique.sql`
 10. `00010_workflow_leases.sql`
+11. `00011_webhook_delivery_leases.sql`
