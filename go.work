@@ -3,6 +3,7 @@ go 1.25.7
 use (
 	./curriculum-studio
 	./primer-agents
+	./primer-agents/client/go
 	./primer-identity
 	./server
 )

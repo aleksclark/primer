@@ -1,0 +1,531 @@
+components:
+  schemas:
+    CancelRunInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/CancelRunInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        reasonClass:
+          maxLength: 64
+          type: string
+      type: object
+    CreateRunInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/CreateRunInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        callerContext:
+          maxLength: 4096
+          type: string
+        inputPreview:
+          maxLength: 2000
+          type: string
+        profile:
+          maxLength: 128
+          minLength: 1
+          type: string
+        sessionId:
+          format: uuid
+          type: string
+      required:
+        - profile
+      type: object
+    CreateSessionInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/CreateSessionInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        callerContext:
+          maxLength: 4096
+          type: string
+        profile:
+          maxLength: 128
+          minLength: 1
+          type: string
+      required:
+        - profile
+      type: object
+    ErrorDetail:
+      additionalProperties: false
+      properties:
+        location:
+          description: Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'
+          type: string
+        message:
+          description: Error message text
+          type: string
+        value:
+          description: The value at the given location
+      type: object
+    ErrorModel:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/ErrorModel.json
+          format: uri
+          readOnly: true
+          type: string
+        detail:
+          description: A human-readable explanation specific to this occurrence of the problem.
+          examples:
+            - Property foo is required but is missing.
+          type: string
+        errors:
+          description: Optional list of individual error details
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+          type:
+            - array
+            - "null"
+        instance:
+          description: A URI reference that identifies the specific occurrence of the problem.
+          examples:
+            - https://example.com/error-log/abc123
+          format: uri
+          type: string
+        status:
+          description: HTTP status code
+          examples:
+            - 400
+          format: int64
+          type: integer
+        title:
+          description: A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
+          examples:
+            - Bad Request
+          type: string
+        type:
+          default: about:blank
+          description: A URI reference to human-readable documentation for the error.
+          examples:
+            - https://example.com/errors/example
+          format: uri
+          type: string
+      type: object
+    EventResponse:
+      additionalProperties: false
+      properties:
+        agentDepth:
+          format: int64
+          type: integer
+        agentId:
+          type: string
+        agentType:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        kind:
+          type: string
+        payload:
+          type: string
+        runId:
+          format: uuid
+          type: string
+        sequence:
+          format: int64
+          type: integer
+      required:
+        - id
+        - runId
+        - sequence
+        - kind
+        - createdAt
+      type: object
+    ListEventsOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/ListEventsOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        events:
+          items:
+            $ref: "#/components/schemas/EventResponse"
+          type:
+            - array
+            - "null"
+      required:
+        - events
+      type: object
+    ListRunsOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/ListRunsOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        runs:
+          items:
+            $ref: "#/components/schemas/RunResponse"
+          type:
+            - array
+            - "null"
+      required:
+        - runs
+      type: object
+    RunResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/RunResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        cancelRequestedAt:
+          format: date-time
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        endedAt:
+          format: date-time
+          type: string
+        id:
+          description: Server-generated run ID.
+          format: uuid
+          type: string
+        idempotencyKey:
+          type: string
+        inputPreview:
+          type: string
+        ownerNamespace:
+          description: Signed owner namespace; opaque to callers.
+          type: string
+        profile:
+          type: string
+        sessionId:
+          format: uuid
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+        stateVersion:
+          format: int64
+          type: integer
+        status:
+          type: string
+      required:
+        - id
+        - ownerNamespace
+        - profile
+        - status
+        - stateVersion
+        - idempotencyKey
+        - createdAt
+      type: object
+    SessionResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          examples:
+            - //schemas/SessionResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        callerContext:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        ownerNamespace:
+          type: string
+        profile:
+          type: string
+        revision:
+          format: int64
+          type: integer
+        status:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - ownerNamespace
+        - profile
+        - status
+        - revision
+        - createdAt
+        - updatedAt
+      type: object
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      description: Primer Identity ES256 JWT, aud=primer-agents.
+      scheme: bearer
+      type: http
+info:
+  description: Primer Agents durable run/session control plane.
+  title: Primer Agents API
+  version: 0.1.0
+openapi: 3.1.0
+paths:
+  /agents/v1/runs:
+    get:
+      operationId: list-runs
+      parameters:
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListRunsOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:runs:read
+      summary: List runs owned by caller
+      tags:
+        - Runs
+    post:
+      operationId: create-run
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            maxLength: 256
+            minLength: 1
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRunInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:runs:write
+      summary: Create a run (idempotent)
+      tags:
+        - Runs
+  /agents/v1/runs/{id}:
+    get:
+      operationId: get-run
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:runs:read
+      summary: Get run by ID
+      tags:
+        - Runs
+  /agents/v1/runs/{id}/cancel:
+    post:
+      operationId: cancel-run
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRunInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:runs:cancel
+      summary: Request cancellation of a run (idempotent)
+      tags:
+        - Runs
+  /agents/v1/runs/{id}/events:
+    get:
+      operationId: list-run-events
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+        - explode: false
+          in: query
+          name: afterSeq
+          schema:
+            default: 0
+            format: int64
+            minimum: 0
+            type: integer
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 100
+            format: int64
+            maximum: 500
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEventsOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:runs:read
+      summary: Page run events by sequence cursor
+      tags:
+        - Runs
+  /agents/v1/sessions:
+    post:
+      operationId: create-session
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:sessions:write
+      summary: Create a session
+      tags:
+        - Sessions
+  /agents/v1/sessions/{id}:
+    get:
+      operationId: get-session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:sessions:read
+      summary: Get session by ID
+      tags:
+        - Sessions
+servers:
+  - url: /

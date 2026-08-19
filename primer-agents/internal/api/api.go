@@ -42,6 +42,19 @@ type Options struct {
 
 // New builds a chi HTTP handler with /healthz, /readyz, and /agents/v1 routes.
 func New(opts Options) http.Handler {
+	_, handler := newAPI(opts)
+	return handler
+}
+
+// NewSpec returns the Huma API only (for offline OpenAPI emission). The
+// returned API has all routes registered but is not bound to a listener;
+// passing nil service and validator is safe for generation-only use.
+func NewSpec(opts Options) huma.API {
+	api, _ := newAPI(opts)
+	return api
+}
+
+func newAPI(opts Options) (huma.API, http.Handler) {
 	env := opts.Env
 	if env == "" {
 		env = "development"
@@ -75,7 +88,7 @@ func New(opts Options) http.Handler {
 	s := &server{svc: opts.Service, validator: opts.Validator, humaAPI: humaAPI}
 	s.registerRoutes(humaAPI)
 
-	return r
+	return humaAPI, r
 }
 
 // ── Health / readiness ────────────────────────────────────────────────────────
