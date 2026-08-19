@@ -99,6 +99,36 @@ func testMigrateAgainstURL(t *testing.T, dsn string) {
 	if tables != 4 {
 		t.Fatalf("Tasks schema table count = %d, want 4", tables)
 	}
+	// Exercise the historical 00006 -> 00007 upgrade in an isolated temp
+	// schema, including existing rows that need deterministic ordinal backfill.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `CREATE TEMP TABLE agent_tool_effects (tenant_id uuid NOT NULL, run_id uuid NOT NULL, step integer NOT NULL, tool_name text NOT NULL, action_digest text NOT NULL, status text NOT NULL, result jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id,run_id,tool_name,action_digest))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO agent_tool_effects(tenant_id,run_id,step,tool_name,action_digest,status) VALUES ('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002',1,'draft_task',repeat('a',64),'applied'),('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002',1,'create_schedule',repeat('b',64),'reserved')`); err != nil {
+		t.Fatal(err)
+	}
+	upgrade, err := migrations.ReadFile("migrations/00007_agent_tool_effect_steps.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(upgrade)); err != nil {
+		t.Fatal(err)
+	}
+	var primary, unique string
+	if err = tx.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='agent_tool_effects'::regclass AND contype='p'`).Scan(&primary); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='agent_tool_effects'::regclass AND contype='u'`).Scan(&unique); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(primary, "tenant_id, run_id, step") || !strings.Contains(unique, "tool_name, action_digest") {
+		t.Fatalf("upgrade constraints primary=%q unique=%q", primary, unique)
+	}
 }
 
 func TestMigrationTableAndOwnershipConstraintsAreProductLocal(t *testing.T) {

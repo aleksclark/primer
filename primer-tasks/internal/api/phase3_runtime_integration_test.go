@@ -15,6 +15,70 @@ import (
 	"primer-tasks/internal/jobs"
 )
 
+func TestDurableToolEffectLedgerReplaysAndRejectsChangedMutation(t *testing.T) {
+	pool := integrationPool(t)
+	seedIntegration(t, pool)
+	ctx := context.Background()
+	runID, conversationID, messageID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	now := time.Now().UTC()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_run_events WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_tool_effects WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_runs WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_messages WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_conversations WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM task_templates WHERE tenant_id=$1 AND title LIKE 'ledger-test-%'`, tenantA)
+	})
+	store := agent.NewPostgresRepository(pool)
+	if err := store.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenantA, ConversationID: conversationID, ClientMessageID: "ledger-test", Role: agent.RoleUser, Content: "create", Sequence: 1, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRun(ctx, agent.Run{ID: runID, TenantID: tenantA, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunRunning, MaxSteps: 4, MaxTokens: 100, Deadline: now.Add(time.Hour), CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	svc := phase3Services{&Server{DB: pool}}
+	toolCtx := parent.ServiceContext{TenantID: tenantA, ActorID: "parent-a", IdempotencyKey: runID, RunID: runID, ToolStep: 1}
+	first, err := svc.DraftTask(ctx, toolCtx, parent.TaskDraftInput{Title: "ledger-test-first", Instructions: "once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := svc.DraftTask(ctx, toolCtx, parent.TaskDraftInput{Title: "ledger-test-first", Instructions: "once"})
+	if err != nil || replay.ID != first.ID {
+		t.Fatalf("replay=%+v err=%v", replay, err)
+	}
+	if _, err = svc.DraftTask(ctx, toolCtx, parent.TaskDraftInput{Title: "ledger-test-changed", Instructions: "must fail closed"}); !errors.Is(err, errToolEffectInProgress) {
+		t.Fatalf("changed replay err=%v", err)
+	}
+	var effects, templates int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM agent_tool_effects WHERE run_id=$1`, runID).Scan(&effects); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM task_templates WHERE tenant_id=$1 AND title LIKE 'ledger-test-%'`, tenantA).Scan(&templates); err != nil {
+		t.Fatal(err)
+	}
+	if effects != 1 || templates != 1 {
+		t.Fatalf("ledger effects=%d templates=%d", effects, templates)
+	}
+	server := &Server{DB: pool, agentHub: newAgentHub()}
+	if err := server.executeAgentRun(ctx, jobs.Job{TenantID: tenantA, RunID: runID}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM agent_runs WHERE id=$1`, runID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	var terminals int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run_events WHERE run_id=$1 AND event_type='terminal'`, runID).Scan(&terminals); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(agent.RunFailed) || terminals != 1 {
+		t.Fatalf("durable boundary status=%s terminals=%d", status, terminals)
+	}
+}
+
 func TestPostgresAgentRepositoryTransitionsLeasesReplayRestartAndConfirm(t *testing.T) {
 	pool := integrationPool(t)
 	seedIntegration(t, pool)
