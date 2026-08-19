@@ -55,3 +55,4 @@ deploy/.env
 *.swp
 __pycache__/
 *.pyc
+primer-agents/internal/testutil/live/tmp/

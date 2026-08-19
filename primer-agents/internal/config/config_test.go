@@ -62,6 +62,21 @@ func TestLiveLLMRequiresExplicitBoundedConfiguration(t *testing.T) {
 	assert.Equal(t, "named-live-key", cfg.LiveLLMAPIKey())
 }
 
+func TestLiveLLMAcceptsAllowlistedCloudflareGatewayURL(t *testing.T) {
+	t.Setenv("PRIMER_AGENTS_ENV", "development")
+	t.Setenv("PRIMER_AGENTS_DATABASE_URL", "postgres://agents:x@localhost:5432/primer_agents?sslmode=disable")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM", "1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_API_KEY", "named-live-key")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_BASE_URL", "https://gateway.ai.cloudflare.com/v1/a9d106d880527eaecdaf7835b792849d/curri-gateway/openai")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_MODEL", "gpt-4o-mini")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_MAX_CALLS", "1")
+	t.Setenv("PRIMER_AGENTS_LIVE_LLM_TIMEOUT", "20s")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.True(t, config.ApprovedLiveLLMBaseURL(cfg.LiveLLMBaseURL))
+}
+
 func TestLiveLLMRejectsUnsafeOrExpensiveConfiguration(t *testing.T) {
 	t.Setenv("PRIMER_AGENTS_ENV", "development")
 	t.Setenv("PRIMER_AGENTS_DATABASE_URL", "postgres://agents:x@localhost:5432/primer_agents?sslmode=disable")

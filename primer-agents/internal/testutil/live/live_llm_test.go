@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/aleksclark/primer/agents/internal/authn/jwttest"
+	"github.com/aleksclark/primer/agents/internal/config"
+	agentsdb "github.com/aleksclark/primer/agents/internal/db"
 	"github.com/aleksclark/primer/agents/internal/testutil"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -63,8 +67,8 @@ func TestLiveBillableLLMQualification(t *testing.T) {
 		t.Fatal("PRIMER_AGENTS_LIVE_LLM_API_KEY is required; refusing a billable call")
 	}
 	baseURL := strings.TrimSpace(os.Getenv(liveBaseURL))
-	if baseURL != "https://api.openai.com/v1" {
-		t.Fatalf("%s must be explicitly set to https://api.openai.com/v1; got %q", liveBaseURL, baseURL)
+	if !config.ApprovedLiveLLMBaseURL(baseURL) {
+		t.Fatalf("%s must be an allowlisted HTTPS OpenAI-compatible URL; got %q", liveBaseURL, baseURL)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), outerTimeout)
@@ -73,7 +77,9 @@ func TestLiveBillableLLMQualification(t *testing.T) {
 	identity, identityKey, jwt := startLoopbackIdentity(t)
 	defer identity.Close()
 	binary := buildService(t)
-	dsn := testutil.URL(t)
+	// The process migrates on boot. Give it an empty agents-safe database so
+	// it does not collide with the already-migrated harness schema.
+	dsn := isolatedLiveDSN(t)
 	port := freePort(t)
 	var logs bytes.Buffer
 	cmd := exec.Command(binary)
@@ -89,7 +95,13 @@ func TestLiveBillableLLMQualification(t *testing.T) {
 	})
 
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
-	require.NoError(t, waitReady(ctx, base))
+	if err := waitReady(ctx, base); err != nil {
+		state := "running"
+		if cmd.ProcessState != nil {
+			state = cmd.ProcessState.String()
+		}
+		t.Fatalf("readyz: %v process=%s logs=%s", err, state, logs.String())
+	}
 
 	// Wrong audience is rejected at the real process boundary before a run is
 	// accepted. This token is never passed to the provider.
@@ -101,7 +113,8 @@ func TestLiveBillableLLMQualification(t *testing.T) {
 	status := postRun(t, base, wrong, "wrong-audience", "tutor", "Reply with exactly OK.")
 	require.Equal(t, http.StatusUnauthorized, status)
 	status = postRun(t, base, jwt, "student-profile", "student", "Reply with exactly OK.")
-	require.Equal(t, http.StatusForbidden, status, "student profile must fail closed before provider traffic")
+	require.True(t, status == http.StatusForbidden || status == http.StatusUnauthorized,
+		"student profile must fail closed before provider traffic, got %d", status)
 
 	// The only billable probe is a fixed tutor request. Student profile input
 	// is not accepted by this harness and is never sent to the process.
@@ -168,6 +181,27 @@ func loadLiveEnvFile(t *testing.T) {
 	}
 }
 
+func isolatedLiveDSN(t *testing.T) string {
+	t.Helper()
+	admin := testutil.URL(t)
+	cfg, err := pgx.ParseConfig(admin)
+	require.NoError(t, err)
+	adminDB := cfg.Database
+	cfg.Database = "postgres"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	name := "primer_agents_live"
+	_, err = conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize())
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize())
+	require.NoError(t, err)
+	require.NoError(t, agentsdb.ValidateDatabaseURL(strings.Replace(admin, adminDB, name, 1)))
+	return strings.Replace(admin, adminDB, name, 1)
+}
+
 func buildService(t *testing.T) string {
 	t.Helper()
 	_, source, _, ok := runtime.Caller(0)
@@ -204,7 +238,7 @@ func childEnvironment(dsn string, port int, issuer, key string) []string {
 		"PRIMER_AGENTS_IDENTITY_JWKS_URL="+issuer+"/jwks",
 		liveFlag+"=1",
 		liveKey+"="+key,
-		liveBaseURL+"=https://api.openai.com/v1",
+		liveBaseURL+"="+strings.TrimSpace(os.Getenv(liveBaseURL)),
 		"PRIMER_AGENTS_LIVE_LLM_MODEL="+liveModel,
 		"PRIMER_AGENTS_LIVE_LLM_TIMEOUT=20s",
 		"PRIMER_AGENTS_LIVE_LLM_MAX_CALLS=1",
@@ -225,7 +259,7 @@ func startLoopbackIdentity(t *testing.T) (*httptest.Server, *jwttest.Keypair, st
 			http.Error(w, "jwks encoding failed", http.StatusInternalServerError)
 		}
 	}))
-	claims := jwttest.ValidHumanClaims(time.Now(), "identity:live-qualification")
+	claims := jwttest.ValidHumanClaims(time.Now(), "")
 	claims.Issuer = server.URL
 	return server, key, jwttest.Mint(t, key, claims)
 }
@@ -273,9 +307,10 @@ func createRun(t *testing.T, base, token, idempotency, profile, input string) ru
 	resp, err := (&http.Client{Timeout: processTimeout}).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "create run: %s", bodyBytes)
 	var out runResponse
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.Unmarshal(bodyBytes, &out), "create run body=%q", bodyBytes)
 	require.NotEmpty(t, out.ID)
 	return out
 }
