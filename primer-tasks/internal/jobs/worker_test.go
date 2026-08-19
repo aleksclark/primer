@@ -17,13 +17,14 @@ type fakeJobs struct {
 	completed, failed int
 	failCause         error
 	requeued          int
+	renewErr          error
 }
 
 func (f *fakeJobs) Enqueue(_ context.Context, j Job) error {
 	f.queued = append(f.queued, j)
 	return nil
 }
-func (f *fakeJobs) Claim(_ context.Context, owner string, lease time.Duration) (Job, bool, error) {
+func (f *fakeJobs) Claim(_ context.Context, owner string, lease time.Duration, _ int) (Job, bool, error) {
 	if f.claimErr != nil {
 		return Job{}, false, f.claimErr
 	}
@@ -38,7 +39,7 @@ func (f *fakeJobs) Renew(_ context.Context, id, owner string, _ time.Duration) e
 	if id == "" || owner == "" {
 		return errors.New("bad renewal")
 	}
-	return nil
+	return f.renewErr
 }
 func (f *fakeJobs) Complete(_ context.Context, id, owner string) error {
 	f.completed++
@@ -119,6 +120,23 @@ func TestWorkerReconcileAndStepCompletesOrFails(t *testing.T) {
 	w.step(context.Background())
 	if failedJobs.failed != 1 || failedJobs.failCause == nil || len(failedRuns.transitions) != 2 || failedRuns.transitions[1] != agent.RunFailed {
 		t.Fatalf("failure jobs=%+v runs=%+v", failedJobs, failedRuns.transitions)
+	}
+}
+
+func TestWorkerLeaseLossDoesNotPublishCompetingTerminal(t *testing.T) {
+	jobs := &fakeJobs{claimOK: true, renewErr: errors.New("lease lost"), claimed: Job{ID: "job", TenantID: "tenant", RunID: "run"}}
+	runs := &fakeRuns{}
+	w := NewWorker(jobs, runs, func(ctx context.Context, _ Job) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	w.Lease = 3 * time.Millisecond
+	w.step(context.Background())
+	if len(runs.transitions) != 1 || runs.transitions[0] != agent.RunRunning {
+		t.Fatalf("lease loss published terminal: %+v", runs.transitions)
+	}
+	if jobs.completed != 0 || jobs.failed != 0 {
+		t.Fatalf("lease loss completed/failed job: %+v", jobs)
 	}
 }
 

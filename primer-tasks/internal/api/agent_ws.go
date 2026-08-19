@@ -424,6 +424,15 @@ func (s *Server) publishAgent(ctx context.Context, tenant, conversation string, 
 		}
 		return err
 	}
+	if event.Type == "terminal" {
+		var terminal bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_run_events WHERE run_id=$1 AND tenant_id=$2 AND event_type='terminal')`, event.RunID, tenant).Scan(&terminal); err != nil {
+			return err
+		}
+		if terminal {
+			return nil
+		}
+	}
 	event.ProtocolVersion = agentProtocolVersion
 	event.ConversationID = conversation
 	if event.Text == "" && event.Message != "" {
@@ -459,6 +468,9 @@ func (s *Server) StartAgentWorker(ctx context.Context) {
 		}
 		return err
 	})
+	if cfg, err := parent.LoadProviderConfig(); err == nil && cfg.MaxConcurrentTenants > 0 {
+		worker.MaxConcurrentTenants = cfg.MaxConcurrentTenants
+	}
 	go worker.Run(ctx)
 }
 
@@ -467,6 +479,11 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 	run, err := repo.GetRun(ctx, job.TenantID, job.RunID)
 	if err != nil {
 		return err
+	}
+	// A job may be re-delivered after its lease expires. A terminal run is
+	// already durable work; never replay its tools or emit a second terminal.
+	if run.Status.Terminal() {
+		return nil
 	}
 	var conversation, prompt, actor string
 	if err := s.DB.QueryRow(ctx, `SELECT r.conversation_id,m.content,c.actor_id FROM agent_runs r JOIN agent_messages m ON m.id=r.user_message_id JOIN agent_conversations c ON c.id=r.conversation_id AND c.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND r.id=$2`, job.TenantID, job.RunID).Scan(&conversation, &prompt, &actor); err != nil {
@@ -504,6 +521,12 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 		return s.emitProtocolEvent(ctx, job.TenantID, conversation, event)
 	})
 	if err != nil {
+		// Worker lease loss cancels the handler context. Leave the run at its
+		// durable boundary for the new owner; the stale worker must not publish
+		// a competing terminal event.
+		if ctx.Err() != nil {
+			return err
+		}
 		select {
 		case <-canceled:
 			_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunCanceled, run.DurableStep, run.Usage)
@@ -600,13 +623,15 @@ func defaultToolNames() []string {
 	return []string{parent.ToolListStudents, parent.ToolListTasks, parent.ToolGetTask, parent.ToolDraftTask, parent.ToolUpdateTask, parent.ToolPublishTask, parent.ToolPreviewAction, parent.ToolConfirmAction, parent.ToolListSchedules, parent.ToolCreateSchedule, parent.ToolUpdateSchedule, parent.ToolListOccurrences}
 }
 
-func (s *Server) fantasyTools(tenant, actor string, active []string, _ string) []fantasy.AgentTool {
+func (s *Server) fantasyTools(tenant, actor string, active []string, runID string) []fantasy.AgentTool {
 	tools := s.parentTools()
 	set, err := parent.NewToolSet(active)
 	if err != nil {
 		return nil
 	}
-	ctx := parent.Context{TenantID: tenant, ActorID: actor, IdempotencyKey: uuid.NewString(), Tools: set}
+	// A retry of one durable run must keep the same idempotency identity;
+	// generating a fresh key here would permit duplicate domain effects.
+	ctx := parent.Context{TenantID: tenant, ActorID: actor, IdempotencyKey: runID, Tools: set}
 	// Actor is supplied by the authenticated run in production; this function
 	// is called only after the run tenant has been verified.  The worker fills
 	// actor from the durable conversation before invoking tools in later steps.

@@ -174,7 +174,7 @@ func TestPostgresJobsClaimCompleteFailAndRequeue(t *testing.T) {
 	if err := jobsStore.Enqueue(ctx, jobs.Job{ID: uuid.NewString(), TenantID: tenant, RunID: runID, MaxAttempts: 0, AvailableAt: now}); err == nil {
 		t.Fatal("invalid max attempts accepted")
 	}
-	claimed, ok, err := jobsStore.Claim(ctx, "worker-a", time.Minute)
+	claimed, ok, err := jobsStore.Claim(ctx, "worker-a", time.Minute, 4)
 	if err != nil || !ok || claimed.Attempts != 1 || claimed.Status != jobs.Running || claimed.LeaseOwner != "worker-a" {
 		t.Fatalf("claim=%+v ok=%v err=%v", claimed, ok, err)
 	}
@@ -194,7 +194,7 @@ func TestPostgresJobsClaimCompleteFailAndRequeue(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE agent_jobs SET available_at=now() WHERE id=$1`, claimed.ID); err != nil {
 		t.Fatal(err)
 	}
-	claimed, ok, err = jobsStore.Claim(ctx, "worker-b", time.Minute)
+	claimed, ok, err = jobsStore.Claim(ctx, "worker-b", time.Minute, 4)
 	if err != nil || !ok || claimed.Attempts != 2 {
 		t.Fatalf("retry claim=%+v ok=%v err=%v", claimed, ok, err)
 	}
@@ -223,7 +223,7 @@ func TestPostgresJobsClaimCompleteFailAndRequeue(t *testing.T) {
 	if err := jobsStore.Enqueue(ctx, jobs.Job{ID: job2, TenantID: tenant, RunID: run2, MaxAttempts: 3, AvailableAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	claimed2, ok, err := jobsStore.Claim(ctx, "dead-worker", time.Minute)
+	claimed2, ok, err := jobsStore.Claim(ctx, "dead-worker", time.Minute, 4)
 	if err != nil || !ok || claimed2.ID != job2 {
 		t.Fatalf("second claim=%+v ok=%v err=%v", claimed2, ok, err)
 	}

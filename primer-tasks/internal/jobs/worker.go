@@ -36,7 +36,7 @@ type Job struct {
 
 type Repository interface {
 	Enqueue(context.Context, Job) error
-	Claim(context.Context, string, time.Duration) (Job, bool, error)
+	Claim(context.Context, string, time.Duration, int) (Job, bool, error)
 	Renew(context.Context, string, string, time.Duration) error
 	Complete(context.Context, string, string) error
 	Fail(context.Context, string, string, error) error
@@ -53,8 +53,8 @@ func (r *PostgresRepository) Enqueue(ctx context.Context, j Job) error {
 	_, err := r.DB.Exec(ctx, `INSERT INTO agent_jobs(id,tenant_id,run_id,kind,status,attempts,max_attempts,available_at) VALUES($1,$2,$3,'agent_run','queued',0,$4,COALESCE($5,now()))`, j.ID, j.TenantID, j.RunID, j.MaxAttempts, j.AvailableAt)
 	return err
 }
-func (r *PostgresRepository) Claim(ctx context.Context, owner string, lease time.Duration) (j Job, ok bool, err error) {
-	err = r.DB.QueryRow(ctx, `WITH candidate AS (SELECT id FROM agent_jobs WHERE status='queued' AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) AND attempts<max_attempts ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE agent_jobs a SET status='running',lease_owner=$1,lease_until=now()+$2::interval,attempts=attempts+1,updated_at=now() FROM candidate WHERE a.id=candidate.id RETURNING a.id,a.tenant_id,a.run_id,a.status,a.attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until`, owner, fmt.Sprintf("%f seconds", lease.Seconds())).Scan(&j.ID, &j.TenantID, &j.RunID, &j.Status, &j.Attempts, &j.MaxAttempts, &j.AvailableAt, &j.LeaseOwner, &j.LeaseUntil)
+func (r *PostgresRepository) Claim(ctx context.Context, owner string, lease time.Duration, maxTenants int) (j Job, ok bool, err error) {
+	err = r.DB.QueryRow(ctx, `WITH candidate AS (SELECT j.id FROM agent_jobs j WHERE j.status='queued' AND j.available_at<=now() AND (j.lease_until IS NULL OR j.lease_until<now()) AND j.attempts<j.max_attempts AND ($3<=0 OR EXISTS (SELECT 1 FROM agent_jobs active WHERE active.status='running' AND active.tenant_id=j.tenant_id) OR (SELECT count(DISTINCT tenant_id) FROM agent_jobs active WHERE active.status='running')<$3) ORDER BY j.available_at,j.id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE agent_jobs a SET status='running',lease_owner=$1,lease_until=now()+$2::interval,attempts=attempts+1,updated_at=now() FROM candidate WHERE a.id=candidate.id RETURNING a.id,a.tenant_id,a.run_id,a.status,a.attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until`, owner, fmt.Sprintf("%f seconds", lease.Seconds()), maxTenants).Scan(&j.ID, &j.TenantID, &j.RunID, &j.Status, &j.Attempts, &j.MaxAttempts, &j.AvailableAt, &j.LeaseOwner, &j.LeaseUntil)
 	if err == pgx.ErrNoRows {
 		return Job{}, false, nil
 	}
@@ -91,16 +91,17 @@ func (r *PostgresRepository) RequeueExpired(ctx context.Context, now time.Time) 
 
 type Handler func(context.Context, Job) error
 type Worker struct {
-	Jobs   Repository
-	Runs   agent.Repository
-	Owner  string
-	Lease  time.Duration
-	Poll   time.Duration
-	Handle Handler
+	Jobs                 Repository
+	Runs                 agent.Repository
+	Owner                string
+	Lease                time.Duration
+	Poll                 time.Duration
+	MaxConcurrentTenants int
+	Handle               Handler
 }
 
 func NewWorker(jobs Repository, runs agent.Repository, handle Handler) *Worker {
-	return &Worker{Jobs: jobs, Runs: runs, Owner: uuid.NewString(), Lease: 30 * time.Second, Poll: 250 * time.Millisecond, Handle: handle}
+	return &Worker{Jobs: jobs, Runs: runs, Owner: uuid.NewString(), Lease: 30 * time.Second, Poll: 250 * time.Millisecond, MaxConcurrentTenants: 4, Handle: handle}
 }
 func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.Poll)
@@ -130,7 +131,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	return nil
 }
 func (w *Worker) step(ctx context.Context) {
-	job, ok, err := w.Jobs.Claim(ctx, w.Owner, w.Lease)
+	job, ok, err := w.Jobs.Claim(ctx, w.Owner, w.Lease, w.MaxConcurrentTenants)
 	if err != nil || !ok {
 		return
 	}
