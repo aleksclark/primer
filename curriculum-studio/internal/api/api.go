@@ -109,6 +109,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	// Register at absolute paths with the version prefix so OpenAPI and
 	// handlers share /studio/v1/*.
 	s.RegisterRoutes(humaAPI)
+	s.registerPlanRoutes(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
