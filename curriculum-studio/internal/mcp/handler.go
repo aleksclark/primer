@@ -94,6 +94,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "origin not allowed", http.StatusForbidden)
 		return
 	}
+	if version := strings.TrimSpace(r.Header.Get("MCP-Protocol-Version")); version != "" && version != ProtocolVersion {
+		http.Error(w, "unsupported protocol version", http.StatusBadRequest)
+		return
+	}
 
 	raw := extractBearer(r)
 	if raw == "" || h.validator == nil {

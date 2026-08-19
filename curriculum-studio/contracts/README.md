@@ -20,7 +20,7 @@ One non-duplicative rule:
 | Authoring REST | Huma handler signatures via `cmd/openapi-gen` | Browser / public authoring REST |
 | `openapi/v1/curriculum-studio.yaml` | Frozen compatibility baseline (C7; not live SoT) | Breaking-change comparison only |
 | `proto/curriculumstudio/v1/*.proto` | Hand-authored protobuf | Primer and other services (gRPC) |
-| Studio MCP `/mcp` | Pinned official MCP spec + **code-defined tool schemas** beside `internal/mcp` | Curriculum-planning agents |
+| Studio MCP `/mcp` | Pinned official MCP spec `2026-07-28` + **code-defined tool schemas** beside `internal/mcp` | Curriculum-planning agents |
 
 **Do not maintain overlapping DTOs.** Integration payloads from the product
 plan (`MaterializationContext`, `MaterializationBundle`, `DomainEvent`) live

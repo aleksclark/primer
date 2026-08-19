@@ -1,0 +1,15 @@
+# C12 MCP requirement ID registry.
+# Source of truth for IDs used in internal/mcp/conformance/coverage.go.
+# C12 is intentionally independent of the C11 requirements.txt; it maintains
+# its own mcp-coverage.json evidence artifact.
+# Conformance: make studio-mcp-conformance
+# Evidence:    tools/contract-gates/evidence/mcp-coverage.json
+REQ-MCP-1
+REQ-MCP-2
+REQ-MCP-3
+REQ-MCP-4
+REQ-MCP-5
+REQ-MCP-6
+REQ-MCP-7
+REQ-MCP-8
+REQ-MCP-9

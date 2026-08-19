@@ -9,6 +9,7 @@ normative for waves C1+; it does not reopen foundation crosswalk L1–L6.
 | --- | --- | --- | --- |
 | `openapi/v1/curriculum-studio.yaml` (→ Huma emission post C6/C7) | Browser / public **authoring REST** | Studio UI and public authoring clients | Primer `MaterializationContext`, full `MaterializationBundle`, machine-only integration RPCs |
 | `proto/curriculumstudio/v1/*.proto` | Primer / **machine integration** | LMS adapter, service callers, gRPC | Draft graph editing UI DTOs; LMS OpenAPI files |
+| `internal/mcp` + pinned MCP spec `2026-07-28` | **MCP tool schemas** (code-defined; C12) | Curriculum-planning agents via `/mcp` Streamable HTTP | OpenAPI or protobuf mirrors of MCP tool input/output types; any schema that duplicates a tool DTO in the other two surfaces |
 
 **Mechanical enforcement:** `tools/contract-gates/ownership_scan.py` fails if
 OpenAPI `components.schemas` introduces forbidden integration schema names
