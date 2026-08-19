@@ -69,6 +69,7 @@ private fun PrimerTasksApp(context: android.content.Context) {
     var metadata by remember { mutableStateOf<StudentMetadata?>(null) }
     var checklist by remember { mutableStateOf<List<ChecklistItem>>(emptyList()) }
     var occurrences by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
+    var upcoming by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var selectedOccurrence by remember { mutableStateOf<OccurrenceResponse?>(null) }
     var busy by remember { mutableStateOf(true) }
     var scanning by remember { mutableStateOf(false) }
@@ -81,6 +82,8 @@ private fun PrimerTasksApp(context: android.content.Context) {
             token = null
             metadata = null
             checklist = emptyList()
+            occurrences = emptyList()
+            upcoming = emptyList()
             scanning = false
         }
     }
@@ -91,6 +94,7 @@ private fun PrimerTasksApp(context: android.content.Context) {
             val profile = client.studentProfile(savedToken)
             checklist = client.studentChecklist(savedToken).items
             occurrences = client.studentToday(savedToken).items
+            upcoming = client.studentUpcoming(savedToken).items
             metadata = savedMetadata.copy(displayName = profile.displayName, studentId = profile.id)
             busy = false
         } catch (error: TasksHttpException) {
@@ -146,6 +150,7 @@ private fun PrimerTasksApp(context: android.content.Context) {
                 val profile = client.studentProfile(paired.token)
                 checklist = client.studentChecklist(paired.token).items
                 occurrences = client.studentToday(paired.token).items
+                upcoming = client.studentUpcoming(paired.token).items
                 tokenStore.save(paired.token)
                 val savedMetadata = StudentMetadata(paired.studentId, profile.displayName, origin, qr.pairingId)
                 metadataStore.save(savedMetadata)
@@ -218,7 +223,7 @@ private fun PrimerTasksApp(context: android.content.Context) {
                         }
                     },
                 )
-                metadata != null && token != null -> ChecklistScreen(metadata!!.displayName, checklist, occurrences, message, onOpen = { selectedOccurrence = it })
+                metadata != null && token != null -> ChecklistScreen(metadata!!.displayName, checklist, occurrences, upcoming, message, onOpen = { selectedOccurrence = it })
                 scanning -> PairingScanner(onQr = ::pair, onCancel = { scanning = false })
                 else -> PairingScreen(
                     message = message,
@@ -371,7 +376,7 @@ private class QrAnalyzer(
 }
 
 @Composable
-private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrences: List<OccurrenceResponse>, message: String?, onOpen: (OccurrenceResponse) -> Unit) {
+private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrences: List<OccurrenceResponse>, upcoming: List<OccurrenceResponse>, message: String?, onOpen: (OccurrenceResponse) -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("PRIMER TASKS", style = MaterialTheme.typography.labelLarge)
         Text(name, style = MaterialTheme.typography.headlineMedium)
@@ -383,6 +388,10 @@ private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrence
             }
         }
         if (occurrences.isEmpty()) items.forEach { item -> Text("• ${item.title}", style = MaterialTheme.typography.bodyLarge) }
+        if (upcoming.isNotEmpty()) {
+            Text("Upcoming", style = MaterialTheme.typography.titleLarge)
+            upcoming.take(10).forEach { occurrence -> OutlinedButton(onClick = { onOpen(occurrence) }, modifier = Modifier.fillMaxWidth()) { Text("${occurrence.title} · ${occurrence.nominalAt}") } }
+        }
         if (message != null) Text(message, color = MaterialTheme.colorScheme.error)
         Text("One student · one device", style = MaterialTheme.typography.bodySmall)
     }
