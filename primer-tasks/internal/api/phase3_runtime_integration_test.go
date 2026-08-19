@@ -1,0 +1,321 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"primer-tasks/internal/agent"
+	"primer-tasks/internal/agent/protocol"
+	"primer-tasks/internal/domain/parent"
+	"primer-tasks/internal/jobs"
+)
+
+func TestPostgresAgentRepositoryTransitionsLeasesReplayRestartAndConfirm(t *testing.T) {
+	pool := integrationPool(t)
+	seedIntegration(t, pool)
+	ctx := context.Background()
+	tenant := tenantA
+	conversationID, messageID, runID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	now := time.Now().UTC()
+	cleanupAgent := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_run_events WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_jobs WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_confirmation_previews WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_runs WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_messages WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_conversations WHERE tenant_id=$1`, tenant)
+	}
+	t.Cleanup(cleanupAgent)
+	store := agent.NewPostgresRepository(pool)
+	if err := store.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenant, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "parent.v1", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	message, inserted, err := store.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenant, ConversationID: conversationID, ClientMessageID: "client-retry", Content: "list students", Sequence: 1, CreatedAt: now})
+	if err != nil || !inserted || message.ID != messageID {
+		t.Fatalf("first message=%+v inserted=%v err=%v", message, inserted, err)
+	}
+	duplicate, inserted, err := store.AppendUserMessage(ctx, agent.Message{ID: uuid.NewString(), TenantID: tenant, ConversationID: conversationID, ClientMessageID: "client-retry", Content: "different text", Sequence: 9})
+	if err != nil || inserted || duplicate.ID != messageID || duplicate.Content != "list students" {
+		t.Fatalf("idempotent retry=%+v inserted=%v err=%v", duplicate, inserted, err)
+	}
+	run := agent.Run{ID: runID, TenantID: tenant, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 4, MaxTokens: 100, Deadline: now.Add(time.Hour), Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "parent.v1", PromptDigest: "digest"}, CreatedAt: now}
+	if err := store.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetRun(ctx, tenantB, runID); !errors.Is(err, agent.ErrNotFound) {
+		t.Fatalf("foreign run lookup=%v", err)
+	}
+	if err := store.TransitionRun(ctx, tenant, runID, agent.RunRunning, 1, agent.Usage{InputTokens: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RequestCancel(ctx, tenant, runID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetRun(ctx, tenant, runID)
+	if err != nil || got.Status != agent.RunRunning || !got.CancelRequested || got.DurableStep != 1 {
+		t.Fatalf("cancel request=%+v err=%v", got, err)
+	}
+	if err := store.TransitionRun(ctx, tenant, runID, agent.RunCanceled, 2, agent.Usage{TotalTokens: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TransitionRun(ctx, tenant, runID, agent.RunSucceeded, 3, agent.Usage{}); !errors.Is(err, agent.ErrAlreadyTerminal) {
+		t.Fatalf("terminal transition=%v", err)
+	}
+
+	// A leased run can be picked up by a new worker after the old process is
+	// considered dead. The conditional claim is also the retry/restart boundary.
+	restartID := uuid.NewString()
+	if err := store.CreateRun(ctx, agent.Run{ID: restartID, TenantID: tenant, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 2, MaxTokens: 20, Deadline: now.Add(time.Hour), Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}, CreatedAt: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	leased, ok, err := store.LeaseRun(ctx, tenant, "worker-one", time.Minute)
+	if err != nil || !ok || leased.ID != restartID || leased.Attempt != 1 {
+		t.Fatalf("first lease=%+v ok=%v err=%v", leased, ok, err)
+	}
+	if _, ok, err := store.LeaseRun(ctx, tenant, "worker-two", time.Minute); err != nil || ok {
+		t.Fatalf("active lease was stolen ok=%v err=%v", ok, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE agent_runs SET lease_until=now()-interval '1 second' WHERE id=$1`, restartID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReconcileExpiredLeases(ctx, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, ok, err := store.LeaseRun(ctx, tenant, "worker-two", time.Minute)
+	if err != nil || !ok || reclaimed.ID != restartID || reclaimed.Attempt != 2 {
+		t.Fatalf("reclaimed lease=%+v ok=%v err=%v", reclaimed, ok, err)
+	}
+	if err := store.AppendEvent(ctx, agent.RunEvent{RunID: runID, TenantID: tenant, Sequence: 1, EventType: string(protocol.EventTextStart), Payload: agent.JSON(protocol.TextStart(runID, 1)), CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	// Sequence conflict is deliberately idempotent for a replaying publisher.
+	if err := store.AppendEvent(ctx, agent.RunEvent{RunID: runID, TenantID: tenant, Sequence: 1, EventType: "different", Payload: []byte(`{"different":true}`), CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(ctx, agent.RunEvent{RunID: runID, TenantID: tenant, Sequence: 2, EventType: string(protocol.EventTerminal), Payload: agent.JSON(protocol.Terminal(runID, 2, "failed")), CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := store.ReplayEvents(ctx, tenant, runID, 0, 10)
+	if err != nil || len(events) != 2 || events[0].Sequence != 1 || events[1].Sequence != 2 {
+		t.Fatalf("replay=%+v err=%v", events, err)
+	}
+	cursor, err := store.ReplayEvents(ctx, tenant, runID, 1, 10)
+	if err != nil || len(cursor) != 1 || cursor[0].Sequence != 2 {
+		t.Fatalf("cursor replay=%+v err=%v", cursor, err)
+	}
+	foreign, err := store.ReplayEvents(ctx, tenantB, runID, 0, 10)
+	if err != nil || len(foreign) != 0 {
+		t.Fatalf("foreign replay=%+v err=%v", foreign, err)
+	}
+
+	preview := agent.ConfirmationPreview{ID: uuid.NewString(), TenantID: tenant, ActorID: "parent-a", Action: "retire_task", ActionDigest: strings.Repeat("a", 64), Payload: agent.JSON(map[string]string{"id": "task"}), ExpiresAt: now.Add(5 * time.Minute)}
+	if err := store.PutPreview(ctx, preview); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ConsumePreview(ctx, preview, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ConsumePreview(ctx, preview, now); !errors.Is(err, agent.ErrPreviewExpired) {
+		t.Fatalf("preview replay=%v", err)
+	}
+	if err := store.PutPreview(ctx, agent.ConfirmationPreview{ID: uuid.NewString(), TenantID: tenant, ActorID: "parent-a", Action: "retire_task", ActionDigest: strings.Repeat("b", 64), Payload: []byte(`{}`), ExpiresAt: now.Add(5 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgresJobsClaimCompleteFailAndRequeue(t *testing.T) {
+	pool := integrationPool(t)
+	seedIntegration(t, pool)
+	ctx := context.Background()
+	tenant := tenantA
+	conversationID, messageID, runID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	now := time.Now().UTC()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_jobs WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_runs WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_messages WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM agent_conversations WHERE tenant_id=$1`, tenant)
+	})
+	store := agent.NewPostgresRepository(pool)
+	if err := store.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenant, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenant, ConversationID: conversationID, ClientMessageID: "job-message", Role: agent.RoleUser, Content: "run", Sequence: 1, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRun(ctx, agent.Run{ID: runID, TenantID: tenant, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Hour), Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	jobsStore := jobs.NewPostgresRepository(pool)
+	if err := jobsStore.Enqueue(ctx, jobs.Job{ID: uuid.NewString(), TenantID: tenant, RunID: runID, MaxAttempts: 2, AvailableAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := jobsStore.Enqueue(ctx, jobs.Job{ID: uuid.NewString(), TenantID: tenant, RunID: runID, MaxAttempts: 0, AvailableAt: now}); err == nil {
+		t.Fatal("invalid max attempts accepted")
+	}
+	claimed, ok, err := jobsStore.Claim(ctx, "worker-a", time.Minute)
+	if err != nil || !ok || claimed.Attempts != 1 || claimed.Status != jobs.Running || claimed.LeaseOwner != "worker-a" {
+		t.Fatalf("claim=%+v ok=%v err=%v", claimed, ok, err)
+	}
+	if err := jobsStore.Complete(ctx, claimed.ID, "wrong-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := jobsStore.Fail(ctx, claimed.ID, "worker-a", errors.New("provider secret must not persist")); err != nil {
+		t.Fatal(err)
+	}
+	var status, lastError string
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM agent_jobs WHERE id=$1`, claimed.ID).Scan(&status, &lastError); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(jobs.Queued) || lastError != "job_failed" || strings.Contains(lastError, "secret") {
+		t.Fatalf("failed job status=%s error=%s", status, lastError)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE agent_jobs SET available_at=now() WHERE id=$1`, claimed.ID); err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err = jobsStore.Claim(ctx, "worker-b", time.Minute)
+	if err != nil || !ok || claimed.Attempts != 2 {
+		t.Fatalf("retry claim=%+v ok=%v err=%v", claimed, ok, err)
+	}
+	if err := jobsStore.Fail(ctx, claimed.ID, "worker-b", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM agent_jobs WHERE id=$1`, claimed.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(jobs.Failed) {
+		t.Fatalf("exhausted job status=%s", status)
+	}
+
+	// A leased job from a dead worker is requeued while attempts remain.
+	run2, msg2, conv2 := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if err := store.CreateConversation(ctx, agent.Conversation{ID: conv2, TenantID: tenant, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AppendUserMessage(ctx, agent.Message{ID: msg2, TenantID: tenant, ConversationID: conv2, ClientMessageID: "job-message-2", Content: "run", Sequence: 1, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRun(ctx, agent.Run{ID: run2, TenantID: tenant, ConversationID: conv2, UserMessageID: msg2, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Hour), Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	job2 := uuid.NewString()
+	if err := jobsStore.Enqueue(ctx, jobs.Job{ID: job2, TenantID: tenant, RunID: run2, MaxAttempts: 3, AvailableAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	claimed2, ok, err := jobsStore.Claim(ctx, "dead-worker", time.Minute)
+	if err != nil || !ok || claimed2.ID != job2 {
+		t.Fatalf("second claim=%+v ok=%v err=%v", claimed2, ok, err)
+	}
+	if err := pool.QueryRow(ctx, `UPDATE agent_jobs SET lease_until=now()-interval '1 second' WHERE id=$1`, job2).Scan(); err == nil {
+		t.Fatal("unexpected row scan from update")
+	}
+	if err := jobsStore.RequeueExpired(ctx, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var owner *string
+	if err := pool.QueryRow(ctx, `SELECT status,lease_owner FROM agent_jobs WHERE id=$1`, job2).Scan(&status, &owner); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(jobs.Queued) || owner != nil {
+		t.Fatalf("requeued status=%s", status)
+	}
+}
+
+func TestParentToolsUseTenantScopedDomainServicesAndSQLConfirmation(t *testing.T) {
+	pool := integrationPool(t)
+	seedIntegration(t, pool)
+	ctx := context.Background()
+	tools := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p3-tools"), IssuerSecret: []byte("p3-tools")}).parentTools()
+	a, err := parent.NewContext(tenantA, "parent-a", "idempotent-message", []string{parent.ToolListStudents, parent.ToolListTasks, parent.ToolDraftTask, parent.ToolPublishTask, parent.ToolCreateSchedule, parent.ToolListSchedules, parent.ToolPreviewAction, parent.ToolConfirmAction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	students, err := tools.ListStudents(ctx, a, parent.StudentQuery{Limit: 20})
+	if err != nil || len(students) == 0 || students[0].DisplayName == "Bob" {
+		t.Fatalf("tenant students=%+v err=%v", students, err)
+	}
+	if tasks, err := tools.ListTasks(ctx, a, parent.TaskQuery{Query: "tenant-b-only", Limit: 20}); err != nil || len(tasks) != 0 {
+		t.Fatalf("cross-tenant task query=%+v err=%v", tasks, err)
+	}
+	draft, err := tools.DraftTask(ctx, a, parent.TaskDraftInput{Title: "Agent integration task", Instructions: "Use the ordinary service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := tools.PublishTask(ctx, a, draft.ID)
+	if err != nil || published.Status != "published" {
+		t.Fatalf("publish=%+v err=%v", published, err)
+	}
+	preview, err := tools.PreviewRetireTask(ctx, a, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := a
+	foreign.ActorID = "parent-b"
+	if _, err := tools.ConfirmAction(ctx, foreign, parent.ConfirmActionInput{Handle: preview.Handle, Action: preview.Action}); !errors.Is(err, parent.ErrConfirmationForeign) {
+		t.Fatalf("foreign confirmation=%v", err)
+	}
+	if _, err := tools.ConfirmAction(ctx, a, parent.ConfirmActionInput{Handle: preview.Handle, Action: parent.RetireTaskAction(draft.ID, draft.Version+1)}); !errors.Is(err, parent.ErrConfirmationAltered) {
+		t.Fatalf("altered confirmation=%v", err)
+	}
+	if _, err := tools.ConfirmAction(ctx, a, parent.ConfirmActionInput{Handle: preview.Handle, Action: preview.Action}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tools.ConfirmAction(ctx, a, parent.ConfirmActionInput{Handle: preview.Handle, Action: preview.Action}); !errors.Is(err, parent.ErrConfirmationReplay) {
+		t.Fatalf("replayed confirmation=%v", err)
+	}
+
+	staleDraft, err := tools.DraftTask(ctx, a, parent.TaskDraftInput{Title: "Stale confirmation task", Instructions: "version changes after preview"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tools.PublishTask(ctx, a, staleDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	stalePreview, err := tools.PreviewRetireTask(ctx, a, staleDraft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE task_revisions SET version=version+1 WHERE id=$1`, staleDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tools.ConfirmAction(ctx, a, parent.ConfirmActionInput{Handle: stalePreview.Handle, Action: stalePreview.Action}); err == nil {
+		t.Fatal("stale task revision was retired")
+	}
+	var taskStatus string
+	if err = pool.QueryRow(ctx, `SELECT status FROM task_templates WHERE id=$1 AND tenant_id=$2`, staleDraft.TemplateID, tenantA).Scan(&taskStatus); err != nil || taskStatus != "published" {
+		t.Fatalf("stale confirmation changed task status=%q err=%v", taskStatus, err)
+	}
+	expiredPreview, err := tools.PreviewAction(ctx, a, parent.RetireTaskAction(staleDraft.ID, staleDraft.Version+1), "expire this preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE parent_confirmation_previews SET created_at=now()-interval '2 seconds', expires_at=now()-interval '1 second' WHERE id=$1`, expiredPreview.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tools.ConfirmAction(ctx, a, parent.ConfirmActionInput{Handle: expiredPreview.Handle, Action: expiredPreview.Action}); !errors.Is(err, parent.ErrConfirmationExpired) {
+		t.Fatalf("expired confirmation=%v", err)
+	}
+
+	// The service, not the tool input, supplies the student tenant boundary.
+	if _, err := tools.CreateSchedule(ctx, a, parent.ScheduleInput{TemplateID: published.TemplateID, RevisionID: published.ID, Kind: "one_off", Timezone: "UTC", StartAt: time.Now().UTC().Add(time.Hour)}, "Bob"); !errors.Is(err, parent.ErrClarification) {
+		t.Fatalf("foreign name resolution=%v", err)
+	}
+}
+
+func TestAgentConfigurationProviderFailuresAreExplicit(t *testing.T) {
+	for _, key := range []string{"TASKS_ENV", "TASKS_AGENT_MODE", "TASKS_MODEL_PROVIDER", "TASKS_AGENT_ACTIVE_TOOLS", "TASKS_AGENT_MAX_SECONDS"} {
+		t.Setenv(key, "")
+	}
+	if _, err := os.Stat("."); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := parent.LoadProviderConfig()
+	if err != nil || cfg.Mode != parent.ProviderDisabled || cfg.Availability() == nil {
+		t.Fatalf("disabled config=%+v err=%v", cfg, err)
+	}
+}

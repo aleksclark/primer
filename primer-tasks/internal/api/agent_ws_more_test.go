@@ -1,0 +1,94 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+	"time"
+)
+
+func TestAgentHubTenantConversationFilteringAndBoundedSlowSubscriber(t *testing.T) {
+	h := newAgentHub()
+	allowed := &agentSubscriber{tenant: "tenant-a", conversation: "conversation-a", queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
+	otherConversation := &agentSubscriber{tenant: "tenant-a", conversation: "conversation-b", queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
+	otherTenant := &agentSubscriber{tenant: "tenant-b", conversation: "conversation-a", queue: make(chan wireAgentEvent, 64), done: make(chan struct{})}
+	h.add(allowed)
+	h.add(otherConversation)
+	h.add(otherTenant)
+	e := wireAgentEvent{Type: "text_delta", TenantID: "tenant-a", ConversationID: "conversation-a", Sequence: 1, Time: time.Now()}
+	h.publish(e)
+	if len(allowed.queue) != 1 || len(otherConversation.queue) != 0 || len(otherTenant.queue) != 0 {
+		t.Fatalf("routing allowed=%d other-conversation=%d other-tenant=%d", len(allowed.queue), len(otherConversation.queue), len(otherTenant.queue))
+	}
+	// Fill a subscriber queue without a reader. The publisher evicts it at the
+	// boundary instead of blocking or allocating an unbounded queue.
+	for i := 0; i < cap(allowed.queue); i++ {
+		h.publish(wireAgentEvent{Type: "text_delta", TenantID: "tenant-a", ConversationID: "conversation-a", Sequence: int64(i + 2)})
+	}
+	select {
+	case <-allowed.done:
+		// The queue overflow closes the subscriber without blocking the
+		// publisher. A reconnect can use the durable cursor to catch up.
+	default:
+		t.Fatal("slow subscriber was not closed at queue capacity")
+	}
+	if h.subscriberCountForTest() != 3 {
+		t.Fatalf("unrelated subscribers were removed: %d", h.subscriberCountForTest())
+	}
+	h.remove(allowed)
+	h.remove(otherConversation)
+	h.remove(otherTenant)
+}
+
+func (h *agentHub) subscriberCountForTest() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subscribers)
+}
+
+func TestAgentOriginCSRFAndWireRedaction(t *testing.T) {
+	s := &Server{Env: "production", Auth: AuthConfig{PublicOrigin: "https://tasks.example", RedirectURL: "https://tasks.example/auth/callback"}}
+	for _, origin := range []string{"https://tasks.example", "https://tasks.example/", "https://evil.example"} {
+		req, _ := http.NewRequest(http.MethodGet, "https://tasks.example/ws", nil)
+		req.Header.Set("Origin", origin)
+		if got := s.agentOriginAllowed(req); got != (origin != "https://evil.example") {
+			t.Errorf("origin %q allowed=%v", origin, got)
+		}
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://tasks.example/ws", nil)
+	req.AddCookie(&http.Cookie{Name: "tasks_csrf", Value: "csrf-value"})
+	req.Header.Set("Sec-WebSocket-Protocol", "primer-tasks.v1.csrf.csrf-value, primer-tasks.v1")
+	if !s.validCSRF(req) {
+		t.Fatal("matching csrf subprotocol rejected")
+	}
+	req.Header.Set("Sec-WebSocket-Protocol", "primer-tasks.v1")
+	if s.validCSRF(req) {
+		t.Fatal("missing csrf subprotocol accepted")
+	}
+	wire := wireAgentEvent{Type: "text_delta", Delta: "provider secret reasoning", Text: "safe final delta", ToolStatus: "raw input", TenantID: "tenant-a"}
+	b, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) == "" || string(b) == `null` || containsAny(string(b), "provider secret reasoning", "raw input") {
+		t.Fatalf("unsafe wire payload: %s", b)
+	}
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if len(needle) > 0 && stringContains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringContains(value, needle string) bool {
+	for i := 0; i+len(needle) <= len(value); i++ {
+		if value[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
