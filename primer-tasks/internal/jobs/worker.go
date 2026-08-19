@@ -37,6 +37,7 @@ type Job struct {
 type Repository interface {
 	Enqueue(context.Context, Job) error
 	Claim(context.Context, string, time.Duration) (Job, bool, error)
+	Renew(context.Context, string, string, time.Duration) error
 	Complete(context.Context, string, string) error
 	Fail(context.Context, string, string, error) error
 	RequeueExpired(context.Context, time.Time) error
@@ -58,6 +59,16 @@ func (r *PostgresRepository) Claim(ctx context.Context, owner string, lease time
 		return Job{}, false, nil
 	}
 	return j, err == nil, err
+}
+func (r *PostgresRepository) Renew(ctx context.Context, id, owner string, lease time.Duration) error {
+	var renewed bool
+	if err := r.DB.QueryRow(ctx, `UPDATE agent_jobs SET lease_until=now()+$3::interval,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 RETURNING true`, id, owner, fmt.Sprintf("%f seconds", lease.Seconds())).Scan(&renewed); err != nil {
+		return err
+	}
+	if !renewed {
+		return errors.New("job lease is no longer owned")
+	}
+	return nil
 }
 func (r *PostgresRepository) Complete(ctx context.Context, id, owner string) error {
 	_, err := r.DB.Exec(ctx, `UPDATE agent_jobs SET status='done',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2`, id, owner)
@@ -100,6 +111,10 @@ func (w *Worker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Reconciliation is periodic, not only startup-time: a process
+			// restart that happens before the previous lease expires must still
+			// make the job claimable once that lease expires.
+			_ = w.Reconcile(ctx)
 			w.step(ctx)
 		}
 	}
@@ -126,7 +141,36 @@ func (w *Worker) step(ctx context.Context) {
 		_ = w.Jobs.Fail(ctx, job.ID, w.Owner, errors.New("no job handler"))
 		return
 	}
-	err = w.Handle(ctx, job)
+	handleCtx, cancel := context.WithCancel(ctx)
+	leaseLost := make(chan struct{})
+	renewDone := make(chan struct{})
+	go func() {
+		defer close(renewDone)
+		ticker := time.NewTicker(w.Lease / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-handleCtx.Done():
+				return
+			case <-ticker.C:
+				if renewErr := w.Jobs.Renew(handleCtx, job.ID, w.Owner, w.Lease); renewErr != nil {
+					close(leaseLost)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	err = w.Handle(handleCtx, job)
+	cancel()
+	<-renewDone
+	select {
+	case <-leaseLost:
+		// Another worker may own the job now. Do not publish a competing
+		// terminal state or report completion from this stale execution.
+		return
+	default:
+	}
 	if err == nil {
 		_ = w.Jobs.Complete(ctx, job.ID, w.Owner)
 		w.RunsTransition(ctx, job, agent.RunSucceeded)

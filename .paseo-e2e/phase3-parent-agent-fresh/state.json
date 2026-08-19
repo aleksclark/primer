@@ -14,9 +14,9 @@
   "artifacts": {
     "explorationNotes": ".paseo-e2e/phase3-parent-agent-fresh/exploration.md",
     "playwrightConfig": "primer-tasks/web/playwright.config.ts",
-    "specFiles": [],
+    "specFiles": ["primer-tasks/web/e2e/phase3-parent-agent.spec.ts"],
     "packageJsonScript": "npm --prefix primer-tasks/web run browser:promoted",
-    "lastRun": null
+    "lastRun": ".paseo-e2e/phase3-parent-agent-fresh/last-run.log"
   },
   "qualityGates": {
     "independentChromeVerification": true,

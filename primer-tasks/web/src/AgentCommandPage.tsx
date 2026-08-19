@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   createAgentClient,
+  readDurableAgentConversation,
   safeAgentToolLabel,
+  writeDurableAgentConversation,
   tasksClient,
   type AgentClient,
   type AgentClientSnapshot,
@@ -151,30 +153,6 @@ function AgentComposer({ client, disabled }: { client: AgentClient; disabled: bo
   return <form className="agent-composer" onSubmit={submit}><label className="system-label" htmlFor="agent-command">Parent command</label><textarea id="agent-command" rows={3} value={text} onChange={(event) => setText(event.target.value)} placeholder="List the tasks for this week" disabled={disabled} /><div className="agent-composer-footer"><span className="meta">Enter a request; the server decides scope and available tools.</span><button className="button" type="submit" disabled={disabled || !text.trim()}>Send command</button></div></form>;
 }
 
-const conversationIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function durableConversationKey(tenantId: string, subjectRef: string) {
-  return `primer.tasks.agent.conversation.v1:${tenantId}:${subjectRef}`;
-}
-
-function readDurableConversation(key: string): string | null {
-  try {
-    const value = window.sessionStorage.getItem(key);
-    return value && conversationIdPattern.test(value) ? value : null;
-  } catch {
-    throw new Error("Durable agent conversation storage is unavailable.");
-  }
-}
-
-function writeDurableConversation(key: string, conversationId: string) {
-  if (!conversationIdPattern.test(conversationId)) throw new Error("The server returned an invalid agent conversation.");
-  try {
-    window.sessionStorage.setItem(key, conversationId);
-  } catch {
-    throw new Error("Durable agent conversation storage is unavailable.");
-  }
-}
-
 export default function AgentCommandPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationError, setConversationError] = useState<unknown>(null);
@@ -184,11 +162,10 @@ export default function AgentCommandPage() {
     let active = true;
     if (!conversationOpen.current) {
       conversationOpen.current = tasksClient.parentSession().then(async (session) => {
-        const key = durableConversationKey(session.tenantId, session.subjectRef);
-        const existing = readDurableConversation(key);
+        const existing = readDurableAgentConversation(session.tenantId, session.subjectRef);
         if (existing) return existing;
         const conversation = await tasksClient.createAgentConversation();
-        writeDurableConversation(key, conversation.id);
+        writeDurableAgentConversation(session.tenantId, session.subjectRef, conversation.id);
         return conversation.id;
       });
     }
@@ -220,7 +197,7 @@ export default function AgentCommandPage() {
     {snapshot.error && <ErrorNotice error={snapshot.error} onRetry={() => client.connect()} />}
     {disabled && <div className="notice attention" role="status"><div><strong>Agent unavailable</strong><p>Provider-backed commands are disabled. No chat response or mutation is simulated. Continue in <a href="/parent/tasks">Tasks</a> or <a href="/parent/schedules">Schedules</a>.</p></div></div>}
     {snapshot.queuedMessages > 0 && <div className="agent-queued" role="status"><span className="status">Queued · {snapshot.queuedMessages}</span><span>Waiting for the server connection; commands will replay with their idempotency keys.</span></div>}
-    <div className="agent-layout"><div><AgentTranscript items={items} client={sendWrappedClient} snapshot={snapshot} /><AgentComposer client={sendWrappedClient} disabled={disabled} /></div><aside className="agent-inspector" aria-label="Agent run boundaries"><p className="eyebrow">Inspect / boundaries</p><dl><div><dt>Transport</dt><dd>Authenticated WebSocket</dd></div><div><dt>Cursor</dt><dd className="meta">{snapshot.cursor || "—"}</dd></div><div><dt>Run state</dt><dd>{status ? status.replaceAll("_", " ") : "No active run"}</dd></div><div><dt>Authority</dt><dd>Server-owned Tasks and Schedules</dd></div></dl><p className="meta">Thinking is shown only as a generic state. Tool activity uses an allowlisted label; provider reasoning and raw tool arguments never render here.</p></aside></div>
+    <div className="agent-layout"><div><AgentTranscript items={items} client={sendWrappedClient} snapshot={snapshot} /><AgentComposer client={sendWrappedClient} disabled={disabled} /></div><aside className="agent-inspector" aria-label="Agent run boundaries"><p className="eyebrow">Inspect / boundaries</p><dl><div><dt>Transport</dt><dd>Authenticated socket</dd></div><div><dt>Cursor</dt><dd className="meta">{snapshot.cursor || "—"}</dd></div><div><dt>Run state</dt><dd>{status ? status.replaceAll("_", " ") : "No active run"}</dd></div><div><dt>Authority</dt><dd>Server-owned Tasks and Schedules</dd></div></dl><p className="meta">Thinking is shown only as a generic state. Tool activity uses an allowlisted label; provider reasoning and raw tool arguments never render here.</p></aside></div>
   </>;
 }
 

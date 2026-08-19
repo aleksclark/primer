@@ -34,6 +34,12 @@ func (f *fakeJobs) Claim(_ context.Context, owner string, lease time.Duration) (
 	f.claimOK = false
 	return f.claimed, true, nil
 }
+func (f *fakeJobs) Renew(_ context.Context, id, owner string, _ time.Duration) error {
+	if id == "" || owner == "" {
+		return errors.New("bad renewal")
+	}
+	return nil
+}
 func (f *fakeJobs) Complete(_ context.Context, id, owner string) error {
 	f.completed++
 	if id == "" || owner == "" {

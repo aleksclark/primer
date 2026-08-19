@@ -23,6 +23,31 @@ export interface AgentClientSnapshot {
   error?: AgentClientError;
 }
 
+const durableConversationID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function durableConversationKey(tenantID: string, subjectRef: string): string {
+  return `primer.tasks.agent.conversation.v1:${tenantID}:${subjectRef}`;
+}
+
+/** Browser persistence for the opaque conversation handle lives in this façade. */
+export function readDurableAgentConversation(tenantID: string, subjectRef: string): string | null {
+  try {
+    const value = window.sessionStorage.getItem(durableConversationKey(tenantID, subjectRef));
+    return value && durableConversationID.test(value) ? value : null;
+  } catch {
+    throw new Error("Durable agent conversation storage is unavailable.");
+  }
+}
+
+export function writeDurableAgentConversation(tenantID: string, subjectRef: string, conversationID: string): void {
+  if (!durableConversationID.test(conversationID)) throw new Error("The server returned an invalid agent conversation.");
+  try {
+    window.sessionStorage.setItem(durableConversationKey(tenantID, subjectRef), conversationID);
+  } catch {
+    throw new Error("Durable agent conversation storage is unavailable.");
+  }
+}
+
 export interface AgentClientOptions {
   /** Same-origin `/ws` is the production default. No credential belongs in a URL. */
   url?: string;

@@ -16,7 +16,7 @@ export type {
   AgentToolLabel,
   AgentUnsubscribeCommand,
 } from "./agent-protocol";
-export { createAgentClient } from "./agent-client";
+export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client";
 export type {
   AgentClient,
   AgentClientError,
