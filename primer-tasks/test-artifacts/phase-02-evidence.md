@@ -1,7 +1,7 @@
 # Primer Tasks Phase 2 — integration evidence
 
 Branch: `impl/tasks-p2-checklist`
-Reviewed implementation tip: `38782a7` (Android checklist scrollability fix)
+Reviewed implementation tip: `4140732` (durable scheduler and decision-integrity fixes)
 
 ## Implementation checkpoints
 
@@ -17,13 +17,15 @@ Reviewed implementation tip: `38782a7` (Android checklist scrollability fix)
 - `d2130e1` — occurrence local timezone and EDT/EST rendering.
 - `37a709d` — Android Upcoming rendering.
 - `38782a7` — scrollable Android Today/Upcoming checklist.
+- `3e97ff2` — LazyColumn-backed accessible Today/Upcoming rows and focused section model tests.
+- `4140732` — durable PostgreSQL lease worker, ON CONFLICT materialization, immutable decision replay, and legal retry checks.
 
 ## Automated gates
 
 - `go test ./... -count=1` — PASS.
 - `go vet ./...` — PASS.
 - Real PostgreSQL Phase 2 public-boundary tests — PASS, including task revision, one-off/recurrence materialization, approval/rejection/retry, skip/cancel, restart-safe uniqueness, and tenant isolation.
-- `PRIMER_TASKS_COVERAGE_GATE=1 ../scripts/enforce-module-cover.sh . 85 tasks` — PASS at 85.4%.
+- `PRIMER_TASKS_COVERAGE_GATE=1 ../scripts/enforce-module-cover.sh . 85 tasks` — PASS at 85.0%.
 - Offline Huma OpenAPI emission and ignored TypeScript/Kotlin generation — PASS.
 - Web typecheck, lint, build, and client-boundary check — PASS.
 - Android `testDebugUnitTest assembleDebug` — PASS.
