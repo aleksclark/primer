@@ -23,6 +23,7 @@ func TestOpenAPIEmissionUsesOfflineRegistrationAndAuthoringBoundary(t *testing.T
 		"/studio/v1/workspaces/{workspaceID}/standards-catalogs",
 		"/studio/v1/workspaces/{workspaceId}/resources",
 		"/studio/v1/revisions/{revisionId}/materializations",
+		"/studio/v1/workspaces/{workspaceId}/learner-profiles",
 		"/studio/v1/materializations/{materializationId}/bundle",
 		"/studio/v1/materialized-items/{itemId}/lock",
 		"/studio/v1/revisions/{revisionId}/exports",

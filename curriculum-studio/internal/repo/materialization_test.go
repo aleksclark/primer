@@ -55,6 +55,25 @@ func TestP7E2RunStoresCompleteSnapshotAndTransitions(t *testing.T) {
 	require.ErrorIs(t, err, repo.ErrInvalidTransition)
 }
 
+func TestListByRevisionFiltersWorkspace(t *testing.T) {
+	ctx := context.Background()
+	tx := testutil.Tx(t)
+	ws, _, rev := planFixture(t, tx)
+	snapshot := json.RawMessage(`{"revision":true}`)
+	fp, err := fingerprint.Hash(snapshot)
+	require.NoError(t, err)
+	r := repo.NewMaterializationRunRepo(tx)
+	run, err := r.Create(ctx, &domain.MaterializationRun{WorkspaceID: ws.ID, PlanRevisionID: rev.ID, InputSnapshot: snapshot, InputFingerprint: fp})
+	require.NoError(t, err)
+	got, err := r.ListByRevision(ctx, ws.ID, rev.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, run.ID, got[0].ID)
+	empty, err := r.ListByRevision(ctx, uuid.New(), rev.ID)
+	require.NoError(t, err)
+	require.Empty(t, empty)
+}
+
 func TestP7E3ConcurrentIdempotentRuns(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.DB(t)

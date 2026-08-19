@@ -90,7 +90,7 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("configure auth validator: %w", err)
 		}
 	}
-	_, apiHandler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias})
+	_, apiHandler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias, MatStub: cfg.MatStub})
 
 	// Mount /mcp Streamable HTTP endpoint when enabled.
 	// The MCP handler is not wrapped by MaxBytesHandler because it applies its

@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -64,13 +65,17 @@ func (r *MaterializedItemRepo) Get(ctx context.Context, workspaceID, itemID uuid
 	return out, nil
 }
 func (r *MaterializedItemRepo) ListByRun(ctx context.Context, workspaceID, runID uuid.UUID) ([]domain.MaterializedItem, error) {
+	return r.ListByRunFiltered(ctx, workspaceID, runID, "", "")
+}
+
+func (r *MaterializedItemRepo) ListByRunFiltered(ctx context.Context, workspaceID, runID uuid.UUID, kind, status string) ([]domain.MaterializedItem, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
 	if workspaceID == uuid.Nil || runID == uuid.Nil {
 		return []domain.MaterializedItem{}, nil
 	}
-	rows, e := r.Q.Query(ctx, materializedItemSelect+` WHERE i.run_id=$1 AND m.workspace_id=$2 ORDER BY i.created_at,i.id`, runID, workspaceID)
+	rows, e := r.Q.Query(ctx, materializedItemSelect+` WHERE i.run_id=$1 AND m.workspace_id=$2 AND ($3='' OR i.kind=$3) AND ($4='' OR i.status=$4) ORDER BY i.created_at,i.id`, runID, workspaceID, strings.TrimSpace(kind), strings.TrimSpace(status))
 	if e != nil {
 		return nil, MapError(e)
 	}
@@ -163,6 +168,29 @@ func (r *MaterializedItemRepo) ListEdits(ctx context.Context, workspaceID, itemI
 	}
 	if out == nil {
 		out = []domain.MaterializedItemEdit{}
+	}
+	return out, nil
+}
+
+func (r *MaterializedItemRepo) UpdateContent(ctx context.Context, workspaceID, itemID uuid.UUID, title string, body json.RawMessage, editor string) (*domain.MaterializedItem, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	body, err := materializationObject(body, "body")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(title) == "" {
+		return nil, fmt.Errorf("title is required")
+	}
+	out, e := scanMaterializedItem(r.Q.QueryRow(ctx, `UPDATE curriculum_studio.materialized_items i SET title=$3,body=$4,updated_at=now() FROM curriculum_studio.materialization_runs m WHERE i.id=$1 AND i.run_id=m.id AND m.workspace_id=$2 RETURNING i.id,i.run_id,i.plan_revision_id,i.unit_id,i.project_id,i.outcome_id,i.kind,i.title,i.body,i.status,i.locked,i.locked_at,i.locked_by_subject_ref,i.supersedes_item_id,i.provenance,i.created_at,i.updated_at`, itemID, workspaceID, strings.TrimSpace(title), body))
+	if e != nil {
+		return nil, MapError(e)
+	}
+	if strings.TrimSpace(editor) != "" {
+		if _, e = r.ApplyEdit(ctx, workspaceID, itemID, &domain.MaterializedItemEdit{EditorSubjectRef: editor, Patch: json.RawMessage(`{"title":true}`)}); e != nil {
+			return nil, e
+		}
 	}
 	return out, nil
 }

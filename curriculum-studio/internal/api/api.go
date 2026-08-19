@@ -35,6 +35,8 @@ type Options struct {
 	// AcceptServiceTokenAlias enables the migration-only X-Service-Token JWT
 	// alias. It is false by default and must never be enabled as an end state.
 	AcceptServiceTokenAlias bool
+	// MatStub marks newly requested runs ready with zero items. Tests only.
+	MatStub bool
 	// Querier supplies the local Studio database authorization projection. New
 	// normally derives it from the pgx pool; this seam supports non-pool tests.
 	Querier repo.Querier
@@ -51,6 +53,7 @@ type Server struct {
 	querier                 repo.Querier
 	validator               TokenValidator
 	acceptServiceTokenAlias bool
+	matStub                 bool
 	now                     func() time.Time
 	reqTotal                atomic.Int64
 }
@@ -66,7 +69,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, now: now}
+	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, matStub: opts.MatStub, now: now}
 	if s.querier == nil {
 		if q, ok := pool.(repo.Querier); ok {
 			s.querier = q
@@ -110,6 +113,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	// handlers share /studio/v1/*.
 	s.RegisterRoutes(humaAPI)
 	s.registerPlanRoutes(humaAPI)
+	s.registerMaterializationRoutes(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
