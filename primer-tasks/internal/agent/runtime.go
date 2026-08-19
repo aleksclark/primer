@@ -61,7 +61,7 @@ func NewFantasyAgent(model fantasy.LanguageModel, tools []fantasy.AgentTool, lim
 	if err := limits.valid(); err != nil {
 		return nil, err
 	}
-	return &Runtime{Agent: fantasy.NewAgent(model, fantasy.WithTools(tools...), fantasy.WithMaxRetries(limits.MaxRetries)), Limits: limits, Labels: map[string]string{}}, nil
+	return &Runtime{Agent: fantasy.NewAgent(model, fantasy.WithTools(tools...), fantasy.WithMaxRetries(limits.MaxRetries)), Limits: limits, Labels: safeToolLabels()}, nil
 }
 
 func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(protocol.Event) error) (Execution, error) {
@@ -96,6 +96,12 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 			if err := next(protocol.ToolProgress(runID, seq+1, r.label(c.ToolName), "completed")); err != nil {
 				return err
 			}
+			if _, failed := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentError](c.Result); failed {
+				// Fantasy validation/not-found failures are untrusted provider/tool
+				// details. Stop this run with the outer safe terminal event instead
+				// of allowing a scripted next step to claim an effect.
+				return errors.New("agent tool failed")
+			}
 			// A confirmation preview is a safe, server-issued handle. Only its
 			// opaque handle, human summary, and expiry may cross the protocol.
 			if preview, ok := readConfirmationPreview(c.Result); ok {
@@ -126,9 +132,8 @@ type previewEnvelope struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// confirmationPreview accepts only a server-issued opaque preview encoded in
-// the safe text result. Fantasy's typed tool result wrapper is intentionally
-// unwrapped here; raw tool input/result content never enters the protocol.
+// readConfirmationPreview accepts only a server-issued opaque preview encoded
+// in a safe text result; raw tool input/result content never enters the wire.
 func readConfirmationPreview(result fantasy.ToolResultOutputContent) (previewEnvelope, bool) {
 	text, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result)
 	if !ok {
@@ -141,6 +146,20 @@ func readConfirmationPreview(result fantasy.ToolResultOutputContent) (previewEnv
 	return preview, true
 }
 
+// safeToolLabels is an explicit, server-owned projection. Tool names and
+// provider input must never become browser-facing progress text.
+func safeToolLabels() map[string]string {
+	return map[string]string{
+		"list_students": "List students", "get_student": "Inspect student",
+		"list_tasks": "List tasks", "get_task": "Inspect task",
+		"draft_task": "Draft task", "update_task": "Update task",
+		"publish_task": "Publish task", "retire_task": "Retire task",
+		"list_schedules": "List schedules", "create_schedule": "Create schedule",
+		"update_schedule": "Update schedule", "disable_schedule": "Disable schedule",
+		"list_occurrences": "List occurrences", "preview_action": "Prepare change",
+		"confirm_action": "Confirm change",
+	}
+}
 func (r *Runtime) label(name string) string {
 	if label, ok := r.Labels[name]; ok && label != "" {
 		return label

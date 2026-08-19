@@ -52,6 +52,25 @@ func (h *agentHub) remove(s *agentSubscriber) {
 	s.close()
 }
 func (s *agentSubscriber) close() { s.once.Do(func() { close(s.done); close(s.queue) }) }
+
+// enqueue is the sole path after upgrade for a socket-bound event. The writer
+// goroutine owns websocket writes; command handling and worker fan-out never
+// call wsjson.Write concurrently with it.
+func (s *agentSubscriber) enqueue(event wireAgentEvent) bool {
+	select {
+	case <-s.done:
+		return false
+	default:
+	}
+	select {
+	case s.queue <- event:
+		return true
+	case <-s.done:
+		return false
+	default:
+		return false
+	}
+}
 func (h *agentHub) publish(e wireAgentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -59,9 +78,7 @@ func (h *agentHub) publish(e wireAgentEvent) {
 		if sub.tenant != e.TenantID || (sub.conversation != "" && sub.conversation != e.ConversationID) {
 			continue
 		}
-		select {
-		case sub.queue <- e:
-		default:
+		if !sub.enqueue(e) {
 			sub.close()
 		}
 	}
@@ -211,7 +228,7 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if cmd.ProtocolVersion != agentProtocolVersion {
-			_ = wsjson.Write(ctx, conn, wireAgentEvent{Type: "error", ProtocolVersion: agentProtocolVersion, Code: "protocol_version", Message: "unsupported protocol version", Retryable: false})
+			s.sendAgentToSubscriber(sub, wireAgentEvent{Type: "error", ProtocolVersion: agentProtocolVersion, Code: "protocol_version", Message: "unsupported protocol version", Retryable: false})
 			continue
 		}
 		switch cmd.Type {
@@ -230,8 +247,17 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 			sub.conversation = ""
 		case "ack":
 		default:
-			_ = wsjson.Write(ctx, conn, wireAgentEvent{Type: "error", ProtocolVersion: agentProtocolVersion, ConversationID: cmd.ConversationID, Code: "unknown_command", Message: "unknown command", Retryable: false})
+			s.sendAgentToSubscriber(sub, wireAgentEvent{Type: "error", ProtocolVersion: agentProtocolVersion, ConversationID: cmd.ConversationID, Code: "unknown_command", Message: "unknown command", Retryable: false})
 		}
+	}
+}
+
+func (s *Server) sendAgentToSubscriber(sub *agentSubscriber, event wireAgentEvent) {
+	if event.Time.IsZero() {
+		event.Time = time.Now().UTC()
+	}
+	if !sub.enqueue(event) {
+		s.agentHub.remove(sub)
 	}
 }
 
@@ -254,10 +280,8 @@ func (s *Server) agentSubscribe(ctx context.Context, sc scope, sub *agentSubscri
 			var event wireAgentEvent
 			if json.Unmarshal(item.Payload, &event) == nil {
 				event.TenantID = sc.Tenant
-				select {
-				case sub.queue <- event:
-				default:
-					sub.close()
+				if !sub.enqueue(event) {
+					s.agentHub.remove(sub)
 					return
 				}
 			}
@@ -319,7 +343,13 @@ func (s *Server) agentCancel(ctx context.Context, sc scope, cmd agentCommand) {
 	_ = agent.NewPostgresRepository(s.DB).RequestCancel(ctx, sc.Tenant, cmd.RunID)
 }
 func (s *Server) agentConfirm(ctx context.Context, sc scope, cmd agentCommand) {
-	if cmd.ConfirmationID == "" {
+	if cmd.ConfirmationID == "" || cmd.RunID == "" {
+		return
+	}
+	if cmd.ConversationID == "" {
+		_ = s.DB.QueryRow(ctx, `SELECT conversation_id FROM agent_runs WHERE tenant_id=$1 AND id=$2`, sc.Tenant, cmd.RunID).Scan(&cmd.ConversationID)
+	}
+	if cmd.ConversationID == "" {
 		return
 	}
 	handle := cmd.ConfirmationID
@@ -334,7 +364,11 @@ func (s *Server) agentConfirm(ctx context.Context, sc scope, cmd agentCommand) {
 	if json.Unmarshal(actionJSON, &action) != nil {
 		return
 	}
-	toolSet, err := parent.NewToolSet(defaultToolNames())
+	cfg, cfgErr := parent.LoadProviderConfig()
+	if cfgErr != nil {
+		return
+	}
+	toolSet, err := parent.NewToolSet(cfg.ActiveTools)
 	if err != nil {
 		return
 	}
@@ -353,9 +387,29 @@ func parentHandleHash(handle string) []byte {
 }
 
 func (s *Server) publishAgent(ctx context.Context, tenant, conversation string, event wireAgentEvent) error {
+	if event.RunID == "" || conversation == "" {
+		return errors.New("durable agent events require a run and conversation")
+	}
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	// Serialize cursor allocation across all runs in a conversation. A second
+	// command may start while the first terminal event is being persisted.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, tenant+":"+conversation); err != nil {
+		return err
+	}
 	var seq int64
-	if err := s.DB.QueryRow(ctx, `SELECT COALESCE(max(sequence),0)+1 FROM agent_run_events e JOIN agent_runs r ON r.id=e.run_id WHERE e.tenant_id=$1 AND r.conversation_id=$2`, tenant, conversation).Scan(&seq); err != nil {
-		seq = time.Now().UnixNano()
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(max(e.sequence),0)+1 FROM agent_run_events e JOIN agent_runs r ON r.id=e.run_id AND r.tenant_id=e.tenant_id WHERE e.tenant_id=$1 AND r.conversation_id=$2`, tenant, conversation).Scan(&seq); err != nil {
+		return err
+	}
+	var owned bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_runs WHERE id=$1 AND tenant_id=$2 AND conversation_id=$3)`, event.RunID, tenant, conversation).Scan(&owned); err != nil || !owned {
+		if err == nil {
+			err = errors.New("agent run does not belong to conversation")
+		}
+		return err
 	}
 	event.ProtocolVersion = agentProtocolVersion
 	event.ConversationID = conversation
@@ -365,17 +419,16 @@ func (s *Server) publishAgent(ctx context.Context, tenant, conversation string, 
 	if event.Time.IsZero() {
 		event.Time = time.Now().UTC()
 	}
-	event.Sequence = seq
-	event.Cursor = seq
-	event.TenantID = tenant
-	payload, _ := json.Marshal(event)
-	// Events that do not belong to a run are still replayable by assigning the
-	// current conversation's latest run when available.  The user-message
-	// event is emitted after a run exists, so normal replay remains durable.
-	var runID string
-	_ = s.DB.QueryRow(ctx, `SELECT id FROM agent_runs WHERE tenant_id=$1 AND conversation_id=$2 ORDER BY created_at DESC LIMIT 1`, tenant, conversation).Scan(&runID)
-	if runID != "" {
-		_, _ = s.DB.Exec(ctx, `INSERT INTO agent_run_events(run_id,tenant_id,sequence,event_type,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, runID, tenant, seq, event.Type, payload)
+	event.Sequence, event.Cursor, event.TenantID = seq, seq, tenant
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO agent_run_events(run_id,tenant_id,sequence,event_type,payload) VALUES($1,$2,$3,$4,$5)`, event.RunID, tenant, seq, event.Type, payload); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
 	}
 	if s.agentHub != nil {
 		s.agentHub.publish(event)
@@ -410,6 +463,11 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 	if cfgErr != nil {
 		cfg = parent.ProviderConfig{Mode: parent.ProviderDisabled, MaxSteps: 12, MaxTokens: 4096, MaxDuration: 120 * time.Second, MaxRetries: 0}
 	}
+	if run.CancelRequested || run.Status == agent.RunCancelRequested {
+		_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunCanceled, run.DurableStep, run.Usage)
+		_ = s.emitAgent(ctx, job.TenantID, conversation, job.RunID, wireAgentEvent{Type: "terminal", Status: "cancelled", Message: "The run was canceled. No further agent work will be performed."})
+		return nil
+	}
 	if cfg.Mode == parent.ProviderDisabled {
 		_, _ = s.DB.Exec(ctx, `UPDATE agent_runs SET status='failed',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status IN ('queued','running')`, job.TenantID, job.RunID)
 		_ = s.publishAgent(ctx, job.TenantID, conversation, wireAgentEvent{Type: "terminal", RunID: job.RunID, Status: "disabled", Text: "Agent mode is disabled. Use the ordinary Tasks and Schedules pages.", Message: "Agent mode is disabled. Use the ordinary Tasks and Schedules pages.", TenantID: job.TenantID})
@@ -427,10 +485,19 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunRunning, run.DurableStep, run.Usage)
-	execution, err := rt.Execute(context.Background(), job.RunID, prompt, func(event agentprotocol.Event) error {
+	runCtx, stopWatchingCancel, canceled := s.watchRunCancellation(ctx, job.TenantID, job.RunID)
+	defer stopWatchingCancel()
+	execution, err := rt.Execute(runCtx, job.RunID, prompt, func(event agentprotocol.Event) error {
 		return s.emitProtocolEvent(ctx, job.TenantID, conversation, event)
 	})
 	if err != nil {
+		select {
+		case <-canceled:
+			_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunCanceled, run.DurableStep, run.Usage)
+			_ = s.emitAgent(ctx, job.TenantID, conversation, job.RunID, wireAgentEvent{Type: "terminal", Status: "cancelled", Message: "The run was canceled. No further agent work will be performed."})
+			return nil
+		default:
+		}
 		_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunFailed, run.DurableStep, run.Usage)
 		_ = s.emitAgent(ctx, job.TenantID, conversation, job.RunID, wireAgentEvent{Type: "terminal", Status: "failed", Message: "The provider or tool failed before a confirmed result.", Code: "run_failed"})
 		return nil
@@ -441,6 +508,36 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 	_ = repo.TransitionRun(ctx, job.TenantID, job.RunID, agent.RunSucceeded, run.DurableStep+1, execution.Usage)
 	_ = s.emitAgent(ctx, job.TenantID, conversation, job.RunID, wireAgentEvent{Type: "terminal", Status: "completed", Message: "The parent command completed."})
 	return nil
+}
+
+// watchRunCancellation makes the database cancellation flag authoritative.
+// The worker context is process-owned; no websocket request context can cancel
+// a detached run. The returned cancellation is only a signal to Fantasy.
+func (s *Server) watchRunCancellation(workerCtx context.Context, tenant, runID string) (context.Context, func(), <-chan struct{}) {
+	runCtx, cancel := context.WithCancel(workerCtx)
+	stop := make(chan struct{})
+	canceled := make(chan struct{})
+	var once sync.Once
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			var requested bool
+			err := s.DB.QueryRow(workerCtx, `SELECT cancel_requested OR status='cancel_requested' FROM agent_runs WHERE tenant_id=$1 AND id=$2`, tenant, runID).Scan(&requested)
+			if err == nil && requested {
+				once.Do(func() { close(canceled); cancel() })
+				return
+			}
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return runCtx, func() { close(stop); cancel() }, canceled
 }
 
 func (s *Server) emitProtocolEvent(ctx context.Context, tenant, conversation string, event agentprotocol.Event) error {
@@ -500,7 +597,7 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, _ string) [
 	// Actor is supplied by the authenticated run in production; this function
 	// is called only after the run tenant has been verified.  The worker fills
 	// actor from the durable conversation before invoking tools in later steps.
-	return []fantasy.AgentTool{
+	all := []fantasy.AgentTool{
 		fantasy.NewAgentTool("list_students", "List household students", func(c context.Context, in struct {
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
@@ -529,17 +626,21 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, _ string) [
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("create_schedule", "Schedule a published task for a student", func(c context.Context, in struct {
-			StudentID        string    `json:"studentId"`
-			StudentName      string    `json:"studentName"`
-			TemplateID       string    `json:"templateId"`
-			RevisionID       string    `json:"revisionId"`
-			Kind             string    `json:"kind"`
-			Timezone         string    `json:"timezone"`
-			StartAt          time.Time `json:"startAt"`
-			RRULE            string    `json:"rrule"`
-			DueOffsetMinutes int       `json:"dueOffsetMinutes"`
+			StudentID        string `json:"studentId"`
+			StudentName      string `json:"studentName"`
+			TemplateID       string `json:"templateId"`
+			RevisionID       string `json:"revisionId"`
+			Kind             string `json:"kind"`
+			Timezone         string `json:"timezone"`
+			StartAt          string `json:"startAt"`
+			RRULE            string `json:"rrule"`
+			DueOffsetMinutes int    `json:"dueOffsetMinutes"`
 		}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			v, e := tools.CreateSchedule(c, ctx, parent.ScheduleInput{StudentID: in.StudentID, TemplateID: in.TemplateID, RevisionID: in.RevisionID, Kind: in.Kind, Timezone: in.Timezone, StartAt: in.StartAt, RRULE: in.RRULE, DueOffsetMinutes: in.DueOffsetMinutes}, in.StudentName)
+			startAt, parseErr := time.Parse(time.RFC3339, in.StartAt)
+			if parseErr != nil {
+				return safeToolJSON(nil, parent.ErrInvalidInput)
+			}
+			v, e := tools.CreateSchedule(c, ctx, parent.ScheduleInput{StudentID: in.StudentID, TemplateID: in.TemplateID, RevisionID: in.RevisionID, Kind: in.Kind, Timezone: in.Timezone, StartAt: startAt, RRULE: in.RRULE, DueOffsetMinutes: in.DueOffsetMinutes}, in.StudentName)
 			return safeToolJSON(v, e)
 		}),
 		fantasy.NewAgentTool("list_schedules", "List schedules", func(c context.Context, in struct {
@@ -570,12 +671,28 @@ func (s *Server) fantasyTools(tenant, actor string, active []string, _ string) [
 			return safeToolJSON(v, e)
 		}),
 	}
+	// Do not merely reject a disabled tool at invocation time: omit it from
+	// Fantasy's advertised schema. This leaves model input with no authority
+	// widening path and makes an empty/unknown allowlist fail closed above.
+	out := make([]fantasy.AgentTool, 0, len(all))
+	for _, tool := range all {
+		if set.Allows(tool.Info().Name) {
+			out = append(out, tool)
+		}
+	}
+	return out
 }
 func safeToolJSON(v any, err error) (fantasy.ToolResponse, error) {
 	if err != nil {
-		return fantasy.NewTextErrorResponse("tool unavailable"), nil
+		// The client receives only the bounded terminal failure. Returning the
+		// underlying error to Fantasy stops a scripted chain before it can claim
+		// later tool effects that never committed.
+		return fantasy.NewTextErrorResponse("tool unavailable"), err
 	}
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fantasy.NewTextErrorResponse("tool unavailable"), err
+	}
 	return fantasy.NewTextResponse(string(b)), nil
 }
 
@@ -637,24 +754,34 @@ func (m *scriptedParentModel) Stream(ctx context.Context, call fantasy.Call) (fa
 	return scriptedStream(ctx, "I inspected the server-owned Tasks records."), nil
 }
 
-// toolResultJSON normalizes the small scripted fixture's tool results. Real
-// Fantasy models receive the original typed JSON; this fixture accepts both a
-// single object and the array returned by list tools so it exercises the same
-// multi-step path instead of silently constructing empty foreign keys.
 func toolResultJSON(call fantasy.Call, name string) map[string]any {
+	// Fantasy projects a completed tool call into an assistant ToolCallPart and
+	// its result into a later tool-role ToolResultPart. Match their opaque call
+	// IDs rather than assuming result parts retain a model-controlled name.
+	callNames := map[string]string{}
 	for _, message := range call.Prompt {
 		for _, part := range message.Content {
-			result, ok := fantasy.AsContentType[fantasy.ToolResultContent](part)
-			if !ok || result.ToolName != name {
+			if toolCall, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](part); ok {
+				callNames[toolCall.ToolCallID] = toolCall.ToolName
+			}
+		}
+	}
+	for _, message := range call.Prompt {
+		for _, part := range message.Content {
+			result, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
+			if !ok || callNames[result.ToolCallID] != name {
 				continue
 			}
-			b, _ := json.Marshal(result.Result)
+			text, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Output)
+			if !ok {
+				return map[string]any{}
+			}
 			var value map[string]any
-			if json.Unmarshal(b, &value) == nil {
+			if json.Unmarshal([]byte(text.Text), &value) == nil {
 				return value
 			}
-			var items []map[string]any
-			if json.Unmarshal(b, &items) == nil && len(items) > 0 {
+			var items []any
+			if json.Unmarshal([]byte(text.Text), &items) == nil {
 				return map[string]any{"items": items}
 			}
 		}
@@ -671,8 +798,10 @@ func scriptedScheduleInput(call fantasy.Call) string {
 	students := toolResultJSON(call, "list_students")
 	id, _ := students["id"].(string)
 	if id == "" {
-		if items, ok := students["items"].([]map[string]any); ok && len(items) > 0 {
-			id, _ = items[0]["id"].(string)
+		if items, ok := students["items"].([]any); ok && len(items) > 0 {
+			if row, ok := items[0].(map[string]any); ok {
+				id, _ = row["id"].(string)
+			}
 		}
 	}
 	templateID, _ := task["templateId"].(string)
@@ -683,17 +812,23 @@ func scriptedPreviewInput(call fantasy.Call) string {
 	tasks := toolResultJSON(call, "list_tasks")
 	id, _ := tasks["id"].(string)
 	version := 1
-	if items, ok := tasks["items"].([]map[string]any); ok && len(items) > 0 {
-		id, _ = items[0]["id"].(string)
-		if n, ok := items[0]["version"].(float64); ok {
-			version = int(n)
+	if items, ok := tasks["items"].([]any); ok && len(items) > 0 {
+		if row, ok := items[0].(map[string]any); ok {
+			id, _ = row["id"].(string)
+			if n, ok := row["version"].(float64); ok {
+				version = int(n)
+			}
 		}
 	}
 	return fmt.Sprintf(`{"kind":"retire_task","targetIds":[%q],"payload":{"expectedVersion":%d},"summary":"Retire task"}`, id, version)
 }
 func scriptedToolStream(ctx context.Context, name, input string) fantasy.StreamResponse {
 	return func(yield func(fantasy.StreamPart) bool) {
-		parts := []fantasy.StreamPart{{Type: fantasy.StreamPartTypeReasoningStart, ID: "r"}, {Type: fantasy.StreamPartTypeReasoningDelta, ID: "r", Delta: "hidden"}, {Type: fantasy.StreamPartTypeReasoningEnd, ID: "r"}, {Type: fantasy.StreamPartTypeToolInputStart, ID: "tool", ToolCallName: name}, {Type: fantasy.StreamPartTypeToolInputDelta, ID: "tool", Delta: input}, {Type: fantasy.StreamPartTypeToolInputEnd, ID: "tool"}, {Type: fantasy.StreamPartTypeToolCall, ID: "tool", ToolCallName: name, ToolCallInput: input}, {Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonToolCalls}}
+		// Fantasy associates a tool result with the tool-call ID. Reusing one ID
+		// made later scripted steps misattribute results and falsely report a
+		// schedule that never committed.
+		toolID := "scripted-" + name
+		parts := []fantasy.StreamPart{{Type: fantasy.StreamPartTypeReasoningStart, ID: "r"}, {Type: fantasy.StreamPartTypeReasoningDelta, ID: "r", Delta: "hidden"}, {Type: fantasy.StreamPartTypeReasoningEnd, ID: "r"}, {Type: fantasy.StreamPartTypeToolInputStart, ID: toolID, ToolCallName: name}, {Type: fantasy.StreamPartTypeToolInputDelta, ID: toolID, Delta: input}, {Type: fantasy.StreamPartTypeToolInputEnd, ID: toolID}, {Type: fantasy.StreamPartTypeToolCall, ID: toolID, ToolCallName: name, ToolCallInput: input}, {Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonToolCalls}}
 		for _, part := range parts {
 			select {
 			case <-ctx.Done():

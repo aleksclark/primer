@@ -113,7 +113,7 @@ func (r *PostgresRepository) TransitionRun(ctx context.Context, tenant, id strin
 	return tx.Commit(ctx)
 }
 func (r *PostgresRepository) RequestCancel(ctx context.Context, tenant, id string) error {
-	_, err := r.DB.Exec(ctx, `UPDATE agent_runs SET cancel_requested=true,status=CASE WHEN status='queued' THEN 'cancel_requested' ELSE status END,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status IN ('queued','running')`, tenant, id)
+	_, err := r.DB.Exec(ctx, `UPDATE agent_runs SET cancel_requested=true,status=CASE WHEN status='queued' THEN 'cancel_requested' ELSE status END,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status IN ('queued','running','cancel_requested')`, tenant, id)
 	return err
 }
 func (r *PostgresRepository) LeaseRun(ctx context.Context, tenant, owner string, d time.Duration) (run Run, ok bool, err error) {
@@ -131,8 +131,16 @@ func (r *PostgresRepository) AppendEvent(ctx context.Context, e RunEvent) error 
 	_, err := r.DB.Exec(ctx, `INSERT INTO agent_run_events(run_id,tenant_id,sequence,event_type,payload,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(run_id,sequence) DO NOTHING`, e.RunID, e.TenantID, e.Sequence, e.EventType, e.Payload, e.CreatedAt)
 	return err
 }
-func (r *PostgresRepository) ReplayEvents(ctx context.Context, tenant, run string, after int64, limit int) (out []RunEvent, err error) {
-	rows, err := r.DB.Query(ctx, `SELECT run_id,tenant_id,sequence,event_type,payload,created_at FROM agent_run_events WHERE tenant_id=$1 AND run_id=$2 AND sequence>$3 ORDER BY sequence LIMIT $4`, tenant, run, after, limit)
+
+// ReplayEvents returns the durable, cursor-ordered transcript for one
+// conversation. Event sequences are allocated per conversation, not reset per
+// run, so a reconnect can cross a completed run into its successor.
+func (r *PostgresRepository) ReplayEvents(ctx context.Context, tenant, conversation string, after int64, limit int) (out []RunEvent, err error) {
+	rows, err := r.DB.Query(ctx, `SELECT e.run_id,e.tenant_id,e.sequence,e.event_type,e.payload,e.created_at
+		FROM agent_run_events e
+		JOIN agent_runs r ON r.id=e.run_id AND r.tenant_id=e.tenant_id
+		WHERE e.tenant_id=$1 AND r.conversation_id=$2 AND e.sequence>$3
+		ORDER BY e.sequence LIMIT $4`, tenant, conversation, after, limit)
 	if err != nil {
 		return
 	}
