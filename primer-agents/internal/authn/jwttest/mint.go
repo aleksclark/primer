@@ -149,5 +149,5 @@ func Sign(t testing.TB, key *Keypair, header map[string]string, payload map[stri
 	return h64 + "." + p64 + "." + b64(sig)
 }
 
-func b64(raw []byte) string       { return base64.RawURLEncoding.EncodeToString(raw) }
-func b64Int(n *big.Int) string    { buf := make([]byte, 32); n.FillBytes(buf); return b64(buf) }
+func b64(raw []byte) string    { return base64.RawURLEncoding.EncodeToString(raw) }
+func b64Int(n *big.Int) string { buf := make([]byte, 32); n.FillBytes(buf); return b64(buf) }

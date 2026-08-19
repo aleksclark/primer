@@ -29,18 +29,18 @@ type server struct {
 
 // RunResponse is the canonical run representation returned by all run routes.
 type RunResponse struct {
-	ID                string    `json:"id" format:"uuid" doc:"Server-generated run ID."`
-	OwnerNamespace    string    `json:"ownerNamespace" doc:"Signed owner namespace; opaque to callers."`
-	Profile           string    `json:"profile"`
-	Status            string    `json:"status"`
-	StateVersion      int64     `json:"stateVersion"`
-	IdempotencyKey    string    `json:"idempotencyKey"`
-	InputPreview      *string   `json:"inputPreview,omitempty"`
-	SessionID         *string   `json:"sessionId,omitempty" format:"uuid"`
-	CancelRequestedAt *string   `json:"cancelRequestedAt,omitempty" format:"date-time"`
-	CreatedAt         string    `json:"createdAt" format:"date-time"`
-	StartedAt         *string   `json:"startedAt,omitempty" format:"date-time"`
-	EndedAt           *string   `json:"endedAt,omitempty" format:"date-time"`
+	ID                string  `json:"id" format:"uuid" doc:"Server-generated run ID."`
+	OwnerNamespace    string  `json:"ownerNamespace" doc:"Signed owner namespace; opaque to callers."`
+	Profile           string  `json:"profile"`
+	Status            string  `json:"status"`
+	StateVersion      int64   `json:"stateVersion"`
+	IdempotencyKey    string  `json:"idempotencyKey"`
+	InputPreview      *string `json:"inputPreview,omitempty"`
+	SessionID         *string `json:"sessionId,omitempty" format:"uuid"`
+	CancelRequestedAt *string `json:"cancelRequestedAt,omitempty" format:"date-time"`
+	CreatedAt         string  `json:"createdAt" format:"date-time"`
+	StartedAt         *string `json:"startedAt,omitempty" format:"date-time"`
+	EndedAt           *string `json:"endedAt,omitempty" format:"date-time"`
 }
 
 // SessionResponse is the canonical session representation.

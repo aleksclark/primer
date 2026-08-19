@@ -216,7 +216,6 @@ func computeTurnIdempHash(namespace, sessionID, idempKey, inputHash string) stri
 
 func init() {}
 
-
 // ListRunEventsByCursor pages run events after afterSeq for replay streaming.
 func ListRunEventsByCursor(ctx context.Context, q Querier, runID, namespace string, afterSeq int64, limit int) ([]*domain.RunEvent, error) {
 	return Events.List(ctx, q, runID, namespace, afterSeq, limit)

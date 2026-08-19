@@ -310,9 +310,9 @@ type slowWriter struct {
 	delay time.Duration
 }
 
-func (w *slowWriter) Header() http.Header        { return http.Header{} }
-func (w *slowWriter) WriteHeader(_ int)           {}
-func (w *slowWriter) Flush()                      {}
+func (w *slowWriter) Header() http.Header { return http.Header{} }
+func (w *slowWriter) WriteHeader(_ int)   {}
+func (w *slowWriter) Flush()              {}
 func (w *slowWriter) Write(b []byte) (int, error) {
 	time.Sleep(w.delay)
 	w.mu.Lock()

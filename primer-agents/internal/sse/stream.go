@@ -1,13 +1,13 @@
 // Package sse implements the primer-agents replay-first SSE event stream.
 //
 // Design invariants:
-//  - PostgreSQL run_events is the source of truth; no process-local ring buffer.
-//  - Last-Event-ID (or ?afterSeq=N) is the resume cursor; sequence IDs are
-//    durable DB sequence numbers.
-//  - The request (stream) context controls only the writer goroutine.
-//    The worker/run context is never derived from or cancelled by a stream.
-//  - Slow/disconnected writers exit without calling run cancel or blocking
-//    the durable event writer.
+//   - PostgreSQL run_events is the source of truth; no process-local ring buffer.
+//   - Last-Event-ID (or ?afterSeq=N) is the resume cursor; sequence IDs are
+//     durable DB sequence numbers.
+//   - The request (stream) context controls only the writer goroutine.
+//     The worker/run context is never derived from or cancelled by a stream.
+//   - Slow/disconnected writers exit without calling run cancel or blocking
+//     the durable event writer.
 package sse
 
 import (

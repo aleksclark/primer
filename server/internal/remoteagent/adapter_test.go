@@ -253,9 +253,9 @@ func TestAdapterPostAcceptanceOutageReturnsError(t *testing.T) {
 
 	// Now point adapter at a downed server (swap base URL).
 	adapter2 := remoteagent.New(remoteagent.Config{
-		Enabled: true,
-		BaseURL: "http://127.0.0.1:1", // nothing listening
-		Timeout: 500 * time.Millisecond,
+		Enabled:     true,
+		BaseURL:     "http://127.0.0.1:1", // nothing listening
+		Timeout:     500 * time.Millisecond,
 		TokenSource: staticToken{"test-token"},
 	})
 	// Manually inject acceptance state to simulate post-acceptance scenario.

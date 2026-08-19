@@ -26,8 +26,8 @@ type RunRepo struct{}
 
 // CreateRunCmd carries the inputs for creating a new run idempotently.
 type CreateRunCmd struct {
-	OwnerNamespace  string
-	IdempotencyKey  string
+	OwnerNamespace string
+	IdempotencyKey string
 	// IdempotencyHash is SHA-256 hex of (namespace|key|profile|input_hash),
 	// computed by the caller before the database round-trip.
 	IdempotencyHash string

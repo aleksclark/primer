@@ -43,9 +43,9 @@ const (
 	RunStatusCancelRequested RunStatus = "cancel_requested"
 
 	// Terminal.
-	RunStatusSucceeded  RunStatus = "succeeded"
-	RunStatusFailed     RunStatus = "failed"
-	RunStatusCanceled   RunStatus = "canceled"
+	RunStatusSucceeded   RunStatus = "succeeded"
+	RunStatusFailed      RunStatus = "failed"
+	RunStatusCanceled    RunStatus = "canceled"
 	RunStatusInterrupted RunStatus = "interrupted"
 )
 
@@ -88,27 +88,27 @@ func CanTransition(from, to RunStatus) bool {
 
 // Run is a durable agent run record.
 type Run struct {
-	ID                 string     `db:"id"`
-	SessionID          *string    `db:"session_id"`
-	OwnerNamespace     string     `db:"owner_namespace"`
-	IdempotencyKey     string     `db:"idempotency_key"`
-	IdempotencyHash    string     `db:"idempotency_hash"`
-	Profile            string     `db:"profile"`
-	InputHash          *string    `db:"input_hash"`
-	InputPreview       *string    `db:"input_preview"`
-	Status             RunStatus  `db:"status"`
-	StateVersion       int64      `db:"state_version"`
-	NextEventSeq       int64      `db:"next_event_seq"`
-	CancelRequestedAt  *time.Time `db:"cancel_requested_at"`
-	CancelReasonClass  *string    `db:"cancel_reason_class"`
-	AttemptCount       int        `db:"attempt_count"`
-	LeaseExpiresAt     *time.Time `db:"lease_expires_at"`
-	ProviderStartedAt  *time.Time `db:"provider_started_at"`
-	ResultClass        *string    `db:"result_class"`
-	ErrorClass         *string    `db:"error_class"`
-	CreatedAt          time.Time  `db:"created_at"`
-	StartedAt          *time.Time `db:"started_at"`
-	EndedAt            *time.Time `db:"ended_at"`
+	ID                string     `db:"id"`
+	SessionID         *string    `db:"session_id"`
+	OwnerNamespace    string     `db:"owner_namespace"`
+	IdempotencyKey    string     `db:"idempotency_key"`
+	IdempotencyHash   string     `db:"idempotency_hash"`
+	Profile           string     `db:"profile"`
+	InputHash         *string    `db:"input_hash"`
+	InputPreview      *string    `db:"input_preview"`
+	Status            RunStatus  `db:"status"`
+	StateVersion      int64      `db:"state_version"`
+	NextEventSeq      int64      `db:"next_event_seq"`
+	CancelRequestedAt *time.Time `db:"cancel_requested_at"`
+	CancelReasonClass *string    `db:"cancel_reason_class"`
+	AttemptCount      int        `db:"attempt_count"`
+	LeaseExpiresAt    *time.Time `db:"lease_expires_at"`
+	ProviderStartedAt *time.Time `db:"provider_started_at"`
+	ResultClass       *string    `db:"result_class"`
+	ErrorClass        *string    `db:"error_class"`
+	CreatedAt         time.Time  `db:"created_at"`
+	StartedAt         *time.Time `db:"started_at"`
+	EndedAt           *time.Time `db:"ended_at"`
 }
 
 // ─── RunEvent ─────────────────────────────────────────────────────────────────
@@ -127,46 +127,46 @@ type SessionTurn struct {
 
 // RunEvent is a single durable, sequenced event in a run's event log.
 type RunEvent struct {
-	RunID         string     `db:"run_id"`
-	Sequence      int64      `db:"sequence"`
-	SchemaVersion int16      `db:"schema_version"`
-	RootRunID     *string    `db:"root_run_id"`
-	ParentRunID   *string    `db:"parent_run_id"`
-	AgentID       *string    `db:"agent_id"`
-	AgentType     *string    `db:"agent_type"`
-	AgentDepth    *int       `db:"agent_depth"`
-	Kind          string     `db:"kind"`
-	Payload       *string    `db:"payload"`
-	CreatedAt     time.Time  `db:"created_at"`
+	RunID         string    `db:"run_id"`
+	Sequence      int64     `db:"sequence"`
+	SchemaVersion int16     `db:"schema_version"`
+	RootRunID     *string   `db:"root_run_id"`
+	ParentRunID   *string   `db:"parent_run_id"`
+	AgentID       *string   `db:"agent_id"`
+	AgentType     *string   `db:"agent_type"`
+	AgentDepth    *int      `db:"agent_depth"`
+	Kind          string    `db:"kind"`
+	Payload       *string   `db:"payload"`
+	CreatedAt     time.Time `db:"created_at"`
 }
 
 // ─── Schedule ─────────────────────────────────────────────────────────────────
 
 // Schedule is a durable named periodic-job definition.
 type Schedule struct {
-	ID                  string     `db:"id"`
-	OwnerNamespace      string     `db:"owner_namespace"`
-	Profile             string     `db:"profile"`
-	CronExpr            string     `db:"cron_expr"`
-	InputHash           *string    `db:"input_hash"`
-	Enabled             bool       `db:"enabled"`
-	JobType             string     `db:"job_type"`
-	InputPreview        *string    `db:"input_preview"`
-	Timezone            string     `db:"timezone"`
-	NextDueAt           *time.Time `db:"next_due_at"`
-	MaxCatchUp          int16      `db:"max_catch_up"`
-	LeaseToken          *string    `db:"lease_token"`
-	LeaseExpiresAt      *time.Time `db:"lease_expires_at"`
-	CreatedAt           time.Time  `db:"created_at"`
-	UpdatedAt           time.Time  `db:"updated_at"`
+	ID             string     `db:"id"`
+	OwnerNamespace string     `db:"owner_namespace"`
+	Profile        string     `db:"profile"`
+	CronExpr       string     `db:"cron_expr"`
+	InputHash      *string    `db:"input_hash"`
+	Enabled        bool       `db:"enabled"`
+	JobType        string     `db:"job_type"`
+	InputPreview   *string    `db:"input_preview"`
+	Timezone       string     `db:"timezone"`
+	NextDueAt      *time.Time `db:"next_due_at"`
+	MaxCatchUp     int16      `db:"max_catch_up"`
+	LeaseToken     *string    `db:"lease_token"`
+	LeaseExpiresAt *time.Time `db:"lease_expires_at"`
+	CreatedAt      time.Time  `db:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at"`
 }
 
 // ScheduleFiring is one durable record of a schedule being triggered.
 type ScheduleFiring struct {
-	ID         string     `db:"id"`
-	ScheduleID string     `db:"schedule_id"`
-	DueAt      time.Time  `db:"due_at"`
-	RunID      *string    `db:"run_id"`
-	Status     string     `db:"status"`
-	CreatedAt  time.Time  `db:"created_at"`
+	ID         string    `db:"id"`
+	ScheduleID string    `db:"schedule_id"`
+	DueAt      time.Time `db:"due_at"`
+	RunID      *string   `db:"run_id"`
+	Status     string    `db:"status"`
+	CreatedAt  time.Time `db:"created_at"`
 }

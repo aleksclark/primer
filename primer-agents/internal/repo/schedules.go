@@ -164,9 +164,9 @@ func (r *ScheduleRepo) ClaimNextDue(ctx context.Context, tx pgx.Tx,
 
 	var (
 		id, ns, prof, jobType, cronExpr, tz string
-		inputPreview                          *string
-		dueAt                                 time.Time
-		maxCatchUp                            int16
+		inputPreview                        *string
+		dueAt                               time.Time
+		maxCatchUp                          int16
 	)
 	err := tx.QueryRow(ctx, selectSQL).Scan(
 		&id, &ns, &prof, &jobType, &inputPreview,

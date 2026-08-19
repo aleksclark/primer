@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -131,10 +131,10 @@ func newStubMux(t *testing.T, runID, sessID string, now time.Time) *stubMux {
 }
 
 type stubMux struct {
-	t     *testing.T
-	runID string
+	t      *testing.T
+	runID  string
 	sessID string
-	now   time.Time
+	now    time.Time
 }
 
 func (m *stubMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
