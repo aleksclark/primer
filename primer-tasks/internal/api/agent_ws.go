@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
@@ -384,7 +385,13 @@ func (s *Server) publishAgent(ctx context.Context, tenant, conversation string, 
 func (s *Server) StartAgentWorker(ctx context.Context) {
 	runRepo := agent.NewPostgresRepository(s.DB)
 	jobRepo := jobsRepository(s.DB)
-	worker := jobs.NewWorker(jobRepo, runRepo, func(ctx context.Context, job jobs.Job) error { return s.executeAgentRun(ctx, job) })
+	worker := jobs.NewWorker(jobRepo, runRepo, func(ctx context.Context, job jobs.Job) error {
+		err := s.executeAgentRun(ctx, job)
+		if err != nil {
+			slog.Error("parent agent job failed", "run_id", job.RunID, "error", err)
+		}
+		return err
+	})
 	go worker.Run(ctx)
 }
 
