@@ -17,6 +17,8 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -377,7 +379,7 @@ private class QrAnalyzer(
 
 @Composable
 private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrences: List<OccurrenceResponse>, upcoming: List<OccurrenceResponse>, message: String?, onOpen: (OccurrenceResponse) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("PRIMER TASKS", style = MaterialTheme.typography.labelLarge)
         Text(name, style = MaterialTheme.typography.headlineMedium)
         Text("Today", style = MaterialTheme.typography.titleLarge)
