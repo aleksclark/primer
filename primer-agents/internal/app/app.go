@@ -16,8 +16,11 @@ import (
 	"time"
 
 	"github.com/aleksclark/primer/agents/internal/api"
+	"github.com/aleksclark/primer/agents/internal/appservice"
+	"github.com/aleksclark/primer/agents/internal/authn"
 	"github.com/aleksclark/primer/agents/internal/config"
 	agentsdb "github.com/aleksclark/primer/agents/internal/db"
+	"github.com/aleksclark/primer/agents/internal/domain"
 	"github.com/aleksclark/primer/agents/internal/logging"
 )
 
@@ -28,12 +31,13 @@ type Options struct {
 	// Stdout is the log destination (defaults to os.Stdout).
 	Stdout io.Writer
 	// Listener allows tests to inject a bound listener.
-	// When nil, the server listens on cfg.Addr().
 	Listener net.Listener
 	// SkipMigrate skips goose up (tests that manage schema themselves).
 	SkipMigrate bool
-	// ShutdownSignal, when set, is used instead of OS signals.
+	// ShutdownSignal replaces OS signals in tests.
 	ShutdownSignal <-chan struct{}
+	// Validator overrides the JWT validator (tests inject a loopback JWKS).
+	Validator api.TokenValidator
 }
 
 // Run loads config (unless provided), migrates, serves HTTP, and shuts down
@@ -70,10 +74,30 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer pool.Close()
 
+	svc := appservice.New(pool)
+	svcAdapter := &appServiceAdapter{svc: svc}
+
+	// Build the JWT validator if Identity is configured. Production requires
+	// JWKS/issuer; development/test may omit them (all /agents/v1 routes return
+	// 401 but healthz/readyz remain available).
+	var validator api.TokenValidator
+	if opts.Validator != nil {
+		validator = opts.Validator
+	} else if cfg.AuthEnabled() {
+		validator, err = authn.NewValidator(authn.Options{
+			Issuer:  cfg.IdentityIssuer,
+			JWKSURL: cfg.IdentityJWKSURL,
+		})
+		if err != nil {
+			return fmt.Errorf("configure authn validator: %w", err)
+		}
+	}
+
 	handler := api.New(api.Options{
-		Pool:    pool,
-		Env:     cfg.Env,
-		Service: "primer-agents",
+		Pool:      pool,
+		Validator: validator,
+		Service:   svcAdapter,
+		Env:       cfg.Env,
 	})
 	bounded := http.MaxBytesHandler(handler, cfg.HTTPMaxBodyBytes)
 
@@ -94,7 +118,8 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	addr := ln.Addr().String()
-	logger.Info("listening", "addr", addr, "env", cfg.Env, "service", "primer-agents")
+	logger.Info("listening", "addr", addr, "env", cfg.Env, "service", "primer-agents",
+		"auth_enabled", validator != nil)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -150,4 +175,42 @@ func WaitReady(ctx context.Context, baseURL string) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// appServiceAdapter adapts *appservice.Service to api.AgentService by
+// converting between the parallel command types of the two packages.
+type appServiceAdapter struct{ svc *appservice.Service }
+
+func (a *appServiceAdapter) CreateRun(ctx context.Context, cmd api.CreateRunCmd) (*domain.Run, error) {
+	return a.svc.CreateRun(ctx, appservice.CreateRunCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		IdempotencyKey: cmd.IdempotencyKey,
+		Profile:        cmd.Profile,
+		InputContent:   cmd.InputContent,
+		InputPreview:   cmd.InputPreview,
+		SessionID:      cmd.SessionID,
+	})
+}
+func (a *appServiceAdapter) GetRun(ctx context.Context, id, ns string) (*domain.Run, error) {
+	return a.svc.GetRun(ctx, id, ns)
+}
+func (a *appServiceAdapter) ListRuns(ctx context.Context, ns string, limit int) ([]*domain.Run, error) {
+	return a.svc.ListRuns(ctx, ns, limit)
+}
+func (a *appServiceAdapter) RequestCancel(ctx context.Context, id, ns string, rc *string) (*domain.Run, error) {
+	return a.svc.RequestCancel(ctx, id, ns, rc)
+}
+func (a *appServiceAdapter) ListEvents(ctx context.Context, runID, ns string, afterSeq int64, limit int) ([]*domain.RunEvent, error) {
+	return a.svc.ListEvents(ctx, runID, ns, afterSeq, limit)
+}
+func (a *appServiceAdapter) CreateSession(ctx context.Context, cmd api.CreateSessionCmd) (*domain.Session, error) {
+	return a.svc.CreateSession(ctx, appservice.CreateSessionCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        cmd.Profile,
+		CallerContext:  cmd.CallerContext,
+		ExpiresAt:      cmd.ExpiresAt,
+	})
+}
+func (a *appServiceAdapter) GetSession(ctx context.Context, id, ns string) (*domain.Session, error) {
+	return a.svc.GetSession(ctx, id, ns)
 }

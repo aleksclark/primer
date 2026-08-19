@@ -48,10 +48,17 @@ type Config struct {
 	ProviderModel     string `envconfig:"PROVIDER_MODEL"`
 	ProviderSecretRef string `envconfig:"PROVIDER_SECRET_REF"`
 
-	// Identity endpoint fields — reserved for Phase 3 authentication.
-	// Absence is allowed in Phase 1 (no auth routes yet).
+	// Identity endpoint fields for JWT validation (Phase 3+).
+	// In production both must be HTTPS non-loopback URLs; absence disables
+	// authentication (development/test only).
 	IdentityJWKSURL string `envconfig:"IDENTITY_JWKS_URL"`
 	IdentityIssuer  string `envconfig:"IDENTITY_ISSUER"`
+}
+
+// AuthEnabled reports whether Identity JWT validation is configured.
+func (c *Config) AuthEnabled() bool {
+	return strings.TrimSpace(c.IdentityJWKSURL) != "" &&
+		strings.TrimSpace(c.IdentityIssuer) != ""
 }
 
 // Load reads agents configuration from the environment and validates it.
@@ -111,5 +118,44 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("agents config: %w", err)
 	}
 
+	if err := c.validateIdentityConfig(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// validateIdentityConfig enforces fail-closed rules for the JWKS/issuer pair.
+// Production requires HTTPS non-loopback URLs. Development/test may omit both
+// (auth middleware returns 401 on all protected routes when unconfigured).
+func (c *Config) validateIdentityConfig() error {
+	jwks := strings.TrimSpace(c.IdentityJWKSURL)
+	issuer := strings.TrimSpace(c.IdentityIssuer)
+	if jwks == "" && issuer == "" {
+		if c.Env == "production" {
+			return fmt.Errorf("agents config: PRIMER_AGENTS_IDENTITY_JWKS_URL and PRIMER_AGENTS_IDENTITY_ISSUER are required in production")
+		}
+		return nil
+	}
+	if (jwks == "") != (issuer == "") {
+		return fmt.Errorf("agents config: PRIMER_AGENTS_IDENTITY_JWKS_URL and PRIMER_AGENTS_IDENTITY_ISSUER must both be set or both be unset")
+	}
+	if c.Env == "production" {
+		if !strings.HasPrefix(jwks, "https://") {
+			return fmt.Errorf("agents config: PRIMER_AGENTS_IDENTITY_JWKS_URL must use https in production")
+		}
+		if !strings.HasPrefix(issuer, "https://") {
+			return fmt.Errorf("agents config: PRIMER_AGENTS_IDENTITY_ISSUER must use https in production")
+		}
+		if isForbiddenProductionHost(jwks) || isForbiddenProductionHost(issuer) {
+			return fmt.Errorf("agents config: loopback/test Identity provider is forbidden in production")
+		}
+	}
+	return nil
+}
+
+func isForbiddenProductionHost(raw string) bool {
+	h := strings.ToLower(raw)
+	return strings.Contains(h, "localhost") || strings.Contains(h, "127.0.0.1") ||
+		strings.Contains(h, ".test") || strings.Contains(h, "::1")
 }
