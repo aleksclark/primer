@@ -285,7 +285,9 @@ func (m *scriptedDialogueModel) Stream(ctx context.Context, _ fantasy.Call) (fan
 	}
 	criteria := []string{}
 	if accepted {
-		criteria = []string{"answers address the distinct question"}
+		if configured := config.Criteria(); len(configured) > 0 {
+			criteria = []string{configured[0]}
+		}
 	}
 	criteriaJSON, _ := json.Marshal(criteria)
 	return scriptedToolStream(ctx, agent.ToolRecordAnswerEvaluation, fmt.Sprintf(`{"questionKey":%q,"accepted":%t,"criteria":%s,"rationale":%q}`, m.questionKey, accepted, criteriaJSON, rationale)), nil
