@@ -25,7 +25,10 @@ function project(event: StudentDialogueEvent, runId: string): AgentEvent[] {
   switch (event.kind) {
     case "hello": return [{ ...base, kind: "hello" }];
     case "question": return [{ ...base, kind: "text_start", text: event.text }, { ...base, kind: "text_end", text: event.text }];
-    case "progress": return [{ ...base, kind: "tool_progress", label: event.phase === "evaluating" ? "Evaluating" : "Thinking", phase: event.phase ?? "working" }];
+    case "progress":
+      return event.phase === "retry"
+        ? [{ ...base, kind: "retry", retry: 1, retryAfterMs: 0 }]
+        : [{ ...base, kind: "tool_progress", label: event.phase === "evaluating" ? "Evaluating" : "Thinking", phase: event.phase ?? "working" }];
     case "answer_evaluation": return event.status === "rejected" ? [{ ...base, kind: "retry", retry: 1, retryAfterMs: 0 }] : [];
     case "complete": return [{ ...base, kind: "terminal", status: "completed", text: "Verification complete." }];
     case "error": return [{ ...base, kind: "error", code: event.code ?? "student_dialogue" }];
