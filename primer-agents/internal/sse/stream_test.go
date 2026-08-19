@@ -320,3 +320,31 @@ func (w *slowWriter) Write(b []byte) (int, error) {
 	w.mu.Unlock()
 	return len(b), nil
 }
+
+// ── Phase 8: ParseCursor unit tests ──────────────────────────────────────────
+
+func TestParseCursorFromLastEventID(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Last-Event-ID", "42")
+	assert.Equal(t, int64(42), sse.ParseCursor(req))
+}
+
+func TestParseCursorFromQueryParam(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/?afterSeq=17", nil)
+	assert.Equal(t, int64(17), sse.ParseCursor(req))
+}
+
+func TestParseCursorDefault(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	assert.Equal(t, int64(0), sse.ParseCursor(req))
+}
+
+func TestParseCursorInvalidFallsToZero(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Last-Event-ID", "not-a-number")
+	assert.Equal(t, int64(0), sse.ParseCursor(req))
+}

@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -121,4 +122,17 @@ func TestIsAgentsSafeTestDBName(t *testing.T) {
 	assert.False(t, agentsdb.IsAgentsSafeTestDBName("primer_identity"))
 	assert.False(t, agentsdb.IsAgentsSafeTestDBName("curriculum_studio"))
 	assert.False(t, agentsdb.IsAgentsSafeTestDBName(""))
+}
+
+func TestMigratorCurrentVersion(t *testing.T) {
+	t.Parallel()
+	// CurrentVersion on an agent-safe DSN against a real DB
+	// (not testcontainer — just verify parse/call path with a real URL from
+	// the shared harness).
+	// Use a stub URL to verify DSN validation fires first.
+	_, err := agentsdb.Agents.CurrentVersion(context.Background(),
+		"postgres://agents:x@localhost:1/primer_agents?connect_timeout=0")
+	require.Error(t, err, "CurrentVersion on unreachable DB must return error")
+	// Verify it's a DB error, not a DSN isolation error.
+	assert.NotContains(t, strings.ToLower(err.Error()), "forbidden")
 }

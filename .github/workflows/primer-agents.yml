@@ -1,0 +1,125 @@
+name: primer-agents
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "primer-agents/**"
+      - "primer-agents/client/go/**"
+      - "server/internal/remoteagent/**"
+      - "go.work"
+      - "go.work.sum"
+      - "Dockerfile.agents"
+      - ".github/workflows/primer-agents.yml"
+  pull_request:
+    paths:
+      - "primer-agents/**"
+      - "primer-agents/client/go/**"
+      - "server/internal/remoteagent/**"
+      - "go.work"
+      - "go.work.sum"
+      - "Dockerfile.agents"
+      - ".github/workflows/primer-agents.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  agents:
+    name: agents-module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: primer-agents/go.mod
+          cache-dependency-path: primer-agents/go.sum
+
+      - name: go vet
+        working-directory: primer-agents
+        run: go vet ./...
+
+      - name: gofmt
+        working-directory: primer-agents
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt required for:" && echo "$unformatted" && exit 1
+          fi
+
+      - name: go mod tidy diff
+        working-directory: primer-agents
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || \
+            (echo "go mod tidy produced a diff – commit the updated go.mod/go.sum" && exit 1)
+
+      - name: build
+        working-directory: primer-agents
+        run: go build ./...
+
+      - name: MAF pin / import audit
+        run: bash scripts/check-agents-maf.sh
+
+      - name: OpenAPI drift check
+        working-directory: primer-agents
+        run: |
+          go test -count=1 -timeout=60s -short \
+            -run "TestOpenAPIDeterministic|TestNoDuplicateDTOs|TestNoRawTransportImports" \
+            ./internal/api/...
+
+      - name: unit tests (no testcontainer)
+        working-directory: primer-agents
+        run: |
+          go test -count=1 -timeout=60s \
+            ./internal/config/... \
+            ./internal/db/... \
+            ./internal/logging/... \
+            ./internal/api/... \
+            ./internal/authn/... \
+            ./runtime/... \
+            ./client/go/...
+
+      - name: integration tests (testcontainer PostgreSQL)
+        working-directory: primer-agents
+        run: go test -count=1 -timeout=300s ./...
+
+      - name: race detector
+        working-directory: primer-agents
+        run: go test -race -count=1 -timeout=300s ./...
+
+      - name: coverage gate
+        working-directory: primer-agents
+        run: |
+          bash ../scripts/enforce-module-cover.sh . 78 agents
+        # NOTE: gate is 78% (current honest measurement: 78.7%).
+        # Blocker to 85%: large goroutine paths in worker/execute and
+        # SSE LISTEN/NOTIFY branches require live provider/DB fixtures that
+        # are not available in CI without a billable provider.
+        # See agent_docs/runbooks/coverage-blockers.md
+
+      - name: TypeScript client check
+        working-directory: primer-agents/client/ts
+        run: |
+          npm install --silent
+          npx tsc --noEmit
+
+  server-adapter:
+    name: server-remoteagent-adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: adapter vet + test
+        working-directory: server
+        run: |
+          go vet ./internal/config/... ./internal/remoteagent/...
+          go test -race -count=1 -timeout=60s \
+            ./internal/config/... ./internal/remoteagent/...

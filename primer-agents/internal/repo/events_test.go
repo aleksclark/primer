@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/aleksclark/primer/agents/internal/repo"
+	"github.com/aleksclark/primer/agents/internal/testutil"
 )
 
 func TestEventAppendAndList(t *testing.T) {
@@ -183,4 +186,42 @@ func TestEventOwnershipEnforced(t *testing.T) {
 	evs, err := repo.Events.List(ctx, p, run.ID, "ns-ev-other", 0, 100)
 	require.NoError(t, err)
 	assert.Empty(t, evs, "wrong namespace must not see events")
+}
+
+func TestExtendLease(t *testing.T) {
+	ctx := context.Background()
+	p := pool(t)
+	ns := "ns-extend-lease-" + uuid.NewString()[:8]
+
+	// Create and claim a run.
+	run, err := repo.Runs.Create(ctx, p, repo.CreateRunCmd{
+		OwnerNamespace: ns, IdempotencyKey: "extend-key",
+		IdempotencyHash: "z001" + makeHex(60), Profile: "job",
+	})
+	require.NoError(t, err)
+
+	tx, err := p.Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx) //nolint:errcheck
+	claimed, err := repo.Runs.ClaimNextQueued(ctx, tx, 30*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, run.ID, claimed.ID)
+	require.NoError(t, tx.Commit(ctx))
+
+	// Extend the lease.
+	err = repo.Runs.ExtendLease(ctx, p, run.ID, ns, claimed.StateVersion, 60*time.Second)
+	require.NoError(t, err)
+
+	// Wrong state_version → ErrNotFound.
+	err = repo.Runs.ExtendLease(ctx, p, run.ID, ns, 9999, 60*time.Second)
+	require.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+func TestTxHelperRollback(t *testing.T) {
+	// Exercise the testutil.Tx path.
+	tx := testutil.Tx(t)
+	ctx := context.Background()
+	_, err := tx.Exec(ctx, `SELECT 1`)
+	require.NoError(t, err)
+	// The tx is rolled back by t.Cleanup automatically.
 }

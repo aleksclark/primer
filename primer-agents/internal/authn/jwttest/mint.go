@@ -30,7 +30,7 @@ const DefaultIssuer = "https://identity.example.test"
 
 // AllScopes is the union of all agents scopes; tests that don't need
 // restriction use this.
-const AllScopes = "agents:runs:write agents:runs:read agents:runs:cancel agents:sessions:write agents:sessions:read"
+const AllScopes = "agents:runs:write agents:runs:read agents:runs:cancel agents:sessions:write agents:sessions:read agents:jobs:write agents:jobs:read agents:student:session"
 
 // Keypair is an ES256 signing key with its public JWK.
 type Keypair struct {

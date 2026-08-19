@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -395,4 +396,72 @@ func TestEventsTerminalConsistencyWithStatus(t *testing.T) {
 	last := evs[len(evs)-1]
 	assert.Equal(t, "run.succeeded", last.Kind,
 		"terminal event must match terminal status")
+}
+
+// ── Phase 6 + Phase 8 appservice coverage ────────────────────────────────────
+
+func TestCloseSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _ := newSvc(t)
+	ns := "ns-close-" + uuid.NewString()[:8]
+	sess, err := svc.CreateSession(ctx, appservice.CreateSessionCmd{OwnerNamespace: ns, Profile: "admin"})
+	require.NoError(t, err)
+
+	closed, err := svc.CloseSession(ctx, sess.ID, ns, sess.Revision)
+	require.NoError(t, err)
+	assert.Equal(t, "closed", string(closed.Status))
+}
+
+func TestAppendTurnAndListTurns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _ := newSvc(t)
+	ns := "ns-at-" + uuid.NewString()[:8]
+	sess, err := svc.CreateSession(ctx, appservice.CreateSessionCmd{OwnerNamespace: ns, Profile: "admin"})
+	require.NoError(t, err)
+
+	result, err := svc.AppendTurn(ctx, appservice.AppendTurnCmd{
+		SessionID: sess.ID, OwnerNamespace: ns,
+		IdempotencyKey: "t1", Profile: "admin", ExpectedRevision: 1,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, result.Run)
+
+	turns, err := svc.ListTurns(ctx, sess.ID, ns, 10)
+	require.NoError(t, err)
+	assert.Len(t, turns, 1)
+}
+
+func TestListSchedules(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _ := newSvc(t)
+	ns := "ns-sched-list-" + uuid.NewString()[:8]
+
+	_, err := svc.CreateSchedule(ctx, appservice.CreateScheduleCmd{
+		OwnerNamespace: ns, Profile: "job", JobType: "sync", CronExpr: "1h",
+	})
+	require.NoError(t, err)
+
+	schedules, err := svc.ListSchedules(ctx, ns, 10)
+	require.NoError(t, err)
+	assert.Len(t, schedules, 1)
+}
+
+func TestAppendStudentTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _ := newSvc(t)
+	ns := "ns-st-turn-" + uuid.NewString()[:8]
+	sess, err := svc.CreateStudentSession(ctx, appservice.CreateStudentSessionCmd{OwnerNamespace: ns})
+	require.NoError(t, err)
+	assert.Equal(t, "student", sess.Profile)
+
+	result, err := svc.AppendStudentTurn(ctx, appservice.AppendStudentTurnCmd{
+		SessionID: sess.ID, OwnerNamespace: ns,
+		IdempotencyKey: "st1", ExpectedRevision: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "student", result.Run.Profile)
 }

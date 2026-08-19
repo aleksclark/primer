@@ -2,11 +2,13 @@ package logging_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,4 +82,28 @@ func TestRedactingHandlerScrubsDSNInWrappedError(t *testing.T) {
 	out := buf.String()
 	assert.NotContains(t, out, sentinel)
 	assert.Contains(t, out, "REDACTED")
+}
+
+func TestRedactingHandlerWithAttrsAndWithGroup(t *testing.T) {
+	// Exercises WithAttrs and WithGroup code paths.
+	var buf bytes.Buffer
+	base := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	h := logging.NewRedactingHandler(base)
+
+	// WithAttrs — must redact secret keys.
+	h2 := h.WithAttrs([]slog.Attr{
+		slog.String("password", "should-hide"),
+		slog.String("normal", "visible"),
+	})
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "test", 0)
+	_ = h2.Handle(context.Background(), rec)
+	assert.NotContains(t, buf.String(), "should-hide")
+
+	// WithGroup wraps the handler.
+	buf.Reset()
+	h3 := h.WithGroup("mygroup")
+	rec2 := slog.NewRecord(time.Now(), slog.LevelInfo, "grp", 0)
+	rec2.AddAttrs(slog.String("secret", "hide-me"))
+	_ = h3.Handle(context.Background(), rec2)
+	assert.NotContains(t, buf.String(), "hide-me")
 }

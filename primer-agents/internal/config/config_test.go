@@ -223,3 +223,15 @@ func TestLoadRejectsMalformedPort(t *testing.T) {
 	_, err := config.Load()
 	assert.Error(t, err)
 }
+
+func TestValidateConfigIsForbiddenProductionHostCoverage(t *testing.T) {
+	// Exercises the isForbiddenProductionHost helper via production config validation.
+	t.Setenv("PRIMER_AGENTS_ENV", "production")
+	t.Setenv("PRIMER_AGENTS_DATABASE_URL", "postgres://agents:x@db:5432/primer_agents?sslmode=disable")
+	// Use HTTPS to pass the scheme check, but localhost triggers the forbidden host check.
+	t.Setenv("PRIMER_AGENTS_IDENTITY_JWKS_URL", "https://localhost:8090/.well-known/jwks.json")
+	t.Setenv("PRIMER_AGENTS_IDENTITY_ISSUER", "https://identity.example")
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "loopback")
+}

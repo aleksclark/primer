@@ -92,18 +92,20 @@ func TestNoDuplicateDTOs(t *testing.T) {
 	}
 }
 
-// TestNoRawTransportImports verifies that no production file in the main
-// module imports raw HTTP transport or handwritten consumer endpoints.
+// TestNoRawTransportImports verifies that no production (non-test) file in
+// the main module calls /agents/v1/ endpoints using raw HTTP, bypassing the
+// generated client.
 func TestNoRawTransportImports(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	moduleRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 
-	// Scan internal/ for suspicious patterns that would indicate a consumer
-	// bypassing the generated client.
-	cmd := exec.Command("grep", "-rn",
-		`http\.NewRequest.*agents/v1`, // raw request to agents endpoint
+	// Scan internal/ for suspicious patterns in production (non-test) files.
+	// Test infrastructure legitimately calls the running server under test;
+	// the gate targets duplicated consumer transport in production code.
+	cmd := exec.Command("grep", "-rn", "--include=*.go", "--exclude=*_test.go",
+		`http\.NewRequest.*agents/v1`,
 		filepath.Join(moduleRoot, "internal"))
 	out, _ := cmd.CombinedOutput()
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -111,7 +113,8 @@ func TestNoRawTransportImports(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		assert.Failf(t, "raw consumer transport found", "found potential raw transport call: %s", line)
+		assert.Failf(t, "raw consumer transport found in production code",
+			"found potential raw transport call: %s", line)
 	}
 }
 
