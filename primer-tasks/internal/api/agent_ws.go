@@ -120,8 +120,12 @@ func (s *Server) agentOriginAllowed(r *http.Request) bool {
 			allowed[value] = true
 		}
 	}
-	if allowed[origin] { return true }
-	if s.Env != "production" && (strings.HasPrefix(origin, "http://127.0.0.1:") || strings.HasPrefix(origin, "http://localhost:")) { return true }
+	if allowed[origin] {
+		return true
+	}
+	if s.Env != "production" && (strings.HasPrefix(origin, "http://127.0.0.1:") || strings.HasPrefix(origin, "http://localhost:")) {
+		return true
+	}
 	return false
 }
 
@@ -280,9 +284,10 @@ func (s *Server) agentMessage(ctx context.Context, sc scope, cmd agentCommand) {
 	}
 	cfg, cfgErr := parent.LoadProviderConfig()
 	if cfgErr != nil {
-		cfg.Mode = parent.ProviderDisabled
+		cfg = parent.ProviderConfig{Mode: parent.ProviderDisabled, MaxSteps: 12, MaxTokens: 4096, MaxDuration: 120 * time.Second, MaxRetries: 0}
 	}
-	run := agent.Run{ID: runID, TenantID: sc.Tenant, ConversationID: cmd.ConversationID, UserMessageID: message.ID, Status: agent.RunQueued, MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: time.Now().UTC().Add(cfg.MaxDuration), Provenance: agent.Provenance{PolicyVersion: "parent.v1"}}
+	digest := sha256.Sum256([]byte(message.Content))
+	run := agent.Run{ID: runID, TenantID: sc.Tenant, ConversationID: cmd.ConversationID, UserMessageID: message.ID, Status: agent.RunQueued, MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: time.Now().UTC().Add(cfg.MaxDuration), Provenance: agent.Provenance{Provider: string(cfg.Mode), PolicyVersion: "parent.v1", PromptDigest: hex.EncodeToString(digest[:])}}
 	if err := repo.CreateRun(ctx, run); err != nil {
 		return
 	}
@@ -392,7 +397,7 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 	}
 	cfg, cfgErr := parent.LoadProviderConfig()
 	if cfgErr != nil {
-		cfg.Mode = parent.ProviderDisabled
+		cfg = parent.ProviderConfig{Mode: parent.ProviderDisabled, MaxSteps: 12, MaxTokens: 4096, MaxDuration: 120 * time.Second, MaxRetries: 0}
 	}
 	if cfg.Mode == parent.ProviderDisabled {
 		_, _ = s.DB.Exec(ctx, `UPDATE agent_runs SET status='failed',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status IN ('queued','running')`, job.TenantID, job.RunID)
@@ -404,6 +409,7 @@ func (s *Server) executeAgentRun(ctx context.Context, job jobs.Job) error {
 		s.publishAgent(ctx, job.TenantID, conversation, wireAgentEvent{Type: "terminal", RunID: job.RunID, Status: "failed", Message: "The configured provider could not start.", Code: "provider_unavailable", TenantID: job.TenantID})
 		return err
 	}
+	_, _ = s.DB.Exec(ctx, `UPDATE agent_runs SET provider=$3,model=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2`, job.TenantID, job.RunID, model.Provider(), model.Model())
 	tools := s.fantasyTools(job.TenantID, actor, cfg.ActiveTools, run.Provenance.PromptDigest)
 	rt, err := agent.NewFantasyAgent(model, tools, agent.Limits{MaxSteps: cfg.MaxSteps, MaxTokens: cfg.MaxTokens, Deadline: cfg.MaxDuration, MaxRetries: cfg.MaxRetries})
 	if err != nil {
