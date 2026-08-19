@@ -4,4 +4,5 @@ use (
 	./curriculum-studio
 	./primer-identity
 	./server
+	./primer-tasks
 )

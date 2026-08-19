@@ -1,0 +1,257 @@
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { QRCodeCanvas } from "qrcode.react";
+import { NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { TasksApiError, tasksClient, type Student } from "@primer-tasks/client";
+import "./index.css";
+
+type Theme = "dark" | "light";
+
+type RequestState = "loading" | "ready" | "empty" | "error" | "denied" | "revoked" | "expired";
+
+function useTheme() {
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === "light" ? "light" : "dark",
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  return { theme, toggle: () => setTheme((current) => (current === "dark" ? "light" : "dark")) };
+}
+
+function apiState(error: unknown): Exclude<RequestState, "loading" | "ready" | "empty"> {
+  if (error instanceof TasksApiError) {
+    if (error.code === "revoked") return "revoked";
+    if (error.status === 410 || error.code === "expired") return "expired";
+    if (error.status === 403) return "denied";
+    if (error.status === 401) return "error";
+  }
+  return "error";
+}
+
+function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const state = apiState(error);
+  const copy = {
+    error: ["Unable to load", "The Tasks service did not return the requested record."],
+    denied: ["Access denied", "This record belongs to another household or your session is not permitted."],
+    revoked: ["Pairing revoked", "This student session is no longer active. Pair again to continue."],
+    expired: ["Pairing expired", "The one-use pairing material is no longer valid. Request a new code."],
+  }[state];
+  return (
+    <div className={`notice ${state}`} role="alert">
+      <div>
+        <strong>{copy[0]}</strong>
+        <p>{copy[1]}</p>
+        {onRetry && <button className="button quiet" type="button" onClick={onRetry}>Try again</button>}
+      </div>
+    </div>
+  );
+}
+
+function StateNotice({ state, onRetry }: { state: RequestState; onRetry?: () => void }) {
+  if (state === "loading") return <div className="notice" role="status"><p>Loading the latest record…</p></div>;
+  if (state === "error" || state === "denied" || state === "revoked" || state === "expired") {
+    return <ErrorNotice error={new TasksApiError(state === "denied" ? 403 : state === "expired" ? 410 : 500, state, state)} onRetry={onRetry} />;
+  }
+  return null;
+}
+
+function ThemeButton({ theme, toggle }: { theme: Theme; toggle: () => void }) {
+  return <button className="button secondary" type="button" onClick={toggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
+    {theme === "dark" ? "Light" : "Dark"} theme
+  </button>;
+}
+
+function Brand() {
+  return <NavLink className="brand" to="/parent/students" aria-label="Primer Tasks home">
+    <img className="brand-dark" src="/brand/logo-mark.svg" alt="" />
+    <img className="brand-light" src="/brand/logo-mark-light.svg" alt="" />
+    <span className="brand-wordmark">Primer<strong>Tasks</strong></span>
+  </NavLink>;
+}
+
+function ParentShell({ children }: { children: ReactNode }) {
+  const { theme, toggle } = useTheme();
+  const [open, setOpen] = useState(false);
+  return <div className={`app-shell ${open ? "mobile-nav-open" : ""}`}>
+    <aside className="app-nav">
+      <Brand />
+      <button className="button secondary mobile-menu" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="parent-navigation">Menu</button>
+      <div id="parent-navigation" className="nav-body">
+        <div className="nav-section">
+          <p className="system-label" style={{ padding: "0 20px" }}>Parent workspace</p>
+          <NavLink className="nav-link" to="/parent/students">Students</NavLink>
+        </div>
+        <div className="nav-section">
+          <p className="system-label" style={{ padding: "0 20px" }}>Student access</p>
+          <NavLink className="nav-link" to="/student/pair">Pair a browser</NavLink>
+        </div>
+      </div>
+      <div className="nav-footer"><p className="system-label">System C · Primer Tasks</p><ThemeButton theme={theme} toggle={toggle} /><button className="button quiet" type="button" onClick={() => void tasksClient.logout().finally(() => window.location.assign("/parent/students"))}>Sign out</button></div>
+    </aside>
+    <main className="main"><div className="content">{children}</div></main>
+  </div>;
+}
+
+function ParentAuthGate() {
+  const [status, setStatus] = useState<RequestState>("loading");
+  const { theme, toggle } = useTheme();
+  useEffect(() => {
+    let mounted = true;
+    tasksClient.parentSession().then(() => mounted && setStatus("ready")).catch((error) => mounted && setStatus(apiState(error)));
+    return () => { mounted = false; };
+  }, []);
+  if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
+  if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} />;
+  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
+}
+
+function AuthFrame({ children }: { children: ReactNode }) {
+  return <div className="auth-frame"><div className="auth-brand"><Brand /></div><main className="main"><div className="content">{children}</div></main></div>;
+}
+
+function LoginPage({ theme, toggle }: { theme: Theme; toggle: () => void }) {
+  return <AuthFrame><section className="pair-card" style={{ maxWidth: 560, margin: "12vh auto 0" }}>
+    <div className="page-header"><div><p className="eyebrow">Parent access</p><h1>Sign in to Primer Tasks</h1><p>Your household workspace is protected by the Tasks identity service.</p></div><ThemeButton theme={theme} toggle={toggle} /></div>
+    <div style={{ display: "grid", gap: 16, marginTop: 24 }}>
+      <p style={{ margin: 0, color: "var(--muted)" }}>Continue to the secure authorization flow. Your browser receives only a host-only session cookie; provider tokens never enter this app.</p>
+      <button className="button" type="button" onClick={() => tasksClient.beginParentLogin("/parent/students")}>Continue with parent sign-in</button>
+    </div>
+  </section></AuthFrame>;
+}
+
+function PageHeader({ eyebrow, title, lede, actions }: { eyebrow: string; title: string; lede?: string; actions?: ReactNode }) {
+  return <header className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{lede && <p>{lede}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>;
+}
+
+function StudentsPage() {
+  const [q, setQ] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [total, setTotal] = useState(0);
+  const [state, setState] = useState<RequestState>("loading");
+  const [error, setError] = useState<unknown>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const limit = 20;
+  const load = useCallback((signal?: AbortSignal) => {
+    setState("loading");
+    tasksClient.listStudents({ limit, offset, q: q || undefined }, { signal }).then((page) => {
+      setStudents(page.items);
+      setTotal(page.totalCount);
+      setState(page.items.length ? "ready" : "empty");
+      setError(null);
+    }).catch((nextError) => {
+      if (nextError instanceof DOMException && nextError.name === "AbortError") return;
+      setError(nextError); setState(apiState(nextError));
+    });
+  }, [offset, q]);
+  useEffect(() => {
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+  return <>
+    <PageHeader eyebrow="Parent workspace / Explore + Configure" title="Students" lede="Manage the students in your household. Lists, filters, and pagination remain tenant-scoped on the server." actions={<button className="button" type="button" onClick={() => setShowCreate(true)}>Add student</button>} />
+    {state === "error" || state === "denied" ? <ErrorNotice error={error} onRetry={load} /> : null}
+    <section className="record" aria-label="Students">
+      <div className="record-toolbar"><div><p className="system-label">Household roster</p><p style={{ margin: "4px 0 0", color: "var(--muted)" }}>{total} student{total === 1 ? "" : "s"}</p></div><input className="input" aria-label="Search students" placeholder="Search by name" value={q} onChange={(event) => { setQ(event.target.value); setOffset(0); }} /></div>
+      {state === "loading" && <StateNotice state="loading" />}
+      {state === "empty" && <div className="empty"><h2>No students yet</h2><p>Create the first student in this household, then issue a one-use pairing code.</p><button className="button" type="button" onClick={() => setShowCreate(true)}>Add first student</button></div>}
+      {state === "ready" && <><div className="table-wrap"><table><thead><tr><th>Name</th><th>Created</th><th>Access</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{students.map((student) => <StudentRow key={student.id} student={student} onArchived={load} />)}</tbody></table></div><Pagination offset={offset} limit={limit} total={total} onChange={setOffset} /></>}
+    </section>
+    {showCreate && <StudentForm onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
+  </>;
+}
+
+function StudentRow({ student, onArchived }: { student: Student; onArchived: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  const archive = async () => {
+    if (!window.confirm(`Archive ${student.displayName}? Active paired access will be revoked.`)) return;
+    setBusy(true);
+    try { await tasksClient.archiveStudent(student.id); onArchived(); } catch { /* row remains; parent can retry from the detail */ } finally { setBusy(false); }
+  };
+  return <tr><td><button className="button quiet primary-cell" type="button" onClick={() => navigate(`/parent/students/${student.id}`)}>{student.displayName}</button><span className="secondary-cell">{student.id}</span></td><td className="meta">{formatDate(student.createdAt)}</td><td><span className={`status ${student.archivedAt ? "attention" : "active"}`}>{student.archivedAt ? "Archived" : "Ready"}</span></td><td><div className="row-actions"><button className="button secondary" type="button" disabled={busy || Boolean(student.archivedAt)} onClick={() => navigate(`/parent/students/${student.id}`)}>Open</button>{!student.archivedAt && <button className="button danger" type="button" disabled={busy} onClick={() => void archive()}>Archive</button>}</div></td></tr>;
+}
+
+function StudentForm({ student, onClose, onSaved }: { student?: Student; onClose: () => void; onSaved: () => void }) {
+  const [displayName, setDisplayName] = useState(student?.displayName ?? "");
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!displayName.trim()) return;
+    setBusy(true); setError(null);
+    try { if (student) await tasksClient.updateStudent(student.id, { displayName: displayName.trim() }); else await tasksClient.createStudent({ displayName: displayName.trim() }); onSaved(); }
+    catch (nextError) { setError(nextError); } finally { setBusy(false); }
+  };
+  return <div className="modal-backdrop" role="presentation"><form className="modal" role="dialog" aria-modal="true" aria-labelledby="student-form-title" onSubmit={save}><div className="modal-header"><h2 id="student-form-title">{student ? "Edit student" : "Add student"}</h2></div><div className="modal-body"><div className="field"><label htmlFor="student-display-name">Display name</label><input id="student-display-name" className="input" autoFocus required value={displayName} onChange={(event) => setDisplayName(event.target.value)} aria-invalid={Boolean(error)} /></div>{error ? <ErrorNotice error={error} /> : null}</div><div className="modal-footer"><button className="button quiet" type="button" onClick={onClose}>Cancel</button><button className="button" type="submit" disabled={busy || !displayName.trim()}>{busy ? "Saving…" : "Save student"}</button></div></form></div>;
+}
+
+function StudentDetailPage() {
+  const { studentId = "" } = useParams();
+  const navigate = useNavigate();
+  const [student, setStudent] = useState<Student | null>(null);
+  const [pairing, setPairing] = useState<Awaited<ReturnType<typeof tasksClient.issuePairing>> | null>(null);
+  const [state, setState] = useState<RequestState>("loading");
+  const [error, setError] = useState<unknown>(null);
+  const [edit, setEdit] = useState(false);
+  const load = useCallback(() => { setState("loading"); tasksClient.getStudent(studentId).then((found) => { setStudent(found); setState("ready"); }).catch((nextError) => { setError(nextError); setState(apiState(nextError)); }); }, [studentId]);
+  useEffect(load, [load]);
+  const issue = async () => { setPairing(null); setError(null); try { setPairing(await tasksClient.issuePairing(studentId)); } catch (nextError) { setError(nextError); } };
+  if (state === "loading") return <><PageHeader eyebrow="Parent workspace / Student" title="Student" /><StateNotice state="loading" /></>;
+  if (!student) return <><PageHeader eyebrow="Parent workspace / Student" title="Student" /><ErrorNotice error={error} onRetry={load} /></>;
+  return <><PageHeader eyebrow="Parent workspace / Configure" title={student.displayName} lede="Student identity and pairing access are scoped to your household." actions={<button className="button secondary" type="button" onClick={() => navigate("/parent/students")}>Back to students</button>} />{error ? <ErrorNotice error={error} /> : null}
+    <div className="pair-layout"><section className="pair-card"><p className="eyebrow">Student record</p><h2>{student.displayName}</h2><p style={{ color: "var(--muted)" }}>Created {formatDate(student.createdAt)} · <span className="meta">{student.id}</span></p><div className="page-actions" style={{ marginTop: 24 }}><button className="button secondary" type="button" onClick={() => setEdit(true)}>Edit name</button>{!student.archivedAt && <button className="button danger" type="button" onClick={() => void tasksClient.archiveStudent(student.id).then(() => navigate("/parent/students"))}>Archive student</button>}</div></section><section className="pair-card"><p className="eyebrow">Student browser access</p><h2>Issue a pairing QR</h2><p style={{ color: "var(--muted)" }}>The QR contains only short-lived pairing material. It never contains the eventual session credential.</p><button className="button" type="button" onClick={() => void issue()} disabled={Boolean(student.archivedAt)}>{pairing ? "Issue a new code" : "Issue pairing QR"}</button>{pairing && <PairingDisplay pairing={pairing} />}</section></div>{edit && <StudentForm student={student} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); load(); }} />}</>;
+}
+
+function PairingDisplay({ pairing }: { pairing: Awaited<ReturnType<typeof tasksClient.issuePairing>> }) {
+  return <div style={{ marginTop: 20 }}><p className="system-label">Show once · expires {formatDate(pairing.expiresAt)}</p><div className="qr-frame" role="img" aria-label="One-use student pairing QR code"><QRCodeCanvas value={pairing.qrPayload} size={200} includeMargin={false} /></div><span className="code">{pairing.code}</span><p style={{ color: "var(--muted)", fontSize: 13 }}>Keep this page open while the student scans or enters the code. Do not copy the credential into a message or URL.</p></div>;
+}
+
+function StudentShell() {
+  const { theme, toggle } = useTheme();
+  return <div className="app-shell"><aside className="app-nav"><Brand /><div className="nav-body"><div className="nav-section"><p className="system-label" style={{ padding: "0 20px" }}>Student workspace</p><NavLink className="nav-link" to="/student">Checklist</NavLink></div></div><div className="nav-footer"><ThemeButton theme={theme} toggle={toggle} /><p className="system-label">One student · one session</p></div></aside><main className="main"><div className="content"><Routes><Route path="" element={<StudentChecklistPage />} /><Route path="pair" element={<StudentPairPage />} /><Route path="*" element={<Navigate to="/student" replace />} /></Routes></div></main></div>;
+}
+
+function StudentPairPage() {
+  const navigate = useNavigate();
+  const [code, setCode] = useState("");
+  const [state, setState] = useState<RequestState>("ready");
+  const [error, setError] = useState<unknown>(null);
+  const submit = async (event: FormEvent) => { event.preventDefault(); if (!code.trim()) return; setState("loading"); setError(null); try { await tasksClient.pairStudent({ code: code.trim().toUpperCase() }); navigate("/student"); } catch (nextError) { setError(nextError); setState(apiState(nextError)); } };
+  return <><PageHeader eyebrow="Student access / Pair" title="Connect this browser" lede="Enter the one-use code shown by your parent. This browser will remain bound to one student." /><section className="pair-card" style={{ maxWidth: 560, marginTop: 28 }}><form onSubmit={submit} style={{ display: "grid", gap: 18 }}><div className="field"><label htmlFor="pair-code">Pairing code</label><input id="pair-code" className="input code" inputMode="text" autoComplete="one-time-code" autoCapitalize="characters" maxLength={32} value={code} onChange={(event) => setCode(event.target.value)} aria-invalid={Boolean(error)} /><p className="meta">Codes are one-use and expire quickly.</p></div>{state !== "ready" && state !== "loading" && <ErrorNotice error={error ?? new TasksApiError(state === "denied" ? 403 : state === "expired" ? 410 : 500, state, state)} />}{state === "loading" && <StateNotice state="loading" />}<button className="button" type="submit" disabled={state === "loading" || !code.trim()}>Pair this browser</button></form></section></>;
+}
+
+function StudentChecklistPage() {
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof tasksClient.studentProfile>> | null>(null);
+  const [items, setItems] = useState<Awaited<ReturnType<typeof tasksClient.studentChecklist>>["items"]>([]);
+  const [state, setState] = useState<RequestState>("loading");
+  const [error, setError] = useState<unknown>(null);
+  const load = useCallback(() => { setState("loading"); Promise.all([tasksClient.studentProfile(), tasksClient.studentChecklist()]).then(([nextProfile, checklist]) => { setProfile(nextProfile); setItems(checklist.items); setState(checklist.items.length ? "ready" : "empty"); }).catch((nextError) => { setError(nextError); setState(apiState(nextError)); }); }, []);
+  useEffect(load, [load]);
+  if (state === "loading") return <><PageHeader eyebrow="Student workspace / Operate" title="Today" /><StateNotice state="loading" /></>;
+  if (state === "error" || state === "denied" || state === "revoked" || state === "expired") return <><PageHeader eyebrow="Student workspace / Operate" title="Today" /><ErrorNotice error={error} onRetry={load} /><p className="meta">If access was revoked or expired, ask a parent for a new pairing code.</p></>;
+  return <><PageHeader eyebrow="Student workspace / Operate" title={`Today with ${profile?.displayName ?? "you"}`} lede="Your checklist is server-owned. Completing a task will appear here only after its verification succeeds." /><section className="checklist" aria-live="polite">{state === "empty" ? <div className="empty"><h2>Nothing assigned yet</h2><p>Your parent has not scheduled anything for today. This empty checklist is ready for the next task.</p></div> : items.map((item) => <div className="checklist-row" key={item.id}><div><h3>{item.title}</h3>{item.description && <p>{item.description}</p>}</div><span className="status">{item.status}</span></div>)}</section></>;
+}
+
+function Pagination({ offset, limit, total, onChange }: { offset: number; limit: number; total: number; onChange: (offset: number) => void }) {
+  if (total <= limit) return null;
+  return <div className="record-toolbar"><span className="meta">{offset + 1}–{Math.min(offset + limit, total)} of {total}</span><div className="page-actions"><button className="button secondary" type="button" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}>Previous</button><button className="button secondary" type="button" disabled={offset + limit >= total} onClick={() => onChange(offset + limit)}>Next</button></div></div>;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function App() {
+  return <Routes><Route path="/parent/*" element={<ParentAuthGate />} /><Route path="/student/*" element={<StudentShell />} /><Route path="*" element={<Navigate to="/parent/students" replace />} /></Routes>;
+}
+
+export default App;

@@ -19,10 +19,14 @@ IDENTITY_COVER_MIN := 80
 	workstation-package workstation-check update-student-vendor-hash \
 	investor-web investor-web-dev investor-web-test investor-web-ci \
 	foundation-check agent-runtime-check \
+	tasks-client tasks-web tasks-typecheck tasks-lint \
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
-	identity-e2e identity-live-stytch dev-db-identity migrate-identity
+	identity-e2e identity-live-stytch dev-db-identity migrate-identity \
+	tasks-check tasks-up tasks-dev tasks-status tasks-endpoints tasks-logs tasks-down \
+	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients \
+	tasks-android tasks-e2e
 
 all: build openapi openapi-tv client tv-client
 
@@ -129,6 +133,20 @@ tv-test:
 ## Run the TV server locally.
 tv-server:
 	cd server && go run ./cmd/tv-server
+
+## Generate and build the standalone Primer Tasks browser client.
+## The Tasks server-owned offline emitter must have written primer-tasks/build/openapi.yaml.
+tasks-client:
+	$(MAKE) -C primer-tasks tasks-client
+
+tasks-typecheck:
+	$(MAKE) -C primer-tasks tasks-typecheck
+
+tasks-lint:
+	$(MAKE) -C primer-tasks tasks-lint
+
+tasks-web:
+	$(MAKE) -C primer-tasks tasks-web
 
 ## Generate the TV TypeScript client from the TV OpenAPI spec.
 tv-client: openapi-tv
@@ -390,3 +408,51 @@ migrate-identity:
 		exit 2; \
 	fi
 	@cd primer-identity && go run ./cmd/identity-migrate up
+
+# =============================================================================
+# Primer Tasks standalone product (Phase 1).
+# Lifecycle commands are forwarded to the product-local Stacklane wrapper so
+# every invocation uses the same explicit Compose project and file vector.
+# =============================================================================
+
+tasks-check:
+	./primer-tasks/scripts/dev check
+
+tasks-up:
+	./primer-tasks/scripts/dev up
+
+tasks-dev:
+	./primer-tasks/scripts/dev dev
+
+tasks-status:
+	./primer-tasks/scripts/dev status
+
+tasks-endpoints:
+	./primer-tasks/scripts/dev endpoints
+
+tasks-logs:
+	./primer-tasks/scripts/dev logs
+
+tasks-down:
+	./primer-tasks/scripts/dev down
+
+tasks-destroy:
+	./primer-tasks/scripts/dev destroy
+
+tasks-build:
+	$(MAKE) -C primer-tasks build
+
+tasks-test:
+	$(MAKE) -C primer-tasks test
+
+tasks-cover:
+	$(MAKE) -C primer-tasks cover
+
+tasks-clients:
+	$(MAKE) -C primer-tasks clients
+
+tasks-android:
+	$(MAKE) -C primer-tasks android
+
+tasks-e2e:
+	$(MAKE) -C primer-tasks e2e

@@ -1,0 +1,16 @@
+# Generated contracts and local build output.
+/web/node_modules/
+/web/dist/
+/clients/typescript/node_modules/
+/openapi.yaml
+/build/
+/coverage.out
+/test-artifacts/*
+!/test-artifacts/.gitkeep
+!/test-artifacts/phase-01-evidence.md
+
+# Local development overrides and generated watcher output.
+.env
+.env.*
+!.env.example
+/tmp/

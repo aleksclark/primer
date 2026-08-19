@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+# Stacklane-aware local lifecycle for Primer Tasks.
+#
+# All commands use the same explicit Compose project, file, and project
+# directory. `logs` follows output; interrupting it does not stop the stack.
+set -Eeuo pipefail
+
+ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
+COMPOSE_FILE_PATH="$ROOT/compose.yaml"
+PROJECT_SLUG="primer-tasks"
+
+# Ambient Compose controls can otherwise make check and lifecycle commands act
+# on different projects. STACKLANE_INSTANCE remains the deliberate input.
+unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME
+
+sanitize_instance() {
+  local value=${1:-}
+  value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+  value=${value:0:48}
+  printf '%s' "${value:-dev}"
+}
+
+worktree_name() {
+  local top
+  top=$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || true)
+  if [[ -n "$top" ]]; then
+    basename "$top"
+  else
+    basename "$(dirname "$ROOT")"
+  fi
+}
+
+if [[ -n "${STACKLANE_INSTANCE:-}" ]]; then
+  INSTANCE=$(sanitize_instance "$STACKLANE_INSTANCE")
+else
+  INSTANCE=$(sanitize_instance "$(worktree_name)")
+fi
+export STACKLANE_INSTANCE="$INSTANCE"
+COMPOSE_PROJECT="${PROJECT_SLUG}-${INSTANCE}"
+export COMPOSE_PROJECT
+
+valid_domain() {
+  [[ "$1" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$ ]]
+}
+
+resolve_base_domain() {
+  if [[ -n "${STACKLANE_BASE_DOMAIN:-}" ]] && valid_domain "$STACKLANE_BASE_DOMAIN"; then
+    printf '%s' "$STACKLANE_BASE_DOMAIN"
+    return
+  fi
+
+  if command -v stacklane >/dev/null 2>&1; then
+    local detected
+    detected=$(timeout 3s stacklane status -o json 2>/dev/null \
+      | python3 -c 'import json,sys; 
+try:
+    value=json.load(sys.stdin).get("base_domain", "")
+    print(value if isinstance(value, str) else "")
+except Exception:
+    pass' 2>/dev/null || true)
+    if valid_domain "$detected" && [[ "$detected" != *local ]]; then
+      printf '%s' "$detected"
+      return
+    fi
+  fi
+  printf '%s' "test"
+}
+
+BASE_DOMAIN=$(resolve_base_domain)
+export STACKLANE_BASE_DOMAIN="$BASE_DOMAIN"
+
+compose() {
+  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE_PATH" \
+    --project-directory "$ROOT" "$@"
+}
+
+check() {
+  local tmpdir rendered render_err
+  umask 077
+  tmpdir=$(mktemp -d)
+  chmod 700 "$tmpdir"
+  rendered="$tmpdir/compose.config.json"
+  render_err="$tmpdir/compose.render.err"
+  : >"$rendered"
+  chmod 600 "$rendered"
+  trap 'rm -rf -- "$tmpdir"' RETURN
+
+  if ! compose config --format json >"$rendered" 2>"$render_err"; then
+    echo "check: FAIL compose-render" >&2
+    trap - RETURN
+    rm -rf -- "$tmpdir"
+    return 1
+  fi
+
+  if ! python3 - "$rendered" "$COMPOSE_PROJECT" "$INSTANCE" <<'PY'
+import json
+import sys
+
+path, expected_project, expected_instance = sys.argv[1:]
+
+def fail(rule):
+    print(f"check: FAIL {rule}", file=sys.stderr)
+    raise SystemExit(1)
+
+try:
+    with open(path, encoding="utf-8") as stream:
+        model = json.load(stream)
+except Exception:
+    fail("rendered-json")
+
+services = model.get("services")
+if not isinstance(services, dict):
+    fail("services-present")
+
+if model.get("name") not in (None, expected_project):
+    fail("compose-project-identity")
+
+public = []
+for name, service in services.items():
+    if service.get("network_mode") == "host":
+        fail("no-host-network")
+    for volume in service.get("volumes", []) or []:
+        if isinstance(volume, dict) and volume.get("type") == "bind":
+            if volume.get("read_only") is False or volume.get("read_only") is None:
+                continue
+    ports = service.get("ports", []) or []
+    if not ports:
+        continue
+    public.append(name)
+    labels = service.get("labels") or {}
+    for key in ("stacklane.enable", "stacklane.project", "stacklane.instance",
+                "stacklane.endpoint", "stacklane.port"):
+        if key not in labels:
+            fail(f"label-{name}-{key}")
+    if labels.get("stacklane.enable") not in ("true", "1"):
+        fail(f"label-{name}-enable-value")
+    if labels.get("stacklane.project") != "primer-tasks":
+        fail(f"label-{name}-project-value")
+    if labels.get("stacklane.instance") != expected_instance:
+        fail(f"label-{name}-instance-value")
+    try:
+        public_port = int(labels["stacklane.port"])
+    except (TypeError, ValueError):
+        fail(f"label-{name}-public-port")
+    for binding in ports:
+        if not isinstance(binding, dict):
+            fail(f"publish-{name}-shape")
+        if binding.get("host_ip") != "127.0.0.1":
+            fail(f"publish-{name}-loopback")
+        published = binding.get("published")
+        if published not in (None, 0, "0"):
+            fail(f"publish-{name}-ephemeral")
+        target = binding.get("target")
+        if not isinstance(target, int):
+            fail(f"publish-{name}-target")
+        target_label = labels.get("stacklane.target_port")
+        if target_label is not None and str(target) != str(target_label):
+            fail(f"publish-{name}-target-label")
+        if target_label is None and target != public_port:
+            fail(f"publish-{name}-public-target")
+    if not isinstance(service.get("healthcheck"), dict):
+        fail(f"healthcheck-{name}")
+
+for name in ("api", "web"):
+    if name not in services:
+        fail(f"service-{name}")
+    binds = [v for v in services[name].get("volumes", []) or []
+             if isinstance(v, dict) and v.get("type") == "bind"]
+    if not any(v.get("target") == "/src" for v in binds):
+        fail(f"source-bind-{name}")
+
+web_env = services["web"].get("environment") or {}
+proxy = web_env.get("DEV_API_PROXY_TARGET", "")
+if "http://api:8080" not in str(proxy) or "localhost" in str(proxy):
+    fail("compose-dns-proxy")
+
+volume_defs = model.get("volumes") or {}
+required_volumes = {
+    "tasks_postgres_data", "tasks_go_mod_cache", "tasks_go_build_cache",
+    "tasks_state", "tasks_air_build", "tasks_web_node_modules", "tasks_npm_cache",
+}
+if not required_volumes.issubset(volume_defs):
+    fail("named-caches-and-state")
+
+for value in (json.dumps(model, separators=(",", ":")),):
+    if ".local" in value:
+        fail("no-local-domain")
+
+print(f"check: PASS {','.join(public)}")
+PY
+  then
+    trap - RETURN
+    rm -rf -- "$tmpdir"
+    return 1
+  fi
+  trap - RETURN
+  rm -rf -- "$tmpdir"
+}
+
+endpoints() {
+  local web_port api_port
+  echo "Stacklane:"
+  echo "  web.${INSTANCE}.${PROJECT_SLUG}.${BASE_DOMAIN}"
+  echo "  api.${INSTANCE}.${PROJECT_SLUG}.${BASE_DOMAIN}:8080"
+  echo "Direct loopback (Docker-assigned ephemeral ports):"
+
+  web_port=$(compose port web 5173 2>/dev/null | head -n 1 | sed -E 's/.*:([0-9]+)$/\1/' || true)
+  api_port=$(compose port api 8080 2>/dev/null | head -n 1 | sed -E 's/.*:([0-9]+)$/\1/' || true)
+  if [[ "$web_port" =~ ^[0-9]+$ ]]; then
+    echo "  web: http://127.0.0.1:${web_port}/"
+  else
+    echo "  web: unavailable (stack is not running)"
+  fi
+  if [[ "$api_port" =~ ^[0-9]+$ ]]; then
+    echo "  api: http://127.0.0.1:${api_port}/"
+  else
+    echo "  api: unavailable (stack is not running)"
+  fi
+}
+
+stacklane_status() {
+  local web_fqdn
+  web_fqdn="web.${INSTANCE}.${PROJECT_SLUG}.${BASE_DOMAIN}"
+  if ! command -v stacklane >/dev/null 2>&1; then
+    echo "stacklane: BLOCKED (daemon/cli absent; direct loopback ports still work)"
+    return
+  fi
+  if ! timeout 3s stacklane status -o json >/dev/null 2>&1; then
+    echo "stacklane: BLOCKED (daemon not reachable; direct loopback ports still work)"
+    return
+  fi
+  if getent ahosts "$web_fqdn" >/dev/null 2>&1; then
+    echo "stacklane: OK"
+  else
+    echo "stacklane: degraded (daemon reachable; FQDN unresolved)"
+  fi
+}
+
+case "${1:-}" in
+  check)
+    check
+    ;;
+  up|dev)
+    check
+    compose up -d --build
+    endpoints
+    ;;
+  status)
+    compose ps
+    stacklane_status
+    ;;
+  endpoints)
+    endpoints
+    ;;
+  logs)
+    echo "Following logs; Ctrl-C stops log following only and leaves the stack running." >&2
+    shift
+    compose logs -f "$@"
+    ;;
+  down)
+    compose down
+    ;;
+  destroy)
+    expected="${COMPOSE_PROJECT}-destroy"
+    if [[ "${CONFIRM:-}" != "$expected" ]]; then
+      echo "refusing destroy: set CONFIRM=$expected" >&2
+      exit 1
+    fi
+    compose down -v
+    ;;
+  *)
+    echo "usage: $0 {check|up|dev|status|endpoints|logs [service...]|down|destroy}" >&2
+    exit 2
+    ;;
+esac

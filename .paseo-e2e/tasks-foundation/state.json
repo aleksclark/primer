@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "suiteId": "tasks-foundation",
+  "functionality": "Parent and student tenant-isolated task foundation: authentication, student creation persistence, pairing issuance and replay denial, and cookie security",
+  "phase": "explore",
+  "callCount": 2,
+  "baseUrl": "http://127.0.0.1:37456/",
+  "apiBaseUrl": "http://127.0.0.1:37455",
+  "acceptance": [
+    "Dev parent A can log in and create a student whose record persists after refresh",
+    "Parent A can issue a QR/code and a student browser can pair then see an empty checklist",
+    "Tenant B cannot access tenant A data if a public UI path permits testing it",
+    "A used pairing credential cannot be replayed",
+    "Authentication cookies have the expected browser security attributes",
+    "Dark desktop, mobile, and light screenshots are captured with console and network notes"
+  ],
+  "updatedAt": "2026-08-19T01:45:00Z",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/tasks-foundation/exploration.md",
+    "playwrightConfig": null,
+    "specFiles": [],
+    "packageJsonScript": null,
+    "lastRun": null
+  },
+  "qualityGates": {
+    "independentChromeVerification": false,
+    "playwrightGreen": false,
+    "relaxed": false
+  }
+}
