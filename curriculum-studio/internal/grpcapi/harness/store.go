@@ -3,16 +3,22 @@
 package harness
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/aleksclark/primer/curriculum-studio/contracts/gen/go/curriculumstudio/v1"
+	"github.com/aleksclark/primer/curriculum-studio/internal/boundary"
 )
 
 // Store is a goroutine-safe in-memory fixture store for the gRPC harness.
@@ -41,6 +47,8 @@ type Store struct {
 	acks map[string]bool
 	// items keyed by id.
 	items map[string]*v1.MaterializedItem
+	// webhook deliveries recorded by the harness dispatcher.
+	deliveries []WebhookDelivery
 }
 
 type idempotencyRecord struct {
@@ -287,6 +295,55 @@ func (s *Store) IsAcknowledged(eventID, consumerID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.acks[ackKey(eventID, consumerID)]
+}
+
+// WebhookDelivery is the durable attempt record owned by the harness. The
+// production dispatcher and lease policy are platform/database concerns.
+type WebhookDelivery struct {
+	EndpointID  string
+	EventID     string
+	HTTPStatus  int
+	Attempt     int
+	AttemptedAt time.Time
+}
+
+// DeliverEvent posts an envelope to a test subscriber and records the attempt.
+// It exercises the C9 header contract without introducing a production bus.
+func (s *Store) DeliverEvent(ctx context.Context, endpointID, endpointURL string, event *v1.DomainEvent, secret []byte) (WebhookDelivery, error) {
+	payload, err := protojson.Marshal(event)
+	if err != nil {
+		return WebhookDelivery{}, err
+	}
+	headers, err := boundary.EventDeliveryHeaders(event, payload, secret)
+	if err != nil {
+		return WebhookDelivery{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, io.NopCloser(bytes.NewReader(payload)))
+	if err != nil {
+		return WebhookDelivery{}, err
+	}
+	req.Header = headers
+	resp, err := http.DefaultClient.Do(req)
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+		_ = resp.Body.Close()
+	}
+	delivery := WebhookDelivery{EndpointID: endpointID, EventID: event.GetId(), HTTPStatus: status, Attempt: 1, AttemptedAt: time.Now().UTC()}
+	s.mu.Lock()
+	s.deliveries = append(s.deliveries, delivery)
+	s.mu.Unlock()
+	if err != nil {
+		return delivery, err
+	}
+	return delivery, nil
+}
+
+// Deliveries returns a snapshot of recorded delivery attempts.
+func (s *Store) Deliveries() []WebhookDelivery {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]WebhookDelivery(nil), s.deliveries...)
 }
 
 func ackKey(eventID, consumerID string) string {
