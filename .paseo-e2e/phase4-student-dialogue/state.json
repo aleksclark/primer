@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "suiteId": "phase4-student-dialogue",
+  "functionality": "Parent creates a chapter dialogue task and a student completes it while authorization, safety, provider-failure, concurrency, and parent-review safeguards hold.",
+  "phase": "explore",
+  "callCount": 1,
+  "baseUrl": null,
+  "acceptance": [
+    "Parent creates a chapter dialogue task",
+    "Student submits two correct answers, receives follow-up after one insufficient answer, and completes",
+    "Reconnect resumes after two answers",
+    "Prompt injection, answer-key, cross-task, foreign-subscribe, concurrent-tab, and provider malformed/timeout defenses hold",
+    "Parent can inspect and override",
+    "Console, network, and database-visible outcomes are recorded without reasoning on the wire or in logs"
+  ],
+  "updatedAt": "2026-04-20T00:00:00Z",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/phase4-student-dialogue/exploration.md",
+    "playwrightConfig": null,
+    "specFiles": [],
+    "packageJsonScript": null,
+    "lastRun": null
+  },
+  "qualityGates": {
+    "independentChromeVerification": false,
+    "playwrightGreen": false,
+    "relaxed": false
+  }
+}
