@@ -138,9 +138,9 @@ Implement materialization runs against published (or allowed draft policy) plan 
 
 ## Completion Gate
 
-- [ ] OpenAPI materialization/items ops implemented
-- [ ] P11 tests green with real Postgres
-- [ ] Ready for workflow runner attachment
+- [x] OpenAPI materialization/items ops implemented
+- [x] P11 tests green with real Postgres
+- [x] Ready for workflow runner attachment
 
 
 ## Dependencies

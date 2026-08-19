@@ -684,24 +684,7 @@ func emptyPage[T any]() T { var page T; return page }
 
 func registerAuthoringRoutes(api huma.API) {
 	// Remaining authoring operations are contract placeholders until their
-	// domain waves land. Curricula, revisions, graphs, and resources are wired
-	// to durable handlers by Server.RegisterRoutes.
-
-	huma.Register(api, authoringOperation("list-materializations", http.MethodGet, "/studio/v1/revisions/{revisionId}/materializations", "Materializations", "List materializations"), func(context.Context, *materializationListInput) (*materializationPageResponse, error) {
-		return &materializationPageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-materialization", http.MethodPost, "/studio/v1/revisions/{revisionId}/materializations", "Materializations", "Start an authoring materialization"), func(context.Context, *createMaterializationInput) (*materializationResponse, error) {
-		return &materializationResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-materialization", http.MethodGet, "/studio/v1/materializations/{materializationId}", "Materializations", "Get materialization status"), func(context.Context, *materializationPath) (*materializationResponse, error) {
-		return &materializationResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-materialization-bundle", http.MethodGet, "/studio/v1/materializations/{materializationId}/bundle", "Materializations", "Get an authoring bundle summary"), func(context.Context, *materializationPath) (*bundleResponse, error) { return &bundleResponse{}, nil })
-	huma.Register(api, authoringOperation("list-materialized-items", http.MethodGet, "/studio/v1/materializations/{materializationId}/items", "Items", "List materialized items"), func(context.Context, *itemListInput) (*itemPageResponse, error) { return &itemPageResponse{}, nil })
-	huma.Register(api, authoringOperation("get-materialized-item", http.MethodGet, "/studio/v1/materialized-items/{itemId}", "Items", "Get a materialized item"), func(context.Context, *itemPath) (*itemResponse, error) { return &itemResponse{}, nil })
-	huma.Register(api, authoringOperation("update-materialized-item", http.MethodPatch, "/studio/v1/materialized-items/{itemId}", "Items", "Update a materialized item"), func(context.Context, *updateItemInput) (*itemResponse, error) { return &itemResponse{}, nil })
-	huma.Register(api, authoringOperation("lock-materialized-item", http.MethodPost, "/studio/v1/materialized-items/{itemId}/lock", "Items", "Lock a materialized item"), func(context.Context, *itemActionInput) (*itemResponse, error) { return &itemResponse{}, nil })
-	huma.Register(api, authoringOperation("unlock-materialized-item", http.MethodPost, "/studio/v1/materialized-items/{itemId}/unlock", "Items", "Unlock a materialized item"), func(context.Context, *itemActionInput) (*itemResponse, error) { return &itemResponse{}, nil })
+	// domain waves land. Materialization routes are owned by S11 handlers.
 
 	huma.Register(api, authoringOperation("list-webhooks", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/webhooks", "Webhooks", "List webhook endpoints"), func(context.Context, *webhookListInput) (*webhookPageResponse, error) {
 		return &webhookPageResponse{}, nil

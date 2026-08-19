@@ -75,6 +75,8 @@ type Config struct {
 	HTTPIdleTimeout time.Duration `envconfig:"HTTP_IDLE_TIMEOUT" default:"60s"`
 	// HTTPMaxBodyBytes caps request body size for future write endpoints.
 	HTTPMaxBodyBytes int64 `envconfig:"HTTP_MAX_BODY_BYTES" default:"1048576"`
+	// MatStub marks a requested run ready with zero items. Production refuses it.
+	MatStub bool `envconfig:"MAT_STUB" default:"false"`
 }
 
 // Load reads Studio configuration from the environment and validates it.
@@ -171,6 +173,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Env == "production" && c.MCPEnabled && len(strings.TrimSpace(c.MCPOriginAllowlist)) == 0 {
 		return fmt.Errorf("studio config: mcp origin allowlist is required when mcp is enabled in production")
+	}
+	if c.Env == "production" && c.MatStub {
+		return fmt.Errorf("studio config: materialization stub completer is forbidden in production")
 	}
 	return nil
 }
