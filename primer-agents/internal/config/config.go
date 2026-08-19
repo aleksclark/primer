@@ -172,11 +172,33 @@ func (c *Config) validateLiveLLMConfig() error {
 	if raw == "" {
 		return fmt.Errorf("agents config: PRIMER_AGENTS_LIVE_LLM_BASE_URL is required when live LLM is enabled (no billable URL default)")
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host != "api.openai.com" || u.Path != "/v1" || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("agents config: live LLM base URL must be explicit https://api.openai.com/v1")
+	if !ApprovedLiveLLMBaseURL(raw) {
+		return fmt.Errorf("agents config: live LLM base URL must be an allowlisted HTTPS OpenAI-compatible endpoint")
 	}
 	return nil
+}
+
+// Approved live LLM HTTPS endpoints. Direct OpenAI plus the existing Primer
+// Cloudflare AI Gateway OpenAI route used by crush/pi. No loopback, no
+// arbitrary hosts, no query/fragment.
+const (
+	liveOpenAIBaseURL = "https://api.openai.com/v1"
+	liveCFAIGOpenAI   = "https://gateway.ai.cloudflare.com/v1/a9d106d880527eaecdaf7835b792849d/curri-gateway/openai"
+)
+
+// ApprovedLiveLLMBaseURL reports whether raw is an explicit allowlisted
+// HTTPS OpenAI-compatible provider URL.
+func ApprovedLiveLLMBaseURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	switch strings.TrimRight(u.String(), "/") {
+	case liveOpenAIBaseURL, liveCFAIGOpenAI:
+		return true
+	default:
+		return false
+	}
 }
 
 // validateIdentityConfig enforces fail-closed rules for the JWKS/issuer pair.
