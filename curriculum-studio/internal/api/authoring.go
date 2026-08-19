@@ -521,15 +521,19 @@ type workspaceListInput struct {
 }
 type curriculumListInput struct {
 	WorkspaceID string `path:"workspaceId"`
-	Limit int `query:"limit" minimum:"1" maximum:"200" default:"25"`
-	Offset int `query:"offset" minimum:"0" default:"0"`
-	Q string `query:"q"`
-	Sort string `query:"sort"`
-	Dir string `query:"dir" enum:"asc,desc" default:"asc"`
+	Limit       int    `query:"limit" minimum:"1" maximum:"200" default:"25"`
+	Offset      int    `query:"offset" minimum:"0" default:"0"`
+	Q           string `query:"q"`
+	Sort        string `query:"sort"`
+	Dir         string `query:"dir" enum:"asc,desc" default:"asc"`
 }
 type revisionListInput struct {
-	authoringListQuery
 	CurriculumID string `path:"curriculumId"`
+	Limit        int    `query:"limit" minimum:"1" maximum:"200" default:"25"`
+	Offset       int    `query:"offset" minimum:"0" default:"0"`
+	Q            string `query:"q"`
+	Sort         string `query:"sort"`
+	Dir          string `query:"dir" enum:"asc,desc" default:"asc"`
 }
 type catalogListInput struct {
 	authoringListQuery
@@ -698,9 +702,6 @@ func registerAuthoringRoutes(api huma.API) {
 	huma.Register(api, authoringOperation("update-materialized-item", http.MethodPatch, "/studio/v1/materialized-items/{itemId}", "Items", "Update a materialized item"), func(context.Context, *updateItemInput) (*itemResponse, error) { return &itemResponse{}, nil })
 	huma.Register(api, authoringOperation("lock-materialized-item", http.MethodPost, "/studio/v1/materialized-items/{itemId}/lock", "Items", "Lock a materialized item"), func(context.Context, *itemActionInput) (*itemResponse, error) { return &itemResponse{}, nil })
 	huma.Register(api, authoringOperation("unlock-materialized-item", http.MethodPost, "/studio/v1/materialized-items/{itemId}/unlock", "Items", "Unlock a materialized item"), func(context.Context, *itemActionInput) (*itemResponse, error) { return &itemResponse{}, nil })
-
-	huma.Register(api, authoringOperation("create-export", http.MethodPost, "/studio/v1/revisions/{revisionId}/exports", "Exports", "Start an export"), func(context.Context, *createExportInput) (*exportResponse, error) { return &exportResponse{}, nil })
-	huma.Register(api, authoringOperation("get-export", http.MethodGet, "/studio/v1/exports/{exportId}", "Exports", "Get export status"), func(context.Context, *exportPath) (*exportResponse, error) { return &exportResponse{}, nil })
 
 	huma.Register(api, authoringOperation("list-webhooks", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/webhooks", "Webhooks", "List webhook endpoints"), func(context.Context, *webhookListInput) (*webhookPageResponse, error) {
 		return &webhookPageResponse{}, nil

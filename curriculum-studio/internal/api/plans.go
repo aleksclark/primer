@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/authz"
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
+	studioexport "github.com/aleksclark/primer/curriculum-studio/internal/export"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 	"github.com/aleksclark/primer/curriculum-studio/internal/validation"
 )
@@ -118,6 +121,7 @@ func (s *Server) registerPlanRoutes(api huma.API) {
 	s.registerCurriculumPlanRoutes(api)
 	s.registerRevisionPlanRoutes(api)
 	s.registerGraphRoutes(api)
+	s.registerExportRoutes(api)
 }
 
 func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
@@ -260,6 +264,15 @@ func (s *Server) registerRevisionPlanRoutes(api huma.API) {
 		created, e := repo.NewPlanRevisionRepo(s.querier).Create(ctx, ws, &domain.PlanRevision{CurriculumID: cur.ID, Revision: next, Title: cur.Title + " — draft " + strconv.Itoa(next), Brief: brief})
 		if e != nil {
 			return nil, planError(e)
+		}
+		if strings.TrimSpace(in.Body.ForkFromRevisionID) != "" {
+			from, de := decodePlanID(in.Body.ForkFromRevisionID, revisionIDPrefix)
+			if de != nil {
+				return nil, huma.Error400BadRequest("invalid fork revision")
+			}
+			if e = copyDraftGraph(ctx, s.querier, ws, from, created.ID); e != nil {
+				return nil, planError(e)
+			}
 		}
 		return &revisionResponse{Body: revisionView(created)}, nil
 	})
@@ -423,6 +436,43 @@ func (s *Server) registerGraphRoutes(api huma.API) {
 	})
 }
 
+func (s *Server) registerExportRoutes(api huma.API) {
+	huma.Register(api, huma.Operation{OperationID: "createExport", Method: http.MethodPost, Path: "/studio/v1/revisions/{revisionId}/exports", Tags: []string{"Exports"}, DefaultStatus: http.StatusAccepted}, func(ctx context.Context, in *createExportInput) (*exportResponse, error) {
+		rev, ws, m, e := s.revisionForCaller(ctx, in.RevisionID)
+		if e != nil {
+			return nil, planError(e)
+		}
+		if e = requireAuthor(ctx, m); e != nil {
+			return nil, e
+		}
+		if in.Body.Format != "markdown" && in.Body.Format != "pdf" {
+			return nil, huma.Error400BadRequest("format must be markdown or pdf")
+		}
+		graph, e := repo.NewPlanGraphRepo(s.querier).Load(ctx, ws, rev.ID)
+		if e != nil {
+			return nil, planError(e)
+		}
+		var data []byte
+		if in.Body.Format == "markdown" {
+			data = studioexport.Markdown(graph)
+		} else {
+			data = studioexport.PDF(graph)
+		}
+		sum := sha256.Sum256(data)
+		principal, _ := AuthFromContext(ctx)
+		created, e := repo.NewExportRepo(s.querier).Create(ctx, &domain.Export{WorkspaceID: ws, PlanRevisionID: &rev.ID, Format: string(in.Body.Format), RequestedBySubjectRef: principal.SubjectRef})
+		if e != nil {
+			return nil, planError(e)
+		}
+		artifact := "memory://studio/exports/" + created.ID.String()
+		ready, e := repo.NewExportRepo(s.querier).Complete(ctx, ws, created.ID, artifact, hex.EncodeToString(sum[:]))
+		if e != nil {
+			return nil, planError(e)
+		}
+		return &exportResponse{Body: ExportJob{ID: ready.ID.String(), RevisionID: revisionID(rev.ID), Format: ExportFormat(ready.Format), Status: MaterializationStatus(ready.Status), ArtifactURI: ready.ArtifactRef, CreatedAt: ready.CreatedAt, CompletedAt: ready.CompletedAt}}, nil
+	})
+}
+
 func graphView(g *domain.PlanGraph) PlanGraph {
 	out := PlanGraph{RevisionID: revisionID(g.Revision.ID), Nodes: []PlanNode{}, Edges: []PlanEdge{}, ETag: revisionETag(&g.Revision)}
 	for _, v := range g.Objectives {
@@ -560,6 +610,38 @@ func nodeTable(raw string) (uuid.UUID, string, error) {
 		}
 	}
 	return uuid.Nil, "", fmt.Errorf("unknown node")
+}
+
+// copyDraftGraph creates a new editable graph from a published revision. The
+// copy is table-backed; outcome/objective relationships are rejoined by their
+// stable codes rather than leaking source UUIDs into the new draft.
+func copyDraftGraph(ctx context.Context, q repo.Querier, ws, from, to uuid.UUID) error {
+	return repo.WithTx(ctx, q, func(tx repo.Querier) error {
+		var state string
+		if err := tx.QueryRow(ctx, `SELECT r.status FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1 AND c.workspace_id=$2`, from, ws).Scan(&state); err != nil {
+			return err
+		}
+		if state != "published" {
+			return fmt.Errorf("%w: fork source is not published", repo.ErrInvalidTransition)
+		}
+		statements := []string{
+			`INSERT INTO curriculum_studio.objectives(plan_revision_id,code,title,description,position) SELECT $2,code,title,description,position FROM curriculum_studio.objectives WHERE plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.outcomes(plan_revision_id,objective_id,code,title,description,mastery_criteria,position) SELECT $2,no.id,o.code,o.title,o.description,o.mastery_criteria,o.position FROM curriculum_studio.outcomes o LEFT JOIN curriculum_studio.objectives oo ON oo.id=o.objective_id LEFT JOIN curriculum_studio.objectives no ON no.plan_revision_id=$2 AND no.code=oo.code WHERE o.plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.outcome_standard_mappings(outcome_id,standard_id,alignment,notes) SELECT no.id,m.standard_id,m.alignment,m.notes FROM curriculum_studio.outcome_standard_mappings m JOIN curriculum_studio.outcomes oo ON oo.id=m.outcome_id JOIN curriculum_studio.outcomes no ON no.plan_revision_id=$2 AND no.code=oo.code WHERE oo.plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.learning_arcs(plan_revision_id,code,title,description,position) SELECT $2,code,title,description,position FROM curriculum_studio.learning_arcs WHERE plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.units(plan_revision_id,learning_arc_id,code,title,essential_questions,estimated_minutes,position,blueprint) SELECT $2,na.id,u.code,u.title,u.essential_questions,u.estimated_minutes,u.position,u.blueprint FROM curriculum_studio.units u LEFT JOIN curriculum_studio.learning_arcs oa ON oa.id=u.learning_arc_id LEFT JOIN curriculum_studio.learning_arcs na ON na.plan_revision_id=$2 AND na.code=oa.code WHERE u.plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.projects(plan_revision_id,unit_id,code,title,description,phases,estimated_minutes,position) SELECT $2,nu.id,p.code,p.title,p.description,p.phases,p.estimated_minutes,p.position FROM curriculum_studio.projects p LEFT JOIN curriculum_studio.units ou ON ou.id=p.unit_id LEFT JOIN curriculum_studio.units nu ON nu.plan_revision_id=$2 AND nu.code=ou.code WHERE p.plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.outcome_prerequisites(plan_revision_id,outcome_id,prerequisite_id,requirement) SELECT $2,no.id,np.id,pr.requirement FROM curriculum_studio.outcome_prerequisites pr JOIN curriculum_studio.outcomes oo ON oo.id=pr.outcome_id JOIN curriculum_studio.outcomes op ON op.id=pr.prerequisite_id JOIN curriculum_studio.outcomes no ON no.plan_revision_id=$2 AND no.code=oo.code JOIN curriculum_studio.outcomes np ON np.plan_revision_id=$2 AND np.code=op.code WHERE pr.plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.evidence_requirements(plan_revision_id,outcome_id,kind,description,criteria) SELECT $2,no.id,e.kind,e.description,e.criteria FROM curriculum_studio.evidence_requirements e JOIN curriculum_studio.outcomes oo ON oo.id=e.outcome_id JOIN curriculum_studio.outcomes no ON no.plan_revision_id=$2 AND no.code=oo.code WHERE e.plan_revision_id=$1`,
+			`INSERT INTO curriculum_studio.scheduling_constraints(plan_revision_id,kind,payload) SELECT $2,kind,payload FROM curriculum_studio.scheduling_constraints WHERE plan_revision_id=$1`,
+		}
+		for _, statement := range statements {
+			if _, err := tx.Exec(ctx, statement, from, to); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 type planScanner interface{ Scan(...any) error }

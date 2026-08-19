@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BookOpen, Compass, FolderKanban, LogIn, Moon, Settings2, Sun } from "lucide-react";
-import { createCurriculum, currentSession, listCurricula } from "./api/client";
+import { createCurriculum, currentSession, createRevision, exportRevision, listCurricula, listRevisions, publishRevision, validateRevision } from "./api/client";
 
 type Theme = "dark" | "light";
 type Workspace = { workspaceId: string; workspaceName: string; role: string };
 type Curriculum = { id: string; name: string; description?: string; status: string; updatedAt?: string };
+type Revision = { id: string; state: string; revisionNumber?: number };
 
 const nav = [
   { label: "Explore", icon: Compass, text: "Curricula" },
@@ -20,6 +21,9 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
+  const [selected, setSelected] = useState<Curriculum | null>(null);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [revision, setRevision] = useState<Revision | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -50,6 +54,23 @@ export default function App() {
     } else setMessage("The Studio API could not create that curriculum.");
   }
 
+  async function openCurriculum(item: Curriculum) {
+    setSelected(item); setMessage("Loading plan drafts…");
+    const result = await listRevisions(item.id);
+    if (result.data && "items" in result.data) { const items = result.data.items as Revision[]; setRevisions(items); setRevision(items[0] ?? null); setMessage(items.length ? "Draft ready to configure." : "No draft revision yet."); }
+  }
+
+  async function newDraft() {
+    if (!selected) return; const result = await createRevision(selected.id); if (result.data && "id" in result.data) { const next = result.data as Revision; setRevisions((items) => [next, ...items]); setRevision(next); setMessage("Draft revision created."); }
+  }
+  async function revisionAction(action: "validate" | "publish" | "markdown" | "pdf") {
+    if (!revision) return;
+    if (action === "validate") await validateRevision(revision.id);
+    if (action === "publish") await publishRevision(revision.id);
+    if (action === "markdown" || action === "pdf") await exportRevision(revision.id, action);
+    setMessage(action === "validate" ? "Validation report saved." : action === "publish" ? "Revision published." : `Preparing ${action} export.`);
+  }
+
   async function search(value: string) {
     setQuery(value);
     if (!workspace) return;
@@ -70,7 +91,8 @@ export default function App() {
       <section className="library" aria-labelledby="library-title"><div className="section-heading"><div><span className="eyebrow">Explore</span><h3 id="library-title">Curriculum library</h3></div><input aria-label="Search curricula" placeholder="Search by name" value={query} onChange={(event) => search(event.target.value)} /></div>
         <form className="create-form" onSubmit={submit}><label htmlFor="curriculum-name">New curriculum brief</label><input id="curriculum-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Grade 6 mathematics" /><button className="primary" type="submit">Create draft <span aria-hidden>↗</span></button></form>
         {message && <p className="feedback" role="status">{message}</p>}
-        {curricula.length === 0 ? <div className="empty-state"><div className="empty-mark">01</div><div><span className="eyebrow">No curricula found</span><h3>Start with a brief.</h3><p>Create a draft above. The server owns search, pagination, and durable identity; this view never filters a bulk client-side collection.</p></div></div> : <div className="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Updated</th><th>ID</th></tr></thead><tbody>{curricula.map((item) => <tr key={item.id}><th scope="row">{item.name}</th><td><span className="status-text">● {item.status}</span></td><td>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "—"}</td><td><code>{item.id}</code></td></tr>)}</tbody></table></div>}
+        {curricula.length === 0 ? <div className="empty-state"><div className="empty-mark">01</div><div><span className="eyebrow">No curricula found</span><h3>Start with a brief.</h3><p>Create a draft above. The server owns search, pagination, and durable identity; this view never filters a bulk client-side collection.</p></div></div> : <div className="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Updated</th><th>ID</th></tr></thead><tbody>{curricula.map((item) => <tr key={item.id} onClick={() => openCurriculum(item)}><th scope="row">{item.name}</th><td><span className="status-text">● {item.status}</span></td><td>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "—"}</td><td><code>{item.id}</code></td></tr>)}</tbody></table></div>}
+        {selected && <div className="plan-panel"><div><span className="eyebrow">Configure / {selected.name}</span><h3>{revision ? `Revision ${revision.revisionNumber ?? "draft"}` : "No revision"}</h3><p>{message}</p></div><div className="plan-actions"><button className="secondary" type="button" onClick={newDraft}>New draft</button>{revision && <><button className="secondary" type="button" onClick={() => revisionAction("validate")}>Validate</button><button className="primary" type="button" onClick={() => revisionAction("publish")}>Publish</button><button className="plain-button" type="button" onClick={() => revisionAction("markdown")}>Export MD</button><button className="plain-button" type="button" onClick={() => revisionAction("pdf")}>Export PDF</button></>}</div></div>}
       </section>
       <footer className="footer"><span>Studio shell · dark-first Editorial Instrument</span><span>Bearer tokens stay server-side · host-only session cookie</span></footer>
     </main>
