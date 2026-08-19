@@ -1,5 +1,7 @@
 # 11: IB7 / key rotation and hardening
 
+**Status: IMPLEMENTATION PRESENT on `impl/I11-hardening`; exact-tip review and CI gate pending.**
+
 ## Goal
 
 Harden Primer-issued token verification and operational boundaries. This plan is Stytch-backed: Stytch is upstream human-session authority; Primer Identity is the only Stytch client and mints only downstream Primer material where this phase authorizes it.
