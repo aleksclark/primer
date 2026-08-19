@@ -81,6 +81,22 @@ Studio never treats `X-Service-Token` as a permanent parallel credential
 system. See `agent_docs/plans/primer-identity-service-design.md` and the
 foundation crosswalk.
 
+## Event delivery envelope (C9)
+
+Webhook deliveries use JSON `DomainEvent` envelope fields from the protobuf
+contract and these headers:
+
+- `Content-Type: application/json`
+- `X-Curriculum-Studio-Event-Id`
+- `X-Curriculum-Studio-Event-Type`
+- `X-Curriculum-Studio-Signature` (HMAC signature interface; key material is
+  supplied by the platform secrets boundary, not invented by Contracts)
+
+The seven event type wire strings are parity-checked across protobuf, emitted
+OpenAPI, and the Studio schema. Missing acknowledgements remain eligible for
+at-least-once redelivery; entertainment or Primer-only payload schemas are not
+copied into OpenAPI.
+
 ## Generated artifact policy
 
 Generated sources are **build outputs and are not committed**:
