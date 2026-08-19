@@ -1,117 +1,85 @@
-# Primer Tasks Phase 1 evidence report
+# Primer Tasks Phase 1 remediation evidence
 
-Base: `ec36e559abde93bd0cfaedd0a3c6dee3f410fbc0` (`ec36e55`)
 Branch: `impl/tasks-p1-foundation`
-Date: 2026-08-19
-
-## Status
-
-**BLOCKED — Phase 1 is not promoted.** The implementation establishes a separate Go module, real PostgreSQL Compose stack, tenant-scoped CRUD/pairing prototype, web shell, and Android debug shell, but mandatory independent browser and Android exploratory gates did not PASS. No Playwright or emulator automation was authored or promoted.
-
-## Implemented paths
-
-- `primer-tasks/`: standalone module, migrations, server/migrate/OpenAPI commands, API, web, Android, clients, Compose lifecycle.
-- `go.work`, root `Makefile`: module and product forwarding targets.
-- `.paseo-e2e/tasks-foundation/`: dedicated exploratory browser state and notes (blocked by Chrome DevTools profile lock).
-- `test-artifacts/android-foundation-exploration.md`: dedicated emulator acceptance report (fresh APK launch PASS; pairing scenarios BLOCKED).
-
-Generated contract/client source and build outputs remain ignored and were not intended for commit.
-
-## Commands and observed results
-
-- `STACKLANE_INSTANCE=phase1 primer-tasks/scripts/dev check` -> `PASS api,web`.
-- Stacklane Compose start: `STACKLANE_INSTANCE=phase1 primer-tasks/scripts/dev up` -> real PostgreSQL, migration, API and Vite services healthy; direct API/web ports were `37455`/`37456` before a later web remount and `37481`/`37482` after it.
-- `curl http://127.0.0.1:<api>/health` -> `{"status":"ok"}`.
-- Rendered Compose JSON -> services `api,migrate,postgres,web`; publishing services use loopback ephemeral bindings and Stacklane labels; named state/cache volumes present.
-- `make tasks-test` / `go test ./primer-tasks/...` -> PASS, but no product Go tests exist (vacuous).
-- `go build ./primer-tasks/cmd/...` -> PASS.
-- `make tasks-clients` -> PASS; offline contract emission and TypeScript generation produce ignored outputs.
-- `make tasks-web` / `npm --prefix primer-tasks/web run lint` -> PASS.
-- `make tasks-android` / `cd primer-tasks/android && ./gradlew assembleDebug` -> PASS; APK produced.
-- API smoke through real PostgreSQL: parent A login/session, create student, issue pairing, browser pair/profile, and replay -> PASS; replay returned HTTP 410. Pairing code and device credentials are hashed server-side; QR payload contains code/expiry/ID but no returned device token.
-- Vite proxy after rewrite: browser-facing `/api/auth/session` -> HTTP 401 rather than route 404.
-- `make tasks-e2e` -> FAIL: no `e2e/` directory.
-- `go test -race ./primer-tasks/...` and `go vet ./primer-tasks/...` -> PASS only because there are no product tests.
-- `make tasks-cover` -> 0% product coverage; not a Phase 1 pass.
-
-## Required exploratory evidence
-
-### Browser
-
-Dedicated agent `15495315-3829-4ed5-927c-21aaee49f9f8` loaded `paseo-e2e` and attempted exploration twice. Both `chrome-devtools_list_pages` and `chrome-devtools_new_page` failed before page creation because the MCP profile was already running at `/home/aleks/.cache/chrome-devtools-mcp/paseo-e2e-profile`. Evidence is in `.paseo-e2e/tasks-foundation/exploration.md`; result is BLOCKED. No screenshots, UI assertions, cookie inspection, console/network evidence, or Playwright promotion is claimed.
-
-### Android
-
-Dedicated agent `036a6dcd-5ebe-43c4-9eee-72ce2b32fd6a` booted a fresh wiped `pixel` emulator, installed the real APK, cleared app state, launched it, and captured `test-artifacts/android-foundation-screen.png`, logcat, emulator log, and command log. Fresh install/unpaired screen PASS. Real QR/API pair, token exchange, bound profile, process/reboot persistence, replay, revocation, and post-pair storage/backup checks are BLOCKED; report explicitly records each result. No emulator automation was promoted.
-
-## Independent anti-cheat review
-
-Reviewer `3da755aa-d594-4c96-9004-0d2526281ed6` verdict: **BLOCK**. Findings include:
-
-1. `/auth/login?principal=` is a direct development identity shortcut, not authorization-code + S256 PKCE; live issuer validation is absent.
-2. BFF/API path mismatch was found and fixed for Vite `/api` proxy via path rewrite; public browser flow still lacks independent Chrome evidence.
-3. Android has no implemented camera QR scanner, uses synchronous direct OkHttp rather than generated Kotlin façade, and cannot complete against Compose's ephemeral API port.
-4. Pairing claim commits before session/device issuance; claim and credential creation are not one transaction.
-5. Archive revocation is not one transaction and does not revoke student BFF sessions; pairing/device audit coverage is incomplete.
-6. OpenAPI is manually duplicated rather than derived from production route registration; Kotlin generation is missing; the emitter contract is incomplete.
-7. Pairing/device rows lack composite tenant/student ownership constraints.
-8. There are no auth/tenancy/pairing/revocation/persistence tests; E2E target is broken; coverage is 0%.
-9. No two-instance, hot-reload, HMR, screenshots/axe, or full Android evidence exists.
-
-The full review output is preserved in the orchestrator session; this report records the blocking verdict rather than hiding it.
+Reviewed tip: `7e7b884` (`fix(tasks): keep module tidy and stabilize dev proof`)
+Status date: 2026-08-19
 
 ## Gate decision
 
-Do **not** commit a claim of Phase 1 PASS. Do **not** write/promote Playwright or emulator automation. Do **not** dispatch Phase 2. Resolve the reviewer blockers and obtain independent browser exploratory PASS plus Android emulator exploratory PASS first, then follow the required promotion order.
+**BLOCKED — Phase 1 is not promoted.** The browser exploratory gate remains PASS, and the implementation/build/coverage/contract/Stacklane gates now pass. The mandatory fresh Android camera acceptance did not PASS: five independent attempts were blocked by public-origin, camera-enumeration, module-runtime, or emulator-offline issues. No Android pair, persistence, replay, revoke, or post-pair storage result is claimed. No Playwright, connected Android, or Phase 2 work was started.
 
-## Remediation wave (uncommitted; current HEAD remains cba1399)
+## Reviewed commits
 
-The remediation worktree contains concrete, uncommitted fixes:
+- `629899f` — honest blocked checkpoint preserving the existing remediation/evidence.
+- `06bc565` — stabilizes the Go watcher proof and ignores Android build products.
+- `f258e7e` — derives the OpenAPI route/method set from the shared production chi router; deterministic contract tests and ignored generated Kotlin/TypeScript outputs.
+- `5ad631b` — CameraX `RGBA_8888` + ZXing `RGBLuminanceSource` decoder seam with crop/stride/rotation tests using the browser QR fixture.
+- `15f13f8` — Android pairing-origin policy tests.
+- `9705e4c` — real PostgreSQL testcontainer integration coverage and enforcing 85% product gate.
+- `7e7b884` — `go.mod` tidy normalization and final dev-proof repair.
 
-- Durable PKCE state and a protocol-compatible PostgreSQL-backed test issuer with visible Parent A/Parent B selector; production validation now rejects test mode, test issuers, missing database/auth configuration before migration/listen.
-- Transactional pairing credential issuance, student-session/device revocation, composite tenant/student foreign keys, audit rows, and substantive config/API/database tests.
-- Offline route inventory contract emission with ignored TS/Kotlin build outputs and client façades.
-- CameraX + bundled ZXing scanner, QR-origin policy, Keystore/DataStore persistence, student profile/checklist and revocation clear-state behavior.
-- Compose test issuer, same-origin `/issuer` and `/auth` proxying, and Go/Vite/two-instance proof scripts.
+## Focused verification
 
-Focused results:
+All commands below were run from the reviewed tip unless noted:
 
 ```text
-go test ./primer-tasks/...                         PASS
-go vet ./primer-tasks/...                         PASS
-make tasks-clients tasks-web tasks-android         PASS
-cd primer-tasks/android && ./gradlew testDebugUnitTest assembleDebug   PASS
-./primer-tasks/scripts/prove-dev.sh                PASS
-# real PostgreSQL Compose PKCE/CRUD/pair/replay/archive smoke             PASS
-# current product Go coverage                              24.1% (BLOCKED; below 85%)
+go test ./primer-tasks/... -count=1                         PASS
+go test -race ./primer-tasks/... -count=1                   PASS
+go vet ./primer-tasks/...                                   PASS
+go build ./primer-tasks/cmd/...                            PASS
+make tasks-cover                                            PASS — 85.2% >= 85%
+cd primer-tasks && go test ./... -count=1                    PASS
+cd primer-tasks && go vet ./... && go build ./cmd/...        PASS
+make tasks-clients                                           PASS
+make tasks-web                                               PASS
+cd primer-tasks && npm --prefix web run lint                PASS
+cd primer-tasks/android && ./gradlew testDebugUnitTest       PASS
+cd primer-tasks/android && ./gradlew assembleDebug           PASS
+./primer-tasks/scripts/prove-dev.sh                         PASS
 ```
 
-### Fresh browser exploratory result: PASS
+`make tasks-cover` uses `scripts/enforce-module-cover.sh`, runs `go test ./internal/... -coverpkg=./internal/...`, requires Docker-backed integration coverage (`PRIMER_TASKS_COVERAGE_GATE=1`), and fails closed below 85% or when integration infrastructure cannot run. Measured total: **85.2%**.
 
-Dedicated suite `.paseo-e2e/tasks-foundation-remediation/` completed real Chrome exploration through the public Stacklane web origin. It observed:
+Offline OpenAPI emission was run twice and compared byte-for-byte:
 
-- Parent A and Parent B authorization-code + S256 PKCE flows through the real test issuer.
-- HttpOnly + SameSite=Lax callback headers from both fresh contexts, recorded in `call7-auth-callback-headers.md` with secrets redacted.
-- Student create/update/archive, QR/code issuance, student browser pairing, empty checklist and refresh persistence.
-- Pairing replay denial and archive-driven student session revocation.
-- Parent B URL, list-filter, and PATCH-body IDOR denials against Parent A data.
-- Empty browser JS cookie/local/session storage, no bearer exposure.
-- Dark desktop/mobile, light mobile, responsive menu, and Lighthouse accessibility 100 evidence.
+```text
+cd primer-tasks && go run ./cmd/openapi-gen -out /tmp/tasks-openapi-a.yaml
+cd primer-tasks && go run ./cmd/openapi-gen -out /tmp/tasks-openapi-b.yaml
+cmp ...                                                     PASS
+SHA-256: 971950da1939c252a6b347bb346ce9415b6d85d314ca2f64fd506550e3d241ef
+```
 
-The exploratory agent's final result is `PASS` (`state.json` phase `codify-ready`). No Playwright suite was written because Android acceptance has not passed.
+The contract test compares the emitted path/method inventory with the exact production chi router and checks served-document equality plus 201/204 status contracts. Generated TypeScript/Kotlin sources remain ignored; boundary/lint and Kotlin compilation passed. No generated clients/contracts are tracked.
 
-### Fresh Android exploratory result: BLOCKED
+The final dev proof verified two isolated Compose instances, loopback ephemeral ports, Stacklane labels, worktree source mounts, named volumes, Go reload without container restart, Vite HMR without navigation, source restoration, and that stopping instance A left instance B healthy. A separate manual `STACKLANE_INSTANCE=manual-check ./primer-tasks/scripts/dev up` also passed real migration/API/web health before exact destroy cleanup.
 
-Dedicated emulator agent performed multiple honest retries, including a final real webcam0 loopback attempt:
+## Browser exploratory acceptance
 
-- Fresh wiped Pixel AVD, real current APK, CameraX permission and active camera frames were verified.
-- Fresh QR was issued through the real browser UI and independently validated with `zbarimg`.
-- `emulator -webcam-list` exposed `webcam0`; CameraX received live frames.
-- ZXing Hybrid/GlobalHistogram/ALSO_INVERTED retries did not decode the QR. The app remained on **Scan pairing QR**; no device token, bound profile, persistence, replay, revocation, or storage-leakage state was observed.
-- Evidence is in `test-artifacts/android-foundation-remediation/final-hybrid-global/` and the dedicated report `test-artifacts/android-foundation-remediation.md`.
+Dedicated suite: `.paseo-e2e/tasks-foundation-remediation/`
+Result: **PASS** (call 7, `state.json` phase `codify-ready`).
 
-This is a hard acceptance blocker, not a substituted manual-code pass. Playwright and emulator automation remain unpromoted, and no independent final anti-cheat review was dispatched after a green Android gate.
+The fresh Chrome flow observed real Parent A and Parent B S256 PKCE authorization, HttpOnly/SameSite=Lax callback headers (redacted in `call7-auth-callback-headers.md`), student CRUD/archive, QR issuance, student-browser pairing and refresh persistence, replay denial, archive revocation, two-tenant URL/body/filter IDOR denial, empty JS cookie/storage surfaces, responsive dark/light UI, and Lighthouse accessibility 100. Relevant UI/auth behavior was unchanged by the remediation commits used after that pass. No Playwright suite was written or promoted because Android has not passed.
 
-### Current verdict
+## Android exploratory acceptance
 
-**BLOCKED. No remediation commit was created.** The browser gate is PASS, but Android QR decoding and the 85% product Go coverage gate remain unresolved. Phase 2 must not be dispatched. Current reviewed tip remains `cba13993dfe8863b795babb51de543711d18ce84`.
+Dedicated reviewer/acceptance agent: `e4056e00-6e47-4e72-b709-8d28931270ab`
+Result: **BLOCKED — no PASS claim.** Evidence is under `test-artifacts/android-foundation-remediation/l2-independent-call{1,2,3,4,5}-20260819/` and `.paseo-e2e/android-phase1-l2-review/`.
+
+Observed blockers by call:
+
+1. Browser MCP/profile and public-origin reachability prevented a fresh QR.
+2. Direct web was healthy but the visible issuer URL omitted the advertised `:8091` port and callback targeted an unreachable Stacklane web origin.
+3. Environment-only `/issuer`, direct callback, and `10.0.2.2` origin configuration reached a fresh QR and real UI, but CameraX reported `Available cameras: 0` / `CameraUnavailableException` before the decoder ran.
+4. Reconfiguration was blocked by the then-untidy Go module graph (`go: updates to go.mod needed`). This was fixed and independently verified afterward by `go mod tidy`, real Compose startup, and `prove-dev`.
+5. With the tidy module and exact known-good `-gpu swiftshader_indirect -camera-back webcam0 -port 5556` invocation, the real UI issued a fresh QR and the actual QR feed was sent to `/dev/video0`. Initial camera enumeration showed one back camera, but the emulator became unresponsive/offline when the live QR feed was introduced; bounded diagnostics recorded `pair_ui=unknown`. No bound student or downstream PASS was claimed, and the emulator/feed/stack were cleaned up.
+
+The Android implementation itself has a pure `QrFrameDecoder` seam that consumes actual RGBA bytes with row/pixel stride, crop offsets, and 0/90/180/270-degree rotation. The exact browser-rendered QR crop and rotation/stride matrix pass JVM tests. This is implementation evidence only; it is not a substitute for the required live CameraX pairing acceptance.
+
+## Anti-cheat and promotion status
+
+- Pairing tests use real PostgreSQL and assert transactional replay, tenant isolation, archival revocation, credential hashes, and public HTTP behavior; no first-party in-memory substitute was added.
+- Production configuration tests cover fail-fast test-auth/issuer/secret/database validation.
+- Browser acceptance used the real UI and public same-origin boundaries; no private repository seeding was used.
+- Android acceptance never typed a code, called a pairing endpoint directly, recreated a QR payload, or bypassed CameraX.
+- The duplicate Android implementer `843df8c2` was closed before integration; its activity showed inspection only and no edits. The sole Android owner `f88fb245` produced `5ad631b`.
+- No Playwright or emulator automation was promoted. Promotion is authorized only after a fresh independent Android exploratory PASS, followed by observed-flow promotion and a fresh full-phase anti-cheat review.
