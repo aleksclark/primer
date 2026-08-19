@@ -34,9 +34,10 @@ func (l Limits) valid() error {
 }
 
 type Runtime struct {
-	Agent  fantasy.Agent
-	Limits Limits
-	Labels map[string]string
+	Agent        fantasy.Agent
+	Limits       Limits
+	Labels       map[string]string
+	allowedTools map[string]struct{}
 }
 type Execution struct {
 	// FinalText is the only model output exposed by the durable runtime. The
@@ -61,7 +62,11 @@ func NewFantasyAgent(model fantasy.LanguageModel, tools []fantasy.AgentTool, lim
 	if err := limits.valid(); err != nil {
 		return nil, err
 	}
-	return &Runtime{Agent: fantasy.NewAgent(model, fantasy.WithTools(tools...), fantasy.WithMaxRetries(limits.MaxRetries)), Limits: limits, Labels: safeToolLabels()}, nil
+	allowedTools := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		allowedTools[tool.Info().Name] = struct{}{}
+	}
+	return &Runtime{Agent: fantasy.NewAgent(model, fantasy.WithTools(tools...), fantasy.WithMaxRetries(limits.MaxRetries)), Limits: limits, Labels: safeToolLabels(), allowedTools: allowedTools}, nil
 }
 
 func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(protocol.Event) error) (Execution, error) {
@@ -90,6 +95,12 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 		OnToolInputDelta: func(string, string) error { return nil },
 		OnToolInputEnd:   func(id string) error { return nil },
 		OnToolCall: func(c fantasy.ToolCallContent) error {
+			if _, allowed := r.allowedTools[c.ToolName]; !allowed {
+				// A provider must not gain authority by emitting a tool call that
+				// was omitted from the server-owned active tool set. Stop before
+				// any tool result can commit a mutation.
+				return errors.New("agent tool unavailable")
+			}
 			return next(protocol.ToolProgress(runID, seq+1, r.label(c.ToolName), "called"))
 		},
 		OnToolResult: func(c fantasy.ToolResultContent) error {
