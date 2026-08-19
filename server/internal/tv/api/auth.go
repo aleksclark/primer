@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	baseapi "github.com/aleksclark/primer/server/internal/api"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	baserepo "github.com/aleksclark/primer/server/internal/repo"
 	"github.com/aleksclark/primer/server/internal/tv/auth"
 	"github.com/aleksclark/primer/server/internal/tv/domain"
@@ -30,17 +31,73 @@ const deviceSecurityScheme = "deviceToken"
 // adminSecurityScheme names the API-key scheme documented on admin operations.
 const adminSecurityScheme = "adminKey"
 
+// adminJWTSecurityScheme names the JWT bearer scheme for human admin auth.
+const adminJWTSecurityScheme = "adminJWT"
+
 // adminKeyHeader carries the admin API key. The admin surface hands out device
 // pairing codes, so it issues credentials and must not be left open. Primer's
 // overseer and tutor agents present the same key when they read the grid or
 // place curriculum-driven availability windows.
 const adminKeyHeader = "X-Admin-Key"
 
-// requireAdmin returns the operation middleware guarding the admin API. With no
-// key configured the guard is inert, which keeps spec generation and a bare
-// local checkout working; deployments set TV_ADMIN_API_KEY.
+// requireAdmin returns the operation middleware guarding the admin API.
+//
+// Authentication paths (checked in order):
+//  1. Bearer token that is a JWT (3-part) → verified as a Primer Identity JWT.
+//  2. X-Admin-Key header or Bearer opaque → checked as the shared service secret.
+//
+// Fail-closed semantics:
+//   - When an identity verifier IS configured, JWT-shaped tokens MUST validate.
+//   - When the admin key IS configured, non-JWT tokens MUST match.
+//   - When BOTH are unconfigured, the guard is inert (spec generation, local dev).
+//     Production deploys MUST configure at least one; tv-server/main.go logs a
+//     warning when neither is set.
+//
+// Raw Stytch JWTs are rejected because the identityauth verifier requires
+// typ=at+jwt (Stytch uses typ=JWT) and a Primer-issued iss/aud pair.
 func (s *Server) requireAdmin() func(huma.Context, func(huma.Context)) {
-	return baseapi.SharedSecretGuard(s.api, s.adminKey, adminKeyHeader, "admin credentials required")
+	return func(ctx huma.Context, next func(huma.Context)) {
+		// Inert when nothing is configured (spec gen, local dev, test harness).
+		if s.identityVerifier == nil && s.adminKey == "" {
+			next(ctx)
+			return
+		}
+
+		// Try JWT path first (Bearer token that looks like a JWT).
+		bearer := baseapi.BearerToken(ctx.Header("Authorization"))
+		if bearer != "" && identityauth.IsJWT(bearer) {
+			if s.identityVerifier == nil {
+				_ = huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "identity verification not configured")
+				return
+			}
+			_, err := s.identityVerifier.Verify(ctx.Context(), bearer)
+			if err != nil {
+				_ = huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "invalid identity token")
+				return
+			}
+			// JWT verified — no local role check; any valid Primer Identity
+			// principal with the correct audience is an admin. Product
+			// authorization (family-level) is enforced by the BFF/SPA, not
+			// re-derived from Stytch organization roles.
+			next(ctx)
+			return
+		}
+
+		// Try shared-secret path (X-Admin-Key header or opaque Bearer).
+		if s.adminKey == "" {
+			_ = huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "admin credentials required")
+			return
+		}
+		presented := ctx.Header(adminKeyHeader)
+		if presented == "" {
+			presented = bearer // non-JWT opaque bearer
+		}
+		if !baseapi.EqualSecret(presented, s.adminKey) {
+			_ = huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "admin credentials required")
+			return
+		}
+		next(ctx)
+	}
 }
 
 // requireDevice returns the operation middleware that authenticates a device

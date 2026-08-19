@@ -14,6 +14,7 @@ import (
 	"time"
 
 	basedb "github.com/aleksclark/primer/server/internal/db"
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	"github.com/aleksclark/primer/server/internal/tv/api"
 	"github.com/aleksclark/primer/server/internal/tv/config"
 	tvdb "github.com/aleksclark/primer/server/internal/tv/db"
@@ -63,9 +64,19 @@ func run() error {
 	}
 
 	if cfg.AdminAPIKey == "" {
-		// Worth shouting about: without a key anyone who can reach the port can
-		// read pairing codes and pair their own device.
-		slog.Warn("admin api key is not set; the admin API is unauthenticated")
+		slog.Warn("admin api key is not set; service-to-service admin auth is disabled")
+	}
+
+	verifier := identityauth.New(identityauth.Config{
+		Issuer:   cfg.IdentityIssuer,
+		Audience: cfg.IdentityAudience,
+		JWKSURL:  cfg.IdentityJWKSURL,
+	})
+	if verifier == nil {
+		slog.Warn("identity verifier not configured; JWT admin auth is disabled")
+	}
+	if verifier == nil && cfg.AdminAPIKey == "" {
+		slog.Warn("NEITHER identity verifier NOR admin API key is configured; admin API will reject all requests (fail-closed)")
 	}
 
 	reporter := primerReporter(cfg)
@@ -74,6 +85,7 @@ func run() error {
 		CORSOrigins:             cfg.CORSOrigins,
 		Jellyfin:                media,
 		AdminKey:                cfg.AdminAPIKey,
+		IdentityVerifier:        verifier,
 		GrantTTL:                cfg.GrantTTL,
 		PairingTTL:              cfg.PairingTTL,
 		ChannelTimezone:         cfg.ChannelTimezone,

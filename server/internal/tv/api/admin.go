@@ -67,7 +67,10 @@ func (s *Server) adminGuard() baseapi.CRUDOption {
 
 // adminOp stamps admin authentication onto a hand-written operation.
 func (s *Server) adminOp(op huma.Operation) huma.Operation {
-	op.Security = append(op.Security, map[string][]string{adminSecurityScheme: {}})
+	op.Security = append(op.Security,
+		map[string][]string{adminSecurityScheme: {}},
+		map[string][]string{adminJWTSecurityScheme: {}},
+	)
 	op.Middlewares = append(op.Middlewares, s.requireAdmin())
 	op.Errors = append(op.Errors, http.StatusUnauthorized)
 	return op

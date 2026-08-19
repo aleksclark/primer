@@ -31,9 +31,19 @@ type Config struct {
 	JellyfinAPIKey string `envconfig:"JELLYFIN_API_KEY"`
 	// JellyfinUserID scopes library browsing to a Jellyfin user.
 	JellyfinUserID string `envconfig:"JELLYFIN_USER_ID"`
-	// AdminAPIKey guards the admin API, which issues device pairing codes.
-	// Empty leaves it open, which is only safe for local development.
+	// AdminAPIKey guards the admin API for service-to-service callers
+	// (content-ingest, LMS). Empty disables the shared-secret path; human
+	// admin callers authenticate via Primer Identity JWT instead.
 	AdminAPIKey string `envconfig:"ADMIN_API_KEY"`
+	// IdentityIssuer is the expected "iss" claim in Primer Identity JWTs
+	// (e.g. "https://identity.primer.local"). Required for JWT admin auth.
+	IdentityIssuer string `envconfig:"IDENTITY_ISSUER"`
+	// IdentityAudience is the expected "aud" claim for the TV service
+	// (e.g. "primer-tv"). Required for JWT admin auth.
+	IdentityAudience string `envconfig:"IDENTITY_AUDIENCE"`
+	// IdentityJWKSURL is the Identity service's JWKS endpoint for verifying
+	// JWT signatures. Required for JWT admin auth.
+	IdentityJWKSURL string `envconfig:"IDENTITY_JWKS_URL"`
 	// GrantTTL is how long a play grant stays redeemable. Grants only need to
 	// survive long enough for the client to start playback.
 	GrantTTL time.Duration `envconfig:"GRANT_TTL" default:"5m"`

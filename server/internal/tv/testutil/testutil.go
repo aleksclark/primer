@@ -11,12 +11,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/aleksclark/primer/server/internal/identityauth"
 	baserepo "github.com/aleksclark/primer/server/internal/repo"
 	basetestutil "github.com/aleksclark/primer/server/internal/testutil"
 	"github.com/aleksclark/primer/server/internal/tv/api"
 	tvdb "github.com/aleksclark/primer/server/internal/tv/db"
+	"github.com/aleksclark/primer/server/internal/tv/domain"
 	"github.com/aleksclark/primer/server/internal/tv/jellyfin"
 	"github.com/aleksclark/primer/server/internal/tv/primer"
+	"github.com/aleksclark/primer/server/internal/tv/testutil/factory"
 )
 
 // harness owns the TV schema's migrated pool.
@@ -39,6 +42,9 @@ type Options struct {
 	GrantTTL time.Duration
 	// AdminKey enables admin API authentication; empty leaves it open.
 	AdminKey string
+	// IdentityVerifier enables Primer Identity JWT authentication for the
+	// admin surface. Nil disables the JWT path.
+	IdentityVerifier *identityauth.Verifier
 	// ChannelTimezone overrides the zone the programmed grid's days are
 	// bucketed in; empty selects the server default.
 	ChannelTimezone string
@@ -66,7 +72,22 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, baserepo.Querier, jel
 	if o.Jellyfin == nil {
 		o.Jellyfin = jellyfin.NewFake()
 	}
+	return apiInner(t, o)
+}
 
+// APIRaw is like API but explicitly accepts Options for tests that need
+// precise control over auth configuration (e.g. testing fail-closed behavior
+// when specific credentials are configured).
+func APIRaw(t *testing.T, opts Options) (humatest.TestAPI, baserepo.Querier, jellyfin.Client) {
+	t.Helper()
+	if opts.Jellyfin == nil {
+		opts.Jellyfin = jellyfin.NewFake()
+	}
+	return apiInner(t, opts)
+}
+
+func apiInner(t *testing.T, o Options) (humatest.TestAPI, baserepo.Querier, jellyfin.Client) {
+	t.Helper()
 	q := basetestutil.NewSavepointQuerier(Tx(t))
 	_, testAPI := humatest.New(t)
 	failAttempts, failDays := o.ManifestFailMaxAttempts, o.ManifestFailMaxDays
@@ -78,6 +99,7 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, baserepo.Querier, jel
 		Now:                     o.Now,
 		GrantTTL:                o.GrantTTL,
 		AdminKey:                o.AdminKey,
+		IdentityVerifier:        o.IdentityVerifier,
 		ChannelTimezone:         o.ChannelTimezone,
 		Primer:                  o.Primer,
 		ReleaseDir:              o.ReleaseDir,
@@ -85,4 +107,11 @@ func API(t *testing.T, opts ...Options) (humatest.TestAPI, baserepo.Querier, jel
 		ManifestFailMaxDays:     failDays,
 	})
 	return testAPI, q, o.Jellyfin
+}
+
+// PairedDevice is a convenience re-export of factory.PairedDevice for test
+// files that already import testutil.
+func PairedDevice(t *testing.T, q baserepo.Querier) (*domain.Device, string) {
+	t.Helper()
+	return factory.PairedDevice(t, q)
 }
