@@ -122,6 +122,7 @@ func (s *Server) RegisterRoutes(api huma.API) {
 	s.registerAuthRoutes(api)
 	s.RegisterWorkspaceRoutes(api)
 	s.registerStandardsRoutes(api)
+	s.registerResourcesRoutes(api)
 
 	type healthOut struct {
 		Body struct {
