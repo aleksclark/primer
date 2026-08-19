@@ -214,6 +214,9 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		switch cmd.Type {
+		case "hello":
+			// Connection hello is a protocol negotiation frame; it has no
+			// durable side effect and is intentionally not replayed.
 		case "subscribe":
 			s.agentSubscribe(ctx, sc, sub, cmd)
 		case "user_message":
