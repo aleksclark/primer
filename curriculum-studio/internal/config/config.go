@@ -52,6 +52,17 @@ type Config struct {
 	AcceptServiceTokenAlias bool `envconfig:"ACCEPT_SERVICE_TOKEN_ALIAS" default:"false"`
 	// ArtifactStoreDir is optional filesystem root for later export bytes (S13).
 	ArtifactStoreDir string `envconfig:"ARTIFACT_STORE_DIR"`
+	// MCPEnabled controls whether the /mcp Streamable HTTP endpoint is registered.
+	// Default: true in non-production; must be explicitly set in production.
+	MCPEnabled bool `envconfig:"MCP_ENABLED" default:"true"`
+	// MCPOriginAllowlist is a comma-separated list of allowed Origin header values.
+	// Empty in dev/test (no browser-origin restriction); required non-empty in production.
+	MCPOriginAllowlist string `envconfig:"MCP_ORIGIN_ALLOWLIST"`
+	// MCPMaxBodyBytes caps the MCP request body. The explicit default keeps the
+	// transport limit independent of the SDK's changing defaults.
+	MCPMaxBodyBytes int64 `envconfig:"MCP_MAX_BODY_BYTES" default:"4194304"`
+	// MCPRequestTimeout caps each tool invocation (0 → no per-request timeout).
+	MCPRequestTimeout time.Duration `envconfig:"MCP_REQUEST_TIMEOUT" default:"0"`
 	// ShutdownTimeout bounds graceful HTTP shutdown after SIGINT/SIGTERM.
 	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"10s"`
 	// HTTPReadHeaderTimeout bounds how long the server waits for request headers.
@@ -141,6 +152,15 @@ func (c *Config) Validate() error {
 	if c.HTTPMaxBodyBytes <= 0 {
 		return fmt.Errorf("studio config: http max body bytes must be positive")
 	}
+	if c.MCPMaxBodyBytes == 0 {
+		c.MCPMaxBodyBytes = 4 << 20
+	}
+	if c.MCPMaxBodyBytes < 0 {
+		return fmt.Errorf("studio config: mcp max body bytes cannot be negative")
+	}
+	if c.MCPRequestTimeout < 0 {
+		return fmt.Errorf("studio config: mcp request timeout cannot be negative")
+	}
 	// Same pgx-parsed forbidden-name validator as library Connect/Migrate —
 	// no forked deny list in config.
 	if err := studiodb.ValidateDatabaseURL(c.DatabaseURL); err != nil {
@@ -148,6 +168,9 @@ func (c *Config) Validate() error {
 	}
 	if err := validateIdentityEndpoints(c.Env, c.AuthMode, c.JWKSURL, c.Issuer); err != nil {
 		return err
+	}
+	if c.Env == "production" && c.MCPEnabled && len(strings.TrimSpace(c.MCPOriginAllowlist)) == 0 {
+		return fmt.Errorf("studio config: mcp origin allowlist is required when mcp is enabled in production")
 	}
 	return nil
 }

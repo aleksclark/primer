@@ -2,6 +2,7 @@
 # generated client façades; product consumers must import a façade instead.
 curriculum-studio/internal/api/
 curriculum-studio/internal/grpcapi/
+curriculum-studio/internal/mcp/
 curriculum-studio/cmd/openapi-gen/
 curriculum-studio/contracts/
 curriculum-studio/clients/

@@ -15,11 +15,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aleksclark/primer/curriculum-studio/internal/api"
 	"github.com/aleksclark/primer/curriculum-studio/internal/authn"
 	"github.com/aleksclark/primer/curriculum-studio/internal/config"
 	studiodb "github.com/aleksclark/primer/curriculum-studio/internal/db"
 	"github.com/aleksclark/primer/curriculum-studio/internal/logging"
+	studiomcp "github.com/aleksclark/primer/curriculum-studio/internal/mcp"
 )
 
 // Options customizes process bootstrap for tests.
@@ -87,14 +90,38 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("configure auth validator: %w", err)
 		}
 	}
-	_, handler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias})
+	_, apiHandler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias})
 
-	// Bound body size for all routes (health is tiny; future writes stay capped).
-	bounded := http.MaxBytesHandler(handler, cfg.HTTPMaxBodyBytes)
+	// Mount /mcp Streamable HTTP endpoint when enabled.
+	// The MCP handler is not wrapped by MaxBytesHandler because it applies its
+	// own body limit (MCPMaxBodyBytes → SDK MaxRequestBodyBytes).
+	router := chi.NewMux()
+	if cfg.MCPEnabled {
+		mcpHandler := studiomcp.New(studiomcp.Options{
+			Config: studiomcp.MCPConfig{
+				Enabled:         cfg.MCPEnabled,
+				OriginAllowlist: cfg.MCPOriginAllowlist,
+				MaxBodyBytes:    cfg.MCPMaxBodyBytes,
+				RequestTimeout:  cfg.MCPRequestTimeout,
+			},
+			Services:  studiomcp.NewServicesFromQuerier(pool),
+			Validator: validator,
+			Querier:   pool,
+		})
+		router.Mount("/mcp", mcpHandler)
+		logger.Info("mcp endpoint registered", "path", "/mcp")
+	}
+	// Mount all other studio routes; MaxBytesHandler wraps the REST/grpc surface.
+	router.Mount("/", http.MaxBytesHandler(apiHandler, cfg.HTTPMaxBodyBytes))
+
+	// The REST subtree is already bounded above. Do not wrap the whole router
+	// again: doing so would silently apply the REST 1 MiB limit to /mcp and
+	// defeat MCPMaxBodyBytes.
+	handler := http.Handler(router)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr(),
-		Handler:           bounded,
+		Handler:           handler,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
