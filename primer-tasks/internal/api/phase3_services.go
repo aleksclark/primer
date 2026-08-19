@@ -195,16 +195,22 @@ func (p phase3Services) CreateSchedule(ctx context.Context, c parent.ServiceCont
 	return p.GetSchedule(ctx, c, id.String())
 }
 func (p phase3Services) UpdateSchedule(ctx context.Context, c parent.ServiceContext, in parent.ScheduleUpdateInput) (parent.Schedule, error) {
-	_, err := p.s.DB.Exec(ctx, `UPDATE task_schedules SET timezone=$3,start_local=$4,end_local=$5,rrule=$6,due_offset_minutes=$7,version=version+1 WHERE tenant_id=$1 AND id=$2 AND enabled`, scopeTenant(c), in.ScheduleID, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
+	result, err := p.s.DB.Exec(ctx, `UPDATE task_schedules SET timezone=$3,start_local=$4,end_local=$5,rrule=$6,due_offset_minutes=$7,version=version+1 WHERE tenant_id=$1 AND id=$2 AND enabled`, scopeTenant(c), in.ScheduleID, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
 	if err != nil {
 		return parent.Schedule{}, err
+	}
+	if result.RowsAffected() != 1 {
+		return parent.Schedule{}, parent.ErrServiceMissing
 	}
 	return p.GetSchedule(ctx, c, in.ScheduleID)
 }
 func (p phase3Services) DisableSchedule(ctx context.Context, c parent.ServiceContext, id string, version int) (parent.Schedule, error) {
-	_, err := p.s.DB.Exec(ctx, `UPDATE task_schedules SET enabled=false,retired_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 AND version=$3 AND enabled`, scopeTenant(c), id, version)
+	result, err := p.s.DB.Exec(ctx, `UPDATE task_schedules SET enabled=false,retired_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 AND version=$3 AND enabled`, scopeTenant(c), id, version)
 	if err != nil {
 		return parent.Schedule{}, err
+	}
+	if result.RowsAffected() != 1 {
+		return parent.Schedule{}, parent.ErrConfirmationExpired
 	}
 	return p.GetSchedule(ctx, c, id)
 }
