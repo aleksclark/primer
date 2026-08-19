@@ -16,6 +16,7 @@ const hmr = hmrHost
     }
   : undefined;
 
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -34,6 +35,7 @@ export default defineConfig({
         target: proxyTarget,
         changeOrigin: true,
         secure: false,
+        configure: (proxy) => { proxy.on("proxyReq", (proxyReq, req) => { if (req.headers.host) proxyReq.setHeader("X-Forwarded-Host", req.headers.host); }); },
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
       "/auth": {
