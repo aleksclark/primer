@@ -237,6 +237,9 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if got := requestJSON(t, h, http.MethodPost, "/tasks/"+task.TemplateID+"/retire", "parent-a", ""); got.Code != 404 {
 		t.Fatalf("repeat retire=%d", got.Code)
 	}
+	if got := requestJSON(t, h, http.MethodPost, "/tasks/"+task.ID+"/publish", "parent-a", ""); got.Code != 404 {
+		t.Fatalf("retired publish=%d", got.Code)
+	}
 }
 
 func TestPhase2RejectsInvalidSchedulesAndCrossTenantMutations(t *testing.T) {

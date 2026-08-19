@@ -17,6 +17,13 @@ func TestParseRRULEValidationBranches(t *testing.T) {
 		t.Fatal("bad timezone accepted")
 	}
 }
+func TestAllWeekdayCodes(t *testing.T) {
+	start := time.Date(2026, 1, 5, 8, 0, 0, 0, time.UTC)
+	if _, err := Parse("FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH,FR,SA;COUNT=1", "UTC", start, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParseAndOccurrencesOneOffAndIntervals(t *testing.T) {
 	start := time.Date(2026, 1, 5, 8, 0, 0, 0, time.UTC)
 	s, e := Parse("", "UTC", start, nil)
