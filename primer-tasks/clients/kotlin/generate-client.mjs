@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const contract = path.resolve(here, "../../build/openapi.yaml");
+const contract = path.resolve(here, "../../build/openapi.json");
 const output = path.resolve(here, "src/main/kotlin/com/aleksclark/primertasks/generated/GeneratedTasksApi.kt");
 const document = JSON.parse(await readFile(contract, "utf8"));
 
@@ -13,17 +13,22 @@ function schema(name) {
   return value;
 }
 
-function endpoint(pathname, method) {
-  if (!document.paths?.[pathname]?.[method]) throw new Error(`OpenAPI operation ${method.toUpperCase()} ${pathname} is required`);
-  return pathname;
+function endpoint(operationId) {
+  for (const [pathname, operations] of Object.entries(document.paths ?? {})) {
+    for (const operation of Object.values(operations)) {
+      if (operation?.operationId === operationId) return pathname;
+    }
+  }
+  throw new Error(`OpenAPI operation ${operationId} is required`);
 }
 
 function kotlinType(value) {
   if (value.$ref) return value.$ref.split("/").at(-1);
-  if (value.type === "array") return `List<${kotlinType(value.items)}>`;
-  if (value.type === "integer") return "Int";
-  if (value.type === "number") return "Double";
-  if (value.type === "boolean") return "Boolean";
+  const types = Array.isArray(value.type) ? value.type : [value.type];
+  if (types.includes("array")) return `List<${kotlinType(value.items)}>`;
+  if (types.includes("integer")) return "Int";
+  if (types.includes("number")) return "Double";
+  if (types.includes("boolean")) return "Boolean";
   return "String";
 }
 
@@ -39,7 +44,7 @@ function defaultValue(type) {
 function model(name, source = name) {
   const value = schema(source);
   const required = new Set(value.required ?? []);
-  const fields = Object.entries(value.properties ?? {}).map(([property, propertySchema]) => {
+  const fields = Object.entries(value.properties ?? {}).filter(([property]) => property !== "$schema").map(([property, propertySchema]) => {
     const rawType = kotlinType(propertySchema);
     const nullable = propertySchema.nullable === true;
     const type = nullable ? `${rawType}?` : rawType;
@@ -49,18 +54,18 @@ function model(name, source = name) {
   return `@Serializable\ndata class ${name}(\n${fields.join("\n")}\n)`;
 }
 
-const source = `// Code generated from build/openapi.yaml by generate-client.mjs; DO NOT EDIT.
+const source = `// Code generated from build/openapi.json by generate-client.mjs; DO NOT EDIT.
 package com.aleksclark.primertasks.generated
 
 import kotlinx.serialization.Serializable
 
 object PrimerTasksOperations {
-    const val DEVICE_PAIR = "${endpoint("/device/pair", "post")}"
-    const val STUDENT_PROFILE = "${endpoint("/student/profile", "get")}"
-    const val STUDENT_CHECKLIST = "${endpoint("/student/checklist", "get")}"
+    const val DEVICE_PAIR = "${endpoint("device-pair")}"
+    const val STUDENT_PROFILE = "${endpoint("student-profile")}"
+    const val STUDENT_CHECKLIST = "${endpoint("student-checklist")}"
 }
 
-${model("PairCode", "Pair")}
+${model("PairCode")}
 
 ${model("DevicePairResponse", "DevicePair")}
 
