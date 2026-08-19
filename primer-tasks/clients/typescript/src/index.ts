@@ -3,6 +3,7 @@ import type { paths, components } from "../generated/schema";
 
 export type { components, paths } from "../generated/schema";
 export type Student = components["schemas"]["Student"];
+export type Health = components["schemas"]["Health"];
 
 type Operation<Path extends keyof paths, Method extends keyof paths[Path]> = NonNullable<paths[Path][Method]>;
 type JsonBody<Path extends keyof paths, Method extends keyof paths[Path]> = Operation<Path, Method> extends { requestBody?: { content: { "application/json": infer Body } } } ? Body : never;
@@ -77,6 +78,9 @@ export function createTasksClient(options: TasksClientOptions = {}) {
   }
 
   return {
+    async health(options: RequestOptions = {}) {
+      return unwrap(transport.GET("/health", { ...options }));
+    },
     async parentSession(options: RequestOptions = {}) {
       return unwrap(transport.GET("/auth/session", { ...options }));
     },

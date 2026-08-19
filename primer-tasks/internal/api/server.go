@@ -26,6 +26,7 @@ type Server struct {
 	Env          string
 	SecureCookie bool
 	Auth         AuthConfig
+	StartedAt    time.Time
 }
 type scope struct{ Tenant, Subject string }
 
@@ -62,7 +63,7 @@ type Student struct {
 }
 
 func New(db *pgxpool.Pool, env string) *Server {
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env)}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC()}
 }
 
 func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
@@ -76,7 +77,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC()}
 }
 func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
 
