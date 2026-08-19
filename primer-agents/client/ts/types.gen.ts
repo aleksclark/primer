@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/agents/v1/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an on-demand job (idempotent; profile is always job) */
+        post: operations["create-job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/v1/runs": {
         parameters: {
             query?: never;
@@ -73,6 +90,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/v1/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List schedules */
+        get: operations["list-schedules"];
+        put?: never;
+        /** Create a schedule */
+        post: operations["create-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/v1/schedules/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable a schedule */
+        post: operations["disable-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/v1/schedules/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable a schedule */
+        post: operations["enable-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/v1/sessions": {
         parameters: {
             query?: never;
@@ -125,10 +194,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/v1/student/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a student tutoring session (profile always student; requires agents:student:session scope) */
+        post: operations["create-student-session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/v1/student/sessions/{id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a student tutoring turn (profile always student; no profile/budget/tools/model fields) */
+        post: operations["append-student-turn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AppendStudentTurnInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expectedRevision: number;
+            idempotencyKey: string;
+            inputPreview?: string;
+        };
         AppendTurnInputBody: {
             /**
              * Format: uri
@@ -159,6 +273,15 @@ export interface components {
             readonly $schema?: string;
             reasonClass?: string;
         };
+        CreateJobInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            inputPreview?: string;
+            jobType: string;
+        };
         CreateRunInputBody: {
             /**
              * Format: uri
@@ -171,6 +294,20 @@ export interface components {
             /** Format: uuid */
             sessionId?: string;
         };
+        CreateScheduleInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            cronExpr: string;
+            inputPreview?: string;
+            jobType: string;
+            /** Format: int32 */
+            maxCatchUp: number;
+            profile: string;
+            timezone: string;
+        };
         CreateSessionInputBody: {
             /**
              * Format: uri
@@ -179,6 +316,14 @@ export interface components {
             readonly $schema?: string;
             callerContext?: string;
             profile: string;
+        };
+        CreateStudentSessionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            opaqueStudentRef?: string;
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -247,6 +392,14 @@ export interface components {
             readonly $schema?: string;
             runs: components["schemas"]["RunResponse"][] | null;
         };
+        ListSchedulesOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            schedules: components["schemas"]["ScheduleResponse"][] | null;
+        };
         ListTurnsOutBody: {
             /**
              * Format: uri
@@ -284,6 +437,30 @@ export interface components {
             /** Format: int64 */
             stateVersion: number;
             status: string;
+        };
+        ScheduleResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            createdAt: string;
+            cronExpr: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            inputPreview?: string;
+            jobType: string;
+            /** Format: int32 */
+            maxCatchUp: number;
+            /** Format: date-time */
+            nextDueAt?: string;
+            ownerNamespace: string;
+            profile: string;
+            timezone: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         SessionResponse: {
             /**
@@ -328,6 +505,41 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "create-job": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateJobInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-runs": {
         parameters: {
             query?: {
@@ -494,6 +706,132 @@ export interface operations {
             };
         };
     };
+    "list-schedules": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListSchedulesOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateScheduleInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "disable-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "enable-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "create-session": {
         parameters: {
             query?: never;
@@ -603,6 +941,74 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AppendTurnInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppendTurnOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-student-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStudentSessionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "append-student-turn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendStudentTurnInputBody"];
             };
         };
         responses: {

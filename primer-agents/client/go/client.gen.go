@@ -22,6 +22,15 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// AppendStudentTurnInputBody defines model for AppendStudentTurnInputBody.
+type AppendStudentTurnInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema           *string `json:"$schema,omitempty"`
+	ExpectedRevision int64   `json:"expectedRevision"`
+	IdempotencyKey   string  `json:"idempotencyKey"`
+	InputPreview     *string `json:"inputPreview,omitempty"`
+}
+
 // AppendTurnInputBody defines model for AppendTurnInputBody.
 type AppendTurnInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -48,6 +57,14 @@ type CancelRunInputBody struct {
 	ReasonClass *string `json:"reasonClass,omitempty"`
 }
 
+// CreateJobInputBody defines model for CreateJobInputBody.
+type CreateJobInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema       *string `json:"$schema,omitempty"`
+	InputPreview *string `json:"inputPreview,omitempty"`
+	JobType      string  `json:"jobType"`
+}
+
 // CreateRunInputBody defines model for CreateRunInputBody.
 type CreateRunInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -58,12 +75,31 @@ type CreateRunInputBody struct {
 	SessionId     *openapi_types.UUID `json:"sessionId,omitempty"`
 }
 
+// CreateScheduleInputBody defines model for CreateScheduleInputBody.
+type CreateScheduleInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema       *string `json:"$schema,omitempty"`
+	CronExpr     string  `json:"cronExpr"`
+	InputPreview *string `json:"inputPreview,omitempty"`
+	JobType      string  `json:"jobType"`
+	MaxCatchUp   int32   `json:"maxCatchUp"`
+	Profile      string  `json:"profile"`
+	Timezone     string  `json:"timezone"`
+}
+
 // CreateSessionInputBody defines model for CreateSessionInputBody.
 type CreateSessionInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema        *string `json:"$schema,omitempty"`
 	CallerContext *string `json:"callerContext,omitempty"`
 	Profile       string  `json:"profile"`
+}
+
+// CreateStudentSessionInputBody defines model for CreateStudentSessionInputBody.
+type CreateStudentSessionInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema           *string `json:"$schema,omitempty"`
+	OpaqueStudentRef *string `json:"opaqueStudentRef,omitempty"`
 }
 
 // ErrorDetail defines model for ErrorDetail.
@@ -128,6 +164,13 @@ type ListRunsOutBody struct {
 	Runs   *[]RunResponse `json:"runs"`
 }
 
+// ListSchedulesOutBody defines model for ListSchedulesOutBody.
+type ListSchedulesOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema    *string             `json:"$schema,omitempty"`
+	Schedules *[]ScheduleResponse `json:"schedules"`
+}
+
 // ListTurnsOutBody defines model for ListTurnsOutBody.
 type ListTurnsOutBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -157,6 +200,24 @@ type RunResponse struct {
 	Status         string              `json:"status"`
 }
 
+// ScheduleResponse defines model for ScheduleResponse.
+type ScheduleResponse struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema         *string            `json:"$schema,omitempty"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	CronExpr       string             `json:"cronExpr"`
+	Enabled        bool               `json:"enabled"`
+	Id             openapi_types.UUID `json:"id"`
+	InputPreview   *string            `json:"inputPreview,omitempty"`
+	JobType        string             `json:"jobType"`
+	MaxCatchUp     int32              `json:"maxCatchUp"`
+	NextDueAt      *time.Time         `json:"nextDueAt,omitempty"`
+	OwnerNamespace string             `json:"ownerNamespace"`
+	Profile        string             `json:"profile"`
+	Timezone       string             `json:"timezone"`
+	UpdatedAt      time.Time          `json:"updatedAt"`
+}
+
 // SessionResponse defines model for SessionResponse.
 type SessionResponse struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -183,6 +244,11 @@ type TurnResponse struct {
 	TurnSequence   int64               `json:"turnSequence"`
 }
 
+// CreateJobParams defines parameters for CreateJob.
+type CreateJobParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // ListRunsParams defines parameters for ListRuns.
 type ListRunsParams struct {
 	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -199,10 +265,18 @@ type ListRunEventsParams struct {
 	Limit    *int64 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListSchedulesParams defines parameters for ListSchedules.
+type ListSchedulesParams struct {
+	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListTurnsParams defines parameters for ListTurns.
 type ListTurnsParams struct {
 	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// CreateJobJSONRequestBody defines body for CreateJob for application/json ContentType.
+type CreateJobJSONRequestBody = CreateJobInputBody
 
 // CreateRunJSONRequestBody defines body for CreateRun for application/json ContentType.
 type CreateRunJSONRequestBody = CreateRunInputBody
@@ -210,11 +284,20 @@ type CreateRunJSONRequestBody = CreateRunInputBody
 // CancelRunJSONRequestBody defines body for CancelRun for application/json ContentType.
 type CancelRunJSONRequestBody = CancelRunInputBody
 
+// CreateScheduleJSONRequestBody defines body for CreateSchedule for application/json ContentType.
+type CreateScheduleJSONRequestBody = CreateScheduleInputBody
+
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = CreateSessionInputBody
 
 // AppendTurnJSONRequestBody defines body for AppendTurn for application/json ContentType.
 type AppendTurnJSONRequestBody = AppendTurnInputBody
+
+// CreateStudentSessionJSONRequestBody defines body for CreateStudentSession for application/json ContentType.
+type CreateStudentSessionJSONRequestBody = CreateStudentSessionInputBody
+
+// AppendStudentTurnJSONRequestBody defines body for AppendStudentTurn for application/json ContentType.
+type AppendStudentTurnJSONRequestBody = AppendStudentTurnInputBody
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -289,6 +372,11 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// CreateJobWithBody request with any body
+	CreateJobWithBody(ctx context.Context, params *CreateJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateJob(ctx context.Context, params *CreateJobParams, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRuns request
 	ListRuns(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -308,6 +396,20 @@ type ClientInterface interface {
 	// ListRunEvents request
 	ListRunEvents(ctx context.Context, id openapi_types.UUID, params *ListRunEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListSchedules request
+	ListSchedules(ctx context.Context, params *ListSchedulesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateScheduleWithBody request with any body
+	CreateScheduleWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateSchedule(ctx context.Context, body CreateScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DisableSchedule request
+	DisableSchedule(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EnableSchedule request
+	EnableSchedule(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateSessionWithBody request with any body
 	CreateSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -323,6 +425,40 @@ type ClientInterface interface {
 	AppendTurnWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	AppendTurn(ctx context.Context, id openapi_types.UUID, body AppendTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateStudentSessionWithBody request with any body
+	CreateStudentSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateStudentSession(ctx context.Context, body CreateStudentSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AppendStudentTurnWithBody request with any body
+	AppendStudentTurnWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AppendStudentTurn(ctx context.Context, id openapi_types.UUID, body AppendStudentTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) CreateJobWithBody(ctx context.Context, params *CreateJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateJobRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateJob(ctx context.Context, params *CreateJobParams, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateJobRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) ListRuns(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -409,6 +545,66 @@ func (c *Client) ListRunEvents(ctx context.Context, id openapi_types.UUID, param
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListSchedules(ctx context.Context, params *ListSchedulesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSchedulesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateScheduleWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateScheduleRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateSchedule(ctx context.Context, body CreateScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateScheduleRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DisableSchedule(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDisableScheduleRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EnableSchedule(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEnableScheduleRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) CreateSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateSessionRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -479,6 +675,107 @@ func (c *Client) AppendTurn(ctx context.Context, id openapi_types.UUID, body App
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+func (c *Client) CreateStudentSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateStudentSessionRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateStudentSession(ctx context.Context, body CreateStudentSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateStudentSessionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AppendStudentTurnWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAppendStudentTurnRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AppendStudentTurn(ctx context.Context, id openapi_types.UUID, body AppendStudentTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAppendStudentTurnRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewCreateJobRequest calls the generic CreateJob builder with application/json body
+func NewCreateJobRequest(server string, params *CreateJobParams, body CreateJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateJobRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreateJobRequestWithBody generates requests for CreateJob with any type of body
+func NewCreateJobRequestWithBody(server string, params *CreateJobParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/jobs")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Idempotency-Key", runtime.ParamLocationHeader, params.IdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
 }
 
 // NewListRunsRequest generates requests for ListRuns
@@ -736,6 +1033,163 @@ func NewListRunEventsRequest(server string, id openapi_types.UUID, params *ListR
 	return req, nil
 }
 
+// NewListSchedulesRequest generates requests for ListSchedules
+func NewListSchedulesRequest(server string, params *ListSchedulesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/schedules")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", false, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateScheduleRequest calls the generic CreateSchedule builder with application/json body
+func NewCreateScheduleRequest(server string, body CreateScheduleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateScheduleRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateScheduleRequestWithBody generates requests for CreateSchedule with any type of body
+func NewCreateScheduleRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/schedules")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDisableScheduleRequest generates requests for DisableSchedule
+func NewDisableScheduleRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/schedules/%s/disable", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewEnableScheduleRequest generates requests for EnableSchedule
+func NewEnableScheduleRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/schedules/%s/enable", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewCreateSessionRequest calls the generic CreateSession builder with application/json body
 func NewCreateSessionRequest(server string, body CreateSessionJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -913,6 +1367,93 @@ func NewAppendTurnRequestWithBody(server string, id openapi_types.UUID, contentT
 	return req, nil
 }
 
+// NewCreateStudentSessionRequest calls the generic CreateStudentSession builder with application/json body
+func NewCreateStudentSessionRequest(server string, body CreateStudentSessionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateStudentSessionRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateStudentSessionRequestWithBody generates requests for CreateStudentSession with any type of body
+func NewCreateStudentSessionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/student/sessions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAppendStudentTurnRequest calls the generic AppendStudentTurn builder with application/json body
+func NewAppendStudentTurnRequest(server string, id openapi_types.UUID, body AppendStudentTurnJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAppendStudentTurnRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewAppendStudentTurnRequestWithBody generates requests for AppendStudentTurn with any type of body
+func NewAppendStudentTurnRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/student/sessions/%s/turns", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -956,6 +1497,11 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// CreateJobWithBodyWithResponse request with any body
+	CreateJobWithBodyWithResponse(ctx context.Context, params *CreateJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateJobResponse, error)
+
+	CreateJobWithResponse(ctx context.Context, params *CreateJobParams, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateJobResponse, error)
+
 	// ListRunsWithResponse request
 	ListRunsWithResponse(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error)
 
@@ -975,6 +1521,20 @@ type ClientWithResponsesInterface interface {
 	// ListRunEventsWithResponse request
 	ListRunEventsWithResponse(ctx context.Context, id openapi_types.UUID, params *ListRunEventsParams, reqEditors ...RequestEditorFn) (*ListRunEventsResponse, error)
 
+	// ListSchedulesWithResponse request
+	ListSchedulesWithResponse(ctx context.Context, params *ListSchedulesParams, reqEditors ...RequestEditorFn) (*ListSchedulesResponse, error)
+
+	// CreateScheduleWithBodyWithResponse request with any body
+	CreateScheduleWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateScheduleResponse, error)
+
+	CreateScheduleWithResponse(ctx context.Context, body CreateScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateScheduleResponse, error)
+
+	// DisableScheduleWithResponse request
+	DisableScheduleWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*DisableScheduleResponse, error)
+
+	// EnableScheduleWithResponse request
+	EnableScheduleWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*EnableScheduleResponse, error)
+
 	// CreateSessionWithBodyWithResponse request with any body
 	CreateSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error)
 
@@ -990,6 +1550,39 @@ type ClientWithResponsesInterface interface {
 	AppendTurnWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendTurnResponse, error)
 
 	AppendTurnWithResponse(ctx context.Context, id openapi_types.UUID, body AppendTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*AppendTurnResponse, error)
+
+	// CreateStudentSessionWithBodyWithResponse request with any body
+	CreateStudentSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateStudentSessionResponse, error)
+
+	CreateStudentSessionWithResponse(ctx context.Context, body CreateStudentSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateStudentSessionResponse, error)
+
+	// AppendStudentTurnWithBodyWithResponse request with any body
+	AppendStudentTurnWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendStudentTurnResponse, error)
+
+	AppendStudentTurnWithResponse(ctx context.Context, id openapi_types.UUID, body AppendStudentTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*AppendStudentTurnResponse, error)
+}
+
+type CreateJobResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *RunResponse
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type ListRunsResponse struct {
@@ -1107,6 +1700,98 @@ func (r ListRunEventsResponse) StatusCode() int {
 	return 0
 }
 
+type ListSchedulesResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *ListSchedulesOutBody
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSchedulesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSchedulesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CreateScheduleResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *ScheduleResponse
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateScheduleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateScheduleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DisableScheduleResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *ScheduleResponse
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r DisableScheduleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DisableScheduleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type EnableScheduleResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *ScheduleResponse
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r EnableScheduleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EnableScheduleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type CreateSessionResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
@@ -1199,6 +1884,69 @@ func (r AppendTurnResponse) StatusCode() int {
 	return 0
 }
 
+type CreateStudentSessionResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *SessionResponse
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateStudentSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateStudentSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AppendStudentTurnResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *AppendTurnOutBody
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r AppendStudentTurnResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AppendStudentTurnResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// CreateJobWithBodyWithResponse request with arbitrary body returning *CreateJobResponse
+func (c *ClientWithResponses) CreateJobWithBodyWithResponse(ctx context.Context, params *CreateJobParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateJobResponse, error) {
+	rsp, err := c.CreateJobWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateJobResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateJobWithResponse(ctx context.Context, params *CreateJobParams, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateJobResponse, error) {
+	rsp, err := c.CreateJob(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateJobResponse(rsp)
+}
+
 // ListRunsWithResponse request returning *ListRunsResponse
 func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error) {
 	rsp, err := c.ListRuns(ctx, params, reqEditors...)
@@ -1260,6 +2008,50 @@ func (c *ClientWithResponses) ListRunEventsWithResponse(ctx context.Context, id 
 	return ParseListRunEventsResponse(rsp)
 }
 
+// ListSchedulesWithResponse request returning *ListSchedulesResponse
+func (c *ClientWithResponses) ListSchedulesWithResponse(ctx context.Context, params *ListSchedulesParams, reqEditors ...RequestEditorFn) (*ListSchedulesResponse, error) {
+	rsp, err := c.ListSchedules(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSchedulesResponse(rsp)
+}
+
+// CreateScheduleWithBodyWithResponse request with arbitrary body returning *CreateScheduleResponse
+func (c *ClientWithResponses) CreateScheduleWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateScheduleResponse, error) {
+	rsp, err := c.CreateScheduleWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateScheduleResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateScheduleWithResponse(ctx context.Context, body CreateScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateScheduleResponse, error) {
+	rsp, err := c.CreateSchedule(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateScheduleResponse(rsp)
+}
+
+// DisableScheduleWithResponse request returning *DisableScheduleResponse
+func (c *ClientWithResponses) DisableScheduleWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*DisableScheduleResponse, error) {
+	rsp, err := c.DisableSchedule(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDisableScheduleResponse(rsp)
+}
+
+// EnableScheduleWithResponse request returning *EnableScheduleResponse
+func (c *ClientWithResponses) EnableScheduleWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*EnableScheduleResponse, error) {
+	rsp, err := c.EnableSchedule(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEnableScheduleResponse(rsp)
+}
+
 // CreateSessionWithBodyWithResponse request with arbitrary body returning *CreateSessionResponse
 func (c *ClientWithResponses) CreateSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionResponse, error) {
 	rsp, err := c.CreateSessionWithBody(ctx, contentType, body, reqEditors...)
@@ -1310,6 +2102,73 @@ func (c *ClientWithResponses) AppendTurnWithResponse(ctx context.Context, id ope
 		return nil, err
 	}
 	return ParseAppendTurnResponse(rsp)
+}
+
+// CreateStudentSessionWithBodyWithResponse request with arbitrary body returning *CreateStudentSessionResponse
+func (c *ClientWithResponses) CreateStudentSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateStudentSessionResponse, error) {
+	rsp, err := c.CreateStudentSessionWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateStudentSessionResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateStudentSessionWithResponse(ctx context.Context, body CreateStudentSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateStudentSessionResponse, error) {
+	rsp, err := c.CreateStudentSession(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateStudentSessionResponse(rsp)
+}
+
+// AppendStudentTurnWithBodyWithResponse request with arbitrary body returning *AppendStudentTurnResponse
+func (c *ClientWithResponses) AppendStudentTurnWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendStudentTurnResponse, error) {
+	rsp, err := c.AppendStudentTurnWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAppendStudentTurnResponse(rsp)
+}
+
+func (c *ClientWithResponses) AppendStudentTurnWithResponse(ctx context.Context, id openapi_types.UUID, body AppendStudentTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*AppendStudentTurnResponse, error) {
+	rsp, err := c.AppendStudentTurn(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAppendStudentTurnResponse(rsp)
+}
+
+// ParseCreateJobResponse parses an HTTP response from a CreateJobWithResponse call
+func ParseCreateJobResponse(rsp *http.Response) (*CreateJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RunResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListRunsResponse parses an HTTP response from a ListRunsWithResponse call
@@ -1477,6 +2336,138 @@ func ParseListRunEventsResponse(rsp *http.Response) (*ListRunEventsResponse, err
 	return response, nil
 }
 
+// ParseListSchedulesResponse parses an HTTP response from a ListSchedulesWithResponse call
+func ParseListSchedulesResponse(rsp *http.Response) (*ListSchedulesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSchedulesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListSchedulesOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateScheduleResponse parses an HTTP response from a CreateScheduleWithResponse call
+func ParseCreateScheduleResponse(rsp *http.Response) (*CreateScheduleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateScheduleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ScheduleResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDisableScheduleResponse parses an HTTP response from a DisableScheduleWithResponse call
+func ParseDisableScheduleResponse(rsp *http.Response) (*DisableScheduleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DisableScheduleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ScheduleResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEnableScheduleResponse parses an HTTP response from a EnableScheduleWithResponse call
+func ParseEnableScheduleResponse(rsp *http.Response) (*EnableScheduleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EnableScheduleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ScheduleResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateSessionResponse parses an HTTP response from a CreateSessionWithResponse call
 func ParseCreateSessionResponse(rsp *http.Response) (*CreateSessionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1585,6 +2576,72 @@ func ParseAppendTurnResponse(rsp *http.Response) (*AppendTurnResponse, error) {
 	}
 
 	response := &AppendTurnResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AppendTurnOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateStudentSessionResponse parses an HTTP response from a CreateStudentSessionWithResponse call
+func ParseCreateStudentSessionResponse(rsp *http.Response) (*CreateStudentSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateStudentSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAppendStudentTurnResponse parses an HTTP response from a AppendStudentTurnWithResponse call
+func ParseAppendStudentTurnResponse(rsp *http.Response) (*AppendStudentTurnResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AppendStudentTurnResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

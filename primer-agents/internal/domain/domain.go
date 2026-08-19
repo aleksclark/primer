@@ -139,3 +139,34 @@ type RunEvent struct {
 	Payload       *string    `db:"payload"`
 	CreatedAt     time.Time  `db:"created_at"`
 }
+
+// ─── Schedule ─────────────────────────────────────────────────────────────────
+
+// Schedule is a durable named periodic-job definition.
+type Schedule struct {
+	ID                  string     `db:"id"`
+	OwnerNamespace      string     `db:"owner_namespace"`
+	Profile             string     `db:"profile"`
+	CronExpr            string     `db:"cron_expr"`
+	InputHash           *string    `db:"input_hash"`
+	Enabled             bool       `db:"enabled"`
+	JobType             string     `db:"job_type"`
+	InputPreview        *string    `db:"input_preview"`
+	Timezone            string     `db:"timezone"`
+	NextDueAt           *time.Time `db:"next_due_at"`
+	MaxCatchUp          int16      `db:"max_catch_up"`
+	LeaseToken          *string    `db:"lease_token"`
+	LeaseExpiresAt      *time.Time `db:"lease_expires_at"`
+	CreatedAt           time.Time  `db:"created_at"`
+	UpdatedAt           time.Time  `db:"updated_at"`
+}
+
+// ScheduleFiring is one durable record of a schedule being triggered.
+type ScheduleFiring struct {
+	ID         string     `db:"id"`
+	ScheduleID string     `db:"schedule_id"`
+	DueAt      time.Time  `db:"due_at"`
+	RunID      *string    `db:"run_id"`
+	Status     string     `db:"status"`
+	CreatedAt  time.Time  `db:"created_at"`
+}

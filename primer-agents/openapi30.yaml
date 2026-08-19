@@ -1,5 +1,29 @@
 components:
   schemas:
+    AppendStudentTurnInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/AppendStudentTurnInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        expectedRevision:
+          format: int64
+          minimum: 0
+          type: integer
+        idempotencyKey:
+          maxLength: 256
+          minLength: 1
+          type: string
+        inputPreview:
+          maxLength: 2000
+          type: string
+      required:
+        - idempotencyKey
+        - expectedRevision
+      type: object
     AppendTurnInputBody:
       additionalProperties: false
       properties:
@@ -62,6 +86,24 @@ components:
           maxLength: 64
           type: string
       type: object
+    CreateJobInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/CreateJobInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        inputPreview:
+          maxLength: 2000
+          type: string
+        jobType:
+          maxLength: 64
+          type: string
+      required:
+        - jobType
+      type: object
     CreateRunInputBody:
       additionalProperties: false
       properties:
@@ -87,6 +129,44 @@ components:
       required:
         - profile
       type: object
+    CreateScheduleInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/CreateScheduleInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        cronExpr:
+          maxLength: 256
+          minLength: 1
+          type: string
+        inputPreview:
+          maxLength: 2000
+          type: string
+        jobType:
+          maxLength: 64
+          type: string
+        maxCatchUp:
+          format: int32
+          maximum: 10
+          minimum: 1
+          type: integer
+        profile:
+          maxLength: 128
+          minLength: 1
+          type: string
+        timezone:
+          maxLength: 64
+          type: string
+      required:
+        - profile
+        - jobType
+        - cronExpr
+        - timezone
+        - maxCatchUp
+      type: object
     CreateSessionInputBody:
       additionalProperties: false
       properties:
@@ -105,6 +185,19 @@ components:
           type: string
       required:
         - profile
+      type: object
+    CreateStudentSessionInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/CreateStudentSessionInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        opaqueStudentRef:
+          maxLength: 256
+          type: string
       type: object
     ErrorDetail:
       additionalProperties: false
@@ -221,6 +314,23 @@ components:
       required:
         - runs
       type: object
+    ListSchedulesOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/ListSchedulesOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        schedules:
+          items:
+            $ref: "#/components/schemas/ScheduleResponse"
+          nullable: true
+          type: array
+      required:
+        - schedules
+      type: object
     ListTurnsOutBody:
       additionalProperties: false
       properties:
@@ -288,6 +398,56 @@ components:
         - stateVersion
         - idempotencyKey
         - createdAt
+      type: object
+    ScheduleResponse:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/ScheduleResponse.json
+          format: uri
+          readOnly: true
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        cronExpr:
+          type: string
+        enabled:
+          type: boolean
+        id:
+          format: uuid
+          type: string
+        inputPreview:
+          type: string
+        jobType:
+          type: string
+        maxCatchUp:
+          format: int32
+          type: integer
+        nextDueAt:
+          format: date-time
+          type: string
+        ownerNamespace:
+          type: string
+        profile:
+          type: string
+        timezone:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - ownerNamespace
+        - profile
+        - jobType
+        - cronExpr
+        - timezone
+        - enabled
+        - maxCatchUp
+        - createdAt
+        - updatedAt
       type: object
     SessionResponse:
       additionalProperties: false
@@ -371,6 +531,42 @@ info:
   version: 0.1.0
 openapi: 3.0.3
 paths:
+  /agents/v1/jobs:
+    post:
+      operationId: create-job
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            maxLength: 256
+            minLength: 1
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:jobs:write
+      summary: Create an on-demand job (idempotent; profile is always job)
+      tags:
+        - Jobs
   /agents/v1/runs:
     get:
       operationId: list-runs
@@ -548,6 +744,123 @@ paths:
       summary: Page run events by sequence cursor
       tags:
         - Runs
+  /agents/v1/schedules:
+    get:
+      operationId: list-schedules
+      parameters:
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSchedulesOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:jobs:read
+      summary: List schedules
+      tags:
+        - Jobs
+    post:
+      operationId: create-schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScheduleInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:jobs:write
+      summary: Create a schedule
+      tags:
+        - Jobs
+  /agents/v1/schedules/{id}/disable:
+    post:
+      operationId: disable-schedule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:jobs:write
+      summary: Disable a schedule
+      tags:
+        - Jobs
+  /agents/v1/schedules/{id}/enable:
+    post:
+      operationId: enable-schedule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:jobs:write
+      summary: Enable a schedule
+      tags:
+        - Jobs
   /agents/v1/sessions:
     post:
       operationId: create-session
@@ -677,5 +990,68 @@ paths:
       summary: Append a turn to a session (idempotent, CAS on revision)
       tags:
         - Sessions
+  /agents/v1/student/sessions:
+    post:
+      operationId: create-student-session
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStudentSessionInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:student:session
+      summary: Create a student tutoring session (profile always student; requires agents:student:session scope)
+      tags:
+        - Student
+  /agents/v1/student/sessions/{id}/turns:
+    post:
+      operationId: append-student-turn
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendStudentTurnInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendTurnOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:student:session
+      summary: Append a student tutoring turn (profile always student; no profile/budget/tools/model fields)
+      tags:
+        - Student
 servers:
   - url: /

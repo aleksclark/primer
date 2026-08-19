@@ -322,3 +322,134 @@ func (s *Service) AppendTurn(ctx context.Context, cmd AppendTurnCmd) (*repo.Appe
 func (s *Service) ListTurns(ctx context.Context, sessionID, namespace string, limit int) ([]*domain.SessionTurn, error) {
 	return repo.SessionTurns.ListTurns(ctx, s.pool, sessionID, namespace, limit)
 }
+
+// ─── Job operations ──────────────────────────────────────────────────────────
+
+// CreateJobCmd carries inputs for an on-demand job. Profile is always "job"
+// and is not accepted from the caller.
+type CreateJobCmd struct {
+	OwnerNamespace string
+	IdempotencyKey string
+	JobType        string
+	InputPreview   *string
+}
+
+// CreateJob creates a durable on-demand job run through the same lifecycle
+// as parent/admin runs. The profile is always "job" — callers cannot override.
+func (s *Service) CreateJob(ctx context.Context, cmd CreateJobCmd) (*domain.Run, error) {
+	jobType := cmd.JobType
+	if jobType == "" {
+		jobType = "generic"
+	}
+	inputHash := hashContent(nil)
+	if cmd.InputPreview != nil {
+		inputHash = hashContent([]byte(*cmd.InputPreview))
+	}
+	idempHash := computeIdempotencyHash(cmd.OwnerNamespace, cmd.IdempotencyKey, "job", inputHash)
+
+	var ihPtr *string
+	if cmd.InputPreview != nil {
+		h := hashContent([]byte(*cmd.InputPreview))
+		ihPtr = &h
+	}
+
+	return s.runs.Create(ctx, s.pool, repo.CreateRunCmd{
+		OwnerNamespace:  cmd.OwnerNamespace,
+		IdempotencyKey:  cmd.IdempotencyKey,
+		IdempotencyHash: idempHash,
+		Profile:         "job",
+		InputHash:       ihPtr,
+		InputPreview:    cmd.InputPreview,
+	})
+}
+
+// ─── Schedule operations ─────────────────────────────────────────────────────
+
+// CreateScheduleCmd carries inputs for creating a schedule.
+type CreateScheduleCmd struct {
+	OwnerNamespace string
+	Profile        string
+	JobType        string
+	CronExpr       string
+	Timezone       string
+	InputPreview   *string
+	MaxCatchUp     int16
+	NextDueAt      *time.Time
+}
+
+// CreateSchedule creates a new schedule definition.
+func (s *Service) CreateSchedule(ctx context.Context, cmd CreateScheduleCmd) (*domain.Schedule, error) {
+	return repo.Schedules.Create(ctx, s.pool, repo.CreateScheduleCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        cmd.Profile,
+		JobType:        cmd.JobType,
+		CronExpr:       cmd.CronExpr,
+		Timezone:       cmd.Timezone,
+		InputPreview:   cmd.InputPreview,
+		MaxCatchUp:     cmd.MaxCatchUp,
+		NextDueAt:      cmd.NextDueAt,
+	})
+}
+
+// GetSchedule returns a schedule by id and owner namespace.
+func (s *Service) GetSchedule(ctx context.Context, id, namespace string) (*domain.Schedule, error) {
+	return repo.Schedules.Get(ctx, s.pool, id, namespace)
+}
+
+// ListSchedules returns up to limit schedules for namespace.
+func (s *Service) ListSchedules(ctx context.Context, namespace string, limit int) ([]*domain.Schedule, error) {
+	return repo.Schedules.ListByOwner(ctx, s.pool, namespace, limit)
+}
+
+// SetScheduleEnabled enables or disables a schedule.
+func (s *Service) SetScheduleEnabled(ctx context.Context, id, namespace string, enabled bool) (*domain.Schedule, error) {
+	return repo.Schedules.SetEnabled(ctx, s.pool, id, namespace, enabled)
+}
+
+// ─── Student session operations ───────────────────────────────────────────────
+
+// CreateStudentSessionCmd carries inputs for a student tutoring session.
+// Profile is always "student" and is not accepted from the caller.
+// No profile/budget/tools/model override fields exist in this DTO.
+type CreateStudentSessionCmd struct {
+	OwnerNamespace string
+	// OpaqueStudentRef is an opaque product-authorized reference.
+	// It is stored under the owner namespace; primer-agents never calls the
+	// LMS database to interpret it.
+	OpaqueStudentRef *string
+}
+
+// CreateStudentSession creates a student session with the server-selected
+// immutable student profile.
+func (s *Service) CreateStudentSession(ctx context.Context, cmd CreateStudentSessionCmd) (*domain.Session, error) {
+	cc := cmd.OpaqueStudentRef
+	return s.sessions.Create(ctx, s.pool, repo.CreateSessionCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        "student", // ALWAYS server-selected
+		CallerContext:  cc,
+	})
+}
+
+// AppendStudentTurn appends a student tutoring turn. Profile is always
+// "student" — any attempt to supply profile/budget/tools must be rejected
+// at the HTTP layer before reaching this method.
+type AppendStudentTurnCmd struct {
+	SessionID        string
+	OwnerNamespace   string
+	IdempotencyKey   string
+	InputPreview     *string
+	ExpectedRevision int64
+}
+
+// AppendStudentTurn appends a turn to a student session. Internally identical
+// to AppendTurn but hard-codes profile="student".
+func (s *Service) AppendStudentTurn(ctx context.Context, cmd AppendStudentTurnCmd) (*repo.AppendTurnResult, error) {
+	return repo.SessionTurns.AppendTurn(ctx, s.pool, repo.Runs, repo.Sessions, repo.AppendTurnCmd{
+		SessionID:        cmd.SessionID,
+		OwnerNamespace:   cmd.OwnerNamespace,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		InputPreview:     cmd.InputPreview,
+		Profile:          "student", // ALWAYS server-selected; never from caller
+		ExpectedRevision: cmd.ExpectedRevision,
+	})
+}

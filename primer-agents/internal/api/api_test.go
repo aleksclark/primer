@@ -510,3 +510,55 @@ func (s *stubSvc) AppendTurn(_ context.Context, cmd api.AppendTurnCmd) (*repo.Ap
 func (s *stubSvc) ListTurns(_ context.Context, _ string, _ string, _ int) ([]*domain.SessionTurn, error) {
 	return nil, nil
 }
+
+// Phase 6 stub methods.
+func (s *stubSvc) CreateJob(_ context.Context, cmd api.CreateJobCmd) (*domain.Run, error) {
+	return s.CreateRun(context.Background(), api.CreateRunCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		IdempotencyKey: cmd.IdempotencyKey,
+		Profile:        "job",
+	})
+}
+func (s *stubSvc) CreateSchedule(_ context.Context, cmd api.CreateScheduleCmd) (*domain.Schedule, error) {
+	return &domain.Schedule{
+		ID:             uuid.NewString(),
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        cmd.Profile,
+		JobType:        cmd.JobType,
+		CronExpr:       cmd.CronExpr,
+		Timezone:       "UTC",
+		Enabled:        true,
+		MaxCatchUp:     1,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}, nil
+}
+func (s *stubSvc) GetSchedule(_ context.Context, id, ns string) (*domain.Schedule, error) {
+	return nil, errNotFound
+}
+func (s *stubSvc) ListSchedules(_ context.Context, _ string, _ int) ([]*domain.Schedule, error) {
+	return nil, nil
+}
+func (s *stubSvc) SetScheduleEnabled(_ context.Context, id, ns string, enabled bool) (*domain.Schedule, error) {
+	return nil, errNotFound
+}
+func (s *stubSvc) CreateStudentSession(_ context.Context, cmd api.CreateStudentSessionCmd) (*domain.Session, error) {
+	return &domain.Session{
+		ID:             uuid.NewString(),
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        "student",
+		Status:         domain.SessionStatusOpen,
+		Revision:       1,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}, nil
+}
+func (s *stubSvc) AppendStudentTurn(_ context.Context, cmd api.AppendStudentTurnCmd) (*repo.AppendTurnResult, error) {
+	return s.AppendTurn(context.Background(), api.AppendTurnCmd{
+		SessionID:        cmd.SessionID,
+		OwnerNamespace:   cmd.OwnerNamespace,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		InputPreview:     cmd.InputPreview,
+		ExpectedRevision: cmd.ExpectedRevision,
+	})
+}

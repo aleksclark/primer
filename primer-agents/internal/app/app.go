@@ -240,3 +240,49 @@ func (a *appServiceAdapter) AppendTurn(ctx context.Context, cmd api.AppendTurnCm
 func (a *appServiceAdapter) ListTurns(ctx context.Context, sessionID, ns string, limit int) ([]*domain.SessionTurn, error) {
 	return a.svc.ListTurns(ctx, sessionID, ns, limit)
 }
+
+// Phase 6 adapter methods.
+func (a *appServiceAdapter) CreateJob(ctx context.Context, cmd api.CreateJobCmd) (*domain.Run, error) {
+	return a.svc.CreateJob(ctx, appservice.CreateJobCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		IdempotencyKey: cmd.IdempotencyKey,
+		JobType:        cmd.JobType,
+		InputPreview:   cmd.InputPreview,
+	})
+}
+func (a *appServiceAdapter) CreateSchedule(ctx context.Context, cmd api.CreateScheduleCmd) (*domain.Schedule, error) {
+	return a.svc.CreateSchedule(ctx, appservice.CreateScheduleCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        cmd.Profile,
+		JobType:        cmd.JobType,
+		CronExpr:       cmd.CronExpr,
+		Timezone:       cmd.Timezone,
+		InputPreview:   cmd.InputPreview,
+		MaxCatchUp:     cmd.MaxCatchUp,
+		NextDueAt:      cmd.NextDueAt,
+	})
+}
+func (a *appServiceAdapter) GetSchedule(ctx context.Context, id, ns string) (*domain.Schedule, error) {
+	return a.svc.GetSchedule(ctx, id, ns)
+}
+func (a *appServiceAdapter) ListSchedules(ctx context.Context, ns string, limit int) ([]*domain.Schedule, error) {
+	return a.svc.ListSchedules(ctx, ns, limit)
+}
+func (a *appServiceAdapter) SetScheduleEnabled(ctx context.Context, id, ns string, enabled bool) (*domain.Schedule, error) {
+	return a.svc.SetScheduleEnabled(ctx, id, ns, enabled)
+}
+func (a *appServiceAdapter) CreateStudentSession(ctx context.Context, cmd api.CreateStudentSessionCmd) (*domain.Session, error) {
+	return a.svc.CreateStudentSession(ctx, appservice.CreateStudentSessionCmd{
+		OwnerNamespace:   cmd.OwnerNamespace,
+		OpaqueStudentRef: cmd.OpaqueStudentRef,
+	})
+}
+func (a *appServiceAdapter) AppendStudentTurn(ctx context.Context, cmd api.AppendStudentTurnCmd) (*repo.AppendTurnResult, error) {
+	return a.svc.AppendStudentTurn(ctx, appservice.AppendStudentTurnCmd{
+		SessionID:        cmd.SessionID,
+		OwnerNamespace:   cmd.OwnerNamespace,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		InputPreview:     cmd.InputPreview,
+		ExpectedRevision: cmd.ExpectedRevision,
+	})
+}

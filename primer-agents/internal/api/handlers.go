@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -216,6 +217,80 @@ func (s *server) registerRoutes(api huma.API) {
 
 	// SSE stream is registered directly on chi (not Huma) so the handler
 	// controls chunked flushing. Auth is enforced by authnMiddleware.
+
+	// ── Phase 6: Jobs ──────────────────────────────────────────────────────────
+
+	huma.Register(api, huma.Operation{
+		OperationID: "create-job",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/jobs",
+		Summary:     "Create an on-demand job (idempotent; profile is always job)",
+		Tags:        []string{"Jobs"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeJobsWrite}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeJobsWrite)},
+	}, s.handleCreateJob)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "create-schedule",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/schedules",
+		Summary:     "Create a schedule",
+		Tags:        []string{"Jobs"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeJobsWrite}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeJobsWrite)},
+	}, s.handleCreateSchedule)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-schedules",
+		Method:      http.MethodGet,
+		Path:        "/agents/v1/schedules",
+		Summary:     "List schedules",
+		Tags:        []string{"Jobs"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeJobsRead}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeJobsRead)},
+	}, s.handleListSchedules)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "enable-schedule",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/schedules/{id}/enable",
+		Summary:     "Enable a schedule",
+		Tags:        []string{"Jobs"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeJobsWrite}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeJobsWrite)},
+	}, s.handleEnableSchedule)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "disable-schedule",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/schedules/{id}/disable",
+		Summary:     "Disable a schedule",
+		Tags:        []string{"Jobs"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeJobsWrite}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeJobsWrite)},
+	}, s.handleDisableSchedule)
+
+	// ── Phase 6: Student ───────────────────────────────────────────────────────
+
+	huma.Register(api, huma.Operation{
+		OperationID: "create-student-session",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/student/sessions",
+		Summary:     "Create a student tutoring session (profile always student; requires agents:student:session scope)",
+		Tags:        []string{"Student"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeStudentSession}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeStudentSession)},
+	}, s.handleCreateStudentSession)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "append-student-turn",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/student/sessions/{id}/turns",
+		Summary:     "Append a student tutoring turn (profile always student; no profile/budget/tools/model fields)",
+		Tags:        []string{"Student"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeStudentSession}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeStudentSession)},
+	}, s.handleAppendStudentTurn)
 }
 
 // requireScope is a Huma middleware that asserts the required scope on the
@@ -556,4 +631,214 @@ var sseConfig = sse.DefaultConfig()
 // (e.g., SSE streaming) to the chi router after Huma is wired.
 func (s *server) registerRawRoutes(r *chi.Mux) {
 	r.Get("/agents/v1/runs/{id}/events/stream", s.sseHandler())
+}
+
+// ── Job handlers ──────────────────────────────────────────────────────────────
+
+type ScheduleResponse struct {
+	ID             string  `json:"id" format:"uuid"`
+	OwnerNamespace string  `json:"ownerNamespace"`
+	Profile        string  `json:"profile"`
+	JobType        string  `json:"jobType"`
+	CronExpr       string  `json:"cronExpr"`
+	Timezone       string  `json:"timezone"`
+	Enabled        bool    `json:"enabled"`
+	InputPreview   *string `json:"inputPreview,omitempty"`
+	NextDueAt      *string `json:"nextDueAt,omitempty" format:"date-time"`
+	MaxCatchUp     int16   `json:"maxCatchUp"`
+	CreatedAt      string  `json:"createdAt" format:"date-time"`
+	UpdatedAt      string  `json:"updatedAt" format:"date-time"`
+}
+
+func scheduleToResponse(s *domain.Schedule) ScheduleResponse {
+	out := ScheduleResponse{
+		ID:             s.ID,
+		OwnerNamespace: s.OwnerNamespace,
+		Profile:        s.Profile,
+		JobType:        s.JobType,
+		CronExpr:       s.CronExpr,
+		Timezone:       s.Timezone,
+		Enabled:        s.Enabled,
+		InputPreview:   s.InputPreview,
+		MaxCatchUp:     s.MaxCatchUp,
+		CreatedAt:      s.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:      s.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+	if s.NextDueAt != nil {
+		t := s.NextDueAt.UTC().Format(time.RFC3339)
+		out.NextDueAt = &t
+	}
+	return out
+}
+
+type createJobInput struct {
+	IdempotencyKey string `header:"Idempotency-Key" required:"true" minLength:"1" maxLength:"256"`
+	Body           struct {
+		JobType      string  `json:"jobType" maxLength:"64"`
+		InputPreview *string `json:"inputPreview,omitempty" maxLength:"2000"`
+	}
+}
+
+func (s *server) handleCreateJob(ctx context.Context, in *createJobInput) (*runOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	// Profile is always job — not accepted from caller.
+	run, err := s.svc.CreateJob(ctx, CreateJobCmd{
+		OwnerNamespace: p.Namespace(),
+		IdempotencyKey: in.IdempotencyKey,
+		JobType:        in.Body.JobType,
+		InputPreview:   in.Body.InputPreview,
+	})
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return &runOut{Body: runToResponse(run)}, nil
+}
+
+type createScheduleInput struct {
+	Body struct {
+		Profile      string  `json:"profile" required:"true" minLength:"1" maxLength:"128"`
+		JobType      string  `json:"jobType" maxLength:"64"`
+		CronExpr     string  `json:"cronExpr" required:"true" minLength:"1" maxLength:"256"`
+		Timezone     string  `json:"timezone" maxLength:"64"`
+		InputPreview *string `json:"inputPreview,omitempty" maxLength:"2000"`
+		MaxCatchUp   int16   `json:"maxCatchUp" minimum:"1" maximum:"10"`
+	}
+}
+
+type scheduleOut struct {
+	Body ScheduleResponse
+}
+
+func (s *server) handleCreateSchedule(ctx context.Context, in *createScheduleInput) (*scheduleOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	sched, err := s.svc.CreateSchedule(ctx, CreateScheduleCmd{
+		OwnerNamespace: p.Namespace(),
+		Profile:        in.Body.Profile,
+		JobType:        in.Body.JobType,
+		CronExpr:       in.Body.CronExpr,
+		Timezone:       in.Body.Timezone,
+		InputPreview:   in.Body.InputPreview,
+		MaxCatchUp:     in.Body.MaxCatchUp,
+	})
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return &scheduleOut{Body: scheduleToResponse(sched)}, nil
+}
+
+type listSchedulesInput struct {
+	Limit int `query:"limit" minimum:"1" maximum:"200" default:"50"`
+}
+
+type listSchedulesOut struct {
+	Body struct {
+		Schedules []ScheduleResponse `json:"schedules"`
+	}
+}
+
+func (s *server) handleListSchedules(ctx context.Context, in *listSchedulesInput) (*listSchedulesOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	schedules, err := s.svc.ListSchedules(ctx, p.Namespace(), in.Limit)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	out := &listSchedulesOut{}
+	out.Body.Schedules = make([]ScheduleResponse, len(schedules))
+	for i, sc := range schedules {
+		out.Body.Schedules[i] = scheduleToResponse(sc)
+	}
+	return out, nil
+}
+
+type scheduleIDInput struct {
+	ID string `path:"id" format:"uuid"`
+}
+
+func (s *server) handleEnableSchedule(ctx context.Context, in *scheduleIDInput) (*scheduleOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	sched, err := s.svc.SetScheduleEnabled(ctx, in.ID, p.Namespace(), true)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return &scheduleOut{Body: scheduleToResponse(sched)}, nil
+}
+
+func (s *server) handleDisableSchedule(ctx context.Context, in *scheduleIDInput) (*scheduleOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	sched, err := s.svc.SetScheduleEnabled(ctx, in.ID, p.Namespace(), false)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return &scheduleOut{Body: scheduleToResponse(sched)}, nil
+}
+
+// ── Student handlers ──────────────────────────────────────────────────────────
+
+// createStudentSessionInput deliberately has NO profile/budget/tools/model fields.
+// Any request that supplies those fields is a protocol error and is rejected by
+// Huma's strict schema validation before reaching this handler.
+type createStudentSessionInput struct {
+	Body struct {
+		// OpaqueStudentRef is a product-authorized opaque reference (e.g. a
+		// hashed student enrollment ID). primer-agents never calls the LMS
+		// database to interpret it.
+		OpaqueStudentRef *string `json:"opaqueStudentRef,omitempty" maxLength:"256"`
+	}
+}
+
+func (s *server) handleCreateStudentSession(ctx context.Context, in *createStudentSessionInput) (*sessionOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	// AdmitStudent re-validates the scope and student invariants.
+	if _, err := admitStudentFromPrincipal(p); err != nil {
+		return nil, huma.Error403Forbidden(err.Error())
+	}
+	sess, err := s.svc.CreateStudentSession(ctx, CreateStudentSessionCmd{
+		OwnerNamespace:   p.Namespace(),
+		OpaqueStudentRef: in.Body.OpaqueStudentRef,
+	})
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	return &sessionOut{Body: sessionToResponse(sess)}, nil
+}
+
+// appendStudentTurnInput deliberately omits profile/budget/tools/model.
+type appendStudentTurnInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		IdempotencyKey   string  `json:"idempotencyKey" required:"true" minLength:"1" maxLength:"256"`
+		InputPreview     *string `json:"inputPreview,omitempty" maxLength:"2000"`
+		ExpectedRevision int64   `json:"expectedRevision" minimum:"0"`
+	}
+}
+
+func (s *server) handleAppendStudentTurn(ctx context.Context, in *appendStudentTurnInput) (*appendTurnOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	if _, err := admitStudentFromPrincipal(p); err != nil {
+		return nil, huma.Error403Forbidden(err.Error())
+	}
+	result, err := s.svc.AppendStudentTurn(ctx, AppendStudentTurnCmd{
+		SessionID:        in.ID,
+		OwnerNamespace:   p.Namespace(),
+		IdempotencyKey:   in.Body.IdempotencyKey,
+		InputPreview:     in.Body.InputPreview,
+		ExpectedRevision: in.Body.ExpectedRevision,
+	})
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	out := &appendTurnOut{}
+	out.Body.Run = runToResponse(result.Run)
+	out.Body.Session = sessionToResponse(result.Session)
+	out.Body.Turn = turnToResponse(result.Turn)
+	return out, nil
+}
+
+// admitStudentFromPrincipal delegates to the profile admission package.
+// Kept inline to avoid import cycles; wraps profile.AdmitStudent.
+func admitStudentFromPrincipal(p authn.Principal) (string, error) {
+	if !p.HasScope(authn.ScopeStudentSession) {
+		return "", fmt.Errorf("agents:student:session scope required (reviewed Identity student credential needed)")
+	}
+	return "student", nil
 }

@@ -20,6 +20,14 @@ const (
 	ScopeRunsCancel    = "agents:runs:cancel"
 	ScopeSessionsWrite = "agents:sessions:write"
 	ScopeSessionsRead  = "agents:sessions:read"
+	// ScopeJobsWrite allows creating on-demand and scheduled jobs.
+	ScopeJobsWrite = "agents:jobs:write"
+	// ScopeJobsRead allows reading jobs and schedule firings.
+	ScopeJobsRead = "agents:jobs:read"
+	// ScopeStudentSession allows the dedicated student tutoring endpoint.
+	// Production requires a reviewed Identity-issued credential with this scope;
+	// absence is an explicit safe blocker that keeps the student feature off.
+	ScopeStudentSession = "agents:student:session"
 )
 
 // Kind distinguishes human vs service principals.
