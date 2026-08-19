@@ -61,6 +61,8 @@ import kotlinx.serialization.Serializable
 
 object PrimerTasksOperations {
     const val DEVICE_PAIR = "${endpoint("device-pair")}"
+    const val DEVICE_PROFILE = "${endpoint("device-profile")}"
+    const val DEVICE_CHECKLIST = "${endpoint("device-checklist")}"
     const val STUDENT_PROFILE = "${endpoint("student-profile")}"
     const val STUDENT_CHECKLIST = "${endpoint("student-checklist")}"
 }

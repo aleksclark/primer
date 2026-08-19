@@ -96,8 +96,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 16 {
-		t.Fatalf("registered %d operations, want 16", operationCount)
+	if operationCount != 17 {
+		t.Fatalf("registered %d operations, want 17", operationCount)
 	}
 	for path, item := range registered {
 		if item.Get == nil && item.Post == nil && item.Patch == nil && item.Delete == nil {
@@ -119,5 +119,17 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 	student := registered["/students/{id}"]
 	if student == nil || student.Delete == nil || student.Delete.Responses["204"] == nil {
 		t.Fatal("archive student contract must declare the production 204 response")
+	}
+	studentChecklist := registered["/student/checklist"]
+	if studentChecklist == nil || studentChecklist.Get == nil || studentChecklist.Get.OperationID != "student-checklist" {
+		t.Fatal("browser checklist operation is missing or has the wrong operation ID")
+	}
+	deviceProfile := registered["/device/profile"]
+	if deviceProfile == nil || deviceProfile.Get == nil || deviceProfile.Get.OperationID != "device-profile" {
+		t.Fatal("device profile operation is missing or has the wrong operation ID")
+	}
+	deviceChecklist := registered["/device/checklist"]
+	if deviceChecklist == nil || deviceChecklist.Get == nil || deviceChecklist.Get.OperationID != "device-checklist" {
+		t.Fatal("device checklist operation is missing or has the wrong operation ID")
 	}
 }

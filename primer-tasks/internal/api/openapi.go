@@ -295,6 +295,10 @@ func (s *Server) humaAPI() huma.API {
 		body, headers, err := legacyJSON[Student](ctx, s.requireDevice(s.deviceProfile), nil)
 		return &StudentOutput{ResponseHeaders: headers, Body: body}, err
 	})
+	register(api, huma.Operation{OperationID: "device-checklist", Method: http.MethodGet, Path: "/device/checklist", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*ChecklistOutput, error) {
+		body, headers, err := legacyJSON[Checklist](ctx, s.requireDevice(s.checklist), nil)
+		return &ChecklistOutput{ResponseHeaders: headers, Body: body}, err
+	})
 
 	return api
 }

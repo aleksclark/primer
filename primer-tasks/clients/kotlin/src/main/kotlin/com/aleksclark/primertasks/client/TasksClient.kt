@@ -27,11 +27,11 @@ class TasksClient(
     }
 
     suspend fun studentProfile(token: String): StudentProfile = withContext(Dispatchers.IO) {
-        get(PrimerTasksOperations.STUDENT_PROFILE, token, StudentProfile.serializer())
+        get(PrimerTasksOperations.DEVICE_PROFILE, token, StudentProfile.serializer())
     }
 
     suspend fun studentChecklist(token: String): ChecklistResponse = withContext(Dispatchers.IO) {
-        get(PrimerTasksOperations.STUDENT_CHECKLIST, token, ChecklistResponse.serializer())
+        get(PrimerTasksOperations.DEVICE_CHECKLIST, token, ChecklistResponse.serializer())
     }
 
     fun authHeader(token: String) = "Bearer $token"

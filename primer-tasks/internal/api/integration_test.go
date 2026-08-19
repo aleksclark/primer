@@ -116,6 +116,15 @@ func requestJSON(t *testing.T, h http.Handler, method, path, cookie, body string
 	return rec
 }
 
+func requestBearer(t *testing.T, h http.Handler, method, path, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
 func pairingResponse(t *testing.T, rec *httptest.ResponseRecorder) (code string, pairingID string) {
 	t.Helper()
 	var v struct {
@@ -144,6 +153,7 @@ func TestPostgresPairingReplayTenantAndArchiveBoundaries(t *testing.T) {
 		{http.MethodGet, "/students", http.StatusUnauthorized},
 		{http.MethodGet, "/student/profile", http.StatusUnauthorized},
 		{http.MethodGet, "/device/profile", http.StatusUnauthorized},
+		{http.MethodGet, "/device/checklist", http.StatusUnauthorized},
 		{http.MethodPost, "/health", http.StatusMethodNotAllowed},
 	} {
 		rec := requestJSON(t, h, tc.method, tc.path, "", "")
@@ -231,12 +241,31 @@ func TestPostgresPairingReplayTenantAndArchiveBoundaries(t *testing.T) {
 	if err := json.Unmarshal(deviceRecForPair.Body.Bytes(), &profileDevice); err != nil {
 		t.Fatal(err)
 	}
-	deviceProfileReq := httptest.NewRequest(http.MethodGet, "/device/profile", nil)
-	deviceProfileReq.Header.Set("Authorization", "Bearer "+profileDevice.Token)
-	deviceProfileRec := httptest.NewRecorder()
-	h.ServeHTTP(deviceProfileRec, deviceProfileReq)
-	if deviceProfileRec.Code != http.StatusOK {
+	deviceProfileRec := requestBearer(t, h, http.MethodGet, "/device/profile", profileDevice.Token)
+	if deviceProfileRec.Code != http.StatusOK || !strings.Contains(deviceProfileRec.Body.String(), alice) {
 		t.Fatalf("device profile = %d: %s", deviceProfileRec.Code, deviceProfileRec.Body.String())
+	}
+	deviceChecklistRec := requestBearer(t, h, http.MethodGet, "/device/checklist", profileDevice.Token)
+	var deviceChecklist Checklist
+	if err := json.Unmarshal(deviceChecklistRec.Body.Bytes(), &deviceChecklist); err != nil || deviceChecklistRec.Code != http.StatusOK || len(deviceChecklist.Items) != 0 {
+		t.Fatalf("device checklist = %d: %s", deviceChecklistRec.Code, deviceChecklistRec.Body.String())
+	}
+
+	// Browser and device credentials are intentionally not interchangeable.
+	if rec := requestBearer(t, h, http.MethodGet, "/student/profile", profileDevice.Token); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bearer on student profile = %d, want 401", rec.Code)
+	}
+	if rec := requestBearer(t, h, http.MethodGet, "/student/checklist", profileDevice.Token); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bearer on student checklist = %d, want 401", rec.Code)
+	}
+	for _, path := range []string{"/device/profile", "/device/checklist"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(&http.Cookie{Name: "tasks_student", Value: studentCookie})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("browser cookie on %s = %d, want 401", path, rec.Code)
+		}
 	}
 	// Two simultaneous claims still produce exactly one credential, proving the
 	// UPDATE ... claimed_at transaction is the replay boundary rather than a check-then-set race.
