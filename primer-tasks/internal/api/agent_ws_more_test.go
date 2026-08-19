@@ -1,10 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
+
+	"primer-tasks/internal/agent"
+	"primer-tasks/internal/domain/parent"
 )
 
 func TestAgentHubTenantConversationFilteringAndBoundedSlowSubscriber(t *testing.T) {
@@ -52,6 +57,40 @@ func (h *agentHub) subscriberCountForTest() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.subscribers)
+}
+
+func TestAgentSafeHelpersFailClosedAndHonorCancellation(t *testing.T) {
+	if _, err := safeToolJSON(func() {}, nil); err == nil {
+		t.Fatal("unmarshalable safe response was accepted")
+	}
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "not-a-duration")
+	if !scriptedDelay(context.Background()) {
+		t.Fatal("invalid scripted delay did not fail open")
+	}
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "30001")
+	if !scriptedDelay(context.Background()) {
+		t.Fatal("overlong scripted delay did not fail open")
+	}
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if scriptedDelay(ctx) {
+		t.Fatal("canceled scripted delay did not stop")
+	}
+}
+
+func TestAgentBoundaryHelpersRejectInvalidDurableInputs(t *testing.T) {
+	if err := (&Server{}).publishAgent(context.Background(), "tenant", "conversation", wireAgentEvent{}); err == nil {
+		t.Fatal("durable event without run was accepted")
+	}
+	if _, err := (&Server{}).agentModel(context.Background(), parent.ProviderConfig{Mode: parent.ProviderDisabled}, ""); !errors.Is(err, agent.ErrProviderDisabled) {
+		t.Fatalf("disabled model err=%v", err)
+	}
+	if model, err := (&Server{}).agentModel(context.Background(), parent.ProviderConfig{Mode: parent.ProviderScripted}, "list"); err != nil || model == nil {
+		t.Fatalf("scripted model=%v err=%v", model, err)
+	}
+	s := &Server{}
+	s.agentSubscribe(context.Background(), scope{Tenant: "tenant"}, &agentSubscriber{queue: make(chan wireAgentEvent, 1), done: make(chan struct{})}, agentCommand{ConversationID: "not-a-uuid"})
 }
 
 func TestAgentOriginCSRFAndWireRedaction(t *testing.T) {

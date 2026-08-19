@@ -27,6 +27,8 @@ func TestDurableToolEffectLedgerReplaysAndRejectsChangedMutation(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_runs WHERE tenant_id=$1`, tenantA)
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_messages WHERE tenant_id=$1`, tenantA)
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_conversations WHERE tenant_id=$1`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM task_schedules WHERE tenant_id=$1 AND student_id IN (SELECT id FROM students WHERE tenant_id=$1 AND display_name='ledger student')`, tenantA)
+		_, _ = pool.Exec(ctx, `DELETE FROM students WHERE tenant_id=$1 AND display_name='ledger student'`, tenantA)
 		_, _ = pool.Exec(ctx, `DELETE FROM task_templates WHERE tenant_id=$1 AND title LIKE 'ledger-test-%'`, tenantA)
 	})
 	store := agent.NewPostgresRepository(pool)
@@ -40,6 +42,15 @@ func TestDurableToolEffectLedgerReplaysAndRejectsChangedMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := phase3Services{&Server{DB: pool}}
+	if replay, err := svc.beginToolEffect(ctx, parent.ServiceContext{}, parent.ToolDraftTask, map[string]string{"title": "unit"}); err != nil || replay != nil {
+		t.Fatalf("non-durable ledger=%v %v", replay, err)
+	}
+	if replay, err := svc.beginToolEffect(ctx, parent.ServiceContext{RunID: "test-run"}, parent.ToolDraftTask, map[string]string{"title": "unit"}); err != nil || replay != nil {
+		t.Fatalf("invalid durable ledger=%v %v", replay, err)
+	}
+	if err := svc.completeToolEffect(ctx, parent.ServiceContext{RunID: "test-run"}, parent.ToolDraftTask, nil, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
 	toolCtx := parent.ServiceContext{TenantID: tenantA, ActorID: "parent-a", IdempotencyKey: runID, RunID: runID, ToolStep: 1}
 	first, err := svc.DraftTask(ctx, toolCtx, parent.TaskDraftInput{Title: "ledger-test-first", Instructions: "once"})
 	if err != nil {
@@ -76,6 +87,48 @@ func TestDurableToolEffectLedgerReplaysAndRejectsChangedMutation(t *testing.T) {
 	}
 	if status != string(agent.RunFailed) || terminals != 1 {
 		t.Fatalf("durable boundary status=%s terminals=%d", status, terminals)
+	}
+	// A second mutation boundary has the same replay and changed-input rules.
+	studentID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO students(id,tenant_id,display_name) VALUES($1,$2,'ledger student')`, studentID, tenantA); err != nil {
+		t.Fatal(err)
+	}
+	toolCtx.ToolStep = 2
+	published, err := svc.PublishTask(ctx, toolCtx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedPublished, err := svc.PublishTask(ctx, toolCtx, first.ID)
+	if err != nil || replayedPublished.ID != published.ID {
+		t.Fatalf("publish replay=%+v err=%v", replayedPublished, err)
+	}
+	toolCtx.ToolStep = 3
+	scheduleInput := parent.ScheduleInput{StudentID: studentID, TemplateID: published.TemplateID, RevisionID: published.ID, Kind: "one_off", Timezone: "UTC", StartAt: now.Add(time.Hour)}
+	schedule, err := svc.CreateSchedule(ctx, toolCtx, scheduleInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedSchedule, err := svc.CreateSchedule(ctx, toolCtx, scheduleInput)
+	if err != nil || replayedSchedule.ID != schedule.ID {
+		t.Fatalf("schedule replay=%+v err=%v", replayedSchedule, err)
+	}
+	scheduleInput.StartAt = now.Add(2 * time.Hour)
+	if _, err = svc.CreateSchedule(ctx, toolCtx, scheduleInput); !errors.Is(err, errToolEffectInProgress) {
+		t.Fatalf("changed schedule replay err=%v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM task_schedules WHERE tenant_id=$1 AND student_id=$2`, tenantA, studentID).Scan(&templates); err != nil {
+		t.Fatal(err)
+	}
+	if templates != 1 {
+		t.Fatalf("schedule effects=%d", templates)
+	}
+	toolCtx.ToolStep = 4
+	reservedDigest := effectDigest(parent.ToolDraftTask, map[string]string{"title": "reserved"})
+	if _, err = pool.Exec(ctx, `INSERT INTO agent_tool_effects(tenant_id,run_id,step,tool_name,action_digest,status) VALUES($1,$2,$3,$4,$5,'reserved')`, tenantA, runID, toolCtx.ToolStep, parent.ToolDraftTask, reservedDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.DraftTask(ctx, toolCtx, parent.TaskDraftInput{Title: "reserved", Instructions: "safe"}); !errors.Is(err, errToolEffectInProgress) {
+		t.Fatalf("reserved replay err=%v", err)
 	}
 }
 
@@ -241,6 +294,12 @@ func TestPostgresJobsClaimCompleteFailAndRequeue(t *testing.T) {
 	claimed, ok, err := jobsStore.Claim(ctx, "worker-a", time.Minute, 4)
 	if err != nil || !ok || claimed.Attempts != 1 || claimed.Status != jobs.Running || claimed.LeaseOwner != "worker-a" {
 		t.Fatalf("claim=%+v ok=%v err=%v", claimed, ok, err)
+	}
+	if err := jobsStore.Renew(ctx, claimed.ID, "worker-a", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := jobsStore.Renew(ctx, claimed.ID, "wrong-owner", time.Minute); err == nil {
+		t.Fatal("wrong owner renewed job")
 	}
 	if err := jobsStore.Complete(ctx, claimed.ID, "wrong-owner"); err != nil {
 		t.Fatal(err)
