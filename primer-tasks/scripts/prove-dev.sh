@@ -216,6 +216,10 @@ done
 # observe HTTP output, then restore and require the original response again.
 BACKEND_NONCE="reload-${PROBE_TAG}"
 base_before_mutation=$(curl -fsS "http://127.0.0.1:${API_A_PORT}/health")
+# Let Air finish its initial watcher snapshot before the first mutation. The
+# health endpoint can answer as soon as the binary starts, before fsnotify has
+# completed its baseline scan; mutating in that window can be silently missed.
+sleep 3
 python3 - "$ROOT/internal/api/server.go" "$BACKEND_NONCE" <<'PY'
 from pathlib import Path
 import sys
