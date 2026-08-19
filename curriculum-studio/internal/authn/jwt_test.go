@@ -44,6 +44,25 @@ func TestValidateAcceptsSignedStudioJWT(t *testing.T) {
 	assert.Empty(t, got.SessionID)
 }
 
+func TestI12ServiceValidatorProofBindsSignedPublicClientID(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	key := jwttest.GenerateKey(t)
+	jwks := serveJWKS(t, key)
+	serviceID := uuid.NewString()
+	claims := jwttest.ValidServiceClaims(now, serviceID, "studio.read")
+	claims.ClientID = "studio-machine"
+	tok := jwttest.Mint(t, key, claims)
+	v, err := authn.NewValidator(authn.Options{Issuer: jwttest.Issuer, Audience: jwttest.Audience, JWKSURL: jwks.URL, Now: func() time.Time { return now }})
+	require.NoError(t, err)
+	got, err := v.Validate(context.Background(), tok)
+	require.NoError(t, err)
+	assert.Equal(t, authn.KindService, got.Kind)
+	assert.Equal(t, "identity:svc:"+serviceID, got.SubjectRef)
+	assert.Equal(t, "studio-machine", got.ClientID)
+	assert.Contains(t, got.Scopes, "studio.read")
+}
+
 func TestValidateRejectsNegatives(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
