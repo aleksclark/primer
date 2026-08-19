@@ -125,7 +125,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **D9** | Materialized items lifecycle — **complete** in merge `8e2c381` | Database | [phase-09](../curriculum-studio-database/phase-09-materialized-items-lifecycle.md) | D8 | PG7b | `impl/D9-items` | G-studio-test; P9-E1–P9-E6 with real PostgreSQL — green | — |
 | **D10** | Exports + object refs (no bytes) — **complete** in merge `6ac59a1` | Database | [phase-10](../curriculum-studio-database/phase-10-exports-and-object-refs.md) | D9 | PG8b | `impl/D10-export-refs` | G-studio-test; P10-E1–P10-E2 with real PostgreSQL — green | — |
 | **D11** | Outbox, webhook leases, idempotency keys — **complete** at `b8bac62` | Database | [phase-11](../curriculum-studio-database/phase-11-outbox-webhooks-idempotency.md) | D5 (core); D7–D9 for mat events | PG8b | `impl/D11-outbox` | G-studio-test; P11-E1–P11-E4 with real PostgreSQL — green | — |
-| **D12** | Audit, retention, backup drill, DB metrics — **next** | Database | [phase-12](../curriculum-studio-database/phase-12-audit-retention-backup-observability.md) | D1–D11 | PG9b | `impl/D12-ops` | G-studio-cover ≥85%; backup drill | — |
+| **D12** | Audit, retention, backup drill, DB metrics — **complete** in PR #45 (`9473f09`) | Database | [phase-12](../curriculum-studio-database/phase-12-audit-retention-backup-observability.md) | D1–D11 | PG9b | `impl/D12-ops` | Ops tests/runbook merged; `make studio-cover` residual documented at 75.2% on `origin/master` (D11 parent 74.8%) against unchanged 85% floor | Pre-existing package coverage remains below floor; do not lower gate |
 
 ### 3.4 Contracts track (`C*`)
 
