@@ -20,6 +20,7 @@ import (
 	"github.com/aleksclark/primer/agents/internal/authn"
 	"github.com/aleksclark/primer/agents/internal/authn/jwttest"
 	"github.com/aleksclark/primer/agents/internal/domain"
+	"github.com/aleksclark/primer/agents/internal/repo"
 )
 
 // ── stub service ──────────────────────────────────────────────────────────────
@@ -473,4 +474,39 @@ func TestListRunsReturnsOnlyCallerRuns(t *testing.T) {
 	for _, r := range listBody.Runs {
 		assert.Contains(t, r["ownerNamespace"], subA)
 	}
+}
+
+// Stub implementations for Phase 5 interface additions.
+func (s *stubSvc) AppendTurn(_ context.Context, cmd api.AppendTurnCmd) (*repo.AppendTurnResult, error) {
+	run, err := s.CreateRun(context.Background(), api.CreateRunCmd{
+		OwnerNamespace: cmd.OwnerNamespace,
+		IdempotencyKey: cmd.IdempotencyKey,
+		Profile:        cmd.Profile,
+	})
+	if err != nil {
+		return nil, err
+	}
+	turn := &domain.SessionTurn{
+		ID:             uuid.NewString(),
+		SessionID:      cmd.SessionID,
+		TurnSequence:   cmd.ExpectedRevision + 1,
+		RunID:          &run.ID,
+		IdempotencyKey: cmd.IdempotencyKey,
+		Status:         "active",
+		CreatedAt:      time.Now(),
+	}
+	sess := &domain.Session{
+		ID:             cmd.SessionID,
+		OwnerNamespace: cmd.OwnerNamespace,
+		Profile:        cmd.Profile,
+		Status:         domain.SessionStatusOpen,
+		Revision:       cmd.ExpectedRevision + 1,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	return &repo.AppendTurnResult{Turn: turn, Run: run, Session: sess}, nil
+}
+
+func (s *stubSvc) ListTurns(_ context.Context, _ string, _ string, _ int) ([]*domain.SessionTurn, error) {
+	return nil, nil
 }

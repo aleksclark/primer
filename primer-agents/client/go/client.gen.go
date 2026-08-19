@@ -22,6 +22,25 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// AppendTurnInputBody defines model for AppendTurnInputBody.
+type AppendTurnInputBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema           *string `json:"$schema,omitempty"`
+	ExpectedRevision int64   `json:"expectedRevision"`
+	IdempotencyKey   string  `json:"idempotencyKey"`
+	InputPreview     *string `json:"inputPreview,omitempty"`
+	Profile          string  `json:"profile"`
+}
+
+// AppendTurnOutBody defines model for AppendTurnOutBody.
+type AppendTurnOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema  *string         `json:"$schema,omitempty"`
+	Run     RunResponse     `json:"run"`
+	Session SessionResponse `json:"session"`
+	Turn    TurnResponse    `json:"turn"`
+}
+
 // CancelRunInputBody defines model for CancelRunInputBody.
 type CancelRunInputBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -89,7 +108,6 @@ type EventResponse struct {
 	AgentId    *string            `json:"agentId,omitempty"`
 	AgentType  *string            `json:"agentType,omitempty"`
 	CreatedAt  time.Time          `json:"createdAt"`
-	Id         openapi_types.UUID `json:"id"`
 	Kind       string             `json:"kind"`
 	Payload    *string            `json:"payload,omitempty"`
 	RunId      openapi_types.UUID `json:"runId"`
@@ -108,6 +126,13 @@ type ListRunsOutBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	Schema *string        `json:"$schema,omitempty"`
 	Runs   *[]RunResponse `json:"runs"`
+}
+
+// ListTurnsOutBody defines model for ListTurnsOutBody.
+type ListTurnsOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	Schema *string         `json:"$schema,omitempty"`
+	Turns  *[]TurnResponse `json:"turns"`
 }
 
 // RunResponse defines model for RunResponse.
@@ -146,6 +171,18 @@ type SessionResponse struct {
 	UpdatedAt      time.Time          `json:"updatedAt"`
 }
 
+// TurnResponse defines model for TurnResponse.
+type TurnResponse struct {
+	CreatedAt      time.Time           `json:"createdAt"`
+	Id             openapi_types.UUID  `json:"id"`
+	IdempotencyKey string              `json:"idempotencyKey"`
+	InputPreview   *string             `json:"inputPreview,omitempty"`
+	RunId          *openapi_types.UUID `json:"runId,omitempty"`
+	SessionId      openapi_types.UUID  `json:"sessionId"`
+	Status         string              `json:"status"`
+	TurnSequence   int64               `json:"turnSequence"`
+}
+
 // ListRunsParams defines parameters for ListRuns.
 type ListRunsParams struct {
 	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -162,6 +199,11 @@ type ListRunEventsParams struct {
 	Limit    *int64 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListTurnsParams defines parameters for ListTurns.
+type ListTurnsParams struct {
+	Limit *int64 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // CreateRunJSONRequestBody defines body for CreateRun for application/json ContentType.
 type CreateRunJSONRequestBody = CreateRunInputBody
 
@@ -170,6 +212,9 @@ type CancelRunJSONRequestBody = CancelRunInputBody
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = CreateSessionInputBody
+
+// AppendTurnJSONRequestBody defines body for AppendTurn for application/json ContentType.
+type AppendTurnJSONRequestBody = AppendTurnInputBody
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -270,6 +315,14 @@ type ClientInterface interface {
 
 	// GetSession request
 	GetSession(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTurns request
+	ListTurns(ctx context.Context, id openapi_types.UUID, params *ListTurnsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AppendTurnWithBody request with any body
+	AppendTurnWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AppendTurn(ctx context.Context, id openapi_types.UUID, body AppendTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListRuns(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -382,6 +435,42 @@ func (c *Client) CreateSession(ctx context.Context, body CreateSessionJSONReques
 
 func (c *Client) GetSession(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListTurns(ctx context.Context, id openapi_types.UUID, params *ListTurnsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTurnsRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AppendTurnWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAppendTurnRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AppendTurn(ctx context.Context, id openapi_types.UUID, body AppendTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAppendTurnRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -721,6 +810,109 @@ func NewGetSessionRequest(server string, id openapi_types.UUID) (*http.Request, 
 	return req, nil
 }
 
+// NewListTurnsRequest generates requests for ListTurns
+func NewListTurnsRequest(server string, id openapi_types.UUID, params *ListTurnsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/sessions/%s/turns", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", false, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAppendTurnRequest calls the generic AppendTurn builder with application/json body
+func NewAppendTurnRequest(server string, id openapi_types.UUID, body AppendTurnJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAppendTurnRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewAppendTurnRequestWithBody generates requests for AppendTurn with any type of body
+func NewAppendTurnRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/agents/v1/sessions/%s/turns", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -790,6 +982,14 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionWithResponse request
 	GetSessionWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetSessionResponse, error)
+
+	// ListTurnsWithResponse request
+	ListTurnsWithResponse(ctx context.Context, id openapi_types.UUID, params *ListTurnsParams, reqEditors ...RequestEditorFn) (*ListTurnsResponse, error)
+
+	// AppendTurnWithBodyWithResponse request with any body
+	AppendTurnWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendTurnResponse, error)
+
+	AppendTurnWithResponse(ctx context.Context, id openapi_types.UUID, body AppendTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*AppendTurnResponse, error)
 }
 
 type ListRunsResponse struct {
@@ -953,6 +1153,52 @@ func (r GetSessionResponse) StatusCode() int {
 	return 0
 }
 
+type ListTurnsResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *ListTurnsOutBody
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTurnsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTurnsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AppendTurnResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *AppendTurnOutBody
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// Status returns HTTPResponse.Status
+func (r AppendTurnResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AppendTurnResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // ListRunsWithResponse request returning *ListRunsResponse
 func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error) {
 	rsp, err := c.ListRuns(ctx, params, reqEditors...)
@@ -1038,6 +1284,32 @@ func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, id ope
 		return nil, err
 	}
 	return ParseGetSessionResponse(rsp)
+}
+
+// ListTurnsWithResponse request returning *ListTurnsResponse
+func (c *ClientWithResponses) ListTurnsWithResponse(ctx context.Context, id openapi_types.UUID, params *ListTurnsParams, reqEditors ...RequestEditorFn) (*ListTurnsResponse, error) {
+	rsp, err := c.ListTurns(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTurnsResponse(rsp)
+}
+
+// AppendTurnWithBodyWithResponse request with arbitrary body returning *AppendTurnResponse
+func (c *ClientWithResponses) AppendTurnWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendTurnResponse, error) {
+	rsp, err := c.AppendTurnWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAppendTurnResponse(rsp)
+}
+
+func (c *ClientWithResponses) AppendTurnWithResponse(ctx context.Context, id openapi_types.UUID, body AppendTurnJSONRequestBody, reqEditors ...RequestEditorFn) (*AppendTurnResponse, error) {
+	rsp, err := c.AppendTurn(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAppendTurnResponse(rsp)
 }
 
 // ParseListRunsResponse parses an HTTP response from a ListRunsWithResponse call
@@ -1254,6 +1526,72 @@ func ParseGetSessionResponse(rsp *http.Response) (*GetSessionResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest SessionResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListTurnsResponse parses an HTTP response from a ListTurnsWithResponse call
+func ParseListTurnsResponse(rsp *http.Response) (*ListTurnsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTurnsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListTurnsOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAppendTurnResponse parses an HTTP response from a AppendTurnWithResponse call
+func ParseAppendTurnResponse(rsp *http.Response) (*AppendTurnResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AppendTurnResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AppendTurnOutBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

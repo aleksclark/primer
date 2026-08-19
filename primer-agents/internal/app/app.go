@@ -21,6 +21,7 @@ import (
 	agentsdb "github.com/aleksclark/primer/agents/internal/db"
 	"github.com/aleksclark/primer/agents/internal/domain"
 	"github.com/aleksclark/primer/agents/internal/logging"
+	"github.com/aleksclark/primer/agents/internal/repo"
 	"github.com/aleksclark/primer/agents/internal/worker"
 )
 
@@ -225,4 +226,17 @@ func (a *appServiceAdapter) CreateSession(ctx context.Context, cmd api.CreateSes
 }
 func (a *appServiceAdapter) GetSession(ctx context.Context, id, ns string) (*domain.Session, error) {
 	return a.svc.GetSession(ctx, id, ns)
+}
+func (a *appServiceAdapter) AppendTurn(ctx context.Context, cmd api.AppendTurnCmd) (*repo.AppendTurnResult, error) {
+	return a.svc.AppendTurn(ctx, appservice.AppendTurnCmd{
+		SessionID:        cmd.SessionID,
+		OwnerNamespace:   cmd.OwnerNamespace,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		Profile:          cmd.Profile,
+		InputPreview:     cmd.InputPreview,
+		ExpectedRevision: cmd.ExpectedRevision,
+	})
+}
+func (a *appServiceAdapter) ListTurns(ctx context.Context, sessionID, ns string, limit int) ([]*domain.SessionTurn, error) {
+	return a.svc.ListTurns(ctx, sessionID, ns, limit)
 }

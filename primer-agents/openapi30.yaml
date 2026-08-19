@@ -1,5 +1,54 @@
 components:
   schemas:
+    AppendTurnInputBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/AppendTurnInputBody.json
+          format: uri
+          readOnly: true
+          type: string
+        expectedRevision:
+          format: int64
+          minimum: 0
+          type: integer
+        idempotencyKey:
+          maxLength: 256
+          minLength: 1
+          type: string
+        inputPreview:
+          maxLength: 2000
+          type: string
+        profile:
+          maxLength: 128
+          minLength: 1
+          type: string
+      required:
+        - idempotencyKey
+        - profile
+        - expectedRevision
+      type: object
+    AppendTurnOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/AppendTurnOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        run:
+          $ref: "#/components/schemas/RunResponse"
+        session:
+          $ref: "#/components/schemas/SessionResponse"
+        turn:
+          $ref: "#/components/schemas/TurnResponse"
+      required:
+        - run
+        - session
+        - turn
+      type: object
     CancelRunInputBody:
       additionalProperties: false
       properties:
@@ -122,9 +171,6 @@ components:
         createdAt:
           format: date-time
           type: string
-        id:
-          format: uuid
-          type: string
         kind:
           type: string
         payload:
@@ -136,7 +182,6 @@ components:
           format: int64
           type: integer
       required:
-        - id
         - runId
         - sequence
         - kind
@@ -175,6 +220,23 @@ components:
           type: array
       required:
         - runs
+      type: object
+    ListTurnsOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: //schemas/ListTurnsOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        turns:
+          items:
+            $ref: "#/components/schemas/TurnResponse"
+          nullable: true
+          type: array
+      required:
+        - turns
       type: object
     RunResponse:
       additionalProperties: false
@@ -264,6 +326,38 @@ components:
         - revision
         - createdAt
         - updatedAt
+      type: object
+    TurnResponse:
+      additionalProperties: false
+      properties:
+        createdAt:
+          format: date-time
+          type: string
+        id:
+          format: uuid
+          type: string
+        idempotencyKey:
+          type: string
+        inputPreview:
+          type: string
+        runId:
+          format: uuid
+          type: string
+        sessionId:
+          format: uuid
+          type: string
+        status:
+          type: string
+        turnSequence:
+          format: int64
+          type: integer
+      required:
+        - id
+        - sessionId
+        - turnSequence
+        - idempotencyKey
+        - status
+        - createdAt
       type: object
   securitySchemes:
     bearerAuth:
@@ -509,6 +603,78 @@ paths:
         - bearerAuth:
             - agents:sessions:read
       summary: Get session by ID
+      tags:
+        - Sessions
+  /agents/v1/sessions/{id}/turns:
+    get:
+      operationId: list-turns
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTurnsOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:sessions:read
+      summary: List session turns in order
+      tags:
+        - Sessions
+    post:
+      operationId: append-turn
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            format: uuid
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendTurnInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendTurnOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security:
+        - bearerAuth:
+            - agents:runs:write
+      summary: Append a turn to a session (idempotent, CAS on revision)
       tags:
         - Sessions
 servers:

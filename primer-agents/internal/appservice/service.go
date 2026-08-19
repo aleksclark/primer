@@ -291,3 +291,34 @@ func computeIdempotencyHash(namespace, idempotencyKey, profile, inputHash string
 	sum := sha256.Sum256([]byte(scope))
 	return fmt.Sprintf("%x", sum)
 }
+
+// ─── Session turn operations ──────────────────────────────────────────────────
+
+// AppendTurnCmd carries inputs for a CAS-protected session turn creation.
+type AppendTurnCmd struct {
+	SessionID        string
+	OwnerNamespace   string
+	IdempotencyKey   string
+	Profile          string
+	InputPreview     *string
+	ExpectedRevision int64
+}
+
+// AppendTurn atomically advances the session revision and creates a linked run.
+// Same (session_id, idempotency_key) → idempotent.
+// Mismatched ExpectedRevision → repo.ErrStaleVersion (conflict).
+func (s *Service) AppendTurn(ctx context.Context, cmd AppendTurnCmd) (*repo.AppendTurnResult, error) {
+	return repo.SessionTurns.AppendTurn(ctx, s.pool, repo.Runs, repo.Sessions, repo.AppendTurnCmd{
+		SessionID:        cmd.SessionID,
+		OwnerNamespace:   cmd.OwnerNamespace,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		InputPreview:     cmd.InputPreview,
+		Profile:          cmd.Profile,
+		ExpectedRevision: cmd.ExpectedRevision,
+	})
+}
+
+// ListTurns returns up to limit session turns in ascending order.
+func (s *Service) ListTurns(ctx context.Context, sessionID, namespace string, limit int) ([]*domain.SessionTurn, error) {
+	return repo.SessionTurns.ListTurns(ctx, s.pool, sessionID, namespace, limit)
+}

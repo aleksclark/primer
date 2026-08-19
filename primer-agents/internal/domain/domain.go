@@ -113,9 +113,20 @@ type Run struct {
 
 // ─── RunEvent ─────────────────────────────────────────────────────────────────
 
+// SessionTurn records one durable multi-turn interaction within a session.
+type SessionTurn struct {
+	ID             string    `db:"id"`
+	SessionID      string    `db:"session_id"`
+	TurnSequence   int64     `db:"turn_sequence"`
+	RunID          *string   `db:"run_id"`
+	IdempotencyKey string    `db:"idempotency_key"`
+	InputPreview   *string   `db:"input_preview"`
+	Status         string    `db:"status"`
+	CreatedAt      time.Time `db:"created_at"`
+}
+
 // RunEvent is a single durable, sequenced event in a run's event log.
 type RunEvent struct {
-	ID            string     `db:"id"`
 	RunID         string     `db:"run_id"`
 	Sequence      int64      `db:"sequence"`
 	SchemaVersion int16      `db:"schema_version"`

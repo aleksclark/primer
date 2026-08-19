@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aleksclark/primer/agents/internal/authn"
 	"github.com/aleksclark/primer/agents/internal/domain"
 	"github.com/aleksclark/primer/agents/internal/repo"
+	"github.com/aleksclark/primer/agents/internal/sse"
 )
 
 // server holds shared handler dependencies.
@@ -18,6 +21,7 @@ type server struct {
 	svc       AgentService
 	validator TokenValidator
 	humaAPI   huma.API
+	pool      *pgxpool.Pool
 }
 
 // ── Wire types (handler-signature DTOs) ───────────────────────────────────────
@@ -52,7 +56,6 @@ type SessionResponse struct {
 
 // EventResponse is the canonical run-event representation.
 type EventResponse struct {
-	ID         string  `json:"id" format:"uuid"`
 	RunID      string  `json:"runId" format:"uuid"`
 	Sequence   int64   `json:"sequence"`
 	Kind       string  `json:"kind"`
@@ -105,7 +108,6 @@ func sessionToResponse(s *domain.Session) SessionResponse {
 
 func eventToResponse(e *domain.RunEvent) EventResponse {
 	return EventResponse{
-		ID:         e.ID,
 		RunID:      e.RunID,
 		Sequence:   e.Sequence,
 		Kind:       e.Kind,
@@ -191,6 +193,29 @@ func (s *server) registerRoutes(api huma.API) {
 		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeSessionsRead}}},
 		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeSessionsRead)},
 	}, s.handleGetSession)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "append-turn",
+		Method:      http.MethodPost,
+		Path:        "/agents/v1/sessions/{id}/turns",
+		Summary:     "Append a turn to a session (idempotent, CAS on revision)",
+		Tags:        []string{"Sessions"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeRunsWrite}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeRunsWrite)},
+	}, s.handleAppendTurn)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-turns",
+		Method:      http.MethodGet,
+		Path:        "/agents/v1/sessions/{id}/turns",
+		Summary:     "List session turns in order",
+		Tags:        []string{"Sessions"},
+		Security:    []map[string][]string{{"bearerAuth": {authn.ScopeSessionsRead}}},
+		Middlewares: huma.Middlewares{s.requireScope(authn.ScopeSessionsRead)},
+	}, s.handleListTurns)
+
+	// SSE stream is registered directly on chi (not Huma) so the handler
+	// controls chunked flushing. Auth is enforced by authnMiddleware.
 }
 
 // requireScope is a Huma middleware that asserts the required scope on the
@@ -383,4 +408,152 @@ func mapServiceError(err error) error {
 	default:
 		return huma.Error503ServiceUnavailable("service unavailable")
 	}
+}
+
+// ── Session turns ──────────────────────────────────────────────────────────────
+
+type appendTurnInput struct {
+	ID   string `path:"id" format:"uuid"`
+	Body struct {
+		IdempotencyKey   string  `json:"idempotencyKey" required:"true" minLength:"1" maxLength:"256"`
+		Profile          string  `json:"profile" required:"true" minLength:"1" maxLength:"128"`
+		InputPreview     *string `json:"inputPreview,omitempty" maxLength:"2000"`
+		ExpectedRevision int64   `json:"expectedRevision" minimum:"0"`
+	}
+}
+
+type appendTurnOut struct {
+	Body struct {
+		Run     RunResponse     `json:"run"`
+		Session SessionResponse `json:"session"`
+		Turn    TurnResponse    `json:"turn"`
+	}
+}
+
+type TurnResponse struct {
+	ID             string  `json:"id" format:"uuid"`
+	SessionID      string  `json:"sessionId" format:"uuid"`
+	TurnSequence   int64   `json:"turnSequence"`
+	RunID          *string `json:"runId,omitempty" format:"uuid"`
+	IdempotencyKey string  `json:"idempotencyKey"`
+	InputPreview   *string `json:"inputPreview,omitempty"`
+	Status         string  `json:"status"`
+	CreatedAt      string  `json:"createdAt" format:"date-time"`
+}
+
+func turnToResponse(t *domain.SessionTurn) TurnResponse {
+	return TurnResponse{
+		ID:             t.ID,
+		SessionID:      t.SessionID,
+		TurnSequence:   t.TurnSequence,
+		RunID:          t.RunID,
+		IdempotencyKey: t.IdempotencyKey,
+		InputPreview:   t.InputPreview,
+		Status:         t.Status,
+		CreatedAt:      t.CreatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func (s *server) handleAppendTurn(ctx context.Context, in *appendTurnInput) (*appendTurnOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	result, err := s.svc.AppendTurn(ctx, AppendTurnCmd{
+		SessionID:        in.ID,
+		OwnerNamespace:   p.Namespace(),
+		IdempotencyKey:   in.Body.IdempotencyKey,
+		Profile:          in.Body.Profile,
+		InputPreview:     in.Body.InputPreview,
+		ExpectedRevision: in.Body.ExpectedRevision,
+	})
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	out := &appendTurnOut{}
+	out.Body.Run = runToResponse(result.Run)
+	out.Body.Session = sessionToResponse(result.Session)
+	out.Body.Turn = turnToResponse(result.Turn)
+	return out, nil
+}
+
+type listTurnsInput struct {
+	ID    string `path:"id" format:"uuid"`
+	Limit int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
+}
+
+type listTurnsOut struct {
+	Body struct {
+		Turns []TurnResponse `json:"turns"`
+	}
+}
+
+func (s *server) handleListTurns(ctx context.Context, in *listTurnsInput) (*listTurnsOut, error) {
+	p, _ := PrincipalFromContext(ctx)
+	turns, err := s.svc.ListTurns(ctx, in.ID, p.Namespace(), in.Limit)
+	if err != nil {
+		return nil, mapServiceError(err)
+	}
+	out := &listTurnsOut{}
+	out.Body.Turns = make([]TurnResponse, len(turns))
+	for i, t := range turns {
+		out.Body.Turns[i] = turnToResponse(t)
+	}
+	return out, nil
+}
+
+// ── SSE stream ─────────────────────────────────────────────────────────────────
+
+// sseHandler returns an http.HandlerFunc for the SSE stream route.
+// The stream context (request context) controls only the writer.
+// Disconnecting does NOT cancel the run — that requires an explicit cancel call.
+func (s *server) sseHandler() http.HandlerFunc {
+	cfg := sseConfig
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Auth: principal must be in context (set by authnMiddleware).
+		p, ok := PrincipalFromContext(r.Context())
+		if !ok {
+			writeUnauth(w)
+			return
+		}
+		if !p.HasScope(authn.ScopeRunsRead) {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"title":"Forbidden","status":403}`))
+			return
+		}
+
+		runID := chi.URLParam(r, "id")
+		if runID == "" {
+			http.Error(w, "missing run id", http.StatusBadRequest)
+			return
+		}
+
+		if s.pool == nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Verify run ownership before streaming — returns 404 for wrong namespace.
+		if _, err := repo.GetRunWithOwnership(r.Context(), s.pool, runID, p.Namespace()); err != nil {
+			if errors.Is(err, repo.ErrNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "database error", http.StatusServiceUnavailable)
+			return
+		}
+
+		cursor := sse.ParseCursor(r)
+
+		// The stream context is r.Context() — it is cancelled on client disconnect.
+		// This controls ONLY the SSE writer; the run continues regardless.
+		sse.Stream(r.Context(), w, s.pool, runID, p.Namespace(), cursor, cfg)
+	}
+}
+
+// sseConfig is the module-level SSE configuration (overridable in tests).
+var sseConfig = sse.DefaultConfig()
+
+// registerRawRoutes adds routes that require direct http.Handler control
+// (e.g., SSE streaming) to the chi router after Huma is wired.
+func (s *server) registerRawRoutes(r *chi.Mux) {
+	r.Get("/agents/v1/runs/{id}/events/stream", s.sseHandler())
 }

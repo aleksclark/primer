@@ -107,10 +107,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/v1/sessions/{id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List session turns in order */
+        get: operations["list-turns"];
+        put?: never;
+        /** Append a turn to a session (idempotent, CAS on revision) */
+        post: operations["append-turn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AppendTurnInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expectedRevision: number;
+            idempotencyKey: string;
+            inputPreview?: string;
+            profile: string;
+        };
+        AppendTurnOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            run: components["schemas"]["RunResponse"];
+            session: components["schemas"]["SessionResponse"];
+            turn: components["schemas"]["TurnResponse"];
+        };
         CancelRunInputBody: {
             /**
              * Format: uri
@@ -184,8 +224,6 @@ export interface components {
             agentType?: string;
             /** Format: date-time */
             createdAt: string;
-            /** Format: uuid */
-            id: string;
             kind: string;
             payload?: string;
             /** Format: uuid */
@@ -208,6 +246,14 @@ export interface components {
              */
             readonly $schema?: string;
             runs: components["schemas"]["RunResponse"][] | null;
+        };
+        ListTurnsOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             */
+            readonly $schema?: string;
+            turns: components["schemas"]["TurnResponse"][] | null;
         };
         RunResponse: {
             /**
@@ -257,6 +303,21 @@ export interface components {
             status: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        TurnResponse: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            idempotencyKey: string;
+            inputPreview?: string;
+            /** Format: uuid */
+            runId?: string;
+            /** Format: uuid */
+            sessionId: string;
+            status: string;
+            /** Format: int64 */
+            turnSequence: number;
         };
     };
     responses: never;
@@ -484,6 +545,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-turns": {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListTurnsOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "append-turn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendTurnInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppendTurnOutBody"];
                 };
             };
             /** @description Error */

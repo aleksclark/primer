@@ -15,13 +15,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aleksclark/primer/agents/internal/authn"
 )
 
 const maxRequestIDLen = 128
 
-// Pinger is the DB-reachability seam for /readyz.
+// Pinger is the DB-reachability seam for /readyz. *pgxpool.Pool satisfies it.
 type Pinger interface {
 	Ping(ctx context.Context) error
 }
@@ -33,7 +34,8 @@ type TokenValidator interface {
 
 // Options configures the API handler.
 type Options struct {
-	Pool      Pinger
+	// Pool is used for /readyz pings and SSE stream DB access.
+	Pool      *pgxpool.Pool
 	Validator TokenValidator
 	Service   AgentService
 	Env       string
@@ -91,8 +93,9 @@ func newAPI(opts Options) (huma.API, http.Handler) {
 	}
 	humaAPI := humachi.New(r, cfg)
 
-	s := &server{svc: opts.Service, validator: opts.Validator, humaAPI: humaAPI}
+	s := &server{svc: opts.Service, validator: opts.Validator, humaAPI: humaAPI, pool: opts.Pool}
 	s.registerRoutes(humaAPI)
+	s.registerRawRoutes(r)
 
 	return humaAPI, r
 }

@@ -13,12 +13,12 @@ import (
 const (
 	// eventCols is used in INSERT...RETURNING (no table alias needed).
 	eventCols = `
-id, run_id, sequence, schema_version, root_run_id, parent_run_id,
+run_id, sequence, schema_version, root_run_id, parent_run_id,
 agent_id, agent_type, agent_depth, kind, payload, created_at`
 
 	// eventColsAliased is used in JOIN queries where both tables have an id column.
 	eventColsAliased = `
-e.id, e.run_id, e.sequence, e.schema_version, e.root_run_id, e.parent_run_id,
+e.run_id, e.sequence, e.schema_version, e.root_run_id, e.parent_run_id,
 e.agent_id, e.agent_type, e.agent_depth, e.kind, e.payload, e.created_at`
 )
 
