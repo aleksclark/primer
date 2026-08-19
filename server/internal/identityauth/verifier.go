@@ -101,9 +101,9 @@ func NewWithKeys(issuer, audience string, keys map[string]*ecdsa.PublicKey) *Ver
 		return nil
 	}
 	v := &Verifier{
-		issuer:   issuer,
-		audience: audience,
-		keys:     keys,
+		issuer:    issuer,
+		audience:  audience,
+		keys:      keys,
 		fetchedAt: time.Now(),
 	}
 	return v
