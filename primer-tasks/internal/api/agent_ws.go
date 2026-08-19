@@ -174,7 +174,10 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "parent session required", http.StatusUnauthorized)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"primer-tasks.v1"}})
+	// Origin and CSRF are checked above using the authenticated BFF session.
+	// nhooyr's default same-host check is intentionally bypassed here because
+	// Stacklane and loopback are both legitimate public origins in development.
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"primer-tasks.v1"}, InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}

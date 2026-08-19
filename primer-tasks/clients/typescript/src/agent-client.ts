@@ -66,7 +66,7 @@ function defaultUrl(): string {
 
 function defaultSocket(url: string): WebSocket {
   const csrf = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("tasks_csrf="))?.slice("tasks_csrf=".length);
-  return csrf ? new WebSocket(url, [`primer-tasks.v1.csrf.${csrf}`]) : new WebSocket(url);
+  return csrf ? new WebSocket(url, [`primer-tasks.v1.csrf.${csrf}`, "primer-tasks.v1"]) : new WebSocket(url);
 }
 function defaultId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
