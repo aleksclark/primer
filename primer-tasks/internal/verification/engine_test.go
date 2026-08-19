@@ -2,15 +2,21 @@ package verification
 
 import "testing"
 
-func TestOnlyParentApprovalIsRegistered(t *testing.T) {
+func TestParentApprovalAndDialogueAreRegistered(t *testing.T) {
 	r := NewRegistry()
 	if _, ok := r.Lookup("parent_approval"); !ok {
 		t.Fatal("parent approval missing")
 	}
-	if _, ok := r.Lookup("agent_dialogue"); ok {
-		t.Fatal("future driver registered")
+	if m, ok := r.Lookup("agent_dialogue"); !ok || m.Interaction != "chat" || m.Executor != "fantasy" {
+		t.Fatal("dialogue manifest missing or incorrectly scoped")
 	}
 	if e := r.Validate("parent_approval", 1); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.Validate("agent_dialogue", 1); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.ValidateConfig("agent_dialogue", 1, map[string]any{"sourceRef": "book://chapter-4", "learningFocus": "focus", "requiredQuestions": 3, "rubric": []string{"criterion"}, "allowedFollowUps": 1, "maxAttempts": 2, "maxTurns": 8, "retentionPolicy": "retain"}); e != nil {
 		t.Fatal(e)
 	}
 	if e := r.Validate("parent_approval", 2); e == nil {

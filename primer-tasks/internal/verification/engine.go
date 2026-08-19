@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"primer-tasks/internal/domain"
 )
 
 type Manifest struct {
@@ -22,6 +24,7 @@ type Registry struct {
 func NewRegistry() *Registry {
 	r := &Registry{manifests: map[string]Manifest{}}
 	r.Register(Manifest{Kind: "parent_approval", ConfigVersion: 1, Interaction: "parent_action", Executor: "human", MaxAttempts: 3, Timeout: 24 * time.Hour})
+	r.Register(Manifest{Kind: domain.AgentDialogueKind, ConfigVersion: domain.AgentDialogueConfigVersion, Interaction: "chat", Executor: "fantasy", MaxAttempts: 2, Timeout: 10 * time.Minute})
 	return r
 }
 func (r *Registry) Register(m Manifest) { r.mu.Lock(); defer r.mu.Unlock(); r.manifests[m.Kind] = m }
@@ -38,6 +41,18 @@ func (r *Registry) Validate(kind string, version int) error {
 	}
 	if m.ConfigVersion != version {
 		return errors.New("unsupported verification schema version")
+	}
+	return nil
+}
+
+// ValidateConfig is the publish-time manifest boundary. Schema version and
+// typed policy validation are both required; an unknown kind fails closed.
+func (r *Registry) ValidateConfig(kind string, version int, config map[string]any) error {
+	if err := r.Validate(kind, version); err != nil {
+		return err
+	}
+	if kind == domain.AgentDialogueKind {
+		return domain.ValidateDialogueRequirement(domain.VerificationRequirement{Kind: kind, ConfigVersion: version, Config: config, Interaction: "chat", Executor: "fantasy"})
 	}
 	return nil
 }
