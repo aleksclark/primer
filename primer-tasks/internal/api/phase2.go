@@ -271,7 +271,11 @@ func (s *Server) materializeSchedule(ctx context.Context, tenant, id, owner stri
 	if e != nil {
 		return e
 	}
-	h := time.Now().Add(45 * 24 * time.Hour)
+	horizonDays := 45
+	if n, err := strconv.Atoi(envOr("TASKS_SCHEDULE_HORIZON_DAYS", "45")); err == nil && n > 0 && n <= 730 {
+		horizonDays = n
+	}
+	h := time.Now().Add(time.Duration(horizonDays) * 24 * time.Hour)
 	for _, at := range spec.Occurrences(h) {
 		oid := uuid.New()
 		_, e = s.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) SELECT $1,$2,$3,$4,$5,$6::timestamptz,$6::timestamptz+($7::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid) WHERE NOT EXISTS(SELECT 1 FROM task_occurrences WHERE tenant_id=$2 AND schedule_id=$3 AND nominal_at=$6::timestamptz)`, oid, tenant, id, student, rev, at, due)
