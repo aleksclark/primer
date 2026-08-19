@@ -74,6 +74,7 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
     var occurrences by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var upcoming by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var selectedOccurrence by remember { mutableStateOf<OccurrenceResponse?>(null) }
+    var deepLinkUnavailable by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(true) }
     var scanning by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -124,7 +125,13 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
             val occurrenceId = occurrenceIdFromDeepLink(deepLink)
             if (occurrenceId != null) {
                 try { selectedOccurrence = TasksClient(savedMetadata.origin).studentOccurrence(savedToken, occurrenceId) }
-                catch (_: TasksHttpException) { message = "That task is unavailable to this student." }
+                catch (_: TasksHttpException) {
+                    // Keep foreign and unknown IDs indistinguishable from one another. Do not
+                    // fall back to the checklist: a deep-link denial needs a visible, generic
+                    // unavailable surface rather than a misleading successful navigation.
+                    deepLinkUnavailable = true
+                    message = "This task is unavailable."
+                }
             }
         } else {
             tokenStore.clear()
@@ -213,6 +220,12 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
         Surface(Modifier.fillMaxSize()) {
             when {
                 busy && metadata == null -> LoadingScreen()
+                metadata != null && token != null && deepLinkUnavailable -> UnavailableOccurrenceScreen(
+                    onBack = {
+                        deepLinkUnavailable = false
+                        message = null
+                    },
+                )
                 metadata != null && token != null && selectedOccurrence != null -> OccurrenceDetailScreen(
                     occurrence = selectedOccurrence!!,
                     onBack = { selectedOccurrence = null },
@@ -403,6 +416,16 @@ private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrence
         }
         if (message != null) item { Text(message, color = MaterialTheme.colorScheme.error) }
         item { Text("One student · one device", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("TASK UNAVAILABLE", style = MaterialTheme.typography.labelLarge)
+        Text("This task is unavailable.", style = MaterialTheme.typography.headlineMedium)
+        Text("The requested task could not be opened.")
+        Button(onClick = onBack) { Text("Back to today") }
     }
 }
 

@@ -193,6 +193,53 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 		t.Fatal("schedule did not materialize an occurrence")
 	}
 	occ := page.Items[0]
+	var oldOccurrence *Occurrence2
+	var futureOccurrence *Occurrence2
+	for i := range page.Items {
+		item := &page.Items[i]
+		if item.DueOffsetMinutes == 0 {
+			oldOccurrence = item
+		}
+		if item.DueOffsetMinutes == 5 {
+			futureOccurrence = item
+		}
+	}
+	if oldOccurrence == nil || oldOccurrence.ScheduleVersion != 1 || oldOccurrence.Timezone != "UTC" {
+		t.Fatalf("old occurrence did not retain its schedule snapshot: %+v", oldOccurrence)
+	}
+	if futureOccurrence == nil || futureOccurrence.ScheduleVersion != 2 || futureOccurrence.DueOffsetMinutes != 5 {
+		t.Fatalf("future occurrence did not use the updated schedule snapshot: %+v", futureOccurrence)
+	}
+	if _, err := s.DB.Exec(context.Background(), `UPDATE task_revisions SET title='Edited after issue', instructions='Changed after issue' WHERE id=$1`, revision.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(context.Background(), `UPDATE task_schedules SET timezone='America/Chicago', due_offset_minutes=17, version=version+1 WHERE id=$1`, sch.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertHistorical := func(label, body string) {
+		if !strings.Contains(body, "Morning care revised") || strings.Contains(body, "Edited after issue") || strings.Contains(body, "Changed after issue") || !strings.Contains(body, `"timezone":"UTC"`) {
+			t.Fatalf("%s projection changed after task/schedule edits: %s", label, body)
+		}
+	}
+	updated := requestJSON(t, h, http.MethodGet, "/occurrences/"+oldOccurrence.ID, "parent-a", "")
+	if updated.Code != 200 {
+		t.Fatalf("parent historical detail=%d %s", updated.Code, updated.Body.String())
+	}
+	assertHistorical("parent", updated.Body.String())
+	devicePair := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	deviceCode, _ := pairingResponse(t, devicePair)
+	device := requestJSON(t, h, http.MethodPost, "/device/pair", "", `{"code":"`+deviceCode+`"}`)
+	var deviceAuth struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(device.Body.Bytes(), &deviceAuth); err != nil || deviceAuth.Token == "" {
+		t.Fatalf("device pair=%d %s", device.Code, device.Body.String())
+	}
+	deviceDetail := requestBearer(t, h, http.MethodGet, "/device/occurrences/"+oldOccurrence.ID, deviceAuth.Token)
+	if deviceDetail.Code != 200 {
+		t.Fatalf("device historical detail=%d %s", deviceDetail.Code, deviceDetail.Body.String())
+	}
+	assertHistorical("device", deviceDetail.Body.String())
 	pair := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
 	code, _ := pairingResponse(t, pair)
 	studentPair := requestJSON(t, h, http.MethodPost, "/student/pair", "", `{"code":"`+code+`"}`)
@@ -216,8 +263,10 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if got := studentRequest(http.MethodGet, "/student/today"); got.Code != 200 {
 		t.Fatalf("student today=%d %s", got.Code, got.Body.String())
 	}
-	if got := studentRequest(http.MethodGet, "/student/occurrences/"+occ.ID); got.Code != 200 {
-		t.Fatalf("student detail=%d %s", got.Code, got.Body.String())
+	if got := studentRequest(http.MethodGet, "/student/occurrences/"+oldOccurrence.ID); got.Code != 200 {
+		t.Fatalf("student historical detail=%d %s", got.Code, got.Body.String())
+	} else {
+		assertHistorical("student/browser", got.Body.String())
 	}
 	if got := studentRequest(http.MethodPost, "/student/occurrences/"+occ.ID+"/start"); got.Code != 200 {
 		t.Fatalf("student start=%d %s", got.Code, got.Body.String())

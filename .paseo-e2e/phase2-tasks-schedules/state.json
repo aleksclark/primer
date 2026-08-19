@@ -3,7 +3,7 @@
   "suiteId": "phase2-tasks-schedules",
   "functionality": "Stacklane Primer Tasks Phase 2 parent and student task/schedule lifecycle, including approval, recurrence, collections, lifecycle controls, restart/DST, disabled-model, and tenant-isolation behavior.",
   "phase": "codify",
-  "callCount": 15,
+  "callCount": 16,
   "baseUrl": "http://127.0.0.1:37949/",
   "requestedBaseUrl": "http://web.primer-tasks-p2.primer-tasks.test/",
   "acceptance": [
@@ -33,10 +33,10 @@
       ".paseo-e2e/phase2-tasks-schedules/desktop-auth-error.snapshot.txt",
       ".paseo-e2e/phase2-tasks-schedules/mobile-initial.snapshot.txt"
     ],
-    "playwrightConfig": null,
-    "specFiles": [],
-    "packageJsonScript": null,
-    "lastRun": null,
+    "playwrightConfig": "primer-tasks/web/playwright.config.ts",
+    "specFiles": ["primer-tasks/web/e2e/phase2-tasks-schedules.spec.ts"],
+    "packageJsonScript": "primer-tasks/web/package.json#browser:promoted",
+    "lastRun": "cd primer-tasks/web && PRIMER_TASKS_BASE_URL=http://127.0.0.1:37952 npm run browser:promoted -- e2e/phase2-tasks-schedules.spec.ts (1 passed); independent Chrome MCP retry blocked by existing paseo-e2e-profile lock",
     "androidFreshPairingEvidence": {
       "note": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr.md",
       "screenshot": ".paseo-e2e/phase2-tasks-schedules/android-fresh-parent-qr.png",
@@ -49,7 +49,7 @@
   },
   "qualityGates": {
     "independentChromeVerification": true,
-    "playwrightGreen": false,
+    "playwrightGreen": true,
     "relaxed": false
   },
   "coordination": "Android foreign-negative target: Parent-B student Android Foreign Parent B Student (3e2a2310-90c1-484e-953f-3ebda5101ffd), occurrence 62b79178-af55-4ca7-8cb8-8f4000252d2b, due Aug 20 2026 2:00 PM CDT."

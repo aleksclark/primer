@@ -92,7 +92,7 @@ func (w *Worker) materializeSchedule(ctx context.Context, tenant, id string) err
 		return e
 	}
 	for _, at := range spec.Occurrences(time.Now().Add(w.Horizon)) {
-		_, e = w.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) VALUES($1,$2,$3,$4,$5::uuid,$6::timestamptz,$6::timestamptz+($8::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid,'timezone',$7::text,'dueOffsetMinutes',$8::int,'scheduleVersion',$9::int)) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, uuid.New(), tenant, id, student, rev, at, zone, due, version)
+		_, e = w.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) VALUES($1,$2,$3,$4,$5::uuid,$6::timestamptz,$6::timestamptz+($8::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid,'title',(SELECT title FROM task_revisions WHERE tenant_id=$2 AND id=$5),'instructions',(SELECT instructions FROM task_revisions WHERE tenant_id=$2 AND id=$5),'taskRevisionVersion',(SELECT version FROM task_revisions WHERE tenant_id=$2 AND id=$5),'timezone',$7::text,'dueOffsetMinutes',$8::int,'dueSemantics','offset_from_nominal','scheduleVersion',$9::int)) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, uuid.New(), tenant, id, student, rev, at, zone, due, version)
 		if e != nil {
 			return e
 		}

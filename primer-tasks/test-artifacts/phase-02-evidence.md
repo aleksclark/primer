@@ -1,57 +1,78 @@
-# Primer Tasks Phase 2 — integration evidence
+# Primer Tasks Phase 2 — final integration evidence
 
 Branch: `impl/tasks-p2-checklist`
-Reviewed implementation tip: `e937540` (Android deep-link boundary and schedule snapshot/integrity fixes); scheduler/decision fixes are in `4140732`.
+Base reviewed tip: `6bf51be7755ec05fd7b17f81d94dc72f24e8947c`
 
-## Implementation checkpoints
+## Final result
 
-- `602a262` — recovered immutable task/schedule/verification backend slice.
-- `9360c7a` — migrations, Huma registration, generated-client façade integration, web/Android vertical slice.
-- `ca60489` — real-Postgres public-boundary/concurrency/error coverage and schedule/verification tests.
-- `9fbbaac` — direct-origin development auth routing.
-- `ce32a2f` — Vite forwarded-host preservation.
-- `a30a72c` — Alpine tzdata for explicit IANA timezone loading.
-- `6b12d5a` — server-owned schedule/occurrence collection controls.
-- `1f53b6b` — server-derived model-disabled and restart timestamp evidence.
-- `a2d2212` — bounded 365-day development horizon for public DST evidence.
-- `d2130e1` — occurrence local timezone and EDT/EST rendering.
-- `37a709d` — Android Upcoming rendering.
-- `38782a7` — scrollable Android Today/Upcoming checklist.
-- `3e97ff2` — LazyColumn-backed accessible Today/Upcoming rows and focused section model tests.
-- `4140732` — durable PostgreSQL lease worker, ON CONFLICT materialization, immutable decision replay, and legal retry checks.
-- `e937540` — active-template/revision validation, occurrence timezone/version/due snapshots, and `primertasks://occurrences/{id}` Android deep links with generic unavailable handling.
+**PASS.** Phase 2 is complete. Phase 3 may be dispatched only after this final
+reviewed tip is accepted; no Phase 3 work was started here.
 
-## Automated gates
+## Occurrence immutability
 
-- `go test ./... -count=1` — PASS.
-- `go vet ./...` — PASS.
-- Real PostgreSQL Phase 2 public-boundary tests — PASS, including task revision, one-off/recurrence materialization, approval/rejection/retry, skip/cancel, restart-safe uniqueness, and tenant isolation.
-- `PRIMER_TASKS_COVERAGE_GATE=1 ../scripts/enforce-module-cover.sh . 85 tasks` — PASS at 85.0%.
-- Offline Huma OpenAPI emission and ignored TypeScript/Kotlin generation — PASS.
-- Web typecheck, lint, build, and client-boundary check — PASS.
-- Android `testDebugUnitTest assembleDebug` — PASS.
-- `make tasks-check` and Stacklane Compose start — PASS.
+- Forward migration `00004_occurrence_immutability.sql` backfills legacy rows
+  and gives every occurrence a historical snapshot containing title,
+  instructions, task revision/version, timezone, due offset, due semantics,
+  and schedule version.
+- API request materialization and the durable worker write the same complete
+  snapshot. Parent, browser-student, and Android/device occurrence projections
+  read title, instructions, timezone, and versioned due fields from the
+  snapshot; they do not join mutable task revisions or schedules for display.
+- Real PostgreSQL integration coverage edits the task revision and schedule
+  after issue, proves old parent/student/device projections remain unchanged,
+  and proves future materialization uses the new schedule version and due
+  offset. Focused API/schedule/database tests and the full race suite pass.
 
-## Exploratory browser evidence
+## Exploratory acceptance and promotion order
 
-Dedicated exploratory agent reached PASS in call 7, before any Playwright was written. Evidence is in `.paseo-e2e/phase2-tasks-schedules/exploration.md` and `state.json`:
+- Browser exploratory PASS was recorded first in
+  `.paseo-e2e/phase2-tasks-schedules/exploration.md`, call 7: public task
+  publish/revision, one-off/daily/weekly schedules, DST offsets, student
+  start and parent reject/retry/approve, skip/cancel, collection URL state,
+  restart, model-disabled mode, and Parent-B isolation.
+- Fresh Terra Android exploratory PASS is recorded in
+  `test-artifacts/android-phase2-acceptance-final-2/acceptance-report.md`:
+  one paired Parent-A student; own and Parent-B occurrence IDs sourced from
+  public UI; `adb am start` on both `primertasks://occurrences/{id}` links;
+  own detail; generic `TASK UNAVAILABLE` for foreign without title/ID leak;
+  and retained pairing/LazyColumn/start/reject-retry-approve/checked,
+  skip-cancel, and force-stop evidence.
+- Promotion followed exploratory PASS. Playwright
+  `web/e2e/phase2-tasks-schedules.spec.ts` passed against the real server and
+  covers task publish, schedule materialization, collection URL state,
+  student start, parent reject/retry/approve, checked state, and tenant
+  isolation. The connected Android promotion test
+  `OccurrenceDeepLinkConnectedTest` passed own completed detail and foreign
+  generic unavailable/no-leak against the real configured API using public
+  IDs and the generated Kotlin façade. The existing Photo Picker connected
+  test also passes when run in its required clean/unpaired emulator class
+  invocation; the deep-link class is run after public pairing with the
+  documented install-preserving instrumentation command.
 
-- parent test auth and two-tenant negatives;
-- task create/publish/retire;
-- one-off/daily/weekly schedules;
-- explicit IANA timezone and public DST offsets (EDT→EST and EST→EDT);
-- student pairing/checklist/detail/start;
-- parent reject/retry/approve and checked occurrence;
-- schedule cancellation, occurrence skip/cancel;
-- URL collection status/sort state;
-- model provider disabled and restart timestamp change.
+Historical failed runs remain concise and truthful: the initial Terra leaf is
+retained at `test-artifacts/android-phase2-acceptance-final/acceptance-report.md`
+(the old product fell back to the checklist for foreign links), and the
+pairing/environment blocker is retained at
+`test-artifacts/phase2-promotion-final/promotion-report.md`. Neither is used
+as final evidence.
 
-No Playwright suite was promoted yet because the required Android exploratory acceptance was not fully closed.
+## Gates
 
-## Android exploratory evidence
+- `cd primer-tasks && go test ./... -count=1` — PASS.
+- `cd primer-tasks && go test -race ./... -count=1` — PASS (real PostgreSQL
+  concurrency, DST, restart, lease, decision replay, and migration coverage).
+- `go vet ./...` and command builds — PASS.
+- `PRIMER_TASKS_COVERAGE_GATE=1 ./scripts/enforce-module-cover.sh primer-tasks 85 tasks` — PASS at 85.2%.
+- Deterministic Huma OpenAPI emission twice plus generated TypeScript/Kotlin
+  clients — PASS; generated outputs remain ignored.
+- `make tasks-check`, `make tasks-web`, `make tasks-android`, and
+  `make tasks-proof` — PASS.
+- `PRIMER_TASKS_BASE_URL=http://127.0.0.1:37952
+  PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 make tasks-e2e` — PASS: Phase 1 and
+  Phase 2 Playwright tests, 2 passed.
+- Model-disabled mode was observed in the public browser flow and the
+  promoted manual verification flow has no model dependency.
 
-`test-artifacts/android-phase2-final/acceptance-report.md` records the real CameraX-first then exact system Photo Picker pairing, server-derived identity, Today and Upcoming, detail/start/awaiting, parent rejection/retry/approval coordination, completed state, force-stop persistence, and accessible upcoming rows. The paired device façade has no direct completion/approval method. Terra final Android exploratory evidence (`test-artifacts/android-phase2-final-pass/acceptance-report.md`) passes pairing, LazyColumn Today/Upcoming, start/awaiting, parent reject/retry/approve, checked persistence, skip/cancel, and force-stop. The concise failed-run report is retained at `test-artifacts/android-phase2-final-pass/failed-run-report.md`.
-
-The remaining fail-closed item is the foreign-occurrence/forged-completion negative through the Android deep-link/device façade boundary. The deep-link product boundary now exists and focused JVM tests pass, but a final Terra run using `adb am start` against both own and Parent-B IDs did not complete before the acceptance leaf errored. The app UI intentionally exposes only device-owned records and Start; the Android acceptance agent refused to substitute a private/raw API call. A real Parent-B occurrence was subsequently created through public UI (`62b79178-af55-4ca7-8cb8-8f4000252d2b`) for the prescribed generated-client negative, but the final façade denial run was not completed before this evidence checkpoint.
-
-Therefore this evidence does **not** claim Phase 2 complete and Phase 3 must not be dispatched.
+No generated client/spec/build outputs were added to the worktree. The
+remaining untracked files are retained acceptance evidence only and will be
+selectively cleaned before final review.
