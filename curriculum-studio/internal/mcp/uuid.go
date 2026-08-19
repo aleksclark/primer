@@ -18,12 +18,9 @@ func mustParseWorkspaceUUID(wsIDStr string, a mcpAuthContext) (uuid.UUID, error)
 			return id, nil
 		}
 	}
-	// Memberships list may be empty when the querier is nil (test/local env).
-	// In that case allow the principal through; real authz happens in the repo
-	// (workspace-scoped SQL). Service principals are never given member rows.
-	if len(a.Memberships) == 0 {
-		return id, nil
-	}
+	// Empty membership state is fail-closed as well. A missing loader, database
+	// failure, or service principal without an active membership must never turn
+	// an opaque workspace handle into an authorization bypass.
 	return uuid.Nil, fmt.Errorf("workspace not found or not a member")
 }
 

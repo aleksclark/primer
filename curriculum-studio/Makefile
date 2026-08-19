@@ -16,7 +16,7 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 	build test cover test-race e2e \
 	migrate migrate-up migrate-down migrate-status freeze-check freeze-write db-test \
 	studio-test studio-cover studio-db-pytest studio-backup-drill \
-	studio-mcp-e2e studio-mcp-external-e2e \
+	studio-mcp-e2e studio-mcp-conformance studio-mcp-coverage studio-mcp-external-e2e \
 	contracts-validate \
 	contracts-ownership \
 	contracts-buf-generate \
@@ -48,6 +48,10 @@ help:
 	@echo "  contracts-parity        closed-enum parity gate (C2)"
 	@echo "  contracts-gates         policy gates incl. no-tracked-gen (C1/C10)"
 	@echo "  contracts-conformance   generated-client loopback matrix + coverage (C11)"
+	@echo "  studio-mcp-e2e          P19 + E12 MCP conformance tests"
+	@echo "  studio-mcp-conformance  E12-only C12 MCP conformance suite"
+	@echo "  studio-mcp-coverage     emit mcp-coverage.json evidence artifact"
+	@echo "  studio-mcp-external-e2e external Streamable HTTP client (BLOCKED if mcporter absent)"
 	@echo "  contracts-spikes        hard-type qualification spikes (C3)"
 
 # --- Service shell (S1) ---
@@ -93,15 +97,18 @@ studio-test:
 	go test ./... -count=1
 
 studio-mcp-e2e:
-	GOWORK=off go test ./internal/mcp/... -v -run TestP19 -count=1 -timeout 60s
+	GOWORK=off go test ./internal/mcp/... -v -run 'TestP19|TestE12' -count=1 -timeout 60s
+
+studio-mcp-conformance:
+	GOWORK=off go test ./internal/mcp/conformance/... -v -count=1 -timeout 60s
+
+studio-mcp-coverage:
+	GOWORK=off go test ./internal/mcp/conformance/... -run TestE12_10_CoverageMatrix -count=1 -timeout 30s
 
 # External-client conformance is opt-in because mcporter/Hermes is not a Go
 # dependency and is not guaranteed in every build image. Never silently pass.
 studio-mcp-external-e2e:
-	@test -n "$${STUDIO_MCP_URL:-}" || { echo "STUDIO_MCP_URL is required" >&2; exit 2; }
-	@test -n "$${STUDIO_MCP_TOKEN:-}" || { echo "STUDIO_MCP_TOKEN is required" >&2; exit 2; }
-	command -v "$${STUDIO_MCP_EXTERNAL_CLIENT:-mcporter}" >/dev/null || { echo "missing external MCP client: $${STUDIO_MCP_EXTERNAL_CLIENT:-mcporter}" >&2; exit 2; }
-	"$${STUDIO_MCP_EXTERNAL_CLIENT:-mcporter}" list --url "$${STUDIO_MCP_URL}" --header "Authorization: Bearer $${STUDIO_MCP_TOKEN}"
+	bash "$(STUDIO_ROOT)/scripts/mcp-external-e2e.sh"
 studio-cover:
 	@echo "Use root 'make studio-cover' for the enforced COVER_MIN gate (>=85%)."
 	@cd .. && make studio-cover
