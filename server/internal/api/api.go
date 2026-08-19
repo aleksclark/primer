@@ -21,8 +21,7 @@ type Options struct {
 	// CORSOrigins is the list of allowed origins; empty disables CORS headers.
 	CORSOrigins []string
 	// ServiceToken authenticates machine-to-machine callers on the ingest
-	// endpoints. Empty leaves them open, which suits spec generation and a
-	// bare local checkout but not a deployment.
+	// endpoints. Empty fails closed at the request boundary.
 	ServiceToken string
 	// Tutor is the server-owned coaching service. Nil uses a default fake+policy stack.
 	Tutor tutor.Service

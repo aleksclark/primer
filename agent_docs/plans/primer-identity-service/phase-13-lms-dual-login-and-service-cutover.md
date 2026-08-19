@@ -77,11 +77,13 @@ Browser/SPA
 
 ```bash
 go test ./internal/identityauth/ ./internal/api/ ./internal/config/ -count=1 -run "TestDualAuth|TestIdentity|TestVerify"
+make test
+IDENTITY_LIVE_STYTCH=1 IDENTITY_LIVE_STYTCH_ENV_FILE=$HOME/.config/primer/stytch-test.env make identity-live-stytch
 ```
 
 ### Key Decisions
 
 - **No Stytch SDK in LMS**: the `identityauth` package verifies ES256 with stdlib crypto only.
-- **Fail-closed**: nil verifier (empty config) rejects all JWTs; legacy path unaffected.
+- **Fail-closed**: nil verifier (empty config) rejects all JWTs; legacy path unaffected. The LMS instruction-log service boundary also rejects every request when `SERVICE_TOKEN` is empty; generic local/spec-only guards retain their existing inert behavior.
 - **Local roles remain authoritative**: JWT subject maps to local educator; role check is always against `educators.role`.
 - **No email merge**: identity subjects map 1:1; no automatic account linking by email.

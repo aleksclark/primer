@@ -1729,6 +1729,8 @@ components:
         id:
           format: uuid
           type: string
+        identitySubject:
+          type: string
         name:
           type: string
         role:

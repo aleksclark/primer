@@ -32,12 +32,28 @@ func BearerToken(header string) string {
 // machine-to-machine caller holding a pre-shared secret, presented either in
 // headerName or as a bearer token.
 //
-// An empty secret leaves the guard inert. That keeps OpenAPI generation and a
-// bare local checkout working without ceremony; every deployment sets the
-// secret and the binaries warn at startup when one is missing.
+// An empty secret leaves the generic guard inert. Product boundaries that
+// require fail-closed behavior (for example, the LMS service ingest) use
+// FailClosedSharedSecretGuard below rather than weakening local/spec harnesses.
 func SharedSecretGuard(api huma.API, secret, headerName, message string) func(huma.Context, func(huma.Context)) {
+	return sharedSecretGuard(api, secret, headerName, message, false)
+}
+
+// FailClosedSharedSecretGuard authenticates a machine boundary and rejects
+// every request when the configured secret is empty. OpenAPI generation does
+// not execute operation middleware, so this remains compatible with contract
+// generation while ensuring a running service endpoint is never anonymous.
+func FailClosedSharedSecretGuard(api huma.API, secret, headerName, message string) func(huma.Context, func(huma.Context)) {
+	return sharedSecretGuard(api, secret, headerName, message, true)
+}
+
+func sharedSecretGuard(api huma.API, secret, headerName, message string, failClosed bool) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		if secret == "" {
+			if failClosed {
+				_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, message)
+				return
+			}
 			next(ctx)
 			return
 		}

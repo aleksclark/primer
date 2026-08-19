@@ -30,9 +30,9 @@ func viewing(ref string, extra objMap) objMap {
 
 func TestInstructionLogIngestRecordsInstructionalTime(t *testing.T) {
 	t.Parallel()
-	h, _ := testutil.API(t)
+	h, _ := testutil.API(t, testutil.Options{ServiceToken: "s3cret"})
 
-	resp := h.Post("/instruction-logs/ingest", viewing("session-1", nil))
+	resp := h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("session-1", nil))
 	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
 	body := decode[objMap](t, resp.Body.Bytes())
 	assert.Equal(t, true, body["created"])
@@ -51,15 +51,15 @@ func TestInstructionLogIngestRecordsInstructionalTime(t *testing.T) {
 
 func TestInstructionLogIngestIsIdempotent(t *testing.T) {
 	t.Parallel()
-	h, _ := testutil.API(t)
+	h, _ := testutil.API(t, testutil.Options{ServiceToken: "s3cret"})
 
-	first := h.Post("/instruction-logs/ingest", viewing("session-repeat", nil))
+	first := h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("session-repeat", nil))
 	require.Equal(t, http.StatusCreated, first.Code, first.Body.String())
 	firstID := decode[objMap](t, first.Body.Bytes())["log"].(objMap)["id"]
 
 	// A producer that never saw our answer retries with a bigger number. The
 	// hours must not grow.
-	second := h.Post("/instruction-logs/ingest", viewing("session-repeat", objMap{"watchedSeconds": 9999}))
+	second := h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("session-repeat", objMap{"watchedSeconds": 9999}))
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
 	body := decode[objMap](t, second.Body.Bytes())
 	assert.Equal(t, false, body["created"])
@@ -75,9 +75,9 @@ func TestInstructionLogIngestIsIdempotent(t *testing.T) {
 
 func TestInstructionLogIngestRefusesEntertainment(t *testing.T) {
 	t.Parallel()
-	h, _ := testutil.API(t)
+	h, _ := testutil.API(t, testutil.Options{ServiceToken: "s3cret"})
 
-	resp := h.Post("/instruction-logs/ingest", viewing("session-fun", objMap{"class": "entertainment"}))
+	resp := h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("session-fun", objMap{"class": "entertainment"}))
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code,
 		"entertainment viewing is not instructional time and must not inflate the hours")
 
@@ -89,38 +89,38 @@ func TestInstructionLogIngestRefusesEntertainment(t *testing.T) {
 
 func TestInstructionLogIngestValidation(t *testing.T) {
 	t.Parallel()
-	h, _ := testutil.API(t)
+	h, _ := testutil.API(t, testutil.Options{ServiceToken: "s3cret"})
 
 	assert.Equal(t, http.StatusUnprocessableEntity,
-		h.Post("/instruction-logs/ingest", viewing("s", objMap{"sourceRef": ""})).Code,
+		h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("s", objMap{"sourceRef": ""})).Code,
 		"an idempotency key is mandatory")
 	assert.Equal(t, http.StatusUnprocessableEntity,
-		h.Post("/instruction-logs/ingest", viewing("s", objMap{"watchedSeconds": 0})).Code,
+		h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("s", objMap{"watchedSeconds": 0})).Code,
 		"a viewing with no watch time is not instructional time")
 	assert.Equal(t, http.StatusUnprocessableEntity,
-		h.Post("/instruction-logs/ingest", viewing("s", objMap{"occurredOn": "15/04/2031"})).Code)
+		h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("s", objMap{"occurredOn": "15/04/2031"})).Code)
 	assert.Equal(t, http.StatusUnprocessableEntity,
-		h.Post("/instruction-logs/ingest", viewing("s", objMap{"occurredOn": "2031-13-99"})).Code,
+		h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("s", objMap{"occurredOn": "2031-13-99"})).Code,
 		"a well-shaped but impossible day is refused")
 	assert.Equal(t, http.StatusUnprocessableEntity,
-		h.Post("/instruction-logs/ingest", viewing("s", objMap{"mediaTitle": ""})).Code)
+		h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("s", objMap{"mediaTitle": ""})).Code)
 	assert.Equal(t, http.StatusUnprocessableEntity,
-		h.Post("/instruction-logs/ingest", viewing("s", objMap{"studentId": "not-a-uuid"})).Code)
+		h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("s", objMap{"studentId": "not-a-uuid"})).Code)
 }
 
 func TestInstructionLogIngestAttributesAStudent(t *testing.T) {
 	t.Parallel()
-	h, tx := testutil.API(t)
+	h, tx := testutil.API(t, testutil.Options{ServiceToken: "s3cret"})
 	student := factory.Student(t, tx)
 
-	resp := h.Post("/instruction-logs/ingest", viewing("session-student", objMap{"studentId": student.ID}))
+	resp := h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", viewing("session-student", objMap{"studentId": student.ID}))
 	require.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
 	log := decode[objMap](t, resp.Body.Bytes())["log"].(objMap)
 	assert.Equal(t, student.ID, log["studentId"])
 
 	// An unknown student is a bad reference, not a server error.
 	unknown := h.Post("/instruction-logs/ingest",
-		viewing("session-ghost", objMap{"studentId": "00000000-0000-0000-0000-000000000000"}))
+		"X-Service-Token: s3cret", viewing("session-ghost", objMap{"studentId": "00000000-0000-0000-0000-000000000000"}))
 	assert.Equal(t, http.StatusUnprocessableEntity, unknown.Code)
 }
 
@@ -190,11 +190,11 @@ func TestInstructionLogCRUD(t *testing.T) {
 
 func TestInstructionLogIngestAcceptsAnUntaggedViewing(t *testing.T) {
 	t.Parallel()
-	h, _ := testutil.API(t)
+	h, _ := testutil.API(t, testutil.Options{ServiceToken: "s3cret"})
 
 	// Tags are optional: a programme nobody has classified yet still counts as
 	// time watched, and the columns are NOT NULL arrays either way.
-	resp := h.Post("/instruction-logs/ingest", objMap{
+	resp := h.Post("/instruction-logs/ingest", "X-Service-Token: s3cret", objMap{
 		"sourceRef":      "session-untagged",
 		"mediaTitle":     "Nova: Hunting the Elements",
 		"class":          "mixed",

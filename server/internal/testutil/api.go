@@ -15,7 +15,7 @@ import (
 
 // Options tunes the test API.
 type Options struct {
-	// ServiceToken enables ingest authentication; empty leaves it open.
+	// ServiceToken enables ingest authentication; empty makes ingest fail closed.
 	ServiceToken string
 	// Tutor overrides the default fake policy stack when non-nil.
 	Tutor tutor.Service
