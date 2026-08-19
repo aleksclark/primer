@@ -74,6 +74,7 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
     var occurrences by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var upcoming by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var selectedOccurrence by remember { mutableStateOf<OccurrenceResponse?>(null) }
+    var dialogueOccurrence by remember { mutableStateOf<OccurrenceResponse?>(null) }
     var deepLinkUnavailable by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(true) }
     var scanning by remember { mutableStateOf(false) }
@@ -88,6 +89,8 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
             checklist = emptyList()
             occurrences = emptyList()
             upcoming = emptyList()
+            selectedOccurrence = null
+            dialogueOccurrence = null
             scanning = false
         }
     }
@@ -226,9 +229,17 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
                         message = null
                     },
                 )
+                metadata != null && token != null && dialogueOccurrence != null -> DialogueScreen(
+                    occurrenceTitle = dialogueOccurrence!!.title,
+                    occurrenceId = dialogueOccurrence!!.id,
+                    baseUrl = metadata!!.origin,
+                    bearer = token!!,
+                    onBack = { dialogueOccurrence = null },
+                )
                 metadata != null && token != null && selectedOccurrence != null -> OccurrenceDetailScreen(
                     occurrence = selectedOccurrence!!,
                     onBack = { selectedOccurrence = null },
+                    onOpenDialogue = { dialogueOccurrence = selectedOccurrence },
                     onRefresh = {
                         scope.launch {
                             try { selectedOccurrence = TasksClient(metadata!!.origin).studentOccurrence(token!!, selectedOccurrence!!.id) }
@@ -430,13 +441,22 @@ private fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun OccurrenceDetailScreen(occurrence: OccurrenceResponse, onBack: () -> Unit, onRefresh: () -> Unit, onStart: () -> Unit) {
+private fun OccurrenceDetailScreen(
+    occurrence: OccurrenceResponse,
+    onBack: () -> Unit,
+    onOpenDialogue: () -> Unit,
+    onRefresh: () -> Unit,
+    onStart: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("TASK DETAIL", style = MaterialTheme.typography.labelLarge)
         Text(occurrence.title, style = MaterialTheme.typography.headlineMedium)
         Text(occurrence.instructions)
         Text("Status: ${occurrence.status}", style = MaterialTheme.typography.titleMedium)
         if (occurrence.status == "pending") Button(onClick = onStart) { Text("Start task") }
+        if (occurrence.status == "awaiting_verification" || occurrence.status == "in_progress" || occurrence.status == "completed") {
+            Button(onClick = onOpenDialogue) { Text("Open Decide / Learn") }
+        }
         Button(onClick = onRefresh) { Text("Refresh from server") }
         OutlinedButton(onClick = onBack) { Text("Back to today") }
     }
