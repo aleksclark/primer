@@ -46,6 +46,7 @@ func TestRunServesHealthAndReady(t *testing.T) {
 		HTTPWriteTimeout:      5 * time.Second,
 		HTTPIdleTimeout:       10 * time.Second,
 		HTTPMaxBodyBytes:      1024,
+		WorkerEnabled:         true,
 	}
 
 	go func() {

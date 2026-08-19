@@ -79,11 +79,14 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Start the background worker when enabled (PRIMER_AGENTS_WORKER_ENABLED=true).
 	// Default is false; the worker loop and HTTP server share the process but
-	// not request contexts.
+	// not request contexts. The worker context is cancelled during shutdown so
+	// the process cannot leak a polling goroutine after the HTTP server exits.
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	defer stopWorker()
 	if cfg.WorkerEnabled {
 		w := worker.New(pool, svc, worker.DefaultConfig())
 		go func() {
-			if err := w.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			if err := w.Start(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
 				logger.Error("worker: exited", "error", err)
 			}
 		}()
@@ -156,6 +159,7 @@ func Run(ctx context.Context, opts Options) error {
 	case <-opts.ShutdownSignal:
 	}
 
+	stopWorker()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

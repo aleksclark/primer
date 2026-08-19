@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 	"unicode"
@@ -110,7 +111,7 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 
 func handleReadyz(logger *slog.Logger, pool Pinger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if pool == nil {
+		if pool == nil || isNilPinger(pool) {
 			http.Error(w, `{"status":"unavailable"}`, http.StatusServiceUnavailable)
 			return
 		}
@@ -128,6 +129,11 @@ func handleReadyz(logger *slog.Logger, pool Pinger) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	}
+}
+
+func isNilPinger(p Pinger) bool {
+	v := reflect.ValueOf(p)
+	return v.Kind() == reflect.Ptr && v.IsNil()
 }
 
 // ── Request-ID ────────────────────────────────────────────────────────────────
