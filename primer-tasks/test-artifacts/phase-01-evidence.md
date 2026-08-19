@@ -1,7 +1,7 @@
 # Primer Tasks Phase 1 remediation evidence
 
 Branch: `impl/tasks-p1-foundation`
-Reviewed tip: `7e7b884` (`fix(tasks): keep module tidy and stabilize dev proof`)
+Reviewed tip: `67be853` (`docs(tasks): record blocked remediation gates`)
 Status date: 2026-08-19
 
 ## Gate decision
