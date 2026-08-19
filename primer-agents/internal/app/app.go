@@ -83,7 +83,7 @@ func Run(ctx context.Context, opts Options) error {
 		w := worker.New(pool, svc, worker.DefaultConfig())
 		go func() {
 			if err := w.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				slog.Error("worker: exited", "error", err)
+				logger.Error("worker: exited", "error", err)
 			}
 		}()
 	}
