@@ -47,6 +47,9 @@ type Config struct {
 	Issuer string `envconfig:"ISSUER"`
 	// Audience is the expected JWT aud. Frozen to curriculum-studio.
 	Audience string `envconfig:"AUDIENCE" default:"curriculum-studio"`
+	// AcceptServiceTokenAlias enables the migration-only X-Service-Token JWT
+	// alias. It is disabled by default and never accepts static secrets.
+	AcceptServiceTokenAlias bool `envconfig:"ACCEPT_SERVICE_TOKEN_ALIAS" default:"false"`
 	// ArtifactStoreDir is optional filesystem root for later export bytes (S13).
 	ArtifactStoreDir string `envconfig:"ARTIFACT_STORE_DIR"`
 	// ShutdownTimeout bounds graceful HTTP shutdown after SIGINT/SIGTERM.

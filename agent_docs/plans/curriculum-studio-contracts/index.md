@@ -6,7 +6,7 @@ browser/public authoring; generated clients are the exclusive consumption path;
 generated outputs are never committed; compatibility and conformance gates are
 deterministic from a clean checkout.
 
-**Status:** C1–C6 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`, C6 in PR #36 at `eb2fd8c`. **Current contracts cursor: C7** (OpenAPI handoff and generated REST clients).
+**Status:** C1–C7 complete; C4 landed in PR #28 at `db587ed`, C5 in PR #31 at `b35164d`, C6 in PR #36 at `eb2fd8c`, C7 in PR #41 at `656d8a1`. **Current contracts cursor: C8** (auth, errors, idempotency, and pagination semantics).
 **Plan directory:** `agent_docs/plans/curriculum-studio-contracts/`
 **Branch base:** `66449725337165c2ef00f7c269633696313e0be2`
 **Must-cite:** [foundation crosswalk](../curriculum-studio-foundation-crosswalk.md),

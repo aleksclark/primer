@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -72,16 +73,21 @@ func isPublicPath(method, path string) bool {
 	}
 }
 
-func bearerToken(r *http.Request) string {
+func bearerToken(r *http.Request, allowMigrationAlias bool) (string, bool) {
 	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if h == "" && allowMigrationAlias {
+		// Migration-only compatibility. Static legacy secrets are deliberately
+		// not accepted here; the alias carries the compact Primer JWT directly.
+		return strings.TrimSpace(r.Header.Get("X-Service-Token")), true
+	}
 	if h == "" {
-		return ""
+		return "", false
 	}
 	const prefix = "Bearer "
 	if len(h) < len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
-		return ""
+		return "", false
 	}
-	return strings.TrimSpace(h[len(prefix):])
+	return strings.TrimSpace(h[len(prefix):]), false
 }
 
 // authMiddleware validates every protected request before loading local
@@ -96,10 +102,13 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			writeAuthProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		raw := bearerToken(r)
+		raw, migrationAlias := bearerToken(r, s.acceptServiceTokenAlias)
 		if raw == "" {
 			writeAuthProblem(w, http.StatusUnauthorized, "unauthorized")
 			return
+		}
+		if migrationAlias {
+			slog.Info("accepted migration service-token alias", "path", r.URL.Path)
 		}
 		principal, err := s.validator.Validate(r.Context(), raw)
 		if err != nil {
@@ -268,6 +277,7 @@ func (s *Server) registerAuthRoutes(api huma.API) {
 		Path:        "/studio/v1/machine/probes/materialize",
 		Summary:     "Service scope probe",
 		Tags:        []string{"Authz"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
 	}, func(ctx context.Context, _ *struct{}) (*machineOut, error) {
 		principal, ok := AuthFromContext(ctx)
 		if !ok {
@@ -290,9 +300,14 @@ func writeAuthProblem(w http.ResponseWriter, status int, detail string) {
 	if status == http.StatusForbidden {
 		title = "Forbidden"
 	}
+	code := "unauthenticated"
+	if status == http.StatusForbidden {
+		code = "permission_denied"
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"title":  title,
 		"status": status,
+		"code":   code,
 		"detail": detail,
 	})
 }

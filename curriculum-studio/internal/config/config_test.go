@@ -23,6 +23,7 @@ func TestLoadDefaultsInDevelopment(t *testing.T) {
 	assert.Equal(t, "development", cfg.Env)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "jwks", cfg.AuthMode)
+	assert.False(t, cfg.AcceptServiceTokenAlias)
 	assert.Equal(t, 10*time.Second, cfg.ShutdownTimeout)
 	assert.Equal(t, 10*time.Second, cfg.HTTPReadHeaderTimeout)
 	assert.Equal(t, 30*time.Second, cfg.HTTPReadTimeout)
@@ -46,6 +47,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("STUDIO_HTTP_IDLE_TIMEOUT", "7s")
 	t.Setenv("STUDIO_HTTP_MAX_BODY_BYTES", "4096")
 	t.Setenv("STUDIO_AUTH_MODE", "test")
+	t.Setenv("STUDIO_ACCEPT_SERVICE_TOKEN_ALIAS", "true")
 	t.Setenv("STUDIO_ARTIFACT_STORE_DIR", "/tmp/studio-artifacts")
 
 	cfg, err := config.Load()
@@ -55,6 +57,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 	assert.Equal(t, "test", cfg.Env)
 	assert.Equal(t, "debug", cfg.LogLevel)
 	assert.Equal(t, "test", cfg.AuthMode)
+	assert.True(t, cfg.AcceptServiceTokenAlias)
 	assert.Equal(t, "/tmp/studio-artifacts", cfg.ArtifactStoreDir)
 	assert.Equal(t, 3*time.Second, cfg.ShutdownTimeout)
 	assert.Equal(t, 2*time.Second, cfg.HTTPReadHeaderTimeout)
