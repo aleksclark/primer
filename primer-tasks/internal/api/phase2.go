@@ -13,7 +13,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"primer-tasks/internal/domain"
 	"primer-tasks/internal/schedule"
 )
@@ -155,7 +154,7 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 		problem(w, 500, "internal", "unable to commit task")
 		return
 	}
-	jsonStatus(w, map[string]any{"id": tid.String(), "templateId": tid.String(), "revisionId": rid.String(), "version": 1, "title": in.Title, "instructions": in.Instructions, "status": "draft", "requirements": rs}, 201)
+	jsonStatus(w, map[string]any{"id": rid.String(), "templateId": tid.String(), "version": 1, "title": in.Title, "instructions": in.Instructions, "status": "draft", "requirements": rs}, 201)
 }
 func (s *Server) listTasks2(w http.ResponseWriter, r *http.Request, sc scope) {
 	limit, offset := parsePage(r)
@@ -476,7 +475,6 @@ func (s *Server) deviceDetailWrapper(w http.ResponseWriter, r *http.Request, id 
 func (s *Server) deviceStartWrapper(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	s.startOccurrence2(w, r, id)
 }
-func (s *Server) enforceTaskID(_ context.Context, _ *pgxpool.Pool, _ string) {}
 
 // reviseTask2 appends a revision; it never mutates the published revision.
 func (s *Server) reviseTask2(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -503,7 +501,7 @@ func (s *Server) reviseTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	defer tx.Rollback(ctx)
 	var templateID uuid.UUID
 	var version int
-	if err = tx.QueryRow(ctx, `SELECT template_id,COALESCE(max(version),0)+1 FROM task_revisions WHERE tenant_id=$1 AND template_id=$2 GROUP BY template_id FOR UPDATE`, sc.Tenant, chi.URLParam(r, "id")).Scan(&templateID, &version); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT template_id,COALESCE(max(version),0)+1 FROM task_revisions WHERE tenant_id=$1 AND template_id=$2 GROUP BY template_id`, sc.Tenant, chi.URLParam(r, "id")).Scan(&templateID, &version); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			problem(w, 404, "not_found", "task not found")
 		} else {
