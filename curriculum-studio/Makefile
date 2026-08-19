@@ -24,7 +24,7 @@ GATES := $(STUDIO_ROOT)/tools/contract-gates
 	clients-ts-rest-generate clients-ts-rest-build \
 	clients-generate \
 	contracts-parity \
-	contracts-gates contracts-ci gates-red-proof \
+	contracts-gates contracts-ci contracts-conformance gates-red-proof \
 	contracts-spikes
 
 help:
@@ -46,6 +46,7 @@ help:
 	@echo "  clients-generate        emit + fan-out all client generation (C4/C7)"
 	@echo "  contracts-parity        closed-enum parity gate (C2)"
 	@echo "  contracts-gates         policy gates incl. no-tracked-gen (C1/C10)"
+	@echo "  contracts-conformance   generated-client loopback matrix + coverage (C11)"
 	@echo "  contracts-spikes        hard-type qualification spikes (C3)"
 
 # --- Service shell (S1) ---
@@ -157,7 +158,10 @@ contracts-gates: contracts-ownership contracts-openapi-emit
 	@grep -q '^module spike.local/harness$$' "$(GATES)/spikes/go/harness/go.mod" \
 		|| { echo "FAIL: harness go.mod must declare module spike.local/harness" >&2; exit 1; }
 
-contracts-ci: contracts-validate contracts-openapi-emit clients-generate
+contracts-conformance: contracts-buf-generate clients-go-rest-generate
+	cd "$(STUDIO_ROOT)" && GOWORK=off go test ./internal/conformance ./clients/go-grpc/... ./clients/go-rest/... -count=1 -timeout 10m
+
+contracts-ci: contracts-validate contracts-openapi-emit clients-generate contracts-conformance
 	OPENAPI_PATH="$(CONTRACTS)/.tmp/openapi.emitted.yaml" bash "$(CONTRACTS)/scripts/parity.sh"
 	bash "$(CONTRACTS)/scripts/check-buf-breaking.sh"
 	bash "$(CONTRACTS)/scripts/check-openapi-breaking.sh"
