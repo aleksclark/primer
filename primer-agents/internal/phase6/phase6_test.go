@@ -80,7 +80,6 @@ func mintToken(t *testing.T, key *jwttest.Keypair, now time.Time, sub, scope str
 // ── BDD: Student profile is always server-selected ───────────────────────────
 
 func TestStudentProfileServerSelected(t *testing.T) {
-	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	key := jwttest.GenerateKey(t)
 	srv := serveJWKS(t, key)
@@ -106,7 +105,6 @@ func TestStudentProfileServerSelected(t *testing.T) {
 // ── BDD: Student route fails closed without student scope ────────────────────
 
 func TestStudentRouteFailsClosedWithoutScope(t *testing.T) {
-	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	key := jwttest.GenerateKey(t)
 	srv := serveJWKS(t, key)
@@ -129,7 +127,6 @@ func TestStudentRouteFailsClosedWithoutScope(t *testing.T) {
 // ── BDD: Student profile invariants are code-level ───────────────────────────
 
 func TestStudentProfileHardInvariants(t *testing.T) {
-	t.Parallel()
 	spec, err := profile.Build(profile.Student)
 	require.NoError(t, err)
 
@@ -150,7 +147,6 @@ func TestStudentProfileHardInvariants(t *testing.T) {
 // ── BDD: Student MAF StartChild is denied at the engine level ─────────────────
 
 func TestStudentStartChildDenied(t *testing.T) {
-	t.Parallel()
 	spec, err := profile.Build(profile.Student)
 	require.NoError(t, err)
 
@@ -176,7 +172,6 @@ func TestStudentStartChildDenied(t *testing.T) {
 // ── BDD: Student authority does not leak into parent/admin namespace ──────────
 
 func TestStudentParentNamespaceIsolation(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	svc := newSvc(t)
 
@@ -209,7 +204,6 @@ func TestStudentParentNamespaceIsolation(t *testing.T) {
 // ── BDD: On-demand job uses durable run lifecycle ────────────────────────────
 
 func TestJobDurableLifecycle(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	svc := newSvc(t)
 	ns := "ns-job-" + uuid.NewString()[:8]
@@ -252,7 +246,6 @@ func freshPool(t *testing.T) *pgxpool.Pool {
 // ── BDD: Schedule firing is idempotent — UNIQUE(schedule_id, due_at) ──────────
 
 func TestScheduleFiringIdempotent(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	pool := testutil.DB(t)
 	svc := appservice.New(pool)
@@ -307,7 +300,6 @@ func TestScheduleFiringIdempotent(t *testing.T) {
 // ── BDD: Schedule cross-namespace IDOR denied ─────────────────────────────────
 
 func TestScheduleCrossNamespaceDenied(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	svc := newSvc(t)
 	ownerNS := "ns-sched-own-" + uuid.NewString()[:8]
@@ -331,7 +323,6 @@ func TestScheduleCrossNamespaceDenied(t *testing.T) {
 // ── BDD: Schedule next_due_at advances after firing ──────────────────────────
 
 func TestScheduleNextDueAdvances(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	pool := testutil.DB(t)
 	svc := appservice.New(pool)
