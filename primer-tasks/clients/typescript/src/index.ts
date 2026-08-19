@@ -1,6 +1,30 @@
 import createClient from "openapi-fetch";
 import type { paths, components } from "../generated/schema";
 
+export {
+  AGENT_PROTOCOL_VERSION,
+  parseAgentEvent,
+  safeAgentToolLabel,
+} from "./agent-protocol";
+export type {
+  AgentCancelCommand,
+  AgentCommand,
+  AgentConfirmCommand,
+  AgentEvent,
+  AgentMessageCommand,
+  AgentSubscribeCommand,
+  AgentToolLabel,
+  AgentUnsubscribeCommand,
+} from "./agent-protocol";
+export { createAgentClient } from "./agent-client";
+export type {
+  AgentClient,
+  AgentClientError,
+  AgentClientOptions,
+  AgentClientSnapshot,
+  AgentConnectionState,
+} from "./agent-client";
+
 export type { components, paths } from "../generated/schema";
 export type Student = components["schemas"]["Student"];
 export type Health = components["schemas"]["Health"];

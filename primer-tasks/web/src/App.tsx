@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { TasksApiError, tasksClient, type Occurrence, type Schedule, type Student } from "@primer-tasks/client";
 import "./index.css";
+import AgentCommandPage from "./AgentCommandPage";
 
 type Theme = "dark" | "light";
 
@@ -89,6 +90,7 @@ function ParentShell({ children }: { children: ReactNode }) {
           <NavLink className="nav-link" to="/parent/tasks">Tasks</NavLink>
           <NavLink className="nav-link" to="/parent/schedules">Schedules</NavLink>
           <NavLink className="nav-link" to="/parent/occurrences">Occurrences</NavLink>
+          <NavLink className="nav-link" to="/parent/agent">Parent agent</NavLink>
         </div>
         <div className="nav-section">
           <p className="system-label" style={{ padding: "0 20px" }}>Student access</p>
@@ -111,7 +113,7 @@ function ParentAuthGate() {
   }, []);
   if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
   if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} />;
-  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
+  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="agent" element={<AgentCommandPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
 }
 
 function AuthFrame({ children }: { children: ReactNode }) {
