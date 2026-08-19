@@ -520,8 +520,12 @@ type workspaceListInput struct {
 	WorkspaceID string `path:"workspaceId"`
 }
 type curriculumListInput struct {
-	authoringListQuery
 	WorkspaceID string `path:"workspaceId"`
+	Limit int `query:"limit" minimum:"1" maximum:"200" default:"25"`
+	Offset int `query:"offset" minimum:"0" default:"0"`
+	Q string `query:"q"`
+	Sort string `query:"sort"`
+	Dir string `query:"dir" enum:"asc,desc" default:"asc"`
 }
 type revisionListInput struct {
 	authoringListQuery
