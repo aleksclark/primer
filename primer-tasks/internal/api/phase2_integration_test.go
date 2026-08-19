@@ -48,8 +48,8 @@ func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
 		t.Fatalf("worker retry=%v", err)
 	}
 	worker2 := schedule.NewWorker(pool)
-	if err := worker2.Materialize(context.Background()); err == nil {
-		t.Fatal("second worker acquired an active tenant lease")
+	if err := worker2.Materialize(context.Background()); err != nil {
+		t.Fatalf("lease contention should skip, got %v", err)
 	}
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	cancelWorker()
@@ -169,6 +169,10 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	updateBody := `{"studentId":"` + alice + `","templateId":"` + task.TemplateID + `","revisionId":"` + revision.ID + `","kind":"recurrence","timezone":"UTC","startAt":"` + start + `","rrule":"FREQ=DAILY;COUNT=2","dueOffsetMinutes":5}`
 	if got := requestJSON(t, h, http.MethodPatch, "/schedules/"+sch.ID, "parent-a", updateBody); got.Code != 200 {
 		t.Fatalf("schedule update=%d %s", got.Code, got.Body.String())
+	}
+	badUpdate := strings.Replace(updateBody, revision.ID, bob, 1)
+	if got := requestJSON(t, h, http.MethodPatch, "/schedules/"+sch.ID, "parent-a", badUpdate); got.Code != 409 {
+		t.Fatalf("mismatched schedule revision=%d %s", got.Code, got.Body.String())
 	}
 	if got := requestJSON(t, h, http.MethodDelete, "/schedules/"+sch.ID, "parent-a", ""); got.Code != 204 {
 		t.Fatalf("schedule retire=%d %s", got.Code, got.Body.String())

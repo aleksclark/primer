@@ -59,12 +59,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { PrimerTasksApp(applicationContext) }
+        setContent { PrimerTasksApp(applicationContext, intent?.data) }
     }
 }
 
 @Composable
-private fun PrimerTasksApp(context: android.content.Context) {
+private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = null) {
     val tokenStore = remember { EncryptedTokenStore(context) }
     val metadataStore = remember { MetadataStore(context) }
     val scope = rememberCoroutineScope()
@@ -121,6 +121,11 @@ private fun PrimerTasksApp(context: android.content.Context) {
             token = savedToken
             metadata = savedMetadata
             loadSession(savedToken, savedMetadata)
+            val occurrenceId = occurrenceIdFromDeepLink(deepLink)
+            if (occurrenceId != null) {
+                try { selectedOccurrence = TasksClient(savedMetadata.origin).studentOccurrence(savedToken, occurrenceId) }
+                catch (_: TasksHttpException) { message = "That task is unavailable to this student." }
+            }
         } else {
             tokenStore.clear()
             metadataStore.clear()

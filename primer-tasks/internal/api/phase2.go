@@ -195,7 +195,7 @@ func (s *Server) publishTask2(w http.ResponseWriter, r *http.Request, sc scope) 
 	id := chi.URLParam(r, "id")
 	ctx := r.Context()
 	var x TaskRevision
-	e := s.DB.QueryRow(ctx, `UPDATE task_revisions SET status='published',published_at=now() WHERE tenant_id=$1 AND id=$2 AND status='draft' RETURNING id,template_id,version,title,instructions,status,created_at`, sc.Tenant, id).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt)
+	e := s.DB.QueryRow(ctx, `UPDATE task_revisions SET status='published',published_at=now() WHERE tenant_id=$1 AND id=$2 AND status='draft' AND EXISTS(SELECT 1 FROM task_templates t WHERE t.tenant_id=task_revisions.tenant_id AND t.id=task_revisions.template_id AND t.status<>'retired') RETURNING id,template_id,version,title,instructions,status,created_at`, sc.Tenant, id).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "draft revision not found")
 		return
@@ -241,7 +241,7 @@ func (s *Server) createSchedule2(w http.ResponseWriter, r *http.Request, sc scop
 		}
 	}
 	id := uuid.New()
-	_, e := s.DB.Exec(r.Context(), `INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE EXISTS(SELECT 1 FROM task_revisions WHERE tenant_id=$2 AND id=$5 AND status='published')`, id, sc.Tenant, in.StudentID, in.TemplateID, in.RevisionID, in.Kind, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
+	_, e := s.DB.Exec(r.Context(), `INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE EXISTS(SELECT 1 FROM task_revisions r JOIN task_templates t ON t.tenant_id=r.tenant_id AND t.id=r.template_id WHERE r.tenant_id=$2 AND r.id=$5 AND r.template_id=$4 AND r.status='published' AND t.status<>'retired')`, id, sc.Tenant, in.StudentID, in.TemplateID, in.RevisionID, in.Kind, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
 	if e != nil {
 		problem(w, 409, "conflict", "schedule references an unavailable task or student")
 		return
@@ -255,8 +255,8 @@ func (s *Server) createSchedule2(w http.ResponseWriter, r *http.Request, sc scop
 func (s *Server) materializeSchedule(ctx context.Context, tenant, id, owner string) error {
 	var student, rev, kind, zone, rule string
 	var start, end *time.Time
-	var due int
-	if e := s.DB.QueryRow(ctx, `SELECT student_id,revision_id,kind,timezone,rrule,start_local,end_local,due_offset_minutes FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled`, tenant, id).Scan(&student, &rev, &kind, &zone, &rule, &start, &end, &due); e != nil {
+	var due, version int
+	if e := s.DB.QueryRow(ctx, `SELECT student_id,revision_id,kind,timezone,rrule,start_local,end_local,due_offset_minutes,version FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled`, tenant, id).Scan(&student, &rev, &kind, &zone, &rule, &start, &end, &due, &version); e != nil {
 		return e
 	}
 	if start == nil {
@@ -278,7 +278,7 @@ func (s *Server) materializeSchedule(ctx context.Context, tenant, id, owner stri
 	h := time.Now().Add(time.Duration(horizonDays) * 24 * time.Hour)
 	for _, at := range spec.Occurrences(h) {
 		oid := uuid.New()
-		_, e = s.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) SELECT $1,$2,$3,$4,$5,$6::timestamptz,$6::timestamptz+($7::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, oid, tenant, id, student, rev, at, due)
+		_, e = s.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) SELECT $1,$2,$3,$4,$5,$6::timestamptz,$6::timestamptz+($8::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid,'timezone',$7::text,'dueOffsetMinutes',$8::int,'scheduleVersion',$9::int) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, oid, tenant, id, student, rev, at, zone, due, version)
 		if e != nil {
 			return e
 		}
@@ -293,7 +293,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE(o.revision_snapshot->>'timezone',s.timezone),COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -311,7 +311,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	jsonOK(w, OccurrencePage2{out, total, limit, offset})
 }
 func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE(o.revision_snapshot->>'timezone',s.timezone),COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -457,7 +457,7 @@ func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc
 }
 func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	var x Occurrence2
-	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.tenant_id=$1 AND o.id=$2`, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber)
+	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE(o.revision_snapshot->>'timezone',s.timezone),COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.tenant_id=$1 AND o.id=$2`, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
@@ -470,7 +470,7 @@ func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc
 }
 func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var x Occurrence2
-	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,s.timezone,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.student_id=$1 AND o.id=$2`, id, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber)
+	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,r.title,r.instructions,o.status,o.nominal_at,o.due_at,COALESCE(o.revision_snapshot->>'timezone',s.timezone),COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o JOIN task_revisions r ON r.id=o.revision_id JOIN task_schedules s ON s.id=o.schedule_id WHERE o.student_id=$1 AND o.id=$2`, id, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.AttemptNumber)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
@@ -522,7 +522,7 @@ func (s *Server) reviseTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	defer tx.Rollback(ctx)
 	var templateID uuid.UUID
 	var version int
-	if err = tx.QueryRow(ctx, `SELECT template_id,COALESCE(max(version),0)+1 FROM task_revisions WHERE tenant_id=$1 AND template_id=$2 GROUP BY template_id`, sc.Tenant, chi.URLParam(r, "id")).Scan(&templateID, &version); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT r.template_id,COALESCE(max(r.version),0)+1 FROM task_revisions r JOIN task_templates t ON t.tenant_id=r.tenant_id AND t.id=r.template_id WHERE r.tenant_id=$1 AND r.template_id=$2 AND t.status<>'retired' GROUP BY r.template_id`, sc.Tenant, chi.URLParam(r, "id")).Scan(&templateID, &version); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			problem(w, 404, "not_found", "task not found")
 		} else {
@@ -595,6 +595,15 @@ func (s *Server) updateSchedule2(w http.ResponseWriter, r *http.Request, sc scop
 		}
 	}
 	var x Schedule2
+	var valid bool
+	if e := s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM task_revisions r JOIN task_templates t ON t.tenant_id=r.tenant_id AND t.id=r.template_id WHERE r.tenant_id=$1 AND r.id=$2 AND r.template_id=$3 AND r.status='published' AND t.status<>'retired')`, sc.Tenant, in.RevisionID, in.TemplateID).Scan(&valid); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if !valid {
+		problem(w, 409, "conflict", "schedule references an unavailable task revision")
+		return
+	}
 	err := s.DB.QueryRow(r.Context(), `UPDATE task_schedules SET student_id=$1,template_id=$2,revision_id=$3,kind=$4,timezone=$5,start_local=$6,end_local=$7,rrule=$8,due_offset_minutes=$9,version=version+1 WHERE tenant_id=$10 AND id=$11 AND enabled RETURNING id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes,enabled,version`, in.StudentID, in.TemplateID, in.RevisionID, in.Kind, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.TemplateID, &x.RevisionID, &x.Kind, &x.Timezone, &x.StartAt, &x.EndAt, &x.RRULE, &x.DueOffsetMinutes, &x.Enabled, &x.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "schedule not found")

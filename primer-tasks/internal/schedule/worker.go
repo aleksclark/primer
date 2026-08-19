@@ -2,8 +2,10 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"os"
 	"strconv"
@@ -51,6 +53,9 @@ func (w *Worker) Materialize(ctx context.Context) error {
 			return e
 		}
 		if ok, e := w.claim(ctx, tenant); e != nil {
+			if errors.Is(e, pgx.ErrNoRows) {
+				continue
+			}
 			return e
 		} else if ok {
 			if e = w.materializeSchedule(ctx, tenant, id); e != nil {
@@ -71,8 +76,8 @@ func (w *Worker) claim(ctx context.Context, tenant string) (bool, error) {
 func (w *Worker) materializeSchedule(ctx context.Context, tenant, id string) error {
 	var student, rev, kind, zone, rule string
 	var start, end *time.Time
-	var due int
-	if e := w.DB.QueryRow(ctx, `SELECT student_id,revision_id,kind,timezone,rrule,start_local,end_local,due_offset_minutes FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled`, tenant, id).Scan(&student, &rev, &kind, &zone, &rule, &start, &end, &due); e != nil {
+	var due, version int
+	if e := w.DB.QueryRow(ctx, `SELECT student_id,revision_id,kind,timezone,rrule,start_local,end_local,due_offset_minutes,version FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled`, tenant, id).Scan(&student, &rev, &kind, &zone, &rule, &start, &end, &due, &version); e != nil {
 		return e
 	}
 	if start == nil {
@@ -87,7 +92,7 @@ func (w *Worker) materializeSchedule(ctx context.Context, tenant, id string) err
 		return e
 	}
 	for _, at := range spec.Occurrences(time.Now().Add(w.Horizon)) {
-		_, e = w.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) VALUES($1,$2,$3,$4,$5::uuid,$6::timestamptz,$6::timestamptz+($7::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid)) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, uuid.New(), tenant, id, student, rev, at, due)
+		_, e = w.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) VALUES($1,$2,$3,$4,$5::uuid,$6::timestamptz,$6::timestamptz+($8::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid,'timezone',$7::text,'dueOffsetMinutes',$8::int,'scheduleVersion',$9::int)) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, uuid.New(), tenant, id, student, rev, at, zone, due, version)
 		if e != nil {
 			return e
 		}
