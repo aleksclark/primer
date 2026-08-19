@@ -261,7 +261,11 @@ must expose an emulator flow too.
    network/console failures, and database-visible outcomes.
 3. For Android phases, a **dedicated Android acceptance agent** installs a fresh
    debug APK on an emulator, drives the real app/API, rotates the emulator when
-   auth/camera state matters, and records `adb`/screen evidence. MockWebServer is
+   auth/camera state matters, and records `adb`/screen evidence. For Phase 1,
+   CameraX remains the primary production path and its integration remains
+   tested; only when the recorded Emulator 36.4.10 VirtualScene poster
+   propagation blocker prevents camera-image injection may acceptance use the
+   visible secondary Photo Picker/SAF exact-image fallback. MockWebServer is
    supplemental only.
 4. The implementer fixes findings and the exploratory agent re-runs until PASS.
 5. Only after exploratory PASS, a **test-promotion agent** writes/extends the
@@ -305,7 +309,7 @@ for assertions.
 | Agent verification without chat | P5 |
 | Streaming and thinking/progress indicators | P3–P5 WS scenarios; raw reasoning exclusion audit |
 | Parent + student web SPA | P1 shells, P2 functional workflows, all later phases |
-| Android QR pairing and persistent single-student auth | P1 |
+| Android QR pairing and persistent single-student auth | P1; CameraX primary, with the documented exact-image Photo Picker/SAF emulator fallback only for the recorded upstream VirtualScene blocker |
 | Android camera/files for image/video/audio | P5 |
 | Mandatory dedicated E2E then Playwright per phase | global promotion protocol + every phase E2E/completion gate |
 | Android emulator testing | P1, P2, P4, P5, P7 emulator plans |
@@ -340,7 +344,13 @@ impl/tasks-p7-release
 
 Primer Tasks is complete only when every phase BDD scenario passes through its
 real public boundary; each phase has independent exploratory evidence followed
-by promoted Playwright (and required emulator) automation; two tenants remain
+by promoted Playwright (and required emulator) automation. Where Phase 1 uses
+its documented Android emulator fallback, the exact rendered QR image must be
+selected through the system Photo Picker/SAF and decoded through the same bundled
+parser and real pair path; this exception never permits manual codes, payload
+recreation, direct API seeding, or internal seams, and the upstream VirtualScene
+blocker plus the remaining physical-camera/live-scene limitation stay recorded.
+Two tenants remain
 isolated across REST, WebSocket, agent tools, object keys, jobs, and events;
 Compose check/hot-reload/two-instance proofs pass; generated clients are freshly
 built from offline-emitted contracts with no tracked generated source; Fantasy
