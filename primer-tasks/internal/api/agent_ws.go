@@ -378,7 +378,7 @@ func (s *Server) agentConfirm(ctx context.Context, sc scope, cmd agentCommand) {
 		s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "error", ProtocolVersion: 1, ConversationID: cmd.ConversationID, Code: "confirmation_rejected", Message: "confirmation was not applied", Retryable: false, TenantID: sc.Tenant})
 		return
 	}
-	s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "text_delta", ProtocolVersion: 1, ConversationID: cmd.ConversationID, RunID: cmd.RunID, Delta: "Confirmed change applied through the Tasks service.", TenantID: sc.Tenant})
+	s.publishAgent(ctx, sc.Tenant, cmd.ConversationID, wireAgentEvent{Type: "tool_progress", ProtocolVersion: 1, ConversationID: cmd.ConversationID, RunID: cmd.RunID, Tool: "Confirm change", ToolStatus: "completed", Phase: "completed", Summary: "Confirmed change applied through the Tasks service.", TenantID: sc.Tenant})
 }
 
 func parentHandleHash(handle string) []byte {
