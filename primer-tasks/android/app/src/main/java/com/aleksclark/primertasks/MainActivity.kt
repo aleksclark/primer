@@ -17,8 +17,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -379,23 +380,24 @@ private class QrAnalyzer(
 
 @Composable
 private fun ChecklistScreen(name: String, items: List<ChecklistItem>, occurrences: List<OccurrenceResponse>, upcoming: List<OccurrenceResponse>, message: String?, onOpen: (OccurrenceResponse) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("PRIMER TASKS", style = MaterialTheme.typography.labelLarge)
-        Text(name, style = MaterialTheme.typography.headlineMedium)
-        Text("Today", style = MaterialTheme.typography.titleLarge)
-        if (occurrences.isEmpty() && items.isEmpty()) Text("Nothing assigned yet. Your checklist is empty.")
-        occurrences.forEach { occurrence ->
-            OutlinedButton(onClick = { onOpen(occurrence) }, modifier = Modifier.fillMaxWidth()) {
+    val sections = checklistSections(occurrences.size, upcoming.size)
+    LazyColumn(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
+        item { Text("PRIMER TASKS", style = MaterialTheme.typography.labelLarge) }
+        item { Text(name, style = MaterialTheme.typography.headlineMedium) }
+        item { Text("Today", style = MaterialTheme.typography.titleLarge) }
+        if (!sections.showToday && items.isEmpty()) item { Text("Nothing assigned yet. Your checklist is empty.") }
+        items(occurrences, key = { it.id }) { occurrence ->
+            OutlinedButton(onClick = { onOpen(occurrence) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Today task ${occurrence.title}, ${occurrence.status}" }) {
                 Column(Modifier.fillMaxWidth()) { Text(occurrence.title, style = MaterialTheme.typography.bodyLarge); Text(occurrence.status, style = MaterialTheme.typography.bodySmall) }
             }
         }
-        if (occurrences.isEmpty()) items.forEach { item -> Text("• ${item.title}", style = MaterialTheme.typography.bodyLarge) }
-        if (upcoming.isNotEmpty()) {
-            Text("Upcoming", style = MaterialTheme.typography.titleLarge)
-            upcoming.take(10).forEach { occurrence -> OutlinedButton(onClick = { onOpen(occurrence) }, modifier = Modifier.fillMaxWidth()) { Text("${occurrence.title} · ${occurrence.nominalAt}") } }
+        if (occurrences.isEmpty()) items(items, key = { it.id }) { checklistItem -> Text("• ${checklistItem.title}", style = MaterialTheme.typography.bodyLarge) }
+        if (sections.showUpcoming) {
+            item { Text("Upcoming", style = MaterialTheme.typography.titleLarge) }
+            items(upcoming.take(10), key = { "upcoming-${it.id}" }) { occurrence -> OutlinedButton(onClick = { onOpen(occurrence) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Upcoming task ${occurrence.title}, ${occurrence.nominalAt}" }) { Text("${occurrence.title} · ${occurrence.nominalAt}") } }
         }
-        if (message != null) Text(message, color = MaterialTheme.colorScheme.error)
-        Text("One student · one device", style = MaterialTheme.typography.bodySmall)
+        if (message != null) item { Text(message, color = MaterialTheme.colorScheme.error) }
+        item { Text("One student · one device", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
