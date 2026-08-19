@@ -151,6 +151,28 @@ Mapping rules (renames / storage-only only — not a value catalog) live in
 `../tools/contract-gates/enum_mappings.yaml`. The extractor never introduces a
 third hand-maintained enum SoT.
 
+## Compatibility and policy gates (C10)
+
+The local clean-checkout entry point is `make contracts-ci`. It emits the Huma
+spec, generates all ignored clients, checks enum parity, runs protobuf and
+OpenAPI breaking gates against committed baselines, rejects unauthorized raw
+transport use, runs the full Studio test suite, and verifies no generated
+outputs are tracked. `make gates-red-proof` exercises planted failures and
+restores the workspace.
+
+Baselines are release artifacts, not live sources:
+
+- `baselines/curriculumstudio.v1.buf.binpb` is checked by
+  `scripts/check-buf-breaking.sh`.
+- `openapi/v1/curriculum-studio.yaml` is checked by `scripts/check-baseline.sh`
+  and `scripts/check-openapi-breaking.sh`.
+- Refresh requires a reviewed release change plus
+  `BASELINE_BOOTSTRAP=1 scripts/check-baseline.sh` for the OpenAPI digest;
+  regenerate the protobuf image explicitly and commit it together.
+
+`tools/contract-gates/raw-transport-allowlist.txt` is narrow and reviewed;
+future UI/consumer code must use the generated REST or gRPC façades.
+
 ## Validate offline
 
 From `curriculum-studio/contracts/`:
