@@ -243,20 +243,29 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 		problem(w, 409, "conflict", "multipart reservation requires part endpoints")
 		return
 	}
-	// Reverse proxies may legitimately de-chunk a same-origin XHR and omit
-	// Content-Length. The object store adapter still enforces the reserved
-	// exact byte count; reject only a known over/under-sized request before it
-	// is persisted.
+	// A proxy can de-chunk the browser request and omit Content-Length. Read at
+	// most one byte beyond the reservation, then give the S3 client a stable
+	// seekable byte reader. AWS SDK retries/hash middleware cannot safely replay
+	// a streaming http.MaxBytesReader body.
+	cancel := func() {
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+	}
 	if r.ContentLength > size {
+		cancel()
 		problem(w, 400, "invalid_request", "upload size exceeds reservation")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, size+1)
-	obj, e := s.Artifacts.Put(r.Context(), key, r.Header.Get("Content-Type"), r.Body, size)
+	body, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, size+1))
+	if readErr != nil || int64(len(body)) != size {
+		cancel()
+		problem(w, 400, "invalid_request", "upload size does not match reservation")
+		return
+	}
+	obj, e := s.Artifacts.Put(r.Context(), key, r.Header.Get("Content-Type"), bytes.NewReader(body), int64(len(body)))
 	if e != nil {
 		slog.Warn("artifact upload storage failure", "code", "object_put_failed", "kind", r.Header.Get("Content-Type"))
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		cancel()
 		problem(w, 400, "invalid_request", "upload could not be stored")
 		return
 	}
