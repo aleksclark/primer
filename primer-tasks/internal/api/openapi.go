@@ -179,6 +179,27 @@ type NoContentOutput struct {
 	ResponseHeaders
 }
 
+type ArtifactOccurrenceInput struct {
+	Occurrence string                   `path:"occurrence"`
+	Body       artifactReservationInput `required:"true"`
+}
+type ArtifactFinalizeBoundaryInput struct {
+	Occurrence string                `path:"occurrence"`
+	Body       artifactFinalizeInput `required:"true"`
+}
+type ArtifactStateOutput struct {
+	ResponseHeaders
+	Body map[string]any
+}
+type ArtifactReservationBoundaryOutput struct {
+	ResponseHeaders
+	Body artifactReservationOutput
+}
+type ArtifactOutputBoundary struct {
+	ResponseHeaders
+	Body artifactOutput
+}
+
 // Problem is the existing browser error envelope. It is also Huma's error
 // type, so validation failures and handler failures use the same wire shape.
 type Problem struct {
@@ -327,6 +348,24 @@ func (s *Server) humaAPI() huma.API {
 	// WebSocket transport is an owned protocol adapter, not an OpenAPI
 	// operation. It shares this production router so offline REST emission and
 	// runtime routes cannot drift.
+	// Artifact JSON routes are registered through the same Huma boundary as
+	// the rest of the REST API. Binary PUTs remain the single explicitly
+	// allowlisted streaming façade and are registered on the shared router.
+	register(api, huma.Operation{OperationID: "student-artifact-reserve", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/reserve", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *ArtifactOccurrenceInput) (*ArtifactReservationBoundaryOutput, error) {
+		body := in.Body
+		body.OccurrenceID = in.Occurrence
+		out, headers, err := legacyJSON[artifactReservationOutput](ctx, s.requireStudent(s.reserveArtifact), body)
+		return &ArtifactReservationBoundaryOutput{ResponseHeaders: headers, Body: out}, err
+	})
+	register(api, huma.Operation{OperationID: "student-artifact-state", Method: http.MethodGet, Path: "/student/occurrences/{occurrence}/artifacts", Errors: []int{401, 404, 500}}, func(ctx context.Context, in *struct {
+		Occurrence string `path:"occurrence"`
+	}) (*ArtifactStateOutput, error) { out, headers, err := legacyJSON[map[string]any](ctx, s.requireStudent(s.studentArtifactState), nil); return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err })
+	register(api, huma.Operation{OperationID: "student-artifact-finalize", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/finalize", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *ArtifactFinalizeBoundaryInput) (*ArtifactOutputBoundary, error) {
+		body := in.Body
+		body.OccurrenceID = in.Occurrence
+		out, headers, err := legacyJSON[artifactOutput](ctx, s.requireStudent(s.finalizeArtifact), body)
+		return &ArtifactOutputBoundary{ResponseHeaders: headers, Body: out}, err
+	})
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
 	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))
 	s.registerArtifactRoutes(r)

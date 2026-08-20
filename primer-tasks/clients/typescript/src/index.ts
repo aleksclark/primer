@@ -12,6 +12,7 @@ import {
   artifactRubricRequirement,
   parseArtifactStudentState,
   type ArtifactFinalizeInput,
+  type ArtifactKind,
   type ArtifactRubricConfig,
   type ArtifactRubricRequirement,
   type ArtifactStudentState,
@@ -394,13 +395,20 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       }
     },
     async reserveArtifact(id: string, body: { kind: string; mediaType: string; sizeBytes: number; digest?: string; idempotencyKey: string }, options: RequestOptions = {}): Promise<ArtifactUploadReservation> {
-      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/reserve`, { method: "POST", body: JSON.stringify(body), signal: options.signal }, (value) => value as ArtifactUploadReservation);
+      const payload = { occurrenceId: id, kind: body.kind, contentType: body.mediaType, size: body.sizeBytes, idempotencyKey: body.idempotencyKey };
+      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/reserve`, { method: "POST", body: JSON.stringify(payload), signal: options.signal }, (value) => {
+        if (!value || typeof value !== "object" || typeof (value as { artifactId?: unknown }).artifactId !== "string" || typeof (value as { uploadUrl?: unknown }).uploadUrl !== "string") throw new TasksApiError(502, "The server returned an unusable upload reservation.");
+        return { artifactId: value.artifactId, occurrenceId: id, uploadUrl: value.uploadUrl, expiresAt: String(value.expiresAt ?? ""), kind: body.kind as ArtifactKind, mediaType: body.mediaType, maxBytes: body.sizeBytes, expectedDigest: body.digest };
+      });
     },
     async uploadArtifact(reservation: ArtifactUploadReservation, file: File, options: ArtifactUploadOptions = {}) {
       return uploadArtifactBinary(reservation, file, options);
     },
     async finalizeArtifact(id: string, body: ArtifactFinalizeInput, options: RequestOptions = {}): Promise<ArtifactStudentState> {
-      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/finalize`, { method: "POST", body: JSON.stringify(body), signal: options.signal }, (value) => parseArtifactStudentState(value));
+      await requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/finalize`, { method: "POST", body: JSON.stringify({ ...body, occurrenceId: id }), signal: options.signal }, (value) => value);
+      const state = await this.studentArtifactState(id, options);
+      if (!state) throw new TasksApiError(502, "The server did not return artifact state after finalization.");
+      return state;
     },
     async retryArtifactEvaluation(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState> {
       return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/retry`, { method: "POST", signal: options.signal }, (value) => parseArtifactStudentState(value));

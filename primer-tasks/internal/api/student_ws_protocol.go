@@ -190,6 +190,32 @@ SELECT a.tenant_id, a.occurrence_id::text, a.id::text, a.requirement_id::text, a
 	return binding, nil
 }
 
+func (s *Server) studentArtifactSubscribe(ctx context.Context, identity studentIdentity, sub *studentSubscriber, cmd studentCommand) {
+	if cmd.OccurrenceID == "" || cmd.SubmissionID == "" {
+		s.sendStudentToSubscriber(sub, wireStudentEvent{Type: "error", ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Code: "invalid_request", Message: "artifact subscription is incomplete", Retryable: false, Time: time.Now().UTC()})
+		return
+	}
+	var status string
+	err := s.DB.QueryRow(ctx, `SELECT sub.status FROM artifact_submissions sub WHERE sub.tenant_id=$1 AND sub.student_id=$2 AND sub.occurrence_id=$3 AND sub.id=$4`, identity.TenantID, identity.StudentID, cmd.OccurrenceID, cmd.SubmissionID).Scan(&status)
+	if err != nil {
+		s.sendStudentToSubscriber(sub, wireStudentEvent{Type: "error", ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Code: "not_found", Message: "artifact review not found", Retryable: false, Time: time.Now().UTC()})
+		return
+	}
+	phase := "queued"
+	typeName := "progress"
+	switch status {
+	case "accepted":
+		phase, typeName = "evaluating", "complete"
+	case "rejected":
+		phase, typeName = "review", "complete"
+	case "review":
+		phase, typeName = "review", "progress"
+	case "evaluating":
+		phase = "evaluating"
+	}
+	s.sendStudentToSubscriber(sub, wireStudentEvent{Type: typeName, ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Sequence: 1, Cursor: 1, Phase: phase, Status: status, Time: time.Now().UTC()})
+}
+
 func (s *Server) studentSubscribe(ctx context.Context, identity studentIdentity, sub *studentSubscriber, cmd studentCommand) {
 	binding, err := s.bindStudentAttempt(ctx, identity, cmd.OccurrenceID, cmd.AttemptID)
 	if err != nil {

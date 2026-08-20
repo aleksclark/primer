@@ -33,6 +33,7 @@ type studentCommand struct {
 	OccurrenceID     string `json:"occurrenceId"`
 	Cursor           int64  `json:"cursor"`
 	ClientMessageID  string `json:"clientMessageId"`
+	SubmissionID     string `json:"submissionId"`
 	Text             string `json:"text"`
 	ExpectedSequence int64  `json:"expectedSequence"`
 }
@@ -126,6 +127,8 @@ func (s *Server) studentWS(w http.ResponseWriter, r *http.Request) {
 		}
 		switch cmd.Type {
 		case "hello":
+		case "artifact_subscribe":
+			s.studentArtifactSubscribe(ctx, identity, sub, cmd)
 		case "subscribe":
 			s.studentSubscribe(ctx, identity, sub, cmd)
 		case "user_message":

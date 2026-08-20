@@ -96,8 +96,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 45 {
-		t.Fatalf("registered %d operations, want 45", operationCount)
+	if operationCount != 48 {
+		t.Fatalf("registered %d operations, want 48", operationCount)
 	}
 	dialogueInspect := registered["/occurrences/{id}/inspect"]
 	if dialogueInspect == nil || dialogueInspect.Get == nil || dialogueInspect.Get.OperationID != "occurrence-dialogue-inspect" {

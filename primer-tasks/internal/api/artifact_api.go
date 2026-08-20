@@ -34,6 +34,7 @@ type artifactFinalizeInput struct {
 	OccurrenceID   string `json:"occurrenceId"`
 	RequirementID  string `json:"requirementId"`
 	SHA256         string `json:"sha256"`
+	Digest         string `json:"digest"`
 	DurationMS     int64  `json:"durationMs"`
 	IdempotencyKey string `json:"idempotencyKey"`
 }
@@ -59,12 +60,20 @@ type artifactOutput struct {
 }
 
 func (s *Server) registerArtifactRoutes(r *chi.Mux) {
+	// The occurrence-prefixed aliases are the browser contract. The shorter
+	// artifact routes remain for direct bounded-streaming and multipart clients.
+	r.Post("/student/occurrences/{occurrence}/artifacts/reserve", s.requireStudent(s.reserveArtifact))
 	r.Post("/student/artifacts/reserve", s.requireStudent(s.reserveArtifact))
+	r.Get("/student/occurrences/{occurrence}/artifacts", s.requireStudent(s.studentArtifactState))
 	r.Put("/student/artifacts/{id}/upload", s.requireStudent(s.uploadArtifact))
 	r.Put("/student/artifacts/{id}/parts/{part}", s.requireStudent(s.uploadArtifactPart))
+	r.Post("/student/occurrences/{occurrence}/artifacts/finalize", s.requireStudent(s.finalizeArtifact))
 	r.Post("/student/artifacts/{id}/finalize", s.requireStudent(s.finalizeArtifact))
+	r.Post("/student/occurrences/{occurrence}/artifacts/retry", s.requireStudent(s.retryArtifactEvaluation))
 	r.Get("/student/artifacts/{id}/derivative/{kind}", s.requireStudent(s.studentDerivative))
 	r.Get("/parent/artifacts/{id}/original", s.requireParent(s.parentOriginal))
+	r.Get("/occurrences/{occurrence}/artifacts/inspect", s.requireParent(s.parentArtifactState))
+	r.Get("/occurrences/{occurrence}/artifacts/{id}/derivative", s.requireParent(s.parentDerivative))
 }
 func (s *Server) artifactTenant(ctx context.Context, student uuid.UUID) (uuid.UUID, error) {
 	var t uuid.UUID
@@ -123,6 +132,12 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 	if in.PartCount > 10000 {
 		problem(w, 400, "invalid_request", "part count is too large")
 		return
+	}
+	if in.OccurrenceID == "" {
+		in.OccurrenceID = chi.URLParam(r, "occurrence")
+	}
+	if in.RequirementID == "" && in.OccurrenceID != "" {
+		_ = s.DB.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.tenant_id=vr.tenant_id AND o.revision_id=vr.revision_id WHERE o.id=$1 AND o.student_id=$2 AND vr.executor='fantasy' AND vr.kind='agent_artifact_rubric' ORDER BY vr.ordinal LIMIT 1`, in.OccurrenceID, student).Scan(&in.RequirementID)
 	}
 	if strings.TrimSpace(in.IdempotencyKey) == "" || len(in.IdempotencyKey) > 128 {
 		problem(w, 400, "invalid_request", "idempotency key is required")
@@ -261,13 +276,22 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		problem(w, 404, "not_found", "artifact not found")
 		return
 	}
+	if in.OccurrenceID == "" {
+		in.OccurrenceID = chi.URLParam(r, "occurrence")
+	}
 	if _, e = uuid.Parse(in.OccurrenceID); e != nil {
 		problem(w, 400, "invalid_request", "occurrenceId is required")
 		return
 	}
+	if in.RequirementID == "" {
+		_ = s.DB.QueryRow(r.Context(), `SELECT requirement_id FROM artifact_upload_reservations WHERE tenant_id=$1 AND artifact_id=$2`, tenant, aid).Scan(&in.RequirementID)
+	}
 	if _, e = uuid.Parse(in.RequirementID); e != nil {
 		problem(w, 400, "invalid_request", "requirementId is required")
 		return
+	}
+	if in.SHA256 == "" {
+		in.SHA256 = in.Digest
 	}
 	var key, kind, declared, status string
 	var expected int64
@@ -464,6 +488,130 @@ func (s *Server) parentOriginal(w http.ResponseWriter, r *http.Request, sc scope
 	f, _, e := s.Artifacts.Open(r.Context(), key)
 	if e != nil {
 		problem(w, 404, "not_found", "artifact not found")
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	_, _ = io.Copy(w, f)
+}
+
+func (s *Server) artifactState(ctx context.Context, tenant uuid.UUID, occurrence string, student *uuid.UUID) (map[string]any, error) {
+	var reqID uuid.UUID
+	var config []byte
+	var status string
+	query := `SELECT vr.id,vr.config,o.status FROM task_occurrences o JOIN verification_requirements vr ON vr.tenant_id=o.tenant_id AND vr.revision_id=o.revision_id WHERE o.tenant_id=$1 AND o.id=$2 AND vr.kind='agent_artifact_rubric'`
+	args := []any{tenant, occurrence}
+	if student != nil {
+		query += ` AND o.student_id=$3`
+		args = append(args, *student)
+	}
+	query += ` ORDER BY vr.ordinal LIMIT 1`
+	if err := s.DB.QueryRow(ctx, query, args...).Scan(&reqID, &config, &status); err != nil {
+		return nil, err
+	}
+	rows, err := s.DB.Query(ctx, `SELECT sub.id,sub.artifact_id,a.kind,a.declared_content_type,a.byte_size,a.sha256,sub.status,sub.created_at FROM artifact_submissions sub JOIN artifacts a ON a.tenant_id=sub.tenant_id AND a.id=sub.artifact_id WHERE sub.tenant_id=$1 AND sub.occurrence_id=$2 AND sub.requirement_id=$3 ORDER BY sub.created_at`, tenant, occurrence, reqID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	submissions := make([]map[string]any, 0)
+	latest := ""
+	for rows.Next() {
+		var id, aid, kind, ct, sha, subStatus string
+		var size int64
+		var created time.Time
+		if err := rows.Scan(&id, &aid, &kind, &ct, &size, &sha, &subStatus, &created); err != nil {
+			return nil, err
+		}
+		latest = id
+		mapped := map[string]string{"submitted": "evaluating", "evaluating": "evaluating", "accepted": "complete", "rejected": "rejected", "review": "review"}[subStatus]
+		if mapped == "" {
+			mapped = "queued"
+		}
+		submissions = append(submissions, map[string]any{"id": id, "artifactId": aid, "kind": kind, "mediaType": ct, "sizeBytes": size, "digest": sha, "status": mapped, "createdAt": created})
+	}
+	state := "ready"
+	if len(submissions) > 0 {
+		state = submissions[len(submissions)-1]["status"].(string)
+	}
+	var cfg any
+	if len(config) > 0 {
+		_ = json.Unmarshal(config, &cfg)
+	}
+	return map[string]any{"occurrenceId": occurrence, "requirementId": reqID.String(), "rubricRevision": reqID.String(), "config": cfg, "status": state, "submissions": submissions, "activeSubmissionId": latest}, rows.Err()
+}
+
+func (s *Server) studentArtifactState(w http.ResponseWriter, r *http.Request, student uuid.UUID) {
+	tenant, err := s.artifactTenant(r.Context(), student)
+	if err != nil {
+		problem(w, 401, "revoked", "student session required")
+		return
+	}
+	state, err := s.artifactState(r.Context(), tenant, chi.URLParam(r, "occurrence"), &student)
+	if errors.Is(err, pgx.ErrNoRows) {
+		problem(w, 404, "not_found", "artifact requirement not found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "internal", "unable to load artifact state")
+		return
+	}
+	jsonOK(w, state)
+}
+
+func (s *Server) parentArtifactState(w http.ResponseWriter, r *http.Request, sc scope) {
+	state, err := s.artifactState(r.Context(), uuid.MustParse(sc.Tenant), chi.URLParam(r, "occurrence"), nil)
+	if errors.Is(err, pgx.ErrNoRows) {
+		problem(w, 404, "not_found", "artifact requirement not found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "internal", "unable to load artifact state")
+		return
+	}
+	jsonOK(w, state)
+}
+
+func (s *Server) retryArtifactEvaluation(w http.ResponseWriter, r *http.Request, student uuid.UUID) {
+	tenant, err := s.artifactTenant(r.Context(), student)
+	if err != nil {
+		problem(w, 401, "revoked", "student session required")
+		return
+	}
+	occurrence := chi.URLParam(r, "occurrence")
+	_, err = s.DB.Exec(r.Context(), `UPDATE artifact_rubric_jobs j SET status='queued',available_at=now(),lease_owner=NULL,lease_until=NULL,updated_at=now() FROM artifact_submissions sub WHERE sub.tenant_id=j.tenant_id AND sub.id=j.submission_id AND sub.tenant_id=$1 AND sub.occurrence_id=$2`, tenant, occurrence)
+	if err != nil {
+		problem(w, 500, "internal", "unable to retry artifact review")
+		return
+	}
+	state, err := s.artifactState(r.Context(), tenant, occurrence, &student)
+	if err != nil {
+		problem(w, 500, "internal", "unable to load artifact state")
+		return
+	}
+	jsonOK(w, state)
+}
+
+func (s *Server) parentDerivative(w http.ResponseWriter, r *http.Request, sc scope) {
+	aid, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		problem(w, 404, "not_found", "artifact derivative not found")
+		return
+	}
+	var key, ct string
+	err = s.DB.QueryRow(r.Context(), `SELECT d.object_key,d.content_type FROM artifact_derivatives d JOIN artifacts a ON a.tenant_id=d.tenant_id AND a.id=d.artifact_id JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$3 WHERE d.tenant_id=$1 AND d.artifact_id=$2`, sc.Tenant, aid, chi.URLParam(r, "occurrence")).Scan(&key, &ct)
+	if errors.Is(err, pgx.ErrNoRows) {
+		problem(w, 404, "not_found", "artifact derivative not found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "internal", "unable to load derivative")
+		return
+	}
+	f, _, err := s.Artifacts.Open(r.Context(), key)
+	if err != nil {
+		problem(w, 404, "not_found", "artifact derivative not found")
 		return
 	}
 	defer f.Close()

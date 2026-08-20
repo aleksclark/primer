@@ -67,6 +67,7 @@ func main() {
 	}
 	tasksAPI.StartAgentWorker(workerCtx)
 	tasksAPI.StartDialogueWorker(workerCtx)
+	tasksAPI.StartArtifactWorker(workerCtx)
 	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: tasksAPI.Routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("tasks server listening", "addr", srv.Addr)
