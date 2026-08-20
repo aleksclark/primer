@@ -12,7 +12,14 @@ type SecretResolver interface {
 	Resolve(ctx context.Context, secretRef string) ([]byte, error)
 }
 
-// MemorySecrets is an in-memory resolver for tests and credential-free CI.
+// SecretStore stores and resolves raw HMAC secrets by their persisted pointer.
+// Implementations must keep secret material out of logs and API responses.
+type SecretStore interface {
+	SecretResolver
+	Put(secretRef string, secret []byte)
+}
+
+// MemorySecrets is an in-memory store for tests and credential-free CI.
 type MemorySecrets struct {
 	mu   sync.RWMutex
 	byID map[string][]byte
@@ -23,7 +30,7 @@ func NewMemorySecrets() *MemorySecrets {
 	return &MemorySecrets{byID: map[string][]byte{}}
 }
 
-// Put stores secret bytes under secretRef. Tests own the mapping.
+// Put stores secret bytes under secretRef. Callers own the mapping.
 func (s *MemorySecrets) Put(secretRef string, secret []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

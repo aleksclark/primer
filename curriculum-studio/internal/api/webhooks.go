@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/http"
@@ -109,15 +110,12 @@ func deliveryViewFor(in *domain.WebhookDelivery) webhookDeliveryView {
 	} else if in.DeliveredAt != nil {
 		at = *in.DeliveredAt
 	}
-	status := 0
-	if in.Status == "delivered" {
-		status = http.StatusOK
-	}
+	// webhook_deliveries does not persist the receiver status. Do not claim a
+	// synthetic 200 for delivered rows; HTTPStatus remains omitted by JSON.
 	return webhookDeliveryView{
 		ID:          in.ID.String(),
 		EndpointID:  encodeWebhookID(in.EndpointID),
 		EventID:     in.EventID.String(),
-		HTTPStatus:  status,
 		Attempt:     in.AttemptCount,
 		AttemptedAt: formatTime(at),
 	}
@@ -255,10 +253,18 @@ func (s *Server) registerCreateWebhook(api huma.API) {
 		if in.Body.Enabled != nil && !*in.Body.Enabled {
 			status = "paused"
 		}
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, huma.Error503ServiceUnavailable("webhook operation failed")
+		}
+		secretRef := "secret-ref:" + uuid.NewString()
+		// Persist only secretRef on the endpoint. The raw secret remains in the
+		// process-local store and is never included in the API view.
+		s.secrets.Put(secretRef, secret)
 		created, err := repo.NewWebhookEndpointRepo(s.querier).Create(ctx, &domain.WebhookEndpoint{
 			WorkspaceID: workspaceID,
 			URL:         hookURL,
-			SecretRef:   "secret-ref:" + uuid.NewString(),
+			SecretRef:   secretRef,
 			EventTypes:  types,
 			Status:      status,
 		})

@@ -91,7 +91,16 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("configure auth validator: %w", err)
 		}
 	}
-	_, apiHandler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias, MatStub: cfg.MatStub})
+	// Keep API-created webhook secrets available to the in-process worker. This
+	// credential-free default is intentionally process-local; production must
+	// replace it with a durable secret manager keyed by secret_ref.
+	secrets := outbox.NewMemorySecrets()
+	_, apiHandler := api.New(pool, api.Options{
+		Validator:               validator,
+		AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias,
+		MatStub:                 cfg.MatStub,
+		Secrets:                 secrets,
+	})
 
 	// Mount /mcp Streamable HTTP endpoint when enabled.
 	// The MCP handler is not wrapped by MaxBytesHandler because it applies its
@@ -144,6 +153,7 @@ func Run(ctx context.Context, opts Options) error {
 		PollInterval:    250 * time.Millisecond,
 		DeliveryTimeout: 5 * time.Second,
 		LeaseTTL:        30 * time.Second,
+		Secrets:         secrets,
 		Logger:          logger,
 	})
 	if err != nil {

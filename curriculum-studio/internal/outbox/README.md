@@ -28,7 +28,10 @@ header = "v1=" + hex(mac)
 
 `secret` is resolved from the endpoint's `secret_ref` pointer. The raw HMAC
 secret is never stored on the endpoint row, never returned by the API, and
-must not be logged.
+must not be logged. The default `MemorySecrets` store is credential-free and
+process-local so API-created endpoints can deliver while the server is
+running; production must replace it with a durable secret manager keyed by
+`secret_ref` (without coupling this package to a particular vendor or KMS).
 
 ### Receiver check
 
