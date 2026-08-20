@@ -329,6 +329,7 @@ func (s *Server) humaAPI() huma.API {
 	// runtime routes cannot drift.
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
 	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))
+	s.registerArtifactRoutes(r)
 	return api
 }
 

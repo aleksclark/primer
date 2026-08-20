@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"primer-tasks/internal/api"
+	"primer-tasks/internal/artifactstore"
 	"primer-tasks/internal/config"
 	"primer-tasks/internal/db"
 	"primer-tasks/internal/schedule"
@@ -44,7 +45,26 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
 	go worker.Run(workerCtx)
-	tasksAPI := api.New(pool, cfg.Env)
+	var tasksAPI *api.Server
+	if envOr("TASKS_ARTIFACT_STORE", "filesystem") == "s3" {
+		store, storeErr := artifactstore.NewS3(workerCtx, artifactstore.S3Config{
+			Endpoint: envOr("TASKS_S3_ENDPOINT", "http://minio:9000"), Region: envOr("TASKS_S3_REGION", "us-east-1"),
+			Bucket: envOr("TASKS_S3_BUCKET", "primer-tasks"), AccessKey: os.Getenv("TASKS_S3_ACCESS_KEY"), SecretKey: os.Getenv("TASKS_S3_SECRET_KEY"), SessionToken: os.Getenv("TASKS_S3_SESSION_TOKEN"), ForcePathStyle: envOr("TASKS_S3_FORCE_PATH_STYLE", "true") == "true",
+		})
+		if storeErr != nil {
+			slog.Error("invalid artifact object store", "error", storeErr)
+			os.Exit(2)
+		}
+		if envOr("TASKS_S3_CREATE_BUCKET", "false") == "true" {
+			if bucketErr := store.EnsureBucket(workerCtx); bucketErr != nil {
+				slog.Error("unable to initialize artifact bucket", "error", bucketErr)
+				os.Exit(2)
+			}
+		}
+		tasksAPI = api.NewWithStore(pool, cfg.Env, store)
+	} else {
+		tasksAPI = api.New(pool, cfg.Env)
+	}
 	tasksAPI.StartAgentWorker(workerCtx)
 	tasksAPI.StartDialogueWorker(workerCtx)
 	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: tasksAPI.Routes(), ReadHeaderTimeout: 10 * time.Second}

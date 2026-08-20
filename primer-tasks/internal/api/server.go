@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"primer-tasks/internal/artifactstore"
 	"strings"
 	"time"
 )
@@ -24,6 +25,7 @@ import (
 type Server struct {
 	DB           *pgxpool.Pool
 	Env          string
+	Artifacts    artifactstore.Store
 	SecureCookie bool
 	Auth         AuthConfig
 	StartedAt    time.Time
@@ -64,11 +66,18 @@ type Student struct {
 }
 
 func New(db *pgxpool.Pool, env string) *Server {
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
+	root := envOr("TASKS_ARTIFACT_STORE_DIR", "/tmp/primer-tasks-artifacts")
+	store, _ := artifactstore.NewFS(root)
+	return NewWithStore(db, env, store)
+}
+
+func NewWithStore(db *pgxpool.Pool, env string, store artifactstore.Store) *Server {
+	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
 }
 
 func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	defaults := authConfigFromEnv(env)
+	store, _ := artifactstore.NewFS(envOr("TASKS_ARTIFACT_STORE_DIR", "/tmp/primer-tasks-artifacts"))
 	if len(auth.SessionSecret) == 0 {
 		auth.SessionSecret = defaults.SessionSecret
 	}
@@ -78,7 +87,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
+	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
 }
 func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
 
