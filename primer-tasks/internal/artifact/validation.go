@@ -55,12 +55,13 @@ type Input struct {
 	DurationMS     int64
 }
 type Result struct {
-	ContentType   string
-	Size          int64
-	SHA256        string
-	Width, Height int
-	DurationMS    int64
-	Bytes         []byte
+	ContentType           string
+	Size                  int64
+	SHA256                string
+	Width, Height         int
+	DurationMS            int64
+	DurationAuthoritative bool
+	Bytes                 []byte
 }
 
 var ErrInvalid = errors.New("invalid artifact")
@@ -91,7 +92,11 @@ func Validate(r io.Reader, in Input, l Limits) (Result, error) {
 	if !allowed(in.Kind, ct, b) {
 		return Result{}, fmt.Errorf("%w: content does not match media kind", ErrInvalid)
 	}
-	out := Result{ContentType: ct, Size: int64(len(b)), SHA256: got, DurationMS: in.DurationMS, Bytes: b}
+	probedDuration, authoritative := ProbeDuration(in.Kind, b)
+	if authoritative && in.Kind != Image {
+		in.DurationMS = probedDuration
+	}
+	out := Result{ContentType: ct, Size: int64(len(b)), SHA256: got, DurationMS: in.DurationMS, DurationAuthoritative: authoritative, Bytes: b}
 	if in.Kind == Image {
 		cfg, format, e := image.DecodeConfig(bytes.NewReader(b))
 		if e != nil {

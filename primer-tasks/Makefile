@@ -5,7 +5,7 @@ DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi agent-protocol clients tasks-client tasks-agent-compat tasks-typecheck tasks-lint \
-	web tasks-web browser-test android e2e tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
+	web tasks-web browser-test android e2e tasks-test tasks-cover tasks-clients tasks-android tasks-e2e tasks-live-image-e2e
 
 check:
 	$(DEV) check
@@ -83,6 +83,12 @@ tasks-cover: cover
 tasks-clients: clients
 tasks-android: android
 tasks-e2e: e2e
+
+# Live multimodal qualification is opt-in and fail-closed. Scripted fixtures
+# never satisfy this target and no quality claim is made while blocked.
+tasks-live-image-e2e:
+	@if [ "$(TASKS_LIVE_MODEL_TEST)" != "1" ]; then echo "BLOCKED: set TASKS_LIVE_MODEL_TEST=1 with approved provider credentials and fixture"; exit 2; fi
+	@echo "BLOCKED: live image qualification adapter requires explicit provider approval"; exit 2
 
 # Keep the historical E2E entry point honest: it is the gated browser
 # boundary until exploratory PASS authorizes a real runner.

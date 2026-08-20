@@ -318,6 +318,10 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 	if in.SHA256 == "" {
 		in.SHA256 = in.Digest
 	}
+	if strings.TrimSpace(in.SHA256) == "" {
+		problem(w, 400, "invalid_request", "sha256 digest is required")
+		return
+	}
 	var key, kind, declared, status string
 	var expected int64
 	var partCount int
@@ -472,7 +476,7 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 			previewType = declared
 		}
 		if _, pe := s.Artifacts.Put(r.Context(), dk, previewType, bytes.NewReader(result.Bytes), int64(len(result.Bytes))); pe == nil {
-			_, _ = s.DB.Exec(r.Context(), `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256) VALUES($1,$2,$3,'preview',$4,$5,$6,$7) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, previewType, len(result.Bytes), digestBytes(result.Bytes))
+			_, _ = s.DB.Exec(r.Context(), `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256,metadata_stripped) VALUES($1,$2,$3,'preview',$4,$5,$6,$7,false) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, previewType, len(result.Bytes), digestBytes(result.Bytes))
 			out.DerivativeURL = "/student/artifacts/" + aid.String() + "/derivative/preview"
 		}
 	}
@@ -659,7 +663,7 @@ func (s *Server) parentDerivative(w http.ResponseWriter, r *http.Request, sc sco
 		return
 	}
 	var key, ct string
-	err = s.DB.QueryRow(r.Context(), `SELECT d.object_key,d.content_type FROM artifact_derivatives d JOIN artifacts a ON a.tenant_id=d.tenant_id AND a.id=d.artifact_id JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$3 WHERE d.tenant_id=$1 AND d.artifact_id=$2`, sc.Tenant, aid, chi.URLParam(r, "occurrence")).Scan(&key, &ct)
+	err = s.DB.QueryRow(r.Context(), `SELECT d.object_key,d.content_type FROM artifact_derivatives d JOIN artifacts a ON a.tenant_id=d.tenant_id AND a.id=d.artifact_id JOIN artifact_submissions sub ON sub.tenant_id=a.tenant_id AND sub.artifact_id=a.id JOIN task_occurrences o ON o.tenant_id=sub.tenant_id AND o.id=sub.occurrence_id WHERE d.tenant_id=$1 AND d.artifact_id=$2 AND o.id=$3`, sc.Tenant, aid, chi.URLParam(r, "occurrence")).Scan(&key, &ct)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "artifact derivative not found")
 		return
@@ -724,6 +728,35 @@ func (s *Server) CleanupArtifactOrphans(ctx context.Context, now time.Time) erro
 		return e
 	}
 	rows.Close()
+	originals, e := s.DB.Query(ctx, `SELECT a.id,a.tenant_id,a.object_key FROM artifacts a JOIN artifact_retention r ON r.tenant_id=a.tenant_id AND r.artifact_id=a.id WHERE a.status='finalized' AND r.retain_original_until<$1 AND a.deleted_at IS NULL`, now)
+	if e != nil {
+		return e
+	}
+	for originals.Next() {
+		var id, tenant uuid.UUID
+		var key string
+		if e = originals.Scan(&id, &tenant, &key); e != nil {
+			originals.Close()
+			return e
+		}
+		if e = s.Artifacts.Delete(ctx, key); e != nil {
+			originals.Close()
+			return e
+		}
+		if _, e = s.DB.Exec(ctx, `UPDATE artifacts SET status='tombstoned',deleted_at=now() WHERE tenant_id=$1 AND id=$2 AND status='finalized'`, tenant, id); e != nil {
+			originals.Close()
+			return e
+		}
+		if _, e = s.DB.Exec(ctx, `UPDATE artifact_retention SET tombstoned_at=now() WHERE tenant_id=$1 AND artifact_id=$2`, tenant, id); e != nil {
+			originals.Close()
+			return e
+		}
+	}
+	if e = originals.Err(); e != nil {
+		originals.Close()
+		return e
+	}
+	originals.Close()
 	derivatives, e := s.DB.Query(ctx, `SELECT d.object_key,d.tenant_id,d.artifact_id FROM artifact_derivatives d JOIN artifact_retention r ON r.tenant_id=d.tenant_id AND r.artifact_id=d.artifact_id WHERE r.retain_derivatives_until<$1`, now)
 	if e != nil {
 		return e

@@ -16,6 +16,22 @@ import (
 // StartArtifactWorker owns non-chat rubric evaluation after the browser has
 // disconnected. It deliberately exposes only durable safe progress; provider
 // reasoning and tool arguments never enter this worker's event surface.
+func (s *Server) StartArtifactCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		_ = s.CleanupArtifactOrphans(ctx, time.Now().UTC())
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = s.CleanupArtifactOrphans(ctx, time.Now().UTC())
+			}
+		}
+	}()
+}
+
 func (s *Server) StartArtifactWorker(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(250 * time.Millisecond)
@@ -34,6 +50,9 @@ func (s *Server) StartArtifactWorker(ctx context.Context) {
 func (s *Server) runArtifactStep(ctx context.Context) error {
 	if s.DB == nil || s.Artifacts == nil {
 		return errors.New("artifact worker is not configured")
+	}
+	if _, err := s.DB.Exec(ctx, `UPDATE artifact_rubric_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE status='running' AND lease_until<now()`); err != nil {
+		return err
 	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
