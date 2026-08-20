@@ -55,6 +55,35 @@ func (s *Server) StartArtifactWorker(ctx context.Context) {
 	}()
 }
 
+type artifactLeaseOwnerKey struct{}
+type artifactLeaseJobKey struct{}
+
+func withArtifactLease(ctx context.Context, owner, job string) context.Context {
+	return context.WithValue(context.WithValue(ctx, artifactLeaseOwnerKey{}, owner), artifactLeaseJobKey{}, job)
+}
+func artifactLeaseOwner(ctx context.Context) string {
+	owner, _ := ctx.Value(artifactLeaseOwnerKey{}).(string)
+	return owner
+}
+func artifactLeaseJob(ctx context.Context) string {
+	job, _ := ctx.Value(artifactLeaseJobKey{}).(string)
+	return job
+}
+func (s *Server) requireArtifactLease(ctx context.Context, tenant, job string) error {
+	owner := artifactLeaseOwner(ctx)
+	if owner == "" {
+		return errors.New("artifact lease owner missing")
+	}
+	var active bool
+	if err := s.DB.QueryRow(ctx, `SELECT status='running' AND lease_owner=$3 AND lease_until>now() FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job, owner).Scan(&active); err != nil {
+		return err
+	}
+	if !active {
+		return errors.New("artifact lease expired or stolen")
+	}
+	return nil
+}
+
 func (s *Server) runArtifactStep(ctx context.Context) error {
 	if s.DB == nil || s.Artifacts == nil {
 		return errors.New("artifact worker is not configured")
@@ -68,7 +97,8 @@ func (s *Server) runArtifactStep(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 	var job, tenant, submission string
-	err = tx.QueryRow(ctx, `UPDATE artifact_rubric_jobs SET status='running',attempts=attempts+1,lease_owner=$1,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=(SELECT id FROM artifact_rubric_jobs WHERE status='queued' AND available_at<=now() ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,tenant_id,submission_id`, uuid.NewString()).Scan(&job, &tenant, &submission)
+	owner := uuid.NewString()
+	err = tx.QueryRow(ctx, `UPDATE artifact_rubric_jobs SET status='running',attempts=attempts+1,lease_owner=$1,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=(SELECT id FROM artifact_rubric_jobs WHERE status='queued' AND available_at<=now() AND attempts<max_attempts ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,tenant_id,submission_id`, owner).Scan(&job, &tenant, &submission)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -81,7 +111,7 @@ func (s *Server) runArtifactStep(ctx context.Context) error {
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	return s.evaluateArtifact(ctx, job, tenant, submission)
+	return s.evaluateArtifact(withArtifactLease(ctx, owner, job), job, tenant, submission)
 }
 
 func (s *Server) evaluateArtifact(ctx context.Context, job, tenant, submission string) error {
@@ -265,6 +295,9 @@ func (s *Server) artifactCriterionResults(ctx context.Context, tenant, submissio
 }
 
 func (s *Server) finishArtifactDecision(ctx context.Context, job, tenant, submission, provider, model string, accepted, inserted bool) error {
+	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
@@ -291,6 +324,9 @@ func (s *Server) finishArtifactDecision(ctx context.Context, job, tenant, submis
 }
 
 func (s *Server) retryOrResolveArtifact(ctx context.Context, job, tenant, submission string, rubric verification.ArtifactRubric, reason string) error {
+	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
+		return err
+	}
 	var attempts, maxAttempts int
 	if err := s.DB.QueryRow(ctx, `SELECT attempts,max_attempts FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job).Scan(&attempts, &maxAttempts); err != nil {
 		return err
@@ -306,6 +342,9 @@ func (s *Server) retryOrResolveArtifact(ctx context.Context, job, tenant, submis
 }
 
 func (s *Server) resolveArtifactPolicy(ctx context.Context, job, tenant, submission string, rubric verification.ArtifactRubric, reason string) error {
+	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
+		return err
+	}
 	status, jobStatus := "rejected", "failed"
 	phase := "rejected"
 	if rubric.ReviewPolicy == "parent_review" {
@@ -372,6 +411,9 @@ func appendArtifactProgressTx(ctx context.Context, tx pgx.Tx, tenant, job, submi
 }
 
 func (s *Server) appendArtifactProgress(ctx context.Context, tenant, job, submission, kind string, payload map[string]any) error {
+	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
@@ -415,6 +457,9 @@ func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submi
 // attempt/occurrence transition are one transaction and the unique constraint
 // makes retries/replays idempotent.
 func (s *Server) CommitDecision(ctx context.Context, decision verification.Decision) (bool, error) {
+	if err := s.requireArtifactLease(ctx, decision.TenantID, artifactLeaseJob(ctx)); err != nil {
+		return false, err
+	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return false, err

@@ -649,9 +649,13 @@ func (s *Server) retryArtifactEvaluation(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	occurrence := chi.URLParam(r, "occurrence")
-	_, err = s.DB.Exec(r.Context(), `UPDATE artifact_rubric_jobs j SET status='queued',available_at=now(),lease_owner=NULL,lease_until=NULL,updated_at=now() FROM artifact_submissions sub WHERE sub.tenant_id=j.tenant_id AND sub.id=j.submission_id AND sub.tenant_id=$1 AND sub.occurrence_id=$2 AND sub.student_id=$3`, tenant, occurrence, student)
+	tag, err := s.DB.Exec(r.Context(), `UPDATE artifact_rubric_jobs j SET status='queued',available_at=now(),lease_owner=NULL,lease_until=NULL,updated_at=now() FROM artifact_submissions sub WHERE sub.tenant_id=j.tenant_id AND sub.id=j.submission_id AND sub.tenant_id=$1 AND sub.occurrence_id=$2 AND sub.student_id=$3 AND j.status IN ('failed','review')`, tenant, occurrence, student)
 	if err != nil {
 		problem(w, 500, "internal", "unable to retry artifact review")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		problem(w, 409, "conflict", "artifact review is not retryable")
 		return
 	}
 	state, err := s.artifactState(r.Context(), tenant, occurrence, &student)

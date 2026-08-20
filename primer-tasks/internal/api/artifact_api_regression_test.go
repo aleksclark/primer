@@ -158,8 +158,8 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	retryReq := httptest.NewRequest(http.MethodPost, "/student/occurrences/"+occurrence.String()+"/artifacts/retry", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, retryRoute))
 	retryRec := httptest.NewRecorder()
 	s.retryArtifactEvaluation(retryRec, retryReq, student)
-	if retryRec.Code != http.StatusOK {
-		t.Fatalf("artifact retry status=%d body=%s", retryRec.Code, retryRec.Body.String())
+	if retryRec.Code != http.StatusConflict {
+		t.Fatalf("terminal artifact retry status=%d body=%s", retryRec.Code, retryRec.Body.String())
 	}
 	stateRoute := chi.NewRouteContext()
 	stateRoute.URLParams.Add("occurrence", occurrence.String())
