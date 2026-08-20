@@ -31,6 +31,7 @@ type artifactReservationInput struct {
 	IdempotencyKey string `json:"idempotencyKey"`
 }
 type artifactFinalizeInput struct {
+	ArtifactID     string `json:"artifactId"`
 	OccurrenceID   string `json:"occurrenceId"`
 	RequirementID  string `json:"requirementId"`
 	SHA256         string `json:"sha256"`
@@ -271,7 +272,11 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		problem(w, 401, "revoked", "student session required")
 		return
 	}
-	aid, e := uuid.Parse(chi.URLParam(r, "id"))
+	artifactID := chi.URLParam(r, "id")
+	if artifactID == "" {
+		artifactID = in.ArtifactID
+	}
+	aid, e := uuid.Parse(artifactID)
 	if e != nil {
 		problem(w, 404, "not_found", "artifact not found")
 		return
