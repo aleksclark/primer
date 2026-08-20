@@ -322,7 +322,7 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 	var expected int64
 	var partCount int
 	var config []byte
-	e = s.DB.QueryRow(r.Context(), `SELECT a.object_key,a.kind,a.declared_content_type,a.byte_size,a.status,u.part_count,vr.config FROM artifacts a JOIN artifact_upload_reservations u ON u.tenant_id=a.tenant_id AND u.artifact_id=a.id JOIN verification_requirements vr ON vr.tenant_id=u.tenant_id AND vr.id=u.requirement_id JOIN task_occurrences o ON o.tenant_id=u.tenant_id AND o.id=u.occurrence_id AND o.student_id=$2 WHERE a.tenant_id=$1 AND a.student_id=$2 AND a.id=$3 AND u.occurrence_id=$4 AND u.requirement_id=$5`, tenant, student, aid, in.OccurrenceID, in.RequirementID).Scan(&key, &kind, &declared, &expected, &status, &partCount, &config)
+	e = s.DB.QueryRow(r.Context(), `SELECT a.object_key,a.kind,a.declared_content_type,a.byte_size,a.status,u.part_count,vr.config FROM artifacts a JOIN artifact_upload_reservations u ON u.tenant_id=a.tenant_id AND u.artifact_id=a.id JOIN verification_requirements vr ON vr.tenant_id=u.tenant_id AND vr.id=u.requirement_id JOIN task_occurrences o ON o.tenant_id=u.tenant_id AND o.id=u.occurrence_id AND o.student_id=$2 WHERE a.tenant_id=$1 AND a.student_id=$2 AND a.id=$3 AND u.occurrence_id=$4 AND u.requirement_id=$5 AND u.status IN ('reserved','finalized') AND (u.status='finalized' OR u.expires_at>now())`, tenant, student, aid, in.OccurrenceID, in.RequirementID).Scan(&key, &kind, &declared, &expected, &status, &partCount, &config)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "artifact reservation not found")
 		return

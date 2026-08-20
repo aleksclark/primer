@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -24,5 +26,15 @@ func TestGeneratedOpenAPIDoesNotExposeProviderInternals(t *testing.T) {
 		if strings.Contains(doc, forbidden) {
 			t.Fatalf("OpenAPI exposes protected field %q", forbidden)
 		}
+	}
+}
+
+func TestRoutesSetArtifactSafeCSP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	New(nil, "test").Routes().ServeHTTP(rec, req)
+	csp := rec.Header().Get("Content-Security-Policy")
+	if csp == "" || !strings.Contains(csp, "object-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Fatalf("unsafe CSP: %q", csp)
 	}
 }

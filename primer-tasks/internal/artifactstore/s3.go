@@ -1,6 +1,7 @@
 package artifactstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -70,7 +71,14 @@ func (s *S3Store) Put(ctx context.Context, key, contentType string, src io.Reade
 	if err := ValidateKey(key); err != nil {
 		return Object{}, err
 	}
-	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: &s.bucket, Key: &key, Body: src, ContentLength: aws.Int64(size), ContentType: aws.String(contentType)})
+	if size < 0 {
+		return Object{}, errors.New("negative object size")
+	}
+	body, err := io.ReadAll(io.LimitReader(src, size+1))
+	if err != nil || int64(len(body)) != size {
+		return Object{}, errors.New("object size mismatch")
+	}
+	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: &s.bucket, Key: &key, Body: bytes.NewReader(body), ContentLength: aws.Int64(size), ContentType: aws.String(contentType)})
 	if err != nil {
 		return Object{}, err
 	}

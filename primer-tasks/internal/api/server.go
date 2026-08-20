@@ -89,7 +89,13 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	}
 	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
 }
-func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
+func (s *Server) Routes() http.Handler {
+	inner := s.humaAPI().Adapter()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'")
+		inner.ServeHTTP(w, r)
+	})
+}
 
 type parentHandler func(http.ResponseWriter, *http.Request, scope)
 

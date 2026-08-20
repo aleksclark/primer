@@ -18,6 +18,10 @@ func TestValidateRevisionAndTransitions(t *testing.T) {
 	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "parent_approval", ConfigVersion: 1}}) != nil {
 		t.Fatal("valid revision rejected")
 	}
+	artifactConfig := map[string]any{"acceptedKinds": []any{"image"}, "criteria": []any{map[string]any{"id": "one", "label": "One", "description": "Show the work"}}, "passRule": "all_required", "reviewPolicy": "parent_review"}
+	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "agent_artifact_rubric", ConfigVersion: 1, Config: artifactConfig, Interaction: "artifact_upload", Executor: "fantasy"}}) != nil {
+		t.Fatal("valid artifact rubric rejected")
+	}
 	for _, tc := range []struct {
 		a, b OccurrenceStatus
 		ok   bool
