@@ -15,6 +15,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"primer-tasks/internal/agent"
 	agentprotocol "primer-tasks/internal/agent/protocol"
 	"primer-tasks/internal/domain/parent"
@@ -69,17 +70,31 @@ func artifactLeaseJob(ctx context.Context) string {
 	job, _ := ctx.Value(artifactLeaseJobKey{}).(string)
 	return job
 }
+
+var errArtifactLeaseLost = errors.New("artifact lease expired or stolen")
+
+// artifactLeaseWhere is deliberately repeated in every worker-owned mutation.
+// A check followed by an unqualified UPDATE is not sufficient: another worker
+// may reclaim the row between those two statements.
+const artifactLeaseWhere = `tenant_id=$1 AND id=$2 AND status='running' AND lease_owner=$3 AND lease_until>now()`
+
 func (s *Server) requireArtifactLease(ctx context.Context, tenant, job string) error {
 	owner := artifactLeaseOwner(ctx)
 	if owner == "" {
 		return errors.New("artifact lease owner missing")
 	}
+	return requireArtifactLeaseWithOwner(ctx, s.DB, tenant, job, owner)
+}
+
+func requireArtifactLeaseWithOwner(ctx context.Context, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, tenant, job, owner string) error {
 	var active bool
-	if err := s.DB.QueryRow(ctx, `SELECT status='running' AND lease_owner=$3 AND lease_until>now() FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job, owner).Scan(&active); err != nil {
+	if err := db.QueryRow(ctx, `SELECT status='running' AND lease_owner=$3 AND lease_until>now() FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job, owner).Scan(&active); err != nil {
 		return err
 	}
 	if !active {
-		return errors.New("artifact lease expired or stolen")
+		return errArtifactLeaseLost
 	}
 	return nil
 }
@@ -105,7 +120,7 @@ func (s *Server) runArtifactStep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, "started", map[string]any{"phase": "evaluating"}); err != nil {
+	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, owner, "started", map[string]any{"phase": "evaluating"}); err != nil {
 		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -262,18 +277,30 @@ func (s *Server) authorizedDerivative(ctx context.Context, tenant, submission st
 type artifactRubricBackend struct{ server *Server }
 
 func (b artifactRubricBackend) RecordArtifactCriterion(ctx context.Context, scope verification.ArtifactContext, result verification.ArtifactCriterionResult) (verification.ArtifactCriterionResult, bool, error) {
+	if err := b.server.requireArtifactLease(ctx, scope.TenantID, scope.JobID); err != nil {
+		return verification.ArtifactCriterionResult{}, false, err
+	}
+	owner := artifactLeaseOwner(ctx)
 	var stored verification.ArtifactCriterionResult
 	var inserted bool
-	err := b.server.DB.QueryRow(ctx, `INSERT INTO artifact_criterion_evaluations(id,tenant_id,submission_id,criterion_id,required,status,evidence,feedback,provider,model,policy_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,submission_id,criterion_id) DO NOTHING RETURNING criterion_id,required,status,evidence,feedback`, uuid.New(), scope.TenantID, scope.SubmissionID, result.CriterionID, result.Required, result.Status, result.Evidence, result.Feedback, scope.Provider, scope.Model, scope.PolicyVersion).Scan(&stored.CriterionID, &stored.Required, &stored.Status, &stored.Evidence, &stored.Feedback)
-	if err == pgx.ErrNoRows {
-		err = b.server.DB.QueryRow(ctx, `SELECT criterion_id,required,status,evidence,feedback FROM artifact_criterion_evaluations WHERE tenant_id=$1 AND submission_id=$2 AND criterion_id=$3`, scope.TenantID, scope.SubmissionID, result.CriterionID).Scan(&stored.CriterionID, &stored.Required, &stored.Status, &stored.Evidence, &stored.Feedback)
-		return stored, false, err
-	}
+	tag, err := b.server.DB.Exec(ctx, `INSERT INTO artifact_criterion_evaluations(id,tenant_id,submission_id,criterion_id,required,status,evidence,feedback,provider,model,policy_version) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE EXISTS (SELECT 1 FROM artifact_rubric_jobs WHERE tenant_id=$12 AND id=$13 AND status='running' AND lease_owner=$14 AND lease_until>now()) ON CONFLICT(tenant_id,submission_id,criterion_id) DO NOTHING`, uuid.New(), scope.TenantID, scope.SubmissionID, result.CriterionID, result.Required, result.Status, result.Evidence, result.Feedback, scope.Provider, scope.Model, scope.PolicyVersion, scope.TenantID, scope.JobID, owner)
 	if err != nil {
 		return stored, false, err
 	}
+	if tag.RowsAffected() == 0 {
+		if leaseErr := b.server.requireArtifactLease(ctx, scope.TenantID, scope.JobID); leaseErr != nil {
+			return stored, false, leaseErr
+		}
+		err = b.server.DB.QueryRow(ctx, `SELECT criterion_id,required,status,evidence,feedback FROM artifact_criterion_evaluations WHERE tenant_id=$1 AND submission_id=$2 AND criterion_id=$3`, scope.TenantID, scope.SubmissionID, result.CriterionID).Scan(&stored.CriterionID, &stored.Required, &stored.Status, &stored.Evidence, &stored.Feedback)
+		return stored, false, err
+	}
 	inserted = true
-	_ = b.server.appendArtifactProgress(ctx, scope.TenantID, scope.JobID, scope.SubmissionID, "criterion", map[string]any{"criterionId": result.CriterionID, "status": result.Status})
+	if err = b.server.DB.QueryRow(ctx, `SELECT criterion_id,required,status,evidence,feedback FROM artifact_criterion_evaluations WHERE tenant_id=$1 AND submission_id=$2 AND criterion_id=$3`, scope.TenantID, scope.SubmissionID, result.CriterionID).Scan(&stored.CriterionID, &stored.Required, &stored.Status, &stored.Evidence, &stored.Feedback); err != nil {
+		return stored, false, err
+	}
+	if err = b.server.appendArtifactProgress(ctx, scope.TenantID, scope.JobID, scope.SubmissionID, "criterion", map[string]any{"criterionId": result.CriterionID, "status": result.Status}); err != nil {
+		return stored, false, err
+	}
 	return stored, inserted, nil
 }
 
@@ -298,6 +325,7 @@ func (s *Server) finishArtifactDecision(ctx context.Context, job, tenant, submis
 	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
 		return err
 	}
+	owner := artifactLeaseOwner(ctx)
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
@@ -307,14 +335,23 @@ func (s *Server) finishArtifactDecision(ctx context.Context, job, tenant, submis
 	if accepted {
 		status = "accepted"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE artifact_submissions SET status=$3 WHERE tenant_id=$1 AND id=$2`, tenant, submission, status); err != nil {
+	var tag pgconn.CommandTag
+	tag, err = tx.Exec(ctx, `UPDATE artifact_submissions SET status=$3 WHERE tenant_id=$1 AND id=$2 AND EXISTS (SELECT 1 FROM artifact_rubric_jobs j WHERE j.tenant_id=$4 AND j.id=$5 AND j.status='running' AND j.lease_owner=$6 AND j.lease_until>now() AND j.submission_id=$7)`, tenant, submission, status, tenant, job, owner, submission)
+	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE artifact_rubric_jobs SET status='succeeded',provider=$3,model=$4,lease_owner=NULL,lease_until=NULL,last_error='',updated_at=now() WHERE tenant_id=$1 AND id=$2`, tenant, job, provider, model); err != nil {
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
+	}
+	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, owner, "complete", map[string]any{"accepted": accepted, "decisionInserted": inserted}); err != nil {
 		return err
 	}
-	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, "complete", map[string]any{"accepted": accepted, "decisionInserted": inserted}); err != nil {
+	tag, err = tx.Exec(ctx, `UPDATE artifact_rubric_jobs SET status='succeeded',provider=$4,model=$5,lease_owner=NULL,lease_until=NULL,last_error='',updated_at=now() WHERE `+artifactLeaseWhere, tenant, job, owner, provider, model)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
@@ -327,16 +364,35 @@ func (s *Server) retryOrResolveArtifact(ctx context.Context, job, tenant, submis
 	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
 		return err
 	}
+	owner := artifactLeaseOwner(ctx)
 	var attempts, maxAttempts int
 	if err := s.DB.QueryRow(ctx, `SELECT attempts,max_attempts FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job).Scan(&attempts, &maxAttempts); err != nil {
 		return err
 	}
 	if attempts < maxAttempts {
-		_, err := s.DB.Exec(ctx, `UPDATE artifact_rubric_jobs SET status='queued',available_at=now()+interval '1 second',lease_owner=NULL,lease_until=NULL,last_error=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`, tenant, job, reason)
-		if err == nil {
-			err = s.appendArtifactProgress(ctx, tenant, job, submission, "retry", map[string]any{"attempt": attempts, "reason": reason})
+		tx, err := s.DB.Begin(ctx)
+		if err != nil {
+			return err
 		}
-		return err
+		defer tx.Rollback(ctx)
+		// Progress must be written before the lease is cleared. Keeping both
+		// mutations in this transaction prevents a stale retry from leaving a
+		// durable event behind after reclaim.
+		if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, owner, "retry", map[string]any{"attempt": attempts, "reason": reason}); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `UPDATE artifact_rubric_jobs SET status='queued',available_at=now()+interval '1 second',lease_owner=NULL,lease_until=NULL,last_error=$4,updated_at=now() WHERE `+artifactLeaseWhere, tenant, job, owner, reason)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errArtifactLeaseLost
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return err
+		}
+		_ = s.publishArtifactProgress(ctx, tenant, job, submission, "retry", map[string]any{"attempt": attempts, "reason": reason})
+		return nil
 	}
 	return s.resolveArtifactPolicy(ctx, job, tenant, submission, rubric, reason)
 }
@@ -345,33 +401,73 @@ func (s *Server) resolveArtifactPolicy(ctx context.Context, job, tenant, submiss
 	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
 		return err
 	}
+	owner := artifactLeaseOwner(ctx)
 	status, jobStatus := "rejected", "failed"
 	phase := "rejected"
 	if rubric.ReviewPolicy == "parent_review" {
 		status, jobStatus, phase = "review", "review", "review"
 	}
-	_, err := s.DB.Exec(ctx, `UPDATE artifact_submissions SET status=$3 WHERE tenant_id=$1 AND id=$2`, tenant, submission, status)
-	if err == nil {
-		_, err = s.DB.Exec(ctx, `UPDATE artifact_rubric_jobs SET status=$3,last_error=$4,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2`, tenant, job, jobStatus, reason)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
 	}
-	if err == nil {
-		err = s.appendArtifactProgress(ctx, tenant, job, submission, phase, map[string]any{"reason": reason, "reviewPolicy": rubric.ReviewPolicy})
+	defer tx.Rollback(ctx)
+	var tag pgconn.CommandTag
+	tag, err = tx.Exec(ctx, `UPDATE artifact_submissions SET status=$3 WHERE tenant_id=$1 AND id=$2 AND EXISTS (SELECT 1 FROM artifact_rubric_jobs j WHERE j.tenant_id=$4 AND j.id=$5 AND j.status='running' AND j.lease_owner=$6 AND j.lease_until>now() AND j.submission_id=$7)`, tenant, submission, status, tenant, job, owner, submission)
+	if err != nil {
+		return err
 	}
-	return err
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
+	}
+	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, owner, phase, map[string]any{"reason": reason, "reviewPolicy": rubric.ReviewPolicy}); err != nil {
+		return err
+	}
+	tag, err = tx.Exec(ctx, `UPDATE artifact_rubric_jobs SET status=$4,last_error=$5,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE `+artifactLeaseWhere, tenant, job, owner, jobStatus, reason)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	_ = s.publishArtifactProgress(ctx, tenant, job, submission, phase, map[string]any{"reason": reason, "reviewPolicy": rubric.ReviewPolicy})
+	return nil
 }
 
-// Kept as a small compatibility helper for existing operational tests and
-// callers. Policy-aware worker paths use resolveArtifactPolicy instead.
+// Kept as a small compatibility helper for existing operational callers.
+// It is still a worker mutation and therefore requires the exact lease.
 func (s *Server) finishArtifactReview(ctx context.Context, job, tenant, submission, reason string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE artifact_submissions SET status='review' WHERE tenant_id=$1 AND id=$2`, tenant, submission)
-	if err == nil {
-		var changed int64
-		changed, err = execArtifactJobStatus(ctx, s, job, tenant, submission, "review", reason)
-		if err == nil && changed > 0 {
-			err = s.appendArtifactProgress(ctx, tenant, job, submission, "review", map[string]any{"reason": reason})
-		}
+	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
+		return err
 	}
-	return err
+	owner := artifactLeaseOwner(ctx)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var tag pgconn.CommandTag
+	tag, err = tx.Exec(ctx, `UPDATE artifact_submissions SET status='review' WHERE tenant_id=$1 AND id=$2 AND EXISTS (SELECT 1 FROM artifact_rubric_jobs j WHERE j.tenant_id=$3 AND j.id=$4 AND j.status='running' AND j.lease_owner=$5 AND j.lease_until>now() AND j.submission_id=$6)`, tenant, submission, tenant, job, owner, submission)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
+	}
+	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, owner, "review", map[string]any{"reason": reason}); err != nil {
+		return err
+	}
+	if _, err = execArtifactJobStatusTx(ctx, tx, job, tenant, "review", reason, owner); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	_ = s.publishArtifactProgress(ctx, tenant, job, submission, "review", map[string]any{"reason": reason})
+	return nil
 }
 
 func (s *Server) failArtifactJob(ctx context.Context, job, tenant, submission, reason string) error {
@@ -381,33 +477,67 @@ func (s *Server) failArtifactJob(ctx context.Context, job, tenant, submission, r
 			return s.resolveArtifactPolicy(ctx, job, tenant, submission, rubric, reason)
 		}
 	}
-	_, err := s.DB.Exec(ctx, `UPDATE artifact_submissions SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, submission)
-	if err == nil {
-		var changed int64
-		changed, err = execArtifactJobStatus(ctx, s, job, tenant, submission, "failed", reason)
-		if err == nil && changed > 0 {
-			err = s.appendArtifactProgress(ctx, tenant, job, submission, "rejected", map[string]any{"reason": reason})
-		}
+	if err := s.requireArtifactLease(ctx, tenant, job); err != nil {
+		return err
 	}
-	return err
+	owner := artifactLeaseOwner(ctx)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var tag pgconn.CommandTag
+	tag, err = tx.Exec(ctx, `UPDATE artifact_submissions SET status='rejected' WHERE tenant_id=$1 AND id=$2 AND EXISTS (SELECT 1 FROM artifact_rubric_jobs j WHERE j.tenant_id=$3 AND j.id=$4 AND j.status='running' AND j.lease_owner=$5 AND j.lease_until>now() AND j.submission_id=$6)`, tenant, submission, tenant, job, owner, submission)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
+	}
+	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, owner, "rejected", map[string]any{"reason": reason}); err != nil {
+		return err
+	}
+	if _, err = execArtifactJobStatusTx(ctx, tx, job, tenant, "failed", reason, owner); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	_ = s.publishArtifactProgress(ctx, tenant, job, submission, "rejected", map[string]any{"reason": reason})
+	return nil
 }
 
-func execArtifactJobStatus(ctx context.Context, s *Server, job, tenant, submission, status, reason string) (int64, error) {
-	tag, err := s.DB.Exec(ctx, `UPDATE artifact_rubric_jobs SET status=$3,last_error=$4,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2`, tenant, job, status, reason)
-	return tag.RowsAffected(), err
+func execArtifactJobStatusTx(ctx context.Context, tx pgx.Tx, job, tenant, status, reason, owner string) (int64, error) {
+	tag, err := tx.Exec(ctx, `UPDATE artifact_rubric_jobs SET status=$4,last_error=$5,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE `+artifactLeaseWhere, tenant, job, owner, status, reason)
+	if err != nil {
+		return 0, err
+	}
+	if tag.RowsAffected() != 1 {
+		return 0, errArtifactLeaseLost
+	}
+	return tag.RowsAffected(), nil
 }
 
-func appendArtifactProgressTx(ctx context.Context, tx pgx.Tx, tenant, job, submission, kind string, payload map[string]any) error {
+func appendArtifactProgressTx(ctx context.Context, tx pgx.Tx, tenant, job, submission, owner, kind string, payload map[string]any) error {
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	var sequence int64
-	if err = tx.QueryRow(ctx, `UPDATE artifact_rubric_jobs SET progress_sequence=progress_sequence+1 WHERE tenant_id=$1 AND id=$2 RETURNING progress_sequence`, tenant, job).Scan(&sequence); err != nil {
+	if err = tx.QueryRow(ctx, `UPDATE artifact_rubric_jobs SET progress_sequence=progress_sequence+1 WHERE `+artifactLeaseWhere+` RETURNING progress_sequence`, tenant, job, owner).Scan(&sequence); err != nil {
+		if err == pgx.ErrNoRows {
+			return errArtifactLeaseLost
+		}
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO artifact_rubric_events(tenant_id,job_id,submission_id,sequence,kind,payload) VALUES($1,$2,$3,$4,$5,$6)`, tenant, job, submission, sequence, kind, b)
-	return err
+	tag, err := tx.Exec(ctx, `INSERT INTO artifact_rubric_events(tenant_id,job_id,submission_id,sequence,kind,payload) SELECT $1,$2,$4,$5,$6,$7 WHERE EXISTS (SELECT 1 FROM artifact_rubric_jobs WHERE `+artifactLeaseWhere+`)`, tenant, job, owner, submission, sequence, kind, b)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errArtifactLeaseLost
+	}
+	return nil
 }
 
 func (s *Server) appendArtifactProgress(ctx context.Context, tenant, job, submission, kind string, payload map[string]any) error {
@@ -419,7 +549,7 @@ func (s *Server) appendArtifactProgress(ctx context.Context, tenant, job, submis
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, kind, payload); err != nil {
+	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, artifactLeaseOwner(ctx), kind, payload); err != nil {
 		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -457,31 +587,44 @@ func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submi
 // attempt/occurrence transition are one transaction and the unique constraint
 // makes retries/replays idempotent.
 func (s *Server) CommitDecision(ctx context.Context, decision verification.Decision) (bool, error) {
-	if err := s.requireArtifactLease(ctx, decision.TenantID, artifactLeaseJob(ctx)); err != nil {
+	job := artifactLeaseJob(ctx)
+	if err := s.requireArtifactLease(ctx, decision.TenantID, job); err != nil {
 		return false, err
 	}
+	owner := artifactLeaseOwner(ctx)
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	var inserted bool
-	err = tx.QueryRow(ctx, `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,attempt_id) DO NOTHING RETURNING true`, decision.ID, decision.TenantID, decision.AttemptID, decision.Accepted, decision.Reason, "verification_engine").Scan(&inserted)
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
+	var tag pgconn.CommandTag
+	tag, err = tx.Exec(ctx, `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) SELECT $1,$2,$3,$4,$5,$6 WHERE EXISTS (SELECT 1 FROM artifact_rubric_jobs WHERE tenant_id=$7 AND id=$8 AND status='running' AND lease_owner=$9 AND lease_until>now()) ON CONFLICT(tenant_id,attempt_id) DO NOTHING`, decision.ID, decision.TenantID, decision.AttemptID, decision.Accepted, decision.Reason, "verification_engine", decision.TenantID, job, owner)
 	if err != nil {
 		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		if leaseErr := requireArtifactLeaseWithOwner(ctx, tx, decision.TenantID, job, owner); leaseErr != nil {
+			return false, leaseErr
+		}
+		return false, nil
 	}
 	attemptStatus, occurrenceStatus := "rejected", "pending"
 	if decision.Accepted {
 		attemptStatus, occurrenceStatus = "accepted", "completed"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE verification_attempts SET status=$3 WHERE tenant_id=$1 AND id=$2 AND status='open'`, decision.TenantID, decision.AttemptID, attemptStatus); err != nil {
+	tag, err = tx.Exec(ctx, `UPDATE verification_attempts SET status=$3 WHERE tenant_id=$1 AND id=$2 AND status='open' AND EXISTS (SELECT 1 FROM artifact_rubric_jobs j WHERE j.tenant_id=$4 AND j.id=$5 AND j.status='running' AND j.lease_owner=$6 AND j.lease_until>now())`, decision.TenantID, decision.AttemptID, attemptStatus, decision.TenantID, job, owner)
+	if err != nil {
 		return false, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE task_occurrences SET status=$3 WHERE tenant_id=$1 AND id=$2 AND status NOT IN ('canceled','completed')`, decision.TenantID, decision.OccurrenceID, occurrenceStatus); err != nil {
+	if tag.RowsAffected() != 1 {
+		return false, errArtifactLeaseLost
+	}
+	tag, err = tx.Exec(ctx, `UPDATE task_occurrences SET status=$3 WHERE tenant_id=$1 AND id=$2 AND status NOT IN ('canceled','completed') AND EXISTS (SELECT 1 FROM artifact_rubric_jobs j WHERE j.tenant_id=$4 AND j.id=$5 AND j.status='running' AND j.lease_owner=$6 AND j.lease_until>now())`, decision.TenantID, decision.OccurrenceID, occurrenceStatus, decision.TenantID, job, owner)
+	if err != nil {
 		return false, err
+	}
+	if tag.RowsAffected() != 1 {
+		return false, errArtifactLeaseLost
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return false, err

@@ -147,12 +147,6 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if err := s.runArtifactStep(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.finishArtifactReview(ctx, uuid.NewString(), tenant.String(), uuid.NewString(), "review fixture"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.failArtifactJob(ctx, uuid.NewString(), tenant.String(), uuid.NewString(), "failure fixture"); err != nil {
-		t.Fatal(err)
-	}
 	retryRoute := chi.NewRouteContext()
 	retryRoute.URLParams.Add("occurrence", occurrence.String())
 	retryReq := httptest.NewRequest(http.MethodPost, "/student/occurrences/"+occurrence.String()+"/artifacts/retry", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, retryRoute))
