@@ -234,8 +234,15 @@ export function createTasksClient(options: TasksClientOptions = {}) {
    * URL. Both PUT and GET targets are checked before browser transport.
    */
   function artifactTarget(value: string): URL {
-    const target = new URL(value, window.location.origin);
-    if (!/^https?:$/.test(target.protocol) || target.username || target.password || target.hash || !target.pathname.includes("/artifacts/")) {
+    const pageOrigin = typeof window === "undefined" ? new URL(baseUrl, "http://localhost").origin : window.location.origin;
+    const target = new URL(value, pageOrigin);
+    const apiRoot = new URL(baseUrl, pageOrigin).pathname.replace(/\/+$/, "");
+    const relativePath = target.pathname.startsWith(`${apiRoot}/`) ? target.pathname.slice(apiRoot.length) : "";
+    const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+    const allowedPath = new RegExp(`^/student/artifacts/${uuid}/(?:upload|parts/[1-9][0-9]*)$`).test(relativePath)
+      || new RegExp(`^/student/artifacts/${uuid}/derivative/(?:thumbnail|preview)$`).test(relativePath)
+      || new RegExp(`^/occurrences/${uuid}/artifacts/${uuid}/derivative$`).test(relativePath);
+    if (target.origin !== pageOrigin || !/^https?:$/.test(target.protocol) || target.username || target.password || target.hash || target.search || !allowedPath) {
       throw new TasksApiError(400, "The server returned an invalid artifact target.", "invalid_artifact_target");
     }
     return target;

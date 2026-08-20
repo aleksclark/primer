@@ -55,3 +55,37 @@ test("artifact JSON façade uses generated REST routes and typed wire projection
   assert.match(new URL(requests[3]!.url).pathname, /\/artifacts\/retry$/);
   assert.match(new URL(requests[4]!.url).pathname, /\/artifacts\/inspect$/);
 });
+
+test("binary artifact façade rejects foreign, signed, and non-artifact targets", async () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { origin: "http://tasks.test" } } });
+  try {
+    const client = createTasksClient({ baseUrl: "http://tasks.test/api", fetch: async () => response({}) });
+    const reservation = {
+      reservationId: "00000000-0000-0000-0000-000000000003",
+      idempotencyKey: "idem",
+      artifactId: "00000000-0000-0000-0000-000000000004",
+      uploadUrl: "https://evil.example/api/student/artifacts/00000000-0000-0000-0000-000000000004/upload",
+      partCount: 1,
+      expiresAt: "2026-01-01T00:00:00Z",
+      occurrenceId: state.occurrenceId,
+      kind: "image" as const,
+      mediaType: "image/png",
+      maxBytes: 1000,
+    };
+    for (const uploadUrl of [
+      reservation.uploadUrl,
+      "http://tasks.test/api/other/artifacts/00000000-0000-0000-0000-000000000004/upload",
+      "http://tasks.test/api/student/artifacts/00000000-0000-0000-0000-000000000004/upload?X-Amz-Signature=secret",
+      "http://tasks.test/api/student/artifacts/00000000-0000-0000-0000-000000000004/derivative/thumbnail",
+    ]) {
+      await assert.rejects(
+        client.uploadArtifact({ ...reservation, uploadUrl }, {} as File),
+        (error: unknown) => error instanceof Error && error.message.includes("invalid artifact target"),
+      );
+    }
+  } finally {
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
+  }
+});
