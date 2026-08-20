@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/aleksclark/primer/curriculum-studio/internal/outbox"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 )
 
@@ -40,6 +41,9 @@ type Options struct {
 	// Querier supplies the local Studio database authorization projection. New
 	// normally derives it from the pgx pool; this seam supports non-pool tests.
 	Querier repo.Querier
+	// Secrets stores webhook signing secrets by their secret_ref pointer. The
+	// process bootstrap must share this store with the outbox worker.
+	Secrets outbox.SecretStore
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -54,6 +58,7 @@ type Server struct {
 	validator               TokenValidator
 	acceptServiceTokenAlias bool
 	matStub                 bool
+	secrets                 outbox.SecretStore
 	now                     func() time.Time
 	reqTotal                atomic.Int64
 }
@@ -69,7 +74,11 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, matStub: opts.MatStub, now: now}
+	secrets := opts.Secrets
+	if secrets == nil {
+		secrets = outbox.NewMemorySecrets()
+	}
+	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, matStub: opts.MatStub, secrets: secrets, now: now}
 	if s.querier == nil {
 		if q, ok := pool.(repo.Querier); ok {
 			s.querier = q
@@ -114,6 +123,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	s.RegisterRoutes(humaAPI)
 	s.registerPlanRoutes(humaAPI)
 	s.registerMaterializationRoutes(humaAPI)
+	s.registerWebhookRoutes(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
@@ -260,4 +270,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "# HELP studio_http_requests_total Total HTTP requests handled.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE studio_http_requests_total counter\n")
 	_, _ = fmt.Fprintf(w, "studio_http_requests_total %d\n", s.reqTotal.Load())
+	if s.querier != nil {
+		lag, err := repo.NewMetricsRepo(s.querier).OutboxLag(context.Background(), s.now())
+		if err == nil {
+			_, _ = fmt.Fprintf(w, "# HELP studio_outbox_lag_seconds Age of the oldest unpublished outbox event.\n")
+			_, _ = fmt.Fprintf(w, "# TYPE studio_outbox_lag_seconds gauge\n")
+			_, _ = fmt.Fprintf(w, "studio_outbox_lag_seconds %.3f\n", lag.Seconds())
+		}
+	}
 }

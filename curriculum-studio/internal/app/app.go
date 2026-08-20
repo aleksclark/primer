@@ -23,6 +23,7 @@ import (
 	studiodb "github.com/aleksclark/primer/curriculum-studio/internal/db"
 	"github.com/aleksclark/primer/curriculum-studio/internal/logging"
 	studiomcp "github.com/aleksclark/primer/curriculum-studio/internal/mcp"
+	"github.com/aleksclark/primer/curriculum-studio/internal/outbox"
 )
 
 // Options customizes process bootstrap for tests.
@@ -90,7 +91,16 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("configure auth validator: %w", err)
 		}
 	}
-	_, apiHandler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias, MatStub: cfg.MatStub})
+	// Keep API-created webhook secrets available to the in-process worker. This
+	// credential-free default is intentionally process-local; production must
+	// replace it with a durable secret manager keyed by secret_ref.
+	secrets := outbox.NewMemorySecrets()
+	_, apiHandler := api.New(pool, api.Options{
+		Validator:               validator,
+		AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias,
+		MatStub:                 cfg.MatStub,
+		Secrets:                 secrets,
+	})
 
 	// Mount /mcp Streamable HTTP endpoint when enabled.
 	// The MCP handler is not wrapped by MaxBytesHandler because it applies its
@@ -138,6 +148,27 @@ func Run(ctx context.Context, opts Options) error {
 	addr := ln.Addr().String()
 	logger.Info("listening", "addr", addr, "env", cfg.Env)
 
+	worker, err := outbox.NewWorker(pool, outbox.Config{
+		Owner:           "studio-server-" + addr,
+		PollInterval:    250 * time.Millisecond,
+		DeliveryTimeout: 5 * time.Second,
+		LeaseTTL:        30 * time.Second,
+		Secrets:         secrets,
+		Logger:          logger,
+	})
+	if err != nil {
+		return fmt.Errorf("outbox worker: %w", err)
+	}
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		if werr := worker.Run(workerCtx); werr != nil && !errors.Is(werr, context.Canceled) {
+			logger.Error("outbox worker stopped", "error", werr)
+		}
+	}()
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -164,6 +195,11 @@ func Run(ctx context.Context, opts Options) error {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
+	}
+	stopWorker()
+	select {
+	case <-workerDone:
+	case <-shutdownCtx.Done():
 	}
 	logger.Info("shutdown complete", "addr", addr)
 	return nil
