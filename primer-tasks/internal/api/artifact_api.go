@@ -168,7 +168,7 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 	}
 	limits := mediaLimits(kind, config)
 	var prior int
-	if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM artifact_upload_reservations WHERE tenant_id=$1 AND student_id=$2 AND occurrence_id=$3 AND requirement_id=$4 AND status IN ('reserved','finalized') AND expires_at>now()`, tenant, student, in.OccurrenceID, in.RequirementID).Scan(&prior); e != nil {
+	if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM artifact_upload_reservations u JOIN artifacts a ON a.tenant_id=u.tenant_id AND a.id=u.artifact_id WHERE u.tenant_id=$1 AND u.student_id=$2 AND u.occurrence_id=$3 AND u.requirement_id=$4 AND u.status IN ('reserved','finalized') AND a.status IN ('reserved','uploaded','finalized') AND u.expires_at>now()`, tenant, student, in.OccurrenceID, in.RequirementID).Scan(&prior); e != nil {
 		problem(w, 500, "internal", "unable to count artifact submissions")
 		return
 	}
