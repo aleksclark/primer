@@ -2,11 +2,11 @@
   "version": 1,
   "suiteId": "p5-media-final2",
   "functionality": "Phase 5 artifact media inspect and parent-review outcomes",
-  "phase": "explore",
+  "phase": "run",
   "callCount": 1,
   "baseUrl": "http://web.primer-tasks-p5.primer-tasks.test:5173",
   "acceptance": ["real parent auth", "accepted image rubric provenance", "audio/video explicit review", "no object-store or reasoning leakage"],
-  "updatedAt": "2026-08-20T06:31:00Z",
-  "artifacts": {"explorationNotes": ".paseo-e2e/p5-media-final2/exploration.md", "playwrightConfig": "primer-tasks/web/playwright.config.ts", "specFiles": ["primer-tasks/web/e2e/p5-media.spec.ts"], "lastRun": null},
-  "qualityGates": {"independentChromeVerification": true, "playwrightGreen": false, "relaxed": false}
+  "updatedAt": "2026-08-20T09:00:00Z",
+  "artifacts": {"explorationNotes": ".paseo-e2e/p5-media-final2/exploration.md", "playwrightConfig": "primer-tasks/web/playwright.config.ts", "specFiles": ["primer-tasks/web/e2e/p5-media.spec.ts"], "lastRun": "PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p5.primer-tasks.test:5173 npm --prefix web run browser:promoted -- e2e/p5-media.spec.ts => 2 passed"},
+  "qualityGates": {"independentChromeVerification": true, "playwrightGreen": true, "relaxed": false}
 }

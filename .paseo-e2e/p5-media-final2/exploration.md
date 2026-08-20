@@ -14,4 +14,6 @@ PASS. Real parent sign-in (Parent A) loaded the live occurrence list. Fresh insp
 
 No object-store host, presigned URL/query, object key, credential, or raw reasoning appeared. Audio/video remained explicit parent review; no live multimodal quality claim is made.
 
+Promoted Playwright rerun after final tip: `PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p5.primer-tasks.test:5173 CHROME_EXECUTABLE=/home/aleks/.local/bin/google-chrome npm --prefix web run browser:promoted -- e2e/p5-media.spec.ts` => **2 passed**. This same agent independently re-drove the public Stacklane occurrence inspection in Chrome after the rebuilt runtime and observed the same image/audio/video outcomes.
+
 Evidence snapshots: `occurrences.snapshot.txt`, `occurrences-back.snapshot.txt`, `occurrences-back2.snapshot.txt`.
