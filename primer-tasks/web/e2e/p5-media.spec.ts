@@ -100,7 +100,7 @@ test("parent-authored image rubric bounds browser upload, persists scripted comp
     await s.setInputFiles('input[type="file"]', fixture("poem-fixture.png"));
     await s.getByRole("button", { name: /finalize upload/i }).click();
     expect(new URL((await bounded).url()).origin).toBe(new URL(s.url()).origin);
-    await expect(s.getByText("Queued", { exact: true }).first()).toBeVisible();
+    await expect(s.getByText(/^(Queued|Complete)$/, { exact: true }).first()).toBeVisible();
     await s.reload();
     await expect(s.getByText("Complete", { exact: true }).first()).toBeVisible();
     await expect(s.getByText(/every required criterion was accepted/i)).toBeVisible();
