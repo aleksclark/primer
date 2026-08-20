@@ -66,7 +66,11 @@ func (s *Server) evaluateArtifact(ctx context.Context, job, tenant, submission s
 	if kind != "image" || os.Getenv("TASKS_AGENT_MODE") != "scripted" || os.Getenv("TASKS_ARTIFACT_SCRIPTED_FIXTURE") != "1" {
 		return s.finishArtifactReview(ctx, job, tenant, submission, "media capability requires parent review")
 	}
-	if expected := strings.TrimSpace(os.Getenv("TASKS_ARTIFACT_SCRIPTED_DIGEST")); expected != "" && !strings.EqualFold(expected, digest) {
+	expected := strings.TrimSpace(os.Getenv("TASKS_ARTIFACT_SCRIPTED_DIGEST"))
+	if expected == "" {
+		return s.finishArtifactReview(ctx, job, tenant, submission, "scripted fixture digest is not configured")
+	}
+	if !strings.EqualFold(expected, digest) {
 		return s.failArtifactJob(ctx, job, tenant, submission, "fixture digest mismatch")
 	}
 	// The rubric job is authorized to load only the generated derivative, never

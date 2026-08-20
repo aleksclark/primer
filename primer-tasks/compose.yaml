@@ -136,7 +136,9 @@ services:
       # Explicit non-sensitive scripted multimodal fixture qualification only;
       # production and ordinary development remain disabled by default.
       TASKS_ARTIFACT_SCRIPTED_FIXTURE: ${TASKS_ARTIFACT_SCRIPTED_FIXTURE-}
-      TASKS_ARTIFACT_SCRIPTED_DIGEST: ${TASKS_ARTIFACT_SCRIPTED_DIGEST-}
+      # The fixture digest binds scripted acceptance to the checked-in
+      # non-sensitive image fixture; arbitrary images route to review.
+      TASKS_ARTIFACT_SCRIPTED_DIGEST: ${TASKS_ARTIFACT_SCRIPTED_DIGEST-ef6540c36463aecbff0316212f399143335e74dba8413f0675279b9c42ecc3cb}
       # Parent agent tooling is explicit and server-owned. Empty/unknown values
       # fail closed in parent.ProviderConfig; this development default is only
       # used when a scripted qualification run is deliberately enabled.
