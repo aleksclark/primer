@@ -21,12 +21,15 @@ The fixture implements the Phase 6 `external_callback.v1` contract:
   (with `verifierId` set from the operator-owned `FIXTURE_VERIFIER_ID`),
   fields (`callbackId`, `requestId`, `attemptRef`, `verifierId`, `sequence`,
   `requestDigest`, `type`, and exactly one typed result).
-- Both directions use the same public signature contract. The canonical input
-  is `METHOD + "\\n" + PATH + "\\n" + RFC3339Nano timestamp + "\\n" +
+- Both directions use the same production signature contract. The canonical
+  input is `METHOD + "\\n" + PATH + "\\n" + RFC3339Nano timestamp + "\\n" +
   SHA-256(body) + "\\n" + request ID`; the HMAC-SHA256 header is
-  `X-External-Signature: sha256=<hex>`, with `X-External-Timestamp` and
-  `X-External-Request-ID` alongside it. Callback requests also include
-  `Idempotency-Key: <callbackId>`.
+  `X-Primer-Signature: sha256=<hex>`, with `X-Primer-Timestamp`,
+  `X-Primer-Key-ID`, and `X-Primer-Request-ID` alongside it. Callback
+  requests use the callback ID as the signed request ID. The fixture derives
+  the verifier ID from the operator-owned callback path emitted in the signed
+  request envelope (falling back to `FIXTURE_VERIFIER_ID` for local probes);
+  it never accepts a caller-supplied verifier identity.
 - `POST /v1/reconcile` retries durable, unfinished records after a fixture
   restart. `GET /v1/ledger` exposes only redacted receipt/callback metadata.
   `POST /v1/control` accepts `{"action":"release","requestId":"..."}` or

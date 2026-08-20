@@ -164,6 +164,18 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT envelope FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&originalEnvelope); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='retryable_error',expires_at=now()+interval '1 hour' WHERE request_id=$1`, submit.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	preExpiryRetry := httptest.NewRecorder()
+	s.retryExternal(preExpiryRetry, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/retry", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
+	if preExpiryRetry.Code != http.StatusOK || !strings.Contains(preExpiryRetry.Body.String(), submit.RequestID) {
+		t.Fatalf("pre-expiry retry=%d body=%s", preExpiryRetry.Code, preExpiryRetry.Body)
+	}
+	var preExpiryEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&preExpiryEnvelope); err != nil || string(preExpiryEnvelope) != string(originalEnvelope) {
+		t.Fatalf("pre-expiry retry mutated envelope err=%v", err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='waiting',expires_at=now()-interval '1 second' WHERE request_id=$1`, submit.RequestID); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +202,7 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	var attempts int
 	var expiresAt, envelopeExpiresAt time.Time
 	var retainedEnvelope []byte
-	if err := pool.QueryRow(ctx, `SELECT attempts,expires_at,(envelope->>'expiresAt')::timestamptz,envelope FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts, &expiresAt, &envelopeExpiresAt, &retainedEnvelope); err != nil || attempts != 2 || expiresAt.After(time.Now()) || !envelopeExpiresAt.After(time.Now()) || string(retainedEnvelope) != string(originalEnvelope) {
+	if err := pool.QueryRow(ctx, `SELECT attempts,expires_at,(envelope->>'expiresAt')::timestamptz,envelope FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts, &expiresAt, &envelopeExpiresAt, &retainedEnvelope); err != nil || attempts != 0 || expiresAt.After(time.Now()) || !envelopeExpiresAt.After(time.Now()) || string(retainedEnvelope) != string(originalEnvelope) {
 		t.Fatalf("original retry envelope mutated attempts=%d expires=%s envelopeExpires=%s err=%v", attempts, expiresAt, envelopeExpiresAt, err)
 	}
 	var supersededRequest string
@@ -216,6 +228,21 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	s.retryExternal(genericRetryRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/retry", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
 	if genericRetryRec.Code != http.StatusOK {
 		t.Fatalf("generic expiry retry=%d body=%s", genericRetryRec.Code, genericRetryRec.Body.String())
+	}
+	var latestRequest string
+	if err := pool.QueryRow(ctx, `SELECT request_id FROM external_verifier_outbox WHERE tenant_id=$1 AND attempt_id=$2 ORDER BY created_at DESC LIMIT 1`, f.tenant, state.AttemptID).Scan(&latestRequest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',expires_at=now()-interval '1 second',envelope='{}'::json WHERE request_id=$1`, latestRequest); err != nil {
+		t.Fatal(err)
+	}
+	invalidEnvelopeRetry := httptest.NewRecorder()
+	s.retryExternal(invalidEnvelopeRetry, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/retry", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
+	if invalidEnvelopeRetry.Code != http.StatusConflict {
+		t.Fatalf("invalid envelope retry=%d body=%s", invalidEnvelopeRetry.Code, invalidEnvelopeRetry.Body)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',expires_at=now()-interval '1 second',envelope=$2 WHERE request_id=$1`, latestRequest, originalEnvelope); err != nil {
+		t.Fatal(err)
 	}
 	cancelRec := httptest.NewRecorder()
 	s.cancelExternal(cancelRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/cancel", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})

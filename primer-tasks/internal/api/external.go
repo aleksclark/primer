@@ -533,10 +533,6 @@ func (s *Server) retryExternal(w http.ResponseWriter, r *http.Request, sc scope)
 		problem(w, 409, "conflict", "external delivery envelope is not recoverable")
 		return
 	}
-	if maxAgeSeconds <= 0 {
-		problem(w, 409, "conflict", "external verifier max age is invalid")
-		return
-	}
 	newRequestID := uuid.NewString()
 	newIdempotencyKey := "retry-" + uuid.NewString()
 	now := time.Now().UTC()

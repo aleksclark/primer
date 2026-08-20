@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"primer-tasks/internal/repo"
 	"primer-tasks/internal/verification"
@@ -41,6 +42,22 @@ func TestPhase6ExternalCatalogRotationAndAttemptSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewWithStore(pool, "test", nil)
+	catalogParent := "catalog-parent-" + uuid.NewString()
+	catalogCookie := "catalog-cookie-" + uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO parent_memberships(tenant_id,subject_ref,role) VALUES($1,$2,'admin')`, f.tenant, catalogParent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES($1,$2,$3,'parent',now()+interval '1 hour')`, hash(catalogCookie), f.tenant, catalogParent); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM bff_sessions WHERE handle_hash=$1`, hash(catalogCookie))
+		_, _ = pool.Exec(context.Background(), `DELETE FROM parent_memberships WHERE tenant_id=$1 AND subject_ref=$2`, f.tenant, catalogParent)
+	})
+	catalogHTTP := requestJSON(t, server.Routes(), http.MethodGet, "/admin/verifiers", catalogCookie, "")
+	if catalogHTTP.Code != http.StatusOK || !strings.Contains(catalogHTTP.Body.String(), `"name":"fixture"`) || strings.Contains(catalogHTTP.Body.String(), "endpointUrl") || strings.Contains(catalogHTTP.Body.String(), "secretRef") {
+		t.Fatalf("ordinary parent catalog read status=%d body=%s", catalogHTTP.Code, catalogHTTP.Body)
+	}
 	config := map[string]any{"verifierId": f.verifier.String(), "capability": "response", "schemaVersion": verification.ExternalCallbackSchemaVersion}
 	if err := server.validateExternalConfig(ctx, config); err == nil {
 		t.Fatal("disabled verifier validated")

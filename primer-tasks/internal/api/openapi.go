@@ -199,6 +199,16 @@ type ExternalStateOutputBoundary struct {
 	ResponseHeaders
 	Body externalStateOutput
 }
+type ExternalActionResult struct {
+	Status    string `json:"status"`
+	RequestID string `json:"requestId,omitempty"`
+	Accepted  *bool  `json:"accepted,omitempty"`
+	Inserted  *bool  `json:"inserted,omitempty"`
+}
+type ExternalActionOutputBoundary struct {
+	ResponseHeaders
+	Body ExternalActionResult
+}
 type ExternalSubmitResult struct {
 	OccurrenceID string `json:"occurrenceId"`
 	AttemptID    string `json:"attemptId"`
@@ -478,17 +488,17 @@ func (s *Server) humaAPI() huma.API {
 		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.inspectExternal), nil)
 		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
 	})
-	register(api, huma.Operation{OperationID: "parent-external-retry", Method: http.MethodPost, Path: "/occurrences/{id}/external/retry", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalStateOutputBoundary, error) {
-		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.retryExternal), nil)
-		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	register(api, huma.Operation{OperationID: "parent-external-retry", Method: http.MethodPost, Path: "/occurrences/{id}/external/retry", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalActionOutputBoundary, error) {
+		body, headers, err := legacyJSON[ExternalActionResult](ctx, s.requireParent(s.retryExternal), nil)
+		return &ExternalActionOutputBoundary{ResponseHeaders: headers, Body: body}, err
 	})
-	register(api, huma.Operation{OperationID: "parent-external-cancel", Method: http.MethodPost, Path: "/occurrences/{id}/external/cancel", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalStateOutputBoundary, error) {
-		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.cancelExternal), nil)
-		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	register(api, huma.Operation{OperationID: "parent-external-cancel", Method: http.MethodPost, Path: "/occurrences/{id}/external/cancel", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalActionOutputBoundary, error) {
+		body, headers, err := legacyJSON[ExternalActionResult](ctx, s.requireParent(s.cancelExternal), nil)
+		return &ExternalActionOutputBoundary{ResponseHeaders: headers, Body: body}, err
 	})
-	register(api, huma.Operation{OperationID: "parent-external-fallback", Method: http.MethodPost, Path: "/occurrences/{id}/external/fallback", Errors: []int{400, 401, 409, 500}}, func(ctx context.Context, in *ExternalFallbackBoundary) (*ExternalStateOutputBoundary, error) {
-		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.fallbackExternal), in.Body)
-		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	register(api, huma.Operation{OperationID: "parent-external-fallback", Method: http.MethodPost, Path: "/occurrences/{id}/external/fallback", Errors: []int{400, 401, 409, 500}}, func(ctx context.Context, in *ExternalFallbackBoundary) (*ExternalActionOutputBoundary, error) {
+		body, headers, err := legacyJSON[ExternalActionResult](ctx, s.requireParent(s.fallbackExternal), in.Body)
+		return &ExternalActionOutputBoundary{ResponseHeaders: headers, Body: body}, err
 	})
 
 	s.registerPhase2(api)
