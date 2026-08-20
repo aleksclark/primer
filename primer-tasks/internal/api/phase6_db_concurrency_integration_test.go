@@ -36,7 +36,7 @@ func seedPhase6External(t *testing.T, pool *pgxpool.Pool) phase6ExternalFixture 
 	exec(`INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local) VALUES($1,$2,$3,$4,$5,'one_off','UTC',now())`, f.schedule, f.tenant, f.student, f.template, f.revision)
 	exec(`INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,status) VALUES($1,$2,$3,$4,$5,now(),now()+interval '1 hour','awaiting_verification')`, f.occurrence, f.tenant, f.schedule, f.student, f.revision)
 	exec(`INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1)`, f.attempt, f.tenant, f.occurrence, f.requirement)
-	exec(`INSERT INTO external_verifier_catalog(id,name,endpoint_url,active,schema_versions,capabilities,secret_ref,secret_version,egress_policy) VALUES($1,'fixture','https://verifier.example.test',true,'["external_callback.v1"]','["response"]','fixture','1','{"allowlist":["verifier.example.test"]}')`, f.verifier)
+	exec(`INSERT INTO external_verifier_catalog(id,name,endpoint_url,active,schema_versions,capabilities,secret_ref,secret_version,egress_policy) VALUES($1,'fixture','http://external-verifier-fixture:8092/v1/verify',true,'["external_callback.v1"]','["response"]','fixture','1','{"testFixture":true}')`, f.verifier)
 	return f
 }
 
@@ -55,10 +55,10 @@ func seedPhase6ExternalDelivery(t *testing.T, pool *pgxpool.Pool, f phase6Extern
 func cleanupPhase6External(t *testing.T, pool *pgxpool.Pool, f phase6ExternalFixture) {
 	t.Helper()
 	for _, query := range []string{
-		"DELETE FROM external_verifier_facts WHERE tenant_id=$1", "DELETE FROM external_verifier_events WHERE tenant_id=$1", "DELETE FROM external_verifier_callbacks WHERE tenant_id=$1", "DELETE FROM external_verifier_outbox WHERE tenant_id=$1", "DELETE FROM external_verifier_attempts WHERE tenant_id=$1", "DELETE FROM external_verifier_security_events WHERE tenant_id=$1", "DELETE FROM external_verifier_secret_versions WHERE verifier_id=$1", "DELETE FROM verification_submissions WHERE tenant_id=$1", "DELETE FROM verification_decisions WHERE tenant_id=$1", "DELETE FROM verification_attempts WHERE tenant_id=$1", "DELETE FROM task_occurrences WHERE tenant_id=$1", "DELETE FROM verification_requirements WHERE tenant_id=$1", "DELETE FROM task_schedules WHERE tenant_id=$1", "DELETE FROM task_revisions WHERE tenant_id=$1", "DELETE FROM task_templates WHERE tenant_id=$1", "DELETE FROM external_verifier_catalog WHERE id=$1", "DELETE FROM students WHERE tenant_id=$1", "DELETE FROM tenants WHERE id=$1",
+		"DELETE FROM external_verifier_facts WHERE tenant_id=$1", "DELETE FROM external_verifier_events WHERE tenant_id=$1", "DELETE FROM external_verifier_callbacks WHERE tenant_id=$1", "DELETE FROM external_verifier_outbox WHERE tenant_id=$1", "DELETE FROM external_verifier_attempts WHERE tenant_id=$1", "DELETE FROM external_verifier_security_events WHERE tenant_id=$1", "DELETE FROM external_verifier_security_events WHERE verifier_id=$1", "DELETE FROM external_verifier_secret_versions WHERE verifier_id=$1", "DELETE FROM verification_submissions WHERE tenant_id=$1", "DELETE FROM verification_decisions WHERE tenant_id=$1", "DELETE FROM verification_attempts WHERE tenant_id=$1", "DELETE FROM task_occurrences WHERE tenant_id=$1", "DELETE FROM verification_requirements WHERE tenant_id=$1", "DELETE FROM task_schedules WHERE tenant_id=$1", "DELETE FROM task_revisions WHERE tenant_id=$1", "DELETE FROM task_templates WHERE tenant_id=$1", "DELETE FROM external_verifier_catalog WHERE id=$1", "DELETE FROM students WHERE tenant_id=$1", "DELETE FROM tenants WHERE id=$1",
 	} {
 		if _, err := pool.Exec(context.Background(), query, func() any {
-			if query == "DELETE FROM external_verifier_catalog WHERE id=$1" || query == "DELETE FROM external_verifier_secret_versions WHERE verifier_id=$1" {
+			if query == "DELETE FROM external_verifier_catalog WHERE id=$1" || query == "DELETE FROM external_verifier_secret_versions WHERE verifier_id=$1" || query == "DELETE FROM external_verifier_security_events WHERE verifier_id=$1" {
 				return f.verifier
 			}
 			return f.tenant
@@ -139,6 +139,14 @@ func TestPhase6ExternalCallbackReplayHasOneDecisionAndFactSet(t *testing.T) {
 	body, _ := json.Marshal(callback)
 	if inserted, err := queue.RecordCallback(ctx, binding, callback, body); err != nil || inserted {
 		t.Fatalf("first callback inserted=%v err=%v", inserted, err)
+	}
+	if replayed, err := queue.RecordCallback(ctx, binding, callback, body); err != nil || !replayed {
+		t.Fatalf("same callback replayed=%v err=%v", replayed, err)
+	}
+	mutated := append([]byte(nil), body...)
+	mutated[len(mutated)-2] = 'x'
+	if _, err := queue.RecordCallback(ctx, binding, callback, mutated); err == nil {
+		t.Fatal("mutated callback body accepted")
 	}
 	server := NewWithStore(pool, "test", nil)
 	var wg sync.WaitGroup

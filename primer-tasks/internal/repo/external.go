@@ -254,6 +254,21 @@ func (r *ExternalRepository) SecurityFailure(ctx context.Context, tenant, verifi
 	_, _ = r.DB.Exec(ctx, `INSERT INTO external_verifier_security_events(tenant_id,verifier_id,request_id,failure_class) VALUES(NULLIF($1,'')::uuid,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,$4)`, tenant, verifier, request, class)
 }
 func jsonValue(v any) []byte { b, _ := json.Marshal(v); return b }
+func VerifierEgressTarget(ctx context.Context, raw string, policy map[string]any) (securityreview.EgressTarget, error) {
+	var allowlist []string
+	if values, ok := policy["allowlist"].([]any); ok {
+		for _, value := range values {
+			if entry, ok := value.(string); ok {
+				allowlist = append(allowlist, entry)
+			}
+		}
+	}
+	if len(allowlist) == 0 {
+		return securityreview.EgressTarget{}, errors.New("verifier endpoint allowlist is required")
+	}
+	return securityreview.ValidateVerifierEndpoint(ctx, raw, allowlist, nil)
+}
+
 func ValidateCatalogEndpoint(ctx context.Context, raw string, policy map[string]any) error {
 	if os.Getenv("TASKS_ENV") != "production" && policy != nil && policy["testFixture"] == true {
 		if err := verification.ValidateEndpoint(raw); err == nil {
@@ -264,23 +279,12 @@ func ValidateCatalogEndpoint(ctx context.Context, raw string, policy map[string]
 			return errors.New("test fixture endpoint is invalid")
 		}
 		host := strings.ToLower(u.Hostname())
-		if host != "external-verifier-fixture" && host != "fixture" && host != "127.0.0.1" {
+		if host != "external-verifier-fixture" && host != "fixture" {
 			return errors.New("test fixture endpoint host is not explicit")
 		}
 		return nil
 	}
-	var allowlist []string
-	if values, ok := policy["allowlist"].([]any); ok {
-		for _, value := range values {
-			if entry, ok := value.(string); ok {
-				allowlist = append(allowlist, entry)
-			}
-		}
-	}
-	if len(allowlist) == 0 {
-		return errors.New("verifier endpoint allowlist is required")
-	}
-	if _, err := securityreview.ValidateVerifierEndpoint(ctx, raw, allowlist, nil); err != nil {
+	if _, err := VerifierEgressTarget(ctx, raw, policy); err != nil {
 		return err
 	}
 	return nil

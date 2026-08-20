@@ -1,0 +1,14 @@
+COMMAND (from primer-tasks/web):
+PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p6.primer-tasks.test:5173 PRIMER_TASKS_BROWSER_COMMAND='npx playwright test e2e/external-verifier-progress.spec.ts' npm run browser:test
+
+OUTPUT:
+
+> primer-tasks-web@0.0.0 browser:test
+> ../scripts/browser-test
+
+
+Running 1 test using 1 worker
+
+  ✓  1 e2e/external-verifier-progress.spec.ts:65:1 › real external callback persists safe progress and completion for student and parent (6.6s)
+
+  1 passed (7.4s)

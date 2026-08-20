@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"primer-tasks/internal/repo"
+	"primer-tasks/internal/securityreview"
 	"primer-tasks/internal/verification"
 )
 
@@ -30,9 +31,18 @@ func (s StaticSecretResolver) Resolve(_ context.Context, ref, version string) ([
 	return v, nil
 }
 
+type ExternalOutbox interface {
+	RequeueExpired(context.Context, time.Time) error
+	Claim(context.Context, string, time.Duration) (repo.ExternalDelivery, bool, error)
+	Finish(context.Context, repo.ExternalDelivery, string, string, string, time.Time) error
+}
+type ExternalCatalog interface {
+	Get(context.Context, uuid.UUID) (repo.VerifierCatalog, error)
+}
+
 type ExternalWorker struct {
-	Outbox      *repo.ExternalRepository
-	Catalog     *repo.VerifierCatalogRepository
+	Outbox      ExternalOutbox
+	Catalog     ExternalCatalog
 	Secrets     SecretResolver
 	Client      *http.Client
 	Owner       string
@@ -40,7 +50,7 @@ type ExternalWorker struct {
 	Now         func() time.Time
 }
 
-func NewExternalWorker(outbox *repo.ExternalRepository, catalog *repo.VerifierCatalogRepository, secrets SecretResolver) *ExternalWorker {
+func NewExternalWorker(outbox ExternalOutbox, catalog ExternalCatalog, secrets SecretResolver) *ExternalWorker {
 	return &ExternalWorker{Outbox: outbox, Catalog: catalog, Secrets: secrets, Client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return errors.New("verifier redirects are not followed")
 	}}, Owner: uuid.NewString(), Lease: 30 * time.Second, Poll: 250 * time.Millisecond, Now: time.Now}
@@ -113,6 +123,13 @@ func (w *ExternalWorker) deliver(ctx context.Context, d repo.ExternalDelivery) e
 		client = &http.Client{Timeout: timeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return errors.New("verifier redirects are not followed")
 		}}
+		if strings.HasPrefix(strings.ToLower(catalog.EndpointURL), "https://") {
+			target, targetErr := repo.VerifierEgressTarget(ctx, catalog.EndpointURL, catalog.EgressPolicy)
+			if targetErr != nil {
+				return w.fail(ctx, d, "verifier_endpoint_invalid", true, targetErr)
+			}
+			client.Transport = securityreview.PinnedTransport(ctx, target, nil)
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

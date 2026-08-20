@@ -1,0 +1,20 @@
+uid=35_0 RootWebArea "Primer Tasks" url="http://web.primer-tasks-p6.primer-tasks.test:5173/student/pair"
+  uid=35_1 complementary
+    uid=35_2 link "Primer Tasks home" url="http://web.primer-tasks-p6.primer-tasks.test:5173/parent/students"
+      uid=35_3 StaticText "Primer"
+      uid=35_4 StaticText "Tasks"
+      uid=35_5 StaticText "System C · HMR baseline"
+    uid=35_6 StaticText "Student workspace"
+    uid=35_7 link "Checklist" url="http://web.primer-tasks-p6.primer-tasks.test:5173/student"
+      uid=35_8 StaticText "Checklist"
+    uid=35_9 button "Switch to light theme"
+    uid=35_10 StaticText "One student · one session"
+  uid=35_11 main
+    uid=35_12 StaticText "Student access / Pair"
+    uid=35_13 heading "Connect this browser" level="1"
+    uid=35_14 StaticText "Enter the one-use code shown by your parent. This browser will remain bound to one student."
+    uid=35_15 form
+      uid=35_16 StaticText "Pairing code"
+      uid=35_17 textbox "Pairing code"
+      uid=35_18 StaticText "Codes are one-use and expire quickly."
+      uid=35_19 button "Pair this browser" disableable disabled

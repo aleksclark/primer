@@ -1,0 +1,12 @@
+uid=1_0 RootWebArea "Primer Tasks" url="http://web.primer-tasks-p6.primer-tasks.test:5173/parent/students"
+  uid=1_1 link "Primer Tasks home" url="http://web.primer-tasks-p6.primer-tasks.test:5173/parent/students"
+    uid=1_2 StaticText "Primer"
+    uid=1_3 StaticText "Tasks"
+    uid=1_4 StaticText "System C · HMR baseline"
+  uid=1_5 main
+    uid=1_6 StaticText "Parent access"
+    uid=1_7 heading "Sign in to Primer Tasks" level="1"
+    uid=1_8 StaticText "Your household workspace is protected by the Tasks identity service."
+    uid=1_9 button "Switch to light theme"
+    uid=1_10 StaticText "Continue to the secure authorization flow. Your browser receives only a host-only session cookie; provider tokens never enter this app."
+    uid=1_11 button "Continue with parent sign-in"

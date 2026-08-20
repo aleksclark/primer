@@ -86,6 +86,22 @@ func TestDNSRebindingIsRejectedBeforeCredentialedConnect(t *testing.T) {
 	}
 }
 
+func TestPinnedTransportRevalidatesBeforeDial(t *testing.T) {
+	resolver := fixtureResolver{"good.example.test": {net.ParseIP("203.0.113.10")}}
+	target, err := ValidateVerifierEndpoint(context.Background(), "https://good.example.test/callback", []string{"good.example.test"}, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := PinnedTransport(context.Background(), target, resolver).(*http.Transport)
+	if !ok || transport.TLSClientConfig.ServerName != target.Host {
+		t.Fatalf("transport=%T config=%v", transport, transport.TLSClientConfig)
+	}
+	resolver["good.example.test"] = []net.IP{net.ParseIP("192.168.1.2")}
+	if _, err := transport.DialContext(context.Background(), "tcp", "good.example.test:443"); err == nil {
+		t.Fatal("rebinding transport dial succeeded")
+	}
+}
+
 func TestRedirectAndCredentialForwardingAreBoundaries(t *testing.T) {
 	if err := NoRedirect(&http.Request{URL: &url.URL{Scheme: "https", Host: "other.example.test"}}, nil); err == nil {
 		t.Fatal("redirect accepted")

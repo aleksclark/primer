@@ -22,6 +22,16 @@ func TestValidateRevisionAndTransitions(t *testing.T) {
 	if ValidateRevision("x", "", []VerificationRequirement{{Kind: "agent_artifact_rubric", ConfigVersion: 1, Config: artifactConfig, Interaction: "artifact_upload", Executor: "fantasy"}}) != nil {
 		t.Fatal("valid artifact rubric rejected")
 	}
+	external := VerificationRequirement{Kind: "external_callback", ConfigVersion: 1, Config: map[string]any{"verifierId": "verifier", "capability": "response", "schemaVersion": "external_callback.v1"}, Interaction: "external", Executor: "external"}
+	if ValidateRevision("x", "", []VerificationRequirement{external}) != nil {
+		t.Fatal("valid external requirement rejected")
+	}
+	for _, invalid := range []map[string]any{{}, {"verifierId": "", "capability": "response", "schemaVersion": "v1"}, {"verifierId": "v", "capability": "", "schemaVersion": "v1"}, {"verifierId": "v", "capability": "c"}} {
+		external.Config = invalid
+		if ValidateRevision("x", "", []VerificationRequirement{external}) == nil {
+			t.Fatalf("invalid external config accepted: %#v", invalid)
+		}
+	}
 	for _, tc := range []struct {
 		a, b OccurrenceStatus
 		ok   bool
