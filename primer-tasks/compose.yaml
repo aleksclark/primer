@@ -20,6 +20,29 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${TASKS_S3_ACCESS_KEY-minioadmin}
+      MINIO_ROOT_PASSWORD: ${TASKS_S3_SECRET_KEY-minioadmin-change-me}
+    volumes:
+      - tasks_object_data:/data
+    ports:
+      - "127.0.0.1::9000"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer-tasks"
+      stacklane.instance: "${STACKLANE_INSTANCE:-dev}"
+      stacklane.endpoint: "object-store"
+      stacklane.port: "9000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
   issuer-postgres:
     image: postgres:17-alpine
     environment:
@@ -129,6 +152,13 @@ services:
       TASKS_PUBLIC_ORIGIN: ${TASKS_PUBLIC_ORIGIN-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173}}
       TASKS_ALLOWED_ORIGINS: ${TASKS_ALLOWED_ORIGINS-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173},http://127.0.0.1}
       TASKS_ARTIFACT_STORE_DIR: /var/lib/primer-tasks/artifacts
+      TASKS_OBJECT_STORE_ENDPOINT: ${TASKS_OBJECT_STORE_ENDPOINT-http://minio:9000}
+      TASKS_OBJECT_STORE_PUBLIC_ENDPOINT: ${TASKS_OBJECT_STORE_PUBLIC_ENDPOINT-}
+      TASKS_OBJECT_STORE_BUCKET: ${TASKS_OBJECT_STORE_BUCKET-primer-tasks}
+      TASKS_OBJECT_STORE_ACCESS_KEY: ${TASKS_S3_ACCESS_KEY-minioadmin}
+      TASKS_OBJECT_STORE_SECRET_KEY: ${TASKS_S3_SECRET_KEY-minioadmin-change-me}
+      TASKS_OBJECT_STORE_REGION: ${TASKS_OBJECT_STORE_REGION-us-east-1}
+      TASKS_OBJECT_STORE_USE_PATH_STYLE: ${TASKS_OBJECT_STORE_USE_PATH_STYLE-true}
     volumes:
       - .:/src
       - tasks_go_mod_cache:/go/pkg/mod
@@ -146,6 +176,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio:
+        condition: service_healthy
       test-issuer:
         condition: service_healthy
     healthcheck:
@@ -206,6 +238,7 @@ volumes:
   tasks_go_mod_cache:
   tasks_go_build_cache:
   tasks_state:
+  tasks_object_data:
   tasks_air_build:
   tasks_web_node_modules:
   tasks_npm_cache:
