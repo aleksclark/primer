@@ -317,8 +317,11 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		jsonStatus(w, artifactOutput{ID: aid.String(), Kind: kind, Status: status, SubmissionID: sub}, http.StatusOK)
 		return
 	}
-	if status != "uploaded" {
-		problem(w, 409, "conflict", "artifact must be uploaded before finalize")
+	// Direct presigned PUTs do not pass through the API. Finalize therefore
+	// reconciles the scoped object-store key itself; the client cannot claim
+	// that an upload exists by changing metadata.
+	if status != "uploaded" && status != "reserved" {
+		problem(w, 409, "conflict", "artifact is not available for finalize")
 		return
 	}
 	var occurrenceStatus string
