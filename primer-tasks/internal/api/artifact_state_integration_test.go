@@ -89,6 +89,11 @@ func TestArtifactStateAndRetryAreTenantAndStudentScoped(t *testing.T) {
 	if readyRec.Code != http.StatusOK || !strings.Contains(readyRec.Body.String(), `"status":"ready"`) {
 		t.Fatalf("ready state status=%d body=%s", readyRec.Code, readyRec.Body.String())
 	}
+	missingStateRec := httptest.NewRecorder()
+	s.studentArtifactState(missingStateRec, stateRequest(uuid.NewString()), studentA)
+	if missingStateRec.Code != http.StatusNotFound {
+		t.Fatalf("missing student state status=%d body=%s", missingStateRec.Code, missingStateRec.Body.String())
+	}
 
 	// A student sees only their occurrence, while a parent in the owning
 	// tenant can inspect it without the student filter.

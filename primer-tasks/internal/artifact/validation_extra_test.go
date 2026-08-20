@@ -21,6 +21,12 @@ func pngFixture(t *testing.T, width, height int) []byte {
 	return b.Bytes()
 }
 
+func TestDefaultLimitsRejectUnknownKind(t *testing.T) {
+	if limits := DefaultLimits(Kind("document")); limits.MaxBytes != 0 || limits.MaxDurationMS != 0 {
+		t.Fatalf("unknown kind limits=%+v", limits)
+	}
+}
+
 func TestValidateRejectsUnsupportedKindsDurationAndContent(t *testing.T) {
 	body := []byte("not media")
 	if _, err := Validate(bytes.NewReader(body), Input{Kind: Kind("document"), ExpectedSize: int64(len(body))}, DefaultLimits(Image)); err == nil {
@@ -37,6 +43,18 @@ func TestValidateRejectsUnsupportedKindsDurationAndContent(t *testing.T) {
 	}
 	if _, err := Validate(bytes.NewReader(body), Input{Kind: Image, ExpectedSize: 20}, DefaultLimits(Image)); err == nil {
 		t.Fatal("size mismatch accepted")
+	}
+}
+
+func TestThumbnailRejectsMalformedInputAndBounds(t *testing.T) {
+	if _, _, _, err := Thumbnail([]byte("not-an-image"), 10, 10); err == nil {
+		t.Fatal("malformed thumbnail input accepted")
+	}
+	fixture := pngFixture(t, 2, 2)
+	for _, bounds := range [][2]int{{0, 10}, {10, 0}} {
+		if _, _, _, err := Thumbnail(fixture, bounds[0], bounds[1]); err == nil {
+			t.Fatalf("invalid thumbnail bounds accepted: %v", bounds)
+		}
 	}
 }
 

@@ -286,6 +286,24 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if partRec.Code != http.StatusBadRequest {
 		t.Fatalf("part bounds status=%d body=%s", partRec.Code, partRec.Body.String())
 	}
+	emptyPartRoute := chi.NewRouteContext()
+	emptyPartRoute.URLParams.Add("id", partReservation.ArtifactID)
+	emptyPartRoute.URLParams.Add("part", "1")
+	emptyPartReq := httptest.NewRequest(http.MethodPut, "/student/artifacts/"+partReservation.ArtifactID+"/parts/1", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, emptyPartRoute))
+	emptyPartRec := httptest.NewRecorder()
+	s.uploadArtifactPart(emptyPartRec, emptyPartReq, student)
+	if emptyPartRec.Code != http.StatusBadRequest {
+		t.Fatalf("empty part status=%d", emptyPartRec.Code)
+	}
+	finalizedPartRoute := chi.NewRouteContext()
+	finalizedPartRoute.URLParams.Add("id", replacement.ArtifactID)
+	finalizedPartRoute.URLParams.Add("part", "1")
+	finalizedPartReq := httptest.NewRequest(http.MethodPut, "/student/artifacts/"+replacement.ArtifactID+"/parts/1", bytes.NewReader(valid.Bytes())).WithContext(context.WithValue(ctx, chi.RouteCtxKey, finalizedPartRoute))
+	finalizedPartRec := httptest.NewRecorder()
+	s.uploadArtifactPart(finalizedPartRec, finalizedPartReq, student)
+	if finalizedPartRec.Code != http.StatusNotFound {
+		t.Fatalf("finalized part status=%d", finalizedPartRec.Code)
+	}
 	for _, tc := range []struct {
 		part string
 		body []byte
@@ -411,6 +429,15 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if missingDerivativeRec.Code != http.StatusNotFound {
 		t.Fatalf("missing student derivative status=%d", missingDerivativeRec.Code)
 	}
+	missingParentObjectRoute := chi.NewRouteContext()
+	missingParentObjectRoute.URLParams.Add("occurrence", occurrence.String())
+	missingParentObjectRoute.URLParams.Add("id", replacement.ArtifactID)
+	missingParentObjectReq := httptest.NewRequest(http.MethodGet, "/occurrences/"+occurrence.String()+"/artifacts/"+replacement.ArtifactID+"/derivative", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, missingParentObjectRoute))
+	missingParentObjectRec := httptest.NewRecorder()
+	s.parentDerivative(missingParentObjectRec, missingParentObjectReq, scope{Tenant: tenant.String()})
+	if missingParentObjectRec.Code != http.StatusNotFound {
+		t.Fatalf("missing parent derivative object status=%d", missingParentObjectRec.Code)
+	}
 	missingParentDerivativeRoute := chi.NewRouteContext()
 	missingParentDerivativeRoute.URLParams.Add("occurrence", occurrence.String())
 	missingParentDerivativeRoute.URLParams.Add("id", uuid.NewString())
@@ -483,11 +510,55 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if err := s.runArtifactStep(ctx); err != nil {
 		t.Fatal("audio review worker step:", err)
 	}
+	mustExec(`UPDATE task_occurrences SET status='completed' WHERE tenant_id=$1 AND id=$2`, tenant, occurrence)
+	completedOccurrenceBody, _ := json.Marshal(artifactFinalizeInput{ArtifactID: noDurationReservation.ArtifactID, OccurrenceID: occurrence.String(), RequirementID: requirement.String(), SHA256: hex.EncodeToString(audioSum[:]), DurationMS: 1000, IdempotencyKey: noDurationReservation.IdempotencyKey})
+	completedOccurrenceRec := httptest.NewRecorder()
+	s.finalizeArtifact(completedOccurrenceRec, httptest.NewRequest(http.MethodPost, "/student/occurrences/"+occurrence.String()+"/artifacts/finalize", bytes.NewReader(completedOccurrenceBody)), student)
+	if completedOccurrenceRec.Code != http.StatusConflict {
+		t.Fatalf("completed occurrence finalize status=%d body=%s", completedOccurrenceRec.Code, completedOccurrenceRec.Body.String())
+	}
+	mustExec(`UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2`, tenant, occurrence)
+	noComposerReq := httptest.NewRequest(http.MethodPost, "/student/occurrences/"+occurrence.String()+"/artifacts/finalize", bytes.NewReader(missingPartsBody))
+	s.Artifacts = rejectingPutStore{Store: store}
+	noComposerRec := httptest.NewRecorder()
+	s.finalizeArtifact(noComposerRec, noComposerReq, student)
+	if noComposerRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing composer status=%d body=%s", noComposerRec.Code, noComposerRec.Body.String())
+	}
+	s.Artifacts = rejectingComposeStore{Store: store}
+	composeErrorReq := httptest.NewRequest(http.MethodPost, "/student/occurrences/"+occurrence.String()+"/artifacts/finalize", bytes.NewReader(missingPartsBody))
+	composeErrorRec := httptest.NewRecorder()
+	s.finalizeArtifact(composeErrorRec, composeErrorReq, student)
+	if composeErrorRec.Code != http.StatusBadRequest {
+		t.Fatalf("compose error status=%d body=%s", composeErrorRec.Code, composeErrorRec.Body.String())
+	}
+	s.Artifacts = store
 	multipartFinalizeReq := httptest.NewRequest(http.MethodPost, "/student/occurrences/"+occurrence.String()+"/artifacts/finalize", bytes.NewReader(missingPartsBody))
 	multipartFinalizeRec := httptest.NewRecorder()
 	s.finalizeArtifact(multipartFinalizeRec, multipartFinalizeReq, student)
 	if multipartFinalizeRec.Code != http.StatusOK {
 		t.Fatalf("multipart finalize status=%d body=%s", multipartFinalizeRec.Code, multipartFinalizeRec.Body.String())
+	}
+	var multipartOutput artifactOutput
+	if err := json.Unmarshal(multipartFinalizeRec.Body.Bytes(), &multipartOutput); err != nil {
+		t.Fatal(err)
+	}
+	var retryJobID string
+	if err := pool.QueryRow(ctx, `SELECT id::text FROM artifact_rubric_jobs WHERE tenant_id=$1 AND submission_id=$2`, tenant, multipartOutput.SubmissionID).Scan(&retryJobID); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_FAULT", "always")
+	mustExec(`UPDATE artifact_rubric_jobs SET available_at=now() WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID)
+	time.Sleep(1100 * time.Millisecond)
+	if err := s.runArtifactStep(ctx); err != nil {
+		t.Fatal("provider failure worker step:", err)
+	}
+	var retryStatus, retryError string
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "queued" || retryError != "provider evaluation failed" {
+		t.Fatalf("provider retry status=%s error=%q", retryStatus, retryError)
 	}
 	revoked := uuid.New()
 	revokedUploadRec := httptest.NewRecorder()

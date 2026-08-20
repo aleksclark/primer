@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 )
@@ -81,6 +82,38 @@ func TestFSStoreRejectsInvalidInputsAndCanceledOperations(t *testing.T) {
 	}
 	if _, err = s.PresignPut(context.Background(), "a", "", 1, time.Minute); err == nil {
 		t.Fatal("filesystem presign unexpectedly available")
+	}
+}
+
+func TestFSStoreComposeJoinsPartsAndChecksDeclaredSize(t *testing.T) {
+	s, err := NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err = s.Put(ctx, "parts/one", "text/plain", bytes.NewReader([]byte("one")), 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Put(ctx, "parts/two", "text/plain", bytes.NewReader([]byte("two")), 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Compose(ctx, "joined", "text/plain", []string{"parts/one", "parts/two"}, 6); err != nil {
+		t.Fatal(err)
+	}
+	joined, _, err := s.Open(ctx, "joined")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(joined)
+	_ = joined.Close()
+	if err != nil || string(body) != "onetwo" {
+		t.Fatalf("joined=%q err=%v", body, err)
+	}
+	if _, err = s.Compose(ctx, "wrong-size", "text/plain", []string{"parts/one", "parts/two"}, 5); err == nil {
+		t.Fatal("compose accepted wrong declared size")
+	}
+	if _, err = s.Compose(ctx, "missing-part", "text/plain", []string{"parts/missing"}, 1); err == nil {
+		t.Fatal("compose accepted missing part")
 	}
 }
 

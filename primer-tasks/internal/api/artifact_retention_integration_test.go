@@ -67,6 +67,26 @@ func TestArtifactCleanupDeletesExpiredOriginalsAndDerivativesIdempotently(t *tes
 		t.Fatal(err)
 	}
 	var status string
+	noPartArtifactID := uuid.New()
+	noPartKey := uploadKey(tenant, noPartArtifactID)
+	exec(`INSERT INTO artifacts(id,tenant_id,student_id,object_key,kind,original_name,declared_content_type,byte_size,status,expires_at) VALUES($1,$2,$3,$4,'image','no-part.png','image/png',5,'uploaded',now()-interval '1 day')`, noPartArtifactID, tenant, student, noPartKey)
+	if _, err := store.Put(ctx, noPartKey, "image/png", bytes.NewReader([]byte("noprt")), 5); err != nil {
+		t.Fatal(err)
+	}
+	s.Artifacts = rejectingDeleteStore{Store: store}
+	if err := s.CleanupArtifactOrphans(ctx, time.Now().UTC()); err == nil {
+		t.Fatal("cleanup ignored expired artifact deletion failure")
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM artifacts WHERE tenant_id=$1 AND id=$2`, tenant, noPartArtifactID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "uploaded" {
+		t.Fatalf("failed artifact cleanup changed status=%s", status)
+	}
+	s.Artifacts = store
+	if err := s.CleanupArtifactOrphans(ctx, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	if err := pool.QueryRow(ctx, `SELECT status FROM artifacts WHERE tenant_id=$1 AND id=$2`, tenant, artifactID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}

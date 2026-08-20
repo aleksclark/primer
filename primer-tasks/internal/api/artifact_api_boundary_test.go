@@ -19,6 +19,18 @@ func (rejectingPutStore) Put(context.Context, string, string, io.Reader, int64) 
 	return artifactstore.Object{}, errors.New("test object store rejection")
 }
 
+type rejectingDeleteStore struct{ artifactstore.Store }
+
+func (rejectingDeleteStore) Delete(context.Context, string) error {
+	return errors.New("test delete rejection")
+}
+
+type rejectingComposeStore struct{ artifactstore.Store }
+
+func (rejectingComposeStore) Compose(context.Context, string, string, []string, int64) (artifactstore.Object, error) {
+	return artifactstore.Object{}, errors.New("test compose rejection")
+}
+
 func TestArtifactAPIRejectsUnconfiguredAndMalformedBoundaryRequests(t *testing.T) {
 	s := &Server{}
 	reserveRec := httptest.NewRecorder()
