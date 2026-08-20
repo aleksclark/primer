@@ -63,6 +63,34 @@ func TestArtifactStateAndRetryAreTenantAndStudentScoped(t *testing.T) {
 	exec(`INSERT INTO artifact_criterion_evaluations(id,tenant_id,submission_id,criterion_id,required,status,evidence,feedback,provider,model,policy_version) VALUES($1,$2,$3,'shows-work',true,'accepted','evidence','feedback','scripted','fixture','agent_artifact_rubric.v1')`, uuid.New(), tenantA, submission)
 
 	s := NewWithStore(pool, "test", nil)
+	// The student protocol replays the durable snapshot for every artifact
+	// status and never trusts a browser-provided status.
+	for _, stored := range []string{"review", "evaluating", "accepted", "rejected"} {
+		exec(`UPDATE artifact_submissions SET status=$2 WHERE id=$1`, submission, stored)
+		sub := &studentSubscriber{queue: make(chan wireStudentEvent, 8), done: make(chan struct{})}
+		s.studentArtifactSubscribe(ctx, studentIdentity{TenantID: tenantA.String(), StudentID: studentA}, sub, studentCommand{OccurrenceID: occurrence.String(), SubmissionID: submission.String()})
+		select {
+		case event := <-sub.queue:
+			if event.OccurrenceID != occurrence.String() || event.Status != stored {
+				t.Fatalf("stored=%s replay=%+v", stored, event)
+			}
+		default:
+			t.Fatalf("stored=%s produced no snapshot", stored)
+		}
+	}
+	missingSub := &studentSubscriber{queue: make(chan wireStudentEvent, 2), done: make(chan struct{})}
+	s.studentArtifactSubscribe(ctx, studentIdentity{TenantID: tenantA.String(), StudentID: studentA}, missingSub, studentCommand{OccurrenceID: occurrence.String(), SubmissionID: uuid.NewString()})
+	if event := <-missingSub.queue; event.Code != "not_found" {
+		t.Fatalf("missing subscription event=%+v", event)
+	}
+	exec(`UPDATE artifact_submissions SET status='review' WHERE id=$1`, submission)
+	exec(`INSERT INTO artifact_rubric_events(tenant_id,job_id,submission_id,sequence,kind,payload) VALUES($1,$2,$3,1,'progress','{"status":"review","message":"safe progress"}')`, tenantA, job, submission)
+	replaySub := &studentSubscriber{queue: make(chan wireStudentEvent, 8), done: make(chan struct{})}
+	s.studentArtifactSubscribe(ctx, studentIdentity{TenantID: tenantA.String(), StudentID: studentA}, replaySub, studentCommand{OccurrenceID: occurrence.String(), SubmissionID: submission.String()})
+	<-replaySub.queue // snapshot
+	if event := <-replaySub.queue; event.Sequence != 1 || event.Status != "review" || event.Message != "safe progress" {
+		t.Fatalf("durable artifact replay=%+v", event)
+	}
 	stateRequest := func(occ string) *http.Request {
 		rc := chi.NewRouteContext()
 		rc.URLParams.Add("occurrence", occ)

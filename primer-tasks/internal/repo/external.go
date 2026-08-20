@@ -108,6 +108,11 @@ func (r *VerifierCatalogRepository) SetActive(ctx context.Context, id uuid.UUID,
 	_, err := r.DB.Exec(ctx, `UPDATE external_verifier_catalog SET active=$2,updated_at=now() WHERE id=$1`, id, active)
 	return err
 }
+func (r *VerifierCatalogRepository) SecretRefForVersion(ctx context.Context, id uuid.UUID, version string) (string, error) {
+	var ref string
+	err := r.DB.QueryRow(ctx, `SELECT secret_ref FROM external_verifier_secret_versions WHERE verifier_id=$1 AND secret_version=$2`, id, version).Scan(&ref)
+	return ref, err
+}
 func (r *VerifierCatalogRepository) RotateSecret(ctx context.Context, id uuid.UUID, secretRef, secretVersion string) error {
 	if strings.TrimSpace(secretRef) == "" || strings.TrimSpace(secretVersion) == "" {
 		return errors.New("secret reference and version are required")
@@ -131,7 +136,7 @@ func (r *VerifierCatalogRepository) RotateSecret(ctx context.Context, id uuid.UU
 
 type ExternalDelivery struct {
 	ID, TenantID, AttemptID, RequirementID, VerifierID, RequestID, IdempotencyKey string
-	SchemaVersion, CallbackPath, PayloadDigest                                    string
+	SchemaVersion, CallbackPath, PayloadDigest, SecretVersion                     string
 	Envelope                                                                      []byte
 	Status                                                                        string
 	Attempts, MaxAttempts                                                         int
@@ -162,7 +167,7 @@ func (r *ExternalRepository) Enqueue(ctx context.Context, d ExternalDelivery) er
 	if _, err := verification.DecodeRequest(d.Envelope); err != nil {
 		return err
 	}
-	_, err := r.DB.Exec(ctx, `INSERT INTO external_verifier_outbox(id,tenant_id,attempt_id,requirement_id,verifier_id,request_id,idempotency_key,schema_version,callback_path,envelope,payload_digest,max_attempts,expires_at,available_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,now())) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, d.ID, d.TenantID, d.AttemptID, d.RequirementID, d.VerifierID, d.RequestID, d.IdempotencyKey, d.SchemaVersion, d.CallbackPath, d.Envelope, d.PayloadDigest, d.MaxAttempts, d.ExpiresAt, d.AvailableAt)
+	_, err := r.DB.Exec(ctx, `INSERT INTO external_verifier_outbox(id,tenant_id,attempt_id,requirement_id,verifier_id,request_id,idempotency_key,schema_version,callback_path,envelope,payload_digest,secret_version,max_attempts,expires_at,available_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15,now())) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, d.ID, d.TenantID, d.AttemptID, d.RequirementID, d.VerifierID, d.RequestID, d.IdempotencyKey, d.SchemaVersion, d.CallbackPath, d.Envelope, d.PayloadDigest, d.SecretVersion, d.MaxAttempts, d.ExpiresAt, d.AvailableAt)
 	return err
 }
 func (r *ExternalRepository) Claim(ctx context.Context, owner string, lease time.Duration) (ExternalDelivery, bool, error) {
@@ -172,7 +177,7 @@ func (r *ExternalRepository) Claim(ctx context.Context, owner string, lease time
 	}
 	defer tx.Rollback(ctx)
 	var d ExternalDelivery
-	err = tx.QueryRow(ctx, `WITH candidate AS (SELECT id FROM external_verifier_outbox WHERE status IN ('queued','waiting','retryable_error') AND available_at<=now() AND expires_at>now() AND (lease_until IS NULL OR lease_until<now()) AND attempts<max_attempts ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE external_verifier_outbox o SET status='running',attempts=attempts+1,lease_owner=$1,lease_until=now()+$2::interval,updated_at=now() FROM candidate WHERE o.id=candidate.id RETURNING o.id,o.tenant_id,o.attempt_id,o.requirement_id,o.verifier_id,o.request_id,o.idempotency_key,o.schema_version,o.callback_path,o.envelope,o.payload_digest,o.status,o.attempts,o.max_attempts,o.available_at,o.expires_at,o.lease_owner,o.lease_until,o.last_error_code,o.created_at,o.updated_at`, owner, leaseInterval(lease)).Scan(&d.ID, &d.TenantID, &d.AttemptID, &d.RequirementID, &d.VerifierID, &d.RequestID, &d.IdempotencyKey, &d.SchemaVersion, &d.CallbackPath, &d.Envelope, &d.PayloadDigest, &d.Status, &d.Attempts, &d.MaxAttempts, &d.AvailableAt, &d.ExpiresAt, &d.LeaseOwner, &d.LeaseUntil, &d.LastErrorCode, &d.CreatedAt, &d.UpdatedAt)
+	err = tx.QueryRow(ctx, `WITH candidate AS (SELECT id FROM external_verifier_outbox WHERE status IN ('queued','waiting','retryable_error') AND available_at<=now() AND expires_at>now() AND (lease_until IS NULL OR lease_until<now()) AND attempts<max_attempts ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE external_verifier_outbox o SET status='running',attempts=attempts+1,lease_owner=$1,lease_until=now()+$2::interval,updated_at=now() FROM candidate WHERE o.id=candidate.id RETURNING o.id,o.tenant_id,o.attempt_id,o.requirement_id,o.verifier_id,o.request_id,o.idempotency_key,o.schema_version,o.callback_path,o.envelope,o.payload_digest,o.secret_version,o.status,o.attempts,o.max_attempts,o.available_at,o.expires_at,o.lease_owner,o.lease_until,o.last_error_code,o.created_at,o.updated_at`, owner, leaseInterval(lease)).Scan(&d.ID, &d.TenantID, &d.AttemptID, &d.RequirementID, &d.VerifierID, &d.RequestID, &d.IdempotencyKey, &d.SchemaVersion, &d.CallbackPath, &d.Envelope, &d.PayloadDigest, &d.SecretVersion, &d.Status, &d.Attempts, &d.MaxAttempts, &d.AvailableAt, &d.ExpiresAt, &d.LeaseOwner, &d.LeaseUntil, &d.LastErrorCode, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, false, nil
 	}
@@ -186,7 +191,7 @@ func (r *ExternalRepository) Claim(ctx context.Context, owner string, lease time
 }
 func (r *ExternalRepository) Renew(ctx context.Context, id, owner string, lease time.Duration) error {
 	var ok bool
-	err := r.DB.QueryRow(ctx, `UPDATE external_verifier_outbox SET lease_until=now()+$3::interval,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 RETURNING true`, id, owner, leaseInterval(lease)).Scan(&ok)
+	err := r.DB.QueryRow(ctx, `UPDATE external_verifier_outbox SET lease_until=now()+$3::interval,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 AND lease_until>now() RETURNING true`, id, owner, leaseInterval(lease)).Scan(&ok)
 	if err != nil {
 		return err
 	}
@@ -202,20 +207,23 @@ func (r *ExternalRepository) Finish(ctx context.Context, d ExternalDelivery, own
 	}
 	var err error
 	if retryAt.IsZero() {
-		_, err = r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status=$4,lease_owner=NULL,lease_until=NULL,last_error_code=$5,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 AND tenant_id=$3`, d.ID, owner, d.TenantID, status, code)
+		_, err = r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status=$4,lease_owner=NULL,lease_until=NULL,last_error_code=$5,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 AND tenant_id=$3 AND lease_until>now()`, d.ID, owner, d.TenantID, status, code)
 	} else {
-		_, err = r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status=$4,available_at=$5,lease_owner=NULL,lease_until=NULL,last_error_code=$6,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 AND tenant_id=$3`, d.ID, owner, d.TenantID, status, retryAt, code)
+		_, err = r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status=$4,available_at=$5,lease_owner=NULL,lease_until=NULL,last_error_code=$6,updated_at=now() WHERE id=$1 AND status='running' AND lease_owner=$2 AND tenant_id=$3 AND lease_until>now()`, d.ID, owner, d.TenantID, status, retryAt, code)
 	}
 	return err
 }
 func (r *ExternalRepository) RequeueExpired(ctx context.Context, now time.Time) error {
+	if _, err := r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',lease_owner=NULL,lease_until=NULL,updated_at=$1 WHERE status IN ('waiting','retryable_error') AND (expires_at<=$1 OR attempts>=max_attempts)`, now); err != nil {
+		return err
+	}
 	_, err := r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status=CASE WHEN expires_at<=$1 OR attempts>=max_attempts THEN 'dead' ELSE 'queued' END,lease_owner=NULL,lease_until=NULL,available_at=CASE WHEN expires_at<=$1 THEN available_at ELSE $1 END,updated_at=$1 WHERE status='running' AND lease_until<$1`, now)
 	return err
 }
 
 func (r *ExternalRepository) Binding(ctx context.Context, requestID, verifierID, attemptID string) (ExternalBinding, error) {
 	var b ExternalBinding
-	err := r.DB.QueryRow(ctx, `SELECT o.tenant_id,o.attempt_id,o.requirement_id,o.verifier_id,o.request_id,o.payload_digest,o.callback_path,o.schema_version,a.occurrence_id FROM external_verifier_outbox o JOIN verification_attempts a ON a.tenant_id=o.tenant_id AND a.id=o.attempt_id WHERE o.request_id=$1 AND o.verifier_id=$2 AND o.attempt_id=$3`, requestID, verifierID, attemptID).Scan(&b.TenantID, &b.AttemptID, &b.RequirementID, &b.VerifierID, &b.RequestID, &b.PayloadDigest, &b.CallbackPath, &b.SchemaVersion, &b.OccurrenceID)
+	err := r.DB.QueryRow(ctx, `SELECT o.tenant_id,o.attempt_id,o.requirement_id,o.verifier_id,o.request_id,o.payload_digest,o.callback_path,o.schema_version,o.secret_version,a.occurrence_id FROM external_verifier_outbox o JOIN verification_attempts a ON a.tenant_id=o.tenant_id AND a.id=o.attempt_id WHERE o.request_id=$1 AND o.verifier_id=$2 AND o.attempt_id=$3`, requestID, verifierID, attemptID).Scan(&b.TenantID, &b.AttemptID, &b.RequirementID, &b.VerifierID, &b.RequestID, &b.PayloadDigest, &b.CallbackPath, &b.SchemaVersion, &b.SecretVersion, &b.OccurrenceID)
 	return b, err
 }
 func (r *ExternalRepository) RecordCallback(ctx context.Context, b ExternalBinding, c verification.CallbackEnvelope, body []byte) (bool, error) {
@@ -228,17 +236,24 @@ func (r *ExternalRepository) RecordCallback(ctx context.Context, b ExternalBindi
 	}
 	defer tx.Rollback(ctx)
 	var existing string
-	err = tx.QueryRow(ctx, `INSERT INTO external_verifier_callbacks(tenant_id,callback_id,request_id,attempt_id,verifier_id,sequence,result_type,request_digest,body_digest,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(tenant_id,request_id,sequence) DO NOTHING RETURNING callback_id`, b.TenantID, c.CallbackID, b.RequestID, b.AttemptID, b.VerifierID, c.Sequence, c.Type, c.RequestDigest, verification.ExternalPayloadDigest(body), body).Scan(&existing)
+	err = tx.QueryRow(ctx, `INSERT INTO external_verifier_callbacks(tenant_id,callback_id,request_id,attempt_id,verifier_id,sequence,result_type,request_digest,body_digest,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(tenant_id,request_id,sequence) DO NOTHING RETURNING callback_id`, b.TenantID, c.CallbackID, b.RequestID, b.AttemptID, b.VerifierID, c.Sequence, c.Type, c.RequestDigest, verification.ExternalPayloadDigest(body), jsonValue(c)).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if err = tx.QueryRow(ctx, `SELECT callback_id FROM external_verifier_callbacks WHERE tenant_id=$1 AND request_id=$2 AND sequence=$3`, b.TenantID, b.RequestID, c.Sequence).Scan(&existing); err != nil {
+		var existingDigest string
+		if err = tx.QueryRow(ctx, `SELECT callback_id,body_digest FROM external_verifier_callbacks WHERE tenant_id=$1 AND request_id=$2 AND sequence=$3`, b.TenantID, b.RequestID, c.Sequence).Scan(&existing, &existingDigest); err != nil {
 			return false, err
+		}
+		if existing != c.CallbackID || existingDigest != verification.ExternalPayloadDigest(body) {
+			return false, verification.ErrExternalReplay
 		}
 		return true, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_events(tenant_id,request_id,sequence,kind,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, b.TenantID, b.RequestID, c.Sequence, "external."+c.Type, body)
+	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_events(tenant_id,request_id,sequence,kind,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, b.TenantID, b.RequestID, c.Sequence, "external."+c.Type, jsonValue(c))
+	if err == nil && c.Type == "progress" {
+		_, err = tx.Exec(ctx, `INSERT INTO external_verifier_facts(id,tenant_id,aggregate_type,aggregate_id,fact_type,schema_version,payload) VALUES($1,$2,'verification_attempt',$3,'verification.progressed',1,$4) ON CONFLICT DO NOTHING`, uuid.New(), b.TenantID, b.AttemptID, jsonValue(map[string]any{"status": "progress"}))
+	}
 	if err == nil {
 		_, err = tx.Exec(ctx, `UPDATE external_verifier_outbox SET status=CASE WHEN $3='progress' THEN 'waiting' WHEN $3='retryable_error' THEN 'retryable_error' WHEN $3='terminal_error' THEN 'terminal_error' ELSE 'waiting' END,lease_owner=NULL,lease_until=NULL,available_at=CASE WHEN $3='retryable_error' THEN now()+interval '1 minute' ELSE available_at END,updated_at=now() WHERE tenant_id=$1 AND request_id=$2 AND status NOT IN ('accepted','rejected','dead','canceled')`, b.TenantID, b.RequestID, c.Type)
 	}

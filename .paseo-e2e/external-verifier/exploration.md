@@ -1,7 +1,7 @@
 # External verifier — manual browser exploration (FAIL)
 
 - **Suite / phase:** `external-verifier` / `explore`, call 1
-- **Start URL:** `http://web.primer-tasks-p6.primer-tasks.test:5173`
+- **Start URL:** `[configured Tasks SPA origin]`
 - **Browser:** isolated headless Chrome contexts `external-verifier-parent` and `external-verifier-student`
 - **Fixture:** the real active catalog option presented by the SPA, named **Stacklane fixture verifier**. No endpoint, secret, verifier ID, pairing code, cookies, request body, or callback body is retained in this record.
 - **Outcome:** FAIL. The real external callback delivery reached durable `dead` rather than signed progress / final completion. Per the exploration contract, stopped here; no Playwright files were created and no retry/cancel/fallback or synthetic fixture-control request was exercised.
@@ -64,7 +64,7 @@
 
 - **Suite / phase:** `external-verifier` / explicit `explore again`, call 2
 - **Outcome:** PASS. A fresh real task, schedule, occurrence, pairing code, parent browser context, and student browser context reached durable external verification completion.
-- **Saved actual snapshots:** `call2-*.snapshot.txt` in this suite directory. The one pairing-code value in the parent pairing snapshot was redacted immediately; no artifact records a pairing code, cookie, submitted response, endpoint, credential, signature, callback raw body, or opaque delivery identifiers.
+- Raw call-2 snapshots were reviewed for acceptance and privacy evidence, then removed; the one pairing-code value was redacted before removal. No retained artifact records a pairing code, cookie, submitted response, endpoint, credential, signature, callback raw body, or opaque delivery identifier.
 
 ## Fresh live procedure and assertions
 
@@ -116,7 +116,7 @@
 
 ## Independent DevTools Chrome re-drive
 
-- Fresh isolated contexts `external-verifier-codify-parent` and `external-verifier-codify-student` repeated the whole real parent/student flow with a new task and one-use pairing code. Actual sanitized snapshots are `call3-redrive-*.snapshot.txt`; the one-use code is redacted in its saved snapshot.
+- Fresh isolated contexts `external-verifier-codify-parent` and `external-verifier-codify-student` repeated the whole real parent/student flow with a new task and one-use pairing code. Raw call-3 snapshots were reviewed for evidence and removed; no one-use code was retained.
 - Parent authoring snapshot again showed only the active fixture, capability/schema, and explicit server-side endpoint/credential/signature protection. The new task reached published/scheduled state.
 - Student checklist showed the fresh occurrence `pending`; after Start and Submit it showed `awaiting_verification`, then `queued`, then `completed` with three generic `Verification update` entries. A subsequent state refresh retained completion.
 - A fresh parent Occurrences load listed that exact new occurrence as `completed`; Parent Inspect showed source **Stacklane fixture verifier**, completed status, queued plus three safe updates, and no endpoint/secret/raw-body/reasoning UI.
@@ -125,3 +125,53 @@
 ## Promotion result
 
 All codify gates now hold: focused Playwright exit `0`, independent Chrome re-drive observed the documented acceptance criteria, and no test/product gate was weakened. Promote this suite to `run`.
+
+---
+
+# Final-tip regression run (FAIL closed)
+
+- **Suite / phase:** `external-verifier` / `run`, call 4
+- **Playwright:** the unchanged promoted suite exited **1**. It did complete the real external flow, but its existing assertion for exactly three generic `Verification update` labels found zero after the final tip.
+- **Why not changed:** final-tip safe-progress projection now renders distinct safe text, so changing/removing the established generic-label assertion would be an assertion change. Per the requested run phase and no-weakening gate, the suite was left unchanged and the result is FAIL.
+- **Independent final-tip Chrome re-drive:** fresh parent/student contexts created a new task, published/scheduled it, paired a fresh browser, and completed it. Student safe projection was `completed` with: `Verification requested.`, two `External verification is in progress.`, and two `The external verifier accepted the response.` entries. Parent Inspect independently showed the same completed source/status and same five safe messages. No endpoint, secret, callback raw body, or private reasoning was rendered.
+- **Network / console:** parent inspect and external inspect were `200`; the known unrelated artifact inspect call remained `404` twice and produced the corresponding two-count console resource error. Raw call-4 snapshots were reviewed for evidence and removed; no pairing code was retained. Full Playwright failure: `.paseo-e2e/external-verifier/last-run.log`.
+
+# Final assertion-aligned regression (PASS)
+
+- User-authorized final workspace assertion aligns the parent first durable entry with the observed safe projection: `Verification requested.`. The focused promoted command passed: **1 passed (7.3 s)**; full command/output in `last-run.log`.
+- Independent Chrome re-drive reloaded the same separately-created final-tip student and parent occurrence on the real origin. Both retained `completed`, fixture source, and only safe projection text (requested, in-progress, and accepted-response entries); raw call-5 snapshots were reviewed and removed.
+- No further assertion changes were made. The known unrelated parent artifact-inspect 404 residual remains recorded.
+
+---
+
+# Fresh final-tip exploratory browser acceptance (PASS)
+
+- **Suite / phase:** `external-verifier` / explicit fresh final-tip exploration, call 6
+- **Result:** **PASS**. This run used new isolated parent and student Chrome contexts, a freshly authored/published/scheduled task, fresh one-use pairing material, and the seeded **Stacklane fixture verifier**. It did not reuse an existing occurrence, prior browser session, fixture control request, or in-process substitute.
+- **Sanitization:** no pairing value, submitted response, opaque identifier, cookie, endpoint URL, request/callback body, header, signature, credential, or reasoning is retained in this record or `last-run.log`.
+
+## Live browser procedure and observed acceptance
+
+1. Parent authenticated through the test identity page, opened **Tasks**, and observed the active administrator catalog choice **Stacklane fixture verifier**, capability `response`, schema `external_callback.v1`, and the explicit copy that endpoints, credentials, and signatures remain server-side.
+2. Parent authored a new external task, observed it as `draft`, published it, selected it in the live schedule form for **Stacklane Student**, and received the normal schedule-materialized confirmation.
+3. Parent issued fresh pairing material; a separately isolated student context paired and showed the newly scheduled occurrence as `pending`.
+4. Student opened the occurrence and started it. The live external region showed only the fixture display name, `awaiting verification`, and ordinary response input. After submitting a benign response, the region immediately showed `queued` and the safe entry **“Verification requested.”**
+5. **Reconnect probe:** while delivery was in flight, the student page was reloaded. The reconnected page retained the server-owned record and reached `completed`, with the ordered safe projection: request, two in-progress updates, and two accepted-response updates.
+6. Parent independently opened **Occurrences** and the matching **Inspect** view. It showed the same fixture source, `completed` delivery status, and the same five safe ordered entries. The occurrence summary was also `completed`.
+
+## Redaction and operational observations
+
+- **PASS:** parent authoring exposed catalog name/capability/schema only; the student and parent completed views exposed source, status, and safe progress only. None displayed endpoint/URL, secret/credential, raw callback body, signature/header, opaque protocol fields, or private reasoning.
+- **PASS:** browser-facing requests remained same-origin; the student had no direct verifier request. Submit returned `202`; subsequent state and parent inspection calls returned `200`. Exact URLs, IDs, request bodies, and response bodies are intentionally omitted.
+- **Residuals recorded, not hidden:** the student console reported one CSP inline-style violation/issue from the dev application. The parent inspector also made two unrelated artifact-inspector requests that returned `404`, while the external inspector returned `200`. Neither interrupted the real submit, durable progress, reload/reconnect, or completion. This suite’s stated acceptance criteria do not assert a globally clean console; these are not represented as a clean-console result.
+
+## Separate-fixture and regression evidence
+
+- The unchanged focused browser command passed one real Playwright test in 7.2 seconds (8 seconds wall clock). It creates/publishes/schedules, pairs a separate student context, verifies the queued/completed safe projection, reloads the student, and inspects the parent projection.
+- `make tasks-external-e2e` passed in 2 seconds against the separate external-verifier fixture process. Its implementation checks the real process boundary and expected idempotent request/callback effect; output details and identifiers are not copied into this evidence.
+- Full sanitized commands/results are in `last-run.log`. No gate, assertion, product source, test source, or fixture configuration was changed in this call.
+
+## Final promoted browser run after fresh Terra PASS
+
+- The promoted focused Playwright command was rerun after call 6 and passed: **1 passed (7.3 seconds)** against the real external process flow.
+- Raw Playwright result artifacts were reviewed for failure/privacy evidence and removed; only this sanitized result and the process-E2E result are retained.

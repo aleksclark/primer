@@ -3,25 +3,30 @@
   "suiteId": "external-verifier",
   "functionality": "Parent selects the pre-seeded external verifier, publishes and schedules an external callback task; student submits through the SPA; both observe durable signed progress and final completion without secret-bearing details.",
   "phase": "run",
-  "callCount": 3,
-  "baseUrl": "http://web.primer-tasks-p6.primer-tasks.test:5173",
+  "callCount": 6,
+  "baseUrl": "[configured Tasks SPA origin]",
   "acceptance": [
     "Parent can select the real pre-seeded verifier and create, publish, and schedule an external_callback task.",
     "Student can submit through the SPA and sees durable safe verifier progress followed by completion.",
     "Parent observes the same durable progress and final completion.",
-    "Endpoint, secret, raw callback body, and reasoning are never exposed in the UI."
+    "Endpoint, secret, raw callback body, and reasoning are never exposed in the UI.",
+    "Student reconnect during in-flight delivery retains durable state and reaches completion."
   ],
-  "updatedAt": "2026-08-20T10:43:47Z",
+  "updatedAt": "2026-08-20T11:23:30Z",
   "artifacts": {
     "explorationNotes": ".paseo-e2e/external-verifier/exploration.md",
     "playwrightConfig": "primer-tasks/web/playwright.config.ts",
     "specFiles": ["primer-tasks/web/e2e/external-verifier-progress.spec.ts"],
-    "packageJsonScript": "PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p6.primer-tasks.test:5173 PRIMER_TASKS_BROWSER_COMMAND='npx playwright test e2e/external-verifier-progress.spec.ts' npm run browser:test",
+    "packageJsonScript": "PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 PRIMER_TASKS_BASE_URL=[configured] PRIMER_TASKS_BROWSER_COMMAND='npx playwright test e2e/external-verifier-progress.spec.ts' npm run browser:test",
     "lastRun": ".paseo-e2e/external-verifier/last-run.log"
   },
   "qualityGates": {
     "independentChromeVerification": true,
     "playwrightGreen": true,
+    "separateExternalProcessGreen": true,
+    "redactionProbed": true,
+    "reconnectProbed": true,
     "relaxed": false
-  }
+  },
+  "lastResult": "PASS"
 }

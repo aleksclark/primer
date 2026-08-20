@@ -261,7 +261,7 @@ func snapshotExternalAttempt(ctx context.Context, tx pgx.Tx, tenant string, atte
 		options = map[string]any{}
 	}
 	manifest, _ := json.Marshal(map[string]any{"name": name, "schemaVersions": supportedVersions, "capabilities": supportedCapabilities, "secretVersion": secretVersion})
-	_, err := tx.Exec(ctx, `INSERT INTO external_verifier_attempts(tenant_id,attempt_id,verifier_id,capability,schema_version,public_options,manifest_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7)`, tenant, attempt, verifierID, config.Capability, config.Schema, requirementConfigJSON(options), manifest)
+	_, err := tx.Exec(ctx, `INSERT INTO external_verifier_attempts(tenant_id,attempt_id,verifier_id,capability,schema_version,secret_version,public_options,manifest_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, tenant, attempt, verifierID, config.Capability, config.Schema, secretVersion, requirementConfigJSON(options), manifest)
 	return err
 }
 
@@ -299,7 +299,7 @@ func (s *Server) submitExternal(w http.ResponseWriter, r *http.Request, student 
 	}
 	body, _ := verification.MarshalRequestEnvelope(envelope)
 	deliveryID := uuid.New()
-	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_outbox(id,tenant_id,attempt_id,requirement_id,verifier_id,request_id,idempotency_key,schema_version,callback_path,envelope,payload_digest,max_attempts,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,c.max_attempts,$12 FROM external_verifier_catalog c WHERE c.id=$5 ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, deliveryID, tenant, attempt, requirement, verifier, envelope.RequestID, input.IdempotencyKey, schema, callbackPath, body, envelope.PayloadDigest, envelope.ExpiresAt)
+	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_outbox(id,tenant_id,attempt_id,requirement_id,verifier_id,request_id,idempotency_key,schema_version,callback_path,envelope,payload_digest,secret_version,max_attempts,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,c.secret_version,c.max_attempts,$12 FROM external_verifier_catalog c WHERE c.id=$5 ON CONFLICT(tenant_id,idempotency_key) DO NOTHING`, deliveryID, tenant, attempt, requirement, verifier, envelope.RequestID, input.IdempotencyKey, schema, callbackPath, body, envelope.PayloadDigest, envelope.ExpiresAt)
 	if err != nil {
 		problem(w, 409, "conflict", "external submission could not be queued")
 		return
@@ -310,6 +310,9 @@ func (s *Server) submitExternal(w http.ResponseWriter, r *http.Request, student 
 		return
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_events(tenant_id,request_id,sequence,kind,payload) VALUES($1,$2,0,'verification.requested',$3) ON CONFLICT DO NOTHING`, tenant, envelope.RequestID, json.RawMessage(`{"schemaVersion":1,"status":"queued"}`))
+	if err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO external_verifier_facts(id,tenant_id,aggregate_type,aggregate_id,fact_type,schema_version,payload) VALUES($1,$2,'verification_attempt',$3,'verification.requested',1,$4) ON CONFLICT DO NOTHING`, uuid.New(), tenant, attempt, json.RawMessage(`{"status":"queued"}`))
+	}
 	if err != nil {
 		problem(w, 500, "internal", "external submission event could not be recorded")
 		return
@@ -359,21 +362,50 @@ func (s *Server) loadExternalState(ctx context.Context, occurrence, subject stri
 	}
 	out.CanCancel = out.Status != "completed" && out.Status != "canceled"
 	out.Fallback = parent
-	rows, err := s.DB.Query(ctx, `SELECT payload FROM external_verifier_events e JOIN verification_attempts a ON a.tenant_id=e.tenant_id AND a.id=$2 JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$1 WHERE e.request_id IN (SELECT request_id FROM external_verifier_outbox WHERE tenant_id=a.tenant_id AND attempt_id=a.id) ORDER BY e.sequence`, occurrence, out.AttemptID)
+	rows, err := s.DB.Query(ctx, `SELECT e.sequence,e.kind,e.payload FROM external_verifier_events e JOIN verification_attempts a ON a.tenant_id=e.tenant_id AND a.id=$2 JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$1 WHERE e.request_id IN (SELECT request_id FROM external_verifier_outbox WHERE tenant_id=a.tenant_id AND attempt_id=a.id) ORDER BY e.sequence`, occurrence, out.AttemptID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
+			var sequence int64
+			var kind string
 			var raw []byte
-			if rows.Scan(&raw) == nil {
-				var item map[string]any
-				if json.Unmarshal(raw, &item) == nil {
+			if rows.Scan(&sequence, &kind, &raw) == nil {
+				if item, rationale := safeExternalProgress(sequence, kind, raw); item != nil {
 					out.Progress = append(out.Progress, item)
+					if rationale != "" {
+						out.SafeRationale = rationale
+					}
 				}
 			}
 		}
 	}
 	out.CanRetry = out.Status == "dead" || out.Status == "retryable_error" || out.Status == "terminal_error"
 	return out, nil
+}
+
+func safeExternalProgress(sequence int64, kind string, raw []byte) (map[string]any, string) {
+	item := map[string]any{"sequence": sequence}
+	switch kind {
+	case "verification.requested":
+		item["status"] = "queued"
+		item["message"] = "Verification requested."
+		return item, ""
+	case "external.progress":
+		item["status"] = "progress"
+		item["message"] = "External verification is in progress."
+		return item, ""
+	case "external.accepted":
+		item["status"] = "accepted"
+		item["message"] = "The external verifier accepted the response."
+		return item, "The external verifier accepted the response."
+	case "external.rejected":
+		item["status"] = "rejected"
+		item["message"] = "The external verifier rejected the response."
+		return item, "The external verifier rejected the response."
+	default:
+		_ = raw
+		return nil, ""
+	}
 }
 
 func (s *Server) cancelExternal(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -416,18 +448,18 @@ func (s *Server) publishExternalCallback(ctx context.Context, callback verificat
 		return
 	}
 	status := callback.Type
-	message := "External verification updated"
-	if callback.Progress != nil {
-		message = callback.Progress.Message
-	}
-	if callback.Accepted != nil {
-		message = callback.Accepted.Rationale
-	}
-	if callback.Rejected != nil {
-		message = callback.Rejected.Rationale
-	}
-	if len(message) > 300 {
-		message = message[:300]
+	message := "External verification updated."
+	switch callback.Type {
+	case "progress":
+		message = "External verification is in progress."
+	case "accepted":
+		message = "The external verifier accepted the response."
+	case "rejected":
+		message = "The external verifier rejected the response."
+	case "retryable_error":
+		message = "External verification will retry."
+	case "terminal_error":
+		message = "External verification needs review."
 	}
 	s.studentDialogueHub().publish(wireStudentEvent{Type: "external_progress", ProtocolVersion: studentProtocolVersion, TenantID: tenant, StudentID: student, OccurrenceID: occurrence, AttemptID: callback.AttemptRef, Sequence: callback.Sequence, Cursor: callback.Sequence, Phase: callback.Type, Status: status, Message: message, Retryable: callback.Error != nil && callback.Error.Retryable, Time: time.Now().UTC()})
 }

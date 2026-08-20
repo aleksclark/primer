@@ -37,6 +37,7 @@ func seedPhase6External(t *testing.T, pool *pgxpool.Pool) phase6ExternalFixture 
 	exec(`INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,status) VALUES($1,$2,$3,$4,$5,now(),now()+interval '1 hour','awaiting_verification')`, f.occurrence, f.tenant, f.schedule, f.student, f.revision)
 	exec(`INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1)`, f.attempt, f.tenant, f.occurrence, f.requirement)
 	exec(`INSERT INTO external_verifier_catalog(id,name,endpoint_url,active,schema_versions,capabilities,secret_ref,secret_version,egress_policy) VALUES($1,'fixture','http://external-verifier-fixture:8092/v1/verify',true,'["external_callback.v1"]','["response"]','fixture','1','{"testFixture":true}')`, f.verifier)
+	exec(`INSERT INTO external_verifier_secret_versions(verifier_id,secret_ref,secret_version) VALUES($1,'fixture','1')`, f.verifier)
 	return f
 }
 
@@ -47,7 +48,7 @@ func seedPhase6ExternalDelivery(t *testing.T, pool *pgxpool.Pool, f phase6Extern
 		t.Fatal(err)
 	}
 	body, _ := verification.MarshalRequestEnvelope(envelope)
-	if err := repo.NewExternalRepository(pool).Enqueue(context.Background(), repo.ExternalDelivery{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: f.attempt.String(), RequirementID: f.requirement.String(), VerifierID: f.verifier.String(), RequestID: f.requestID, IdempotencyKey: "external-once", SchemaVersion: envelope.SchemaVersion, CallbackPath: envelope.CallbackPath, Envelope: body, PayloadDigest: envelope.PayloadDigest, MaxAttempts: 5, ExpiresAt: envelope.ExpiresAt}); err != nil {
+	if err := repo.NewExternalRepository(pool).Enqueue(context.Background(), repo.ExternalDelivery{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: f.attempt.String(), RequirementID: f.requirement.String(), VerifierID: f.verifier.String(), RequestID: f.requestID, IdempotencyKey: "external-once", SchemaVersion: envelope.SchemaVersion, CallbackPath: envelope.CallbackPath, Envelope: body, PayloadDigest: envelope.PayloadDigest, SecretVersion: "1", MaxAttempts: 5, ExpiresAt: envelope.ExpiresAt}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -119,7 +120,23 @@ func TestPhase6ExternalPostgresLeaseRaceAndStaleFence(t *testing.T) {
 	if status != "running" || owner != claimed.LeaseOwner {
 		t.Fatalf("stale finish mutated status=%q owner=%q", status, owner)
 	}
+	if _, err := pool.Exec(context.Background(), `UPDATE external_verifier_outbox SET lease_until=now()-interval '1 second' WHERE id=$1`, claimed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Renew(context.Background(), claimed.ID, claimed.LeaseOwner, time.Minute); err == nil {
+		t.Fatal("expired lease renewed")
+	}
 	if err := queue.Finish(context.Background(), claimed, claimed.LeaseOwner, "waiting", "", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.RequeueExpired(context.Background(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, ok, err := queue.Claim(context.Background(), "replacement", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("replacement claim ok=%v err=%v", ok, err)
+	}
+	if err := queue.Finish(context.Background(), reclaimed, reclaimed.LeaseOwner, "waiting", "", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 }

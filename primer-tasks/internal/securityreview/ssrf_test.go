@@ -2,6 +2,7 @@ package securityreview
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -99,6 +100,32 @@ func TestPinnedTransportRevalidatesBeforeDial(t *testing.T) {
 	resolver["good.example.test"] = []net.IP{net.ParseIP("192.168.1.2")}
 	if _, err := transport.DialContext(context.Background(), "tcp", "good.example.test:443"); err == nil {
 		t.Fatal("rebinding transport dial succeeded")
+	}
+}
+
+func TestPinnedTransportUsesDefaultResolverWhenNoneIsProvided(t *testing.T) {
+	resolver := fixtureResolver{"good.example.test": {net.ParseIP("203.0.113.10")}}
+	target, err := ValidateVerifierEndpoint(context.Background(), "https://good.example.test/callback", []string{"good.example.test"}, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := PinnedTransport(context.Background(), target, nil).(*http.Transport)
+	if !ok || transport.TLSClientConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("default-resolver transport=%T config=%v", transport, transport.TLSClientConfig)
+	}
+}
+
+func TestPinnedTransportReportsUnreachableApprovedAddresses(t *testing.T) {
+	resolver := fixtureResolver{"good.example.test": {net.ParseIP("203.0.113.10")}}
+	target, err := ValidateVerifierEndpoint(context.Background(), "https://good.example.test/callback", []string{"good.example.test"}, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := PinnedTransport(context.Background(), target, resolver).(*http.Transport)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := transport.DialContext(ctx, "tcp", "good.example.test:443"); err == nil {
+		t.Fatal("canceled unreachable dial succeeded")
 	}
 }
 

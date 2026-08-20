@@ -27,7 +27,7 @@ var (
 	ErrExternalExpired          = errors.New("external callback is expired")
 )
 
-type ExternalBinding struct{ TenantID, AttemptID, OccurrenceID, RequirementID, VerifierID, RequestID, PayloadDigest, CallbackPath, SchemaVersion string }
+type ExternalBinding struct{ TenantID, AttemptID, OccurrenceID, RequirementID, VerifierID, RequestID, PayloadDigest, CallbackPath, SchemaVersion, SecretVersion string }
 
 type ExternalConfig struct {
 	VerifierID string         `json:"verifierId"`

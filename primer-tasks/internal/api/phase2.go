@@ -551,7 +551,7 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		}
 	}
 	if kind == verification.ExternalCallbackKind {
-		if _, e = tx.Exec(r.Context(), `INSERT INTO external_verifier_attempts(tenant_id,attempt_id,verifier_id,capability,schema_version,public_options,manifest_snapshot) SELECT tenant_id,$1,verifier_id,capability,schema_version,public_options,manifest_snapshot FROM external_verifier_attempts WHERE tenant_id=$2 AND attempt_id=$3`, attemptID, sc.Tenant, previousExternalAttempt); e != nil {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO external_verifier_attempts(tenant_id,attempt_id,verifier_id,capability,schema_version,secret_version,public_options,manifest_snapshot) SELECT tenant_id,$1,verifier_id,capability,schema_version,secret_version,public_options,manifest_snapshot FROM external_verifier_attempts WHERE tenant_id=$2 AND attempt_id=$3`, attemptID, sc.Tenant, previousExternalAttempt); e != nil {
 			problem(w, 500, "internal", "external verifier snapshot could not be copied")
 			return
 		}

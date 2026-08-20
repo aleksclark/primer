@@ -1,14 +1,26 @@
-COMMAND (from primer-tasks/web):
-PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p6.primer-tasks.test:5173 PRIMER_TASKS_BROWSER_COMMAND='npx playwright test e2e/external-verifier-progress.spec.ts' npm run browser:test
+EXTERNAL VERIFIER FINAL-TIP EXPLORATION — PASS
+UTC: 2026-08-20T11:23:30Z
 
-OUTPUT:
+1) Fresh isolated Chrome browser acceptance
+COMMAND: Chrome DevTools MCP isolated parent and student contexts; real configured Tasks SPA origin.
+RUNTIME: manual exploration approximately 9 minutes.
+RESULT: PASS
+- Parent selected the seeded administrator-managed fixture verifier, created a fresh external task, published it, and scheduled it for the seeded student.
+- A separate student browser was paired with fresh one-use material (value not retained), started the occurrence, and submitted a benign response (body not retained).
+- Student observed queued safe progress, reloaded while delivery was in flight, then observed completed with durable safe progress.
+- Parent independently opened the occurrence inspector and observed the same fixture source, completed status, and ordered safe progress.
+- Browser-facing traffic was same-origin only; the student never contacted the verifier directly. Submit returned 202 and state/inspect polling returned 200. No URLs, bodies, opaque identifiers, cookies, signatures, headers, secrets, or reasoning are recorded here.
+- Student console had one non-functional CSP inline-style violation/issue from the dev application. Parent inspection also made two unrelated artifact-inspector requests that returned 404 while the external inspector returned 200. Neither blocked submission, progress, reload recovery, or completion; both are recorded rather than hidden.
 
-> primer-tasks-web@0.0.0 browser:test
-> ../scripts/browser-test
+2) Focused real browser regression
+COMMAND: PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 PRIMER_TASKS_BASE_URL=[configured] PRIMER_TASKS_BROWSER_COMMAND='npx playwright test e2e/external-verifier-progress.spec.ts' npm run browser:test
+RUNTIME: 8 seconds wall clock; Playwright reports 1 passed in 7.2 seconds.
+RESULT: PASS — 1 test passed.
 
+3) Separate external-process boundary check
+COMMAND: make tasks-external-e2e
+RUNTIME: 2 seconds wall clock.
+RESULT: PASS
+- The product-local process check passed with the standalone external-verifier fixture; its result confirms one effective request and the expected callback sequence without retaining fixture ledger identifiers or payloads.
 
-Running 1 test using 1 worker
-
-  ✓  1 e2e/external-verifier-progress.spec.ts:65:1 › real external callback persists safe progress and completion for student and parent (6.6s)
-
-  1 passed (7.4s)
+ASSERTION INTEGRITY: No product code, assertions, fixture settings, or acceptance gates were changed by this run.

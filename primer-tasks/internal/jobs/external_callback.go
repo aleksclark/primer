@@ -40,10 +40,21 @@ func (p *CallbackProcessor) Process(ctx context.Context, method, path, keyID, ti
 	if err != nil {
 		return false, verification.ErrExternalBinding
 	}
-	if strings.TrimSpace(keyID) == "" || keyID != catalog.SecretVersion {
+	binding, err := p.Outbox.Binding(ctx, c.RequestID, c.VerifierID, c.AttemptRef)
+	if err != nil {
+		return false, verification.ErrExternalBinding
+	}
+	if strings.TrimSpace(keyID) == "" || keyID != binding.SecretVersion {
 		return false, verification.ErrExternalInvalidSignature
 	}
-	secret, err := p.Secrets.Resolve(ctx, catalog.SecretRef, keyID)
+	secretRef := catalog.SecretRef
+	if keyID != catalog.SecretVersion {
+		secretRef, err = p.Catalog.SecretRefForVersion(ctx, verifierID, keyID)
+		if err != nil {
+			return false, verification.ErrExternalInvalidSignature
+		}
+	}
+	secret, err := p.Secrets.Resolve(ctx, secretRef, keyID)
 	if err != nil {
 		return false, verification.ErrExternalInvalidSignature
 	}
@@ -61,10 +72,6 @@ func (p *CallbackProcessor) Process(ctx context.Context, method, path, keyID, ti
 	}
 	if err = verification.Verify(method, path, stamp, c.CallbackID, signature, body, secret, now, skew); err != nil {
 		return false, err
-	}
-	binding, err := p.Outbox.Binding(ctx, c.RequestID, c.VerifierID, c.AttemptRef)
-	if err != nil {
-		return false, verification.ErrExternalBinding
 	}
 	if binding.CallbackPath != path || c.RequestDigest != binding.PayloadDigest || c.SchemaVersion != binding.SchemaVersion {
 		return false, verification.ErrExternalBinding

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,7 @@ type ExternalOutbox interface {
 }
 type ExternalCatalog interface {
 	Get(context.Context, uuid.UUID) (repo.VerifierCatalog, error)
+	SecretRefForVersion(context.Context, uuid.UUID, string) (string, error)
 }
 
 type ExternalWorker struct {
@@ -51,9 +53,7 @@ type ExternalWorker struct {
 }
 
 func NewExternalWorker(outbox ExternalOutbox, catalog ExternalCatalog, secrets SecretResolver) *ExternalWorker {
-	return &ExternalWorker{Outbox: outbox, Catalog: catalog, Secrets: secrets, Client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-		return errors.New("verifier redirects are not followed")
-	}}, Owner: uuid.NewString(), Lease: 30 * time.Second, Poll: 250 * time.Millisecond, Now: time.Now}
+	return &ExternalWorker{Outbox: outbox, Catalog: catalog, Secrets: secrets, Client: nil, Owner: uuid.NewString(), Lease: 30 * time.Second, Poll: 250 * time.Millisecond, Now: time.Now}
 }
 func (w *ExternalWorker) Run(ctx context.Context) {
 	if w.Poll <= 0 {
@@ -98,7 +98,18 @@ func (w *ExternalWorker) deliver(ctx context.Context, d repo.ExternalDelivery) e
 	if w.Secrets == nil {
 		return w.fail(ctx, d, "verifier_secret_unavailable", false, errors.New("secret resolver is not configured"))
 	}
-	secret, err := w.Secrets.Resolve(ctx, catalog.SecretRef, catalog.SecretVersion)
+	secretVersion := d.SecretVersion
+	if secretVersion == "" {
+		secretVersion = catalog.SecretVersion
+	}
+	secretRef := catalog.SecretRef
+	if secretVersion != catalog.SecretVersion {
+		secretRef, err = w.Catalog.SecretRefForVersion(ctx, uuid.MustParse(d.VerifierID), secretVersion)
+		if err != nil {
+			return w.fail(ctx, d, "verifier_secret_unavailable", false, err)
+		}
+	}
+	secret, err := w.Secrets.Resolve(ctx, secretRef, secretVersion)
 	if err != nil {
 		return w.fail(ctx, d, "verifier_secret_unavailable", false, err)
 	}
@@ -115,7 +126,7 @@ func (w *ExternalWorker) deliver(ctx context.Context, d repo.ExternalDelivery) e
 	stamp := w.Now().UTC()
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Primer-Request-ID", d.RequestID)
-	req.Header.Set("X-Primer-Key-ID", catalog.SecretVersion)
+	req.Header.Set("X-Primer-Key-ID", secretVersion)
 	req.Header.Set("X-Primer-Timestamp", stamp.Format(time.RFC3339Nano))
 	req.Header.Set("X-Primer-Signature", verification.Sign(req.Method, req.URL.EscapedPath(), stamp, d.RequestID, d.Envelope, secret))
 	client := w.Client
@@ -142,7 +153,7 @@ func (w *ExternalWorker) deliver(ctx context.Context, d repo.ExternalDelivery) e
 	}
 	// A request acknowledgement is not a decision. The verifier must call the
 	// scoped callback; delivery remains waiting until that callback arrives.
-	return w.Outbox.Finish(ctx, d, w.Owner, "waiting", "", time.Time{})
+	return w.Outbox.Finish(ctx, d, w.Owner, "waiting", "", w.Now().Add(backoff(d.Attempts)))
 }
 func (w *ExternalWorker) fail(ctx context.Context, d repo.ExternalDelivery, code string, terminal bool, cause error) error {
 	if cause != nil {
@@ -163,5 +174,9 @@ func backoff(attempt int) time.Duration {
 	if attempt > 8 {
 		attempt = 8
 	}
-	return time.Duration(1<<attempt) * time.Second
+	var jitter [2]byte
+	if _, err := crand.Read(jitter[:]); err != nil {
+		return time.Duration(1<<attempt) * time.Second
+	}
+	return time.Duration(1<<attempt)*time.Second + time.Duration((int(jitter[0])<<8|int(jitter[1]))%250)*time.Millisecond
 }

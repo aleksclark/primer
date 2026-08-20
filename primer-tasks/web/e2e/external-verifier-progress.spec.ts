@@ -25,7 +25,7 @@ async function createPublishAndScheduleExternalTask(page: Page, title: string) {
   await expect(externalConfiguration).toContainText(/endpoints, credentials, and signatures stay server-side/i);
   await expect(externalForm).toContainText(/no endpoint or secret is exposed here/i);
 
-  await externalForm.getByLabel("Task title").fill(title);
+  await externalForm.getByLabel("Verifier task name").fill(title);
   await externalForm.getByRole("button", { name: "Create external task" }).click();
   await page.getByLabel("Search tasks").fill(title);
   const row = page.getByRole("row").filter({ hasText: title });
@@ -90,10 +90,10 @@ test("real external callback persists safe progress and completion for student a
     await submitted;
     await expect(progress.getByRole("heading", { name: "queued" })).toBeVisible();
     await expect(progress.getByRole("heading", { name: "completed" })).toBeVisible({ timeout: 30_000 });
-    await expect(progress.getByText("Verification update", { exact: true })).toHaveCount(3);
+    await expect(progress.locator("ol > li")).toHaveCount(4);
     await studentPage.reload();
     await expect(studentPage.getByRole("heading", { name: "completed" })).toBeVisible();
-    await expect(studentPage.getByText("Verification update", { exact: true })).toHaveCount(3);
+    await expect(studentPage.getByRole("region", { name: "External verifier progress" }).locator("ol > li")).toHaveCount(4);
 
     // Browser-facing status is intentionally a safe projection, not a callback envelope.
     await expect(studentPage.locator("body")).not.toContainText(/callbackId|requestDigest|x-external-signature|chain of thought|internal reasoning/i);
@@ -111,7 +111,7 @@ test("real external callback persists safe progress and completion for student a
     await expect(delivery).toContainText("completed");
     const durableUpdates = delivery.locator("ol > li");
     await expect(durableUpdates).toHaveCount(4);
-    await expect(durableUpdates.first()).toHaveText("queued");
+    await expect(durableUpdates.first()).toHaveText("Verification requested.");
     await expect(parentPage.locator("body")).not.toContainText(/callbackId|requestDigest|x-external-signature|chain of thought|internal reasoning/i);
   } finally {
     await Promise.all([parent.close().catch(() => undefined), student.close().catch(() => undefined)]);

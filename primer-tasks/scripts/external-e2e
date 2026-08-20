@@ -19,14 +19,14 @@ occurrence=00000000-0000-0000-0000-0000000006b7
 verifier=00000000-0000-0000-0000-0000000006a1
 cleanup() {
   "${compose[@]}" exec -T postgres psql -U tasks -d primer_tasks -v ON_ERROR_STOP=1 >/dev/null <<SQL || true
-DELETE FROM external_verifier_facts WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM external_verifier_events WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM external_verifier_callbacks WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM external_verifier_outbox WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM external_verifier_attempts WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM verification_submissions WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM verification_decisions WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
-DELETE FROM verification_attempts WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM external_verifier_facts WHERE aggregate_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence') OR aggregate_id='$occurrence';
+DELETE FROM external_verifier_events WHERE request_id IN (SELECT request_id FROM external_verifier_outbox WHERE attempt_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence'));
+DELETE FROM external_verifier_callbacks WHERE attempt_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence');
+DELETE FROM external_verifier_outbox WHERE attempt_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence');
+DELETE FROM external_verifier_attempts WHERE attempt_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence');
+DELETE FROM verification_submissions WHERE attempt_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence');
+DELETE FROM verification_decisions WHERE attempt_id IN (SELECT id FROM verification_attempts WHERE occurrence_id='$occurrence');
+DELETE FROM verification_attempts WHERE occurrence_id='$occurrence';
 DELETE FROM task_occurrences WHERE id='$occurrence';
 DELETE FROM verification_requirements WHERE id='$requirement';
 DELETE FROM task_schedules WHERE id='$schedule';
@@ -38,6 +38,7 @@ DELETE FROM students WHERE id='$student';
 SQL
 }
 trap cleanup EXIT
+cleanup
 "${compose[@]}" exec -T postgres psql -U tasks -d primer_tasks -v ON_ERROR_STOP=1 >/dev/null <<SQL
 INSERT INTO students(id,tenant_id,display_name) VALUES('$student','00000000-0000-0000-0000-0000000000a1','Process E2E Student');
 INSERT INTO task_templates(id,tenant_id,title,status,current_revision) VALUES('$template','00000000-0000-0000-0000-0000000000a1','Process E2E External','published',1);
@@ -56,7 +57,10 @@ for _ in $(seq 1 30); do
   status=$(printf '%s' "$state" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
   if [[ "$status" == completed ]]; then
     parent=$(curl --fail --silent --show-error -H 'Cookie: tasks_parent='"$parent_cookie" "$api/occurrences/$occurrence/external/inspect")
-    printf '%s\n' "$parent" | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("source"); assert x.get("status")=="completed"; print("external process E2E PASS", x["source"], x["status"])'
+    fixture_port=$(${compose[@]} port external-verifier-fixture 8092 | sed -E 's/.*:([0-9]+)$/\1/')
+    ledger=$(curl --fail --silent --show-error "http://127.0.0.1:${fixture_port}/v1/ledger")
+    printf '%s\n' "$parent" | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("source"); assert x.get("status")=="completed"; print("external process Tasks PASS", x["source"], x["status"])'
+    printf '%s\n' "$ledger" | python3 -c 'import json,sys; x=json.load(sys.stdin); idem=sys.argv[1]; requests=x.get("requests",{}); callbacks=x.get("callbacks",{}); matched=[r for r in requests.values() if r.get("request",{}).get("idempotencyKey")==idem]; assert len(matched)==1; request_id=matched[0]["request"]["requestId"]; related=[c for c in callbacks.values() if c.get("request_id")==request_id]; assert sorted(c.get("sequence") for c in related)==[1,2,3]; print("external process fixture PASS", request_id, len(related))' "$idempotency"
     exit 0
   fi
   sleep 1

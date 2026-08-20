@@ -44,12 +44,23 @@ func (f *fakeExternalOutbox) Finish(_ context.Context, _ repo.ExternalDelivery, 
 }
 
 type fakeExternalCatalog struct {
-	value repo.VerifierCatalog
-	err   error
+	value  repo.VerifierCatalog
+	err    error
+	oldRef string
+	oldErr error
 }
 
 func (f fakeExternalCatalog) Get(context.Context, uuid.UUID) (repo.VerifierCatalog, error) {
 	return f.value, f.err
+}
+func (f fakeExternalCatalog) SecretRefForVersion(context.Context, uuid.UUID, string) (string, error) {
+	if f.oldErr != nil {
+		return "", f.oldErr
+	}
+	if f.oldRef != "" {
+		return f.oldRef, nil
+	}
+	return "fixture", nil
 }
 
 type externalRoundTripper func(*http.Request) (*http.Response, error)
@@ -75,6 +86,24 @@ func TestExternalWorkerDeliveryOutcomes(t *testing.T) {
 				t.Fatalf("finished=%v", outbox.finished)
 			}
 		})
+	}
+}
+
+func TestExternalWorkerUsesDeliverySecretVersionBinding(t *testing.T) {
+	base := repo.ExternalDelivery{ID: "bound-delivery", TenantID: uuid.NewString(), AttemptID: uuid.NewString(), RequirementID: uuid.NewString(), VerifierID: uuid.NewString(), RequestID: uuid.NewString(), SecretVersion: "old", Envelope: []byte(`{"version":1,"requestId":"request","attemptRef":"attempt","requirementRef":"requirement","schemaVersion":"external_callback.v1","expiresAt":"2999-01-01T00:00:00Z","idempotencyKey":"once","callbackPath":"/callback","payloadDigest":"2bb80d537b1da3e38bd30361aa855686bde0ba3c80b8a7e3e6e2d1c9b0b3e1b0","payload":{"answer":"opaque"}}`), MaxAttempts: 3, ExpiresAt: time.Now().Add(time.Hour)}
+	catalog := fakeExternalCatalog{value: repo.VerifierCatalog{ID: uuid.MustParse(base.VerifierID), EndpointURL: "http://external-verifier-fixture:8092/v1/verify", Active: true, SecretRef: "current", SecretVersion: "new", EgressPolicy: map[string]any{"testFixture": true}, Timeout: time.Second}, oldRef: "previous"}
+	outbox := &fakeExternalOutbox{delivery: base}
+	worker := &ExternalWorker{Outbox: outbox, Catalog: catalog, Secrets: StaticSecretResolver{"previous:old": []byte("old-secret")}, Client: &http.Client{Transport: externalRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.Header.Get("X-Primer-Key-ID") != "old" {
+			t.Fatalf("key id=%q", req.Header.Get("X-Primer-Key-ID"))
+		}
+		return &http.Response{StatusCode: http.StatusAccepted, Body: io.NopCloser(strings.NewReader("ack"))}, nil
+	})}, Owner: "worker", Lease: time.Minute, Now: time.Now}
+	if err := worker.Step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(outbox.finished) != 1 || outbox.finished[0] != "waiting" {
+		t.Fatalf("finished=%v", outbox.finished)
 	}
 }
 
@@ -112,6 +141,19 @@ func TestExternalWorkerDeliveryFailsClosed(t *testing.T) {
 	}
 }
 
+func TestExternalWorkerFailsWhenBoundSecretVersionIsUnavailable(t *testing.T) {
+	base := repo.ExternalDelivery{ID: "old-secret", TenantID: uuid.NewString(), AttemptID: uuid.NewString(), RequirementID: uuid.NewString(), VerifierID: uuid.NewString(), RequestID: uuid.NewString(), SecretVersion: "old", Envelope: []byte(`{"version":1}`), MaxAttempts: 2, ExpiresAt: time.Now().Add(time.Hour)}
+	catalog := fakeExternalCatalog{value: repo.VerifierCatalog{ID: uuid.MustParse(base.VerifierID), EndpointURL: "http://external-verifier-fixture:8092/v1/verify", Active: true, SecretRef: "current", SecretVersion: "new", EgressPolicy: map[string]any{"testFixture": true}}, oldErr: errors.New("retired secret missing")}
+	outbox := &fakeExternalOutbox{delivery: base}
+	worker := &ExternalWorker{Outbox: outbox, Catalog: catalog, Secrets: StaticSecretResolver{"current:new": []byte("secret")}, Owner: "worker", Lease: time.Minute, Now: time.Now}
+	if err := worker.Step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(outbox.finished) != 1 || outbox.finished[0] != "retryable_error" {
+		t.Fatalf("finished=%v", outbox.finished)
+	}
+}
+
 func TestCallbackHTTPHandlerRejectsMalformedAndMismatchedCallbacks(t *testing.T) {
 	handler := (&CallbackProcessor{}).HTTPHandler()
 	for _, body := range []string{"", "{}"} {
@@ -137,10 +179,10 @@ func TestExternalWorkerConfigurationAndBackoff(t *testing.T) {
 	if err := worker.Step(context.Background()); err == nil {
 		t.Fatal("unconfigured worker succeeded")
 	}
-	if got := backoff(1); got != 2*time.Second {
+	if got := backoff(1); got < 2*time.Second || got >= 3*time.Second {
 		t.Fatalf("backoff(1)=%s", got)
 	}
-	if got := backoff(20); got != 256*time.Second {
+	if got := backoff(20); got < 256*time.Second || got >= 257*time.Second {
 		t.Fatalf("backoff cap=%s", got)
 	}
 	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return nil }}
