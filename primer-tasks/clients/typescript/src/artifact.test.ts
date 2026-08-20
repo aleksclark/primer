@@ -7,10 +7,18 @@ import {
   parseArtifactProgressEvent,
   parseArtifactStudentState,
   previewArtifactRubric,
+  newArtifactIdempotencyKey,
   sha256HexFallback,
   validateArtifactFile,
   validateArtifactRubric,
 } from "./artifact.ts";
+
+test("artifact idempotency key is generated without randomUUID", () => {
+  const first = newArtifactIdempotencyKey();
+  const second = newArtifactIdempotencyKey();
+  assert.match(first, /^artifact-[0-9a-f]{32}$/);
+  assert.notEqual(first, second);
+});
 
 test("SHA-256 fallback remains correct without WebCrypto", () => {
   const bytes = new TextEncoder().encode("abc");

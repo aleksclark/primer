@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createArtifactClient,
+  newArtifactIdempotencyKey,
   sha256Hex,
   tasksClient,
   validateArtifactFile,
@@ -107,7 +108,7 @@ export default function StudentArtifactPage({ occurrence, initialState }: { occu
     try {
       const digest = await sha256Hex(file);
       const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "audio";
-      const reservation = await tasksClient.reserveArtifact(occurrence.id, { kind, mediaType: file.type, sizeBytes: file.size, digest, idempotencyKey: crypto.randomUUID() });
+      const reservation = await tasksClient.reserveArtifact(occurrence.id, { kind, mediaType: file.type, sizeBytes: file.size, digest, idempotencyKey: newArtifactIdempotencyKey() });
       await tasksClient.uploadArtifact(reservation, file, { onProgress: (current, maximum) => { setLoaded(current); setTotal(maximum); } });
       const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, digest, sizeBytes: file.size, mediaType: file.type, filename: file.name });
       setState(next); setUploadState(next.status === "complete" ? "complete" : "queued");

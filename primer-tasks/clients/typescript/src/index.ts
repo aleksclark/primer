@@ -92,6 +92,7 @@ export {
   artifactRubricRequirement,
   defaultArtifactRubricConfig,
   mediaKind,
+  newArtifactIdempotencyKey,
   normalizeArtifactRubricConfig,
   parseArtifactProgressEvent,
   parseArtifactStudentState,

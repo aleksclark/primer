@@ -234,13 +234,17 @@ func (s *Server) dialogueOverride(w http.ResponseWriter, r *http.Request, sc sco
 
 func (s *Server) studentDialogueState(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	occurrenceID := chi.URLParam(r, "id")
-	var tenant, attempt, requirement, policy string
-	if err := s.DB.QueryRow(r.Context(), `SELECT a.tenant_id,a.id::text,a.requirement_id::text,COALESCE(d.policy_version,'dialogue.v1') FROM verification_attempts a JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=a.occurrence_id LEFT JOIN dialogue_attempts d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id WHERE o.id=$1 AND o.student_id=$2 ORDER BY a.number DESC LIMIT 1`, occurrenceID, id).Scan(&tenant, &attempt, &requirement, &policy); err != nil {
+	var tenant, attempt, requirement, policy, kind string
+	if err := s.DB.QueryRow(r.Context(), `SELECT a.tenant_id,a.id::text,a.requirement_id::text,COALESCE(d.policy_version,'dialogue.v1'),r.kind FROM verification_attempts a JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=a.occurrence_id JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id LEFT JOIN dialogue_attempts d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id WHERE o.id=$1 AND o.student_id=$2 ORDER BY a.number DESC LIMIT 1`, occurrenceID, id).Scan(&tenant, &attempt, &requirement, &policy, &kind); err != nil {
 		if err == pgx.ErrNoRows {
 			problem(w, 404, "not_found", "dialogue attempt unavailable")
 		} else {
 			problem(w, 500, "internal", "unable to read dialogue state")
 		}
+		return
+	}
+	if kind != "agent_dialogue" {
+		problem(w, 404, "not_found", "dialogue attempt unavailable")
 		return
 	}
 	scope := verification.DialogueContext{TenantID: tenant, StudentID: id.String(), OccurrenceID: occurrenceID, RequirementID: requirement, AttemptID: attempt, PolicyVersion: policy}

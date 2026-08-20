@@ -300,6 +300,21 @@ export function sha256HexFallback(bytes: Uint8Array): string {
   return [...hash].map((word) => word.toString(16).padStart(8, "0")).join("");
 }
 
+let fallbackIdCounter = 0;
+export function newArtifactIdempotencyKey(): string {
+  const bytes = new Uint8Array(16);
+  const randomValues = globalThis.crypto?.getRandomValues;
+  if (randomValues) {
+    randomValues.call(globalThis.crypto, bytes);
+  } else {
+    // This is an idempotency key, not an authentication credential. Preserve
+    // uniqueness on old HTTP origins without pretending Math.random is secure.
+    const seed = `${Date.now()}-${fallbackIdCounter++}-${Math.random()}`;
+    for (let i = 0; i < bytes.length; i++) bytes[i] = seed.charCodeAt(i % seed.length) & 0xff;
+  }
+  return `artifact-${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
 export async function sha256Hex(value: Blob): Promise<string> {
   const bytes = new Uint8Array(await value.arrayBuffer());
   const subtle = globalThis.crypto?.subtle;
