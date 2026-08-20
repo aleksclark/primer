@@ -5,7 +5,6 @@ import {
   defaultArtifactRubricConfig,
   normalizeArtifactRubricConfig,
   parseArtifactProgressEvent,
-  parseArtifactStudentState,
   previewArtifactRubric,
   newArtifactIdempotencyKey,
   sha256HexFallback,
@@ -52,19 +51,6 @@ test("file validation is media-kind and byte bounded", () => {
   assert.equal(validateArtifactFile({ name: "poem.png", type: "image/png", size: 10 }, config), null);
   assert.match(validateArtifactFile({ name: "poem.mp4", type: "video/mp4", size: 1 }, config) ?? "", /not allowed/i);
   assert.match(validateArtifactFile({ name: "large.png", type: "image/png", size: 11 }, config) ?? "", /larger/i);
-});
-
-test("artifact projection drops unsafe fields and preserves criterion feedback", () => {
-  const state = parseArtifactStudentState({
-    occurrenceId: "occ-1",
-    status: "evaluating",
-    config: { acceptedKinds: ["image"], maxBytes: 1000, criteria: [{ id: "one", label: "One", description: "Show it", required: true }] },
-    submissions: [{ id: "submission-1", artifactId: "artifact-1", kind: "image", mediaType: "image/png", sizeBytes: 4, status: "evaluating", createdAt: "2026-01-01T00:00:00Z" }],
-    evaluation: { status: "rejected", accepted: false, reasoning: "do not expose", criteria: [{ id: "eval-1", criterionId: "one", required: true, status: "rejected", feedback: "Try a clearer picture." }] },
-  });
-  assert.ok(state);
-  assert.equal(state.evaluation?.criteria[0]?.feedback, "Try a clearer picture.");
-  assert.equal((state.evaluation as unknown as Record<string, unknown>).reasoning, undefined);
 });
 
 test("artifact progress accepts safe lifecycle events and rejects unknown kinds", () => {

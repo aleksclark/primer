@@ -5,6 +5,7 @@
  * for limits, authorization, digest validation, and completion decisions.
  */
 
+import type { components } from "../generated/schema";
 import { isRecord, stripUnsafeDialogueFields } from "./dialogue.ts";
 
 export const ARTIFACT_RUBRIC_KIND = "agent_artifact_rubric" as const;
@@ -103,38 +104,21 @@ export type ArtifactSubmission = {
   evaluation?: ArtifactEvaluation;
 };
 
-export type ArtifactStudentState = {
-  occurrenceId: string;
-  requirementId?: string;
-  rubricRevision?: string;
+/** REST artifact projections are generated from the Huma contract. */
+type ArtifactStateWire = components["schemas"]["ArtifactStateResponse"];
+export type ArtifactStudentState = Omit<ArtifactStateWire, "config" | "submissions" | "evaluation"> & {
   config: ArtifactRubricConfig;
-  status: ArtifactEvaluationStatus | "ready";
   submissions: ArtifactSubmission[];
-  activeSubmissionId?: string;
   evaluation?: ArtifactEvaluation;
 };
-
-export type ArtifactUploadReservation = {
-  artifactId: string;
-  idempotencyKey: string;
+export type ArtifactUploadReservation = components["schemas"]["ArtifactReservationOutput"] & {
   occurrenceId: string;
-  uploadUrl: string;
-  expiresAt: string;
   kind: ArtifactKind;
   mediaType: string;
   maxBytes: number;
   expectedDigest?: string;
 };
-
-export type ArtifactFinalizeInput = {
-  artifactId: string;
-  idempotencyKey?: string;
-  durationMs?: number;
-  digest: string;
-  sizeBytes: number;
-  mediaType: string;
-  filename?: string;
-};
+export type ArtifactFinalizeInput = components["schemas"]["ArtifactFinalizeInput"];
 
 export type ArtifactProgressEvent = {
   protocol: 1;
@@ -326,33 +310,6 @@ export async function sha256Hex(value: Blob): Promise<string> {
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
   return sha256HexFallback(bytes);
-}
-
-export function parseArtifactStudentState(input: unknown): ArtifactStudentState | null {
-  const value = stripUnsafeDialogueFields(input);
-  if (!isRecord(value) || typeof value.occurrenceId !== "string") return null;
-  const config = normalizeArtifactRubricConfig(value.config);
-  const submissions = Array.isArray(value.submissions) ? value.submissions.flatMap((item) => parseArtifactSubmission(item) ?? []) : [];
-  const evaluation = parseArtifactEvaluation(value.evaluation);
-  const status = typeof value.status === "string" ? value.status as ArtifactStudentState["status"] : "ready";
-  return { occurrenceId: value.occurrenceId, requirementId: stringValue(value.requirementId), rubricRevision: stringValue(value.rubricRevision), config, status, submissions, activeSubmissionId: stringValue(value.activeSubmissionId), evaluation: evaluation ?? undefined };
-}
-
-function parseArtifactSubmission(input: unknown): ArtifactSubmission | null {
-  if (!isRecord(input) || typeof input.id !== "string" || typeof input.artifactId !== "string" || typeof input.mediaType !== "string" || typeof input.status !== "string") return null;
-  const kind = kindValue(input.kind) ?? mediaKind(input.mediaType);
-  if (!kind || typeof input.sizeBytes !== "number" || typeof input.createdAt !== "string") return null;
-  const evaluation = parseArtifactEvaluation(input.evaluation);
-  return { id: input.id, artifactId: input.artifactId, kind, filename: stringValue(input.filename), mediaType: input.mediaType, sizeBytes: input.sizeBytes, digest: stringValue(input.digest), status: input.status as ArtifactSubmissionStatus, createdAt: input.createdAt, evaluation: evaluation ?? undefined };
-}
-
-function parseArtifactEvaluation(input: unknown): ArtifactEvaluation | null {
-  if (!isRecord(input) || typeof input.status !== "string") return null;
-  const criteria = Array.isArray(input.criteria) ? input.criteria.flatMap((item) => {
-    if (!isRecord(item) || typeof item.id !== "string" || typeof item.criterionId !== "string" || typeof item.status !== "string") return [];
-    return [{ id: item.id, criterionId: item.criterionId, required: item.required !== false, status: item.status as ArtifactCriterionEvaluation["status"], evidence: stringValue(item.evidence), feedback: stringValue(item.feedback) }];
-  }) : [];
-  return { status: input.status as ArtifactEvaluationStatus, accepted: input.accepted === true, nextStep: stringValue(input.nextStep), provider: stringValue(input.provider), model: stringValue(input.model), policyVersion: stringValue(input.policyVersion), artifactDigest: stringValue(input.artifactDigest), rubricRevision: stringValue(input.rubricRevision), criteria };
 }
 
 export function parseArtifactProgressEvent(input: unknown): ArtifactProgressEvent | null {

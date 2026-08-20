@@ -7,23 +7,22 @@ import {
   type InspectTimeline,
   type OverrideInput,
   type StudentDialogueState,
-} from "./dialogue";
+} from "./dialogue.ts";
 import {
   artifactRubricRequirement,
-  parseArtifactStudentState,
   type ArtifactFinalizeInput,
   type ArtifactKind,
   type ArtifactRubricConfig,
   type ArtifactRubricRequirement,
   type ArtifactStudentState,
   type ArtifactUploadReservation,
-} from "./artifact";
+} from "./artifact.ts";
 
 export {
   AGENT_PROTOCOL_VERSION,
   parseAgentEvent,
   safeAgentToolLabel,
-} from "./agent-protocol";
+} from "./agent-protocol.ts";
 export type {
   AgentCancelCommand,
   AgentCommand,
@@ -33,27 +32,27 @@ export type {
   AgentSubscribeCommand,
   AgentToolLabel,
   AgentUnsubscribeCommand,
-} from "./agent-protocol";
-export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client";
-export { STUDENT_DIALOGUE_PROTOCOL_VERSION, parseStudentDialogueEvent } from "./student-dialogue-protocol";
-export type { StudentDialogueCommand, StudentDialogueEvent } from "./student-dialogue-protocol";
-export { createDialogueClient } from "./dialogue-client";
-export { createArtifactClient } from "./artifact-client";
-export type { ArtifactClient, ArtifactClientError, ArtifactClientOptions, ArtifactClientSnapshot, ArtifactConnectionState } from "./artifact-client";
+} from "./agent-protocol.ts";
+export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client.ts";
+export { STUDENT_DIALOGUE_PROTOCOL_VERSION, parseStudentDialogueEvent } from "./student-dialogue-protocol.ts";
+export type { StudentDialogueCommand, StudentDialogueEvent } from "./student-dialogue-protocol.ts";
+export { createDialogueClient } from "./dialogue-client.ts";
+export { createArtifactClient } from "./artifact-client.ts";
+export type { ArtifactClient, ArtifactClientError, ArtifactClientOptions, ArtifactClientSnapshot, ArtifactConnectionState } from "./artifact-client.ts";
 export type {
   AgentClient,
   AgentClientError,
   AgentClientOptions,
   AgentClientSnapshot,
   AgentConnectionState,
-} from "./agent-client";
+} from "./agent-client.ts";
 export type {
   DialogueClient,
   DialogueClientError,
   DialogueClientOptions,
   DialogueClientSnapshot,
   DialogueConnectionState,
-} from "./dialogue-client";
+} from "./dialogue-client.ts";
 export {
   AGENT_DIALOGUE_CONFIG_VERSION,
   AGENT_DIALOGUE_EXECUTOR,
@@ -69,7 +68,7 @@ export {
   studentProgressCopy,
   validateDialogueConfig,
   validateOverrideInput,
-} from "./dialogue";
+} from "./dialogue.ts";
 export type {
   DialogueConfig,
   DialogueConfigIssue,
@@ -81,7 +80,7 @@ export type {
   OverrideRecord,
   StudentDialogueState,
   StudentDialogueStatus,
-} from "./dialogue";
+} from "./dialogue.ts";
 export {
   ARTIFACT_KINDS,
   ARTIFACT_LIMITS,
@@ -95,12 +94,11 @@ export {
   newArtifactIdempotencyKey,
   normalizeArtifactRubricConfig,
   parseArtifactProgressEvent,
-  parseArtifactStudentState,
   previewArtifactRubric,
   sha256Hex,
   validateArtifactFile,
   validateArtifactRubric,
-} from "./artifact";
+} from "./artifact.ts";
 export type {
   ArtifactCriterionEvaluation,
   ArtifactEvaluation,
@@ -118,7 +116,7 @@ export type {
   ArtifactSubmission,
   ArtifactSubmissionStatus,
   ArtifactUploadReservation,
-} from "./artifact";
+} from "./artifact.ts";
 
 export type { components, paths } from "../generated/schema";
 export type Student = components["schemas"]["Student"];
@@ -138,6 +136,13 @@ type ScheduleListQuery = Query<"/schedules", "get">;
 type ScheduleInputBody = JsonBody<"/schedules", "post">;
 type TaskInputBody = JsonBody<"/tasks", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
+type ArtifactReservationBody = JsonBody<"/student/occurrences/{occurrence}/artifacts/reserve", "post">;
+type ArtifactFinalizeBody = JsonBody<"/student/occurrences/{occurrence}/artifacts/finalize", "post">;
+export type ArtifactReservationResponse = components["schemas"]["ArtifactReservationOutput"];
+export type ArtifactStateResponse = components["schemas"]["ArtifactStateResponse"];
+export type ArtifactFinalizeResponse = components["schemas"]["ArtifactOutput"];
+export type ArtifactRetryResponse = components["schemas"]["ArtifactStateResponse"];
+export type ParentArtifactInspectResponse = components["schemas"]["ArtifactStateResponse"];
 export type ArtifactRequirementBody = ArtifactRubricRequirement;
 export type Task = components["schemas"]["TaskRevision"];
 export type TaskPage = components["schemas"]["TaskPage2"];
@@ -386,37 +391,36 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async studentOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.GET("/student/occurrences/{id}", { ...options, params: { path: { id } } }));
     },
-    /** Phase 5 REST projections are intentionally parsed before reaching pages. */
+    /** Phase 5 JSON operations use only generated OpenAPI request/response types. */
     async studentArtifactState(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState | null> {
       try {
-        return await requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts`, { method: "GET", signal: options.signal }, parseArtifactStudentState);
+        return await unwrap(transport.GET("/student/occurrences/{occurrence}/artifacts", { ...options, params: { path: { occurrence: id } } })) as ArtifactStudentState;
       } catch (next) {
         if (next instanceof TasksApiError && next.status === 404) return null;
         throw next;
       }
     },
-    async reserveArtifact(id: string, body: { kind: string; mediaType: string; sizeBytes: number; digest?: string; idempotencyKey: string }, options: RequestOptions = {}): Promise<ArtifactUploadReservation> {
-      const payload = { occurrenceId: id, kind: body.kind, contentType: body.mediaType, size: body.sizeBytes, idempotencyKey: body.idempotencyKey };
-      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/reserve`, { method: "POST", body: JSON.stringify(payload), signal: options.signal }, (value) => {
-        const record = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
-        if (!record || typeof record.artifactId !== "string" || typeof record.uploadUrl !== "string") throw new TasksApiError(502, "The server returned an unusable upload reservation.");
-        return { artifactId: record.artifactId, occurrenceId: id, idempotencyKey: String(record.idempotencyKey ?? body.idempotencyKey), uploadUrl: record.uploadUrl, expiresAt: String(record.expiresAt ?? ""), kind: body.kind as ArtifactKind, mediaType: body.mediaType, maxBytes: body.sizeBytes, expectedDigest: body.digest };
-      });
+    async reserveArtifact(id: string, body: { kind: ArtifactKind; mediaType: string; sizeBytes: number; digest?: string; idempotencyKey: string; filename?: string }, options: RequestOptions = {}): Promise<ArtifactUploadReservation> {
+      const payload: ArtifactReservationBody = { kind: body.kind, contentType: body.mediaType, size: body.sizeBytes, idempotencyKey: body.idempotencyKey, filename: body.filename };
+      const wire: ArtifactReservationResponse = await unwrap(transport.POST("/student/occurrences/{occurrence}/artifacts/reserve", { ...options, params: { path: { occurrence: id } }, body: payload }));
+      return { ...wire, occurrenceId: id, kind: body.kind, mediaType: body.mediaType, maxBytes: body.sizeBytes, expectedDigest: body.digest };
     },
     async uploadArtifact(reservation: ArtifactUploadReservation, file: File, options: ArtifactUploadOptions = {}) {
       return uploadArtifactBinary(reservation, file, options);
     },
     async finalizeArtifact(id: string, body: ArtifactFinalizeInput, options: RequestOptions = {}): Promise<ArtifactStudentState> {
-      await requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/finalize`, { method: "POST", body: JSON.stringify({ ...body, occurrenceId: id, idempotencyKey: body.idempotencyKey }), signal: options.signal }, (value) => value);
+      const payload: ArtifactFinalizeBody = body;
+      const _finalized: ArtifactFinalizeResponse = await unwrap(transport.POST("/student/occurrences/{occurrence}/artifacts/finalize", { ...options, params: { path: { occurrence: id } }, body: payload }));
+      void _finalized;
       const state = await this.studentArtifactState(id, options);
       if (!state) throw new TasksApiError(502, "The server did not return artifact state after finalization.");
       return state;
     },
     async retryArtifactEvaluation(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState> {
-      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/retry`, { method: "POST", signal: options.signal }, (value) => parseArtifactStudentState(value));
+      return await unwrap(transport.POST("/student/occurrences/{occurrence}/artifacts/retry", { ...options, params: { path: { occurrence: id } } })) as ArtifactStudentState;
     },
     async inspectOccurrenceArtifacts(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState> {
-      return requestJSON(`/occurrences/${encodeURIComponent(id)}/artifacts/inspect`, { method: "GET", signal: options.signal }, (value) => parseArtifactStudentState(value));
+      return await unwrap(transport.GET("/occurrences/{occurrence}/artifacts/inspect", { ...options, params: { path: { occurrence: id } } })) as ArtifactStudentState;
     },
     async getArtifactDerivative(occurrenceId: string, artifactId: string, options: RequestOptions = {}): Promise<Blob> {
       return downloadArtifactBinary(`/occurrences/${encodeURIComponent(occurrenceId)}/artifacts/${encodeURIComponent(artifactId)}/derivative`, options);

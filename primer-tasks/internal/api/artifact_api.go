@@ -21,6 +21,130 @@ import (
 	"primer-tasks/internal/artifactstore"
 )
 
+// ArtifactReservationInput is the student reservation request. The occurrence
+// is represented by the path parameter, not duplicated in this JSON body.
+type ArtifactReservationInput struct {
+	RequirementID  string `json:"requirementId,omitempty" format:"uuid"`
+	Kind           string `json:"kind" enum:"image,video,audio"`
+	Filename       string `json:"filename,omitempty"`
+	ContentType    string `json:"contentType" minLength:"1"`
+	Size           int64  `json:"size" minimum:"1"`
+	PartCount      int    `json:"partCount,omitempty" minimum:"1" maximum:"10000"`
+	IdempotencyKey string `json:"idempotencyKey" minLength:"1" maxLength:"128"`
+}
+
+// ArtifactFinalizeInput is the student finalize request. Size, media type,
+// and filename are retained as declared client metadata and are validated by
+// the artifact service; the stored object and digest remain authoritative.
+type ArtifactFinalizeInput struct {
+	ArtifactID     string `json:"artifactId" format:"uuid"`
+	RequirementID  string `json:"requirementId,omitempty" format:"uuid"`
+	SHA256         string `json:"sha256,omitempty"`
+	Digest         string `json:"digest" minLength:"64" maxLength:"64"`
+	DurationMS     int64  `json:"durationMs,omitempty" minimum:"0"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty" maxLength:"128"`
+	SizeBytes      int64  `json:"sizeBytes,omitempty" minimum:"0"`
+	MediaType      string `json:"mediaType,omitempty"`
+	Filename       string `json:"filename,omitempty"`
+}
+
+type ArtifactReservationOutput struct {
+	ReservationID  string    `json:"reservationId" format:"uuid"`
+	IdempotencyKey string    `json:"idempotencyKey"`
+	ArtifactID     string    `json:"artifactId" format:"uuid"`
+	UploadURL      string    `json:"uploadUrl"`
+	PartCount      int       `json:"partCount"`
+	ExpiresAt      time.Time `json:"expiresAt" format:"date-time"`
+}
+
+type ArtifactOutput struct {
+	ID            string `json:"id" format:"uuid"`
+	Kind          string `json:"kind" enum:"image,video,audio"`
+	ContentType   string `json:"contentType"`
+	Size          int64  `json:"size"`
+	SHA256        string `json:"sha256,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+	DurationMS    int64  `json:"durationMs,omitempty"`
+	Status        string `json:"status" enum:"reserved,uploaded,finalized,rejected"`
+	SubmissionID  string `json:"submissionId,omitempty" format:"uuid"`
+	DerivativeURL string `json:"derivativeUrl,omitempty"`
+}
+
+type ArtifactUploadOutput struct {
+	Status    string    `json:"status" enum:"already_uploaded,uploaded"`
+	Part      int       `json:"part,omitempty"`
+	Size      int64     `json:"size"`
+	ExpiresAt time.Time `json:"expiresAt" format:"date-time"`
+}
+
+type ArtifactRubricCriterionOutput struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+}
+
+type ArtifactRubricConfigOutput struct {
+	AcceptedKinds      []string                        `json:"acceptedKinds" nullable:"false"`
+	MaxBytes           int64                           `json:"maxBytes,omitempty"`
+	MaxCount           int                             `json:"maxCount,omitempty"`
+	MaxDurationMS      int64                           `json:"maxDurationMs,omitempty"`
+	MaxDurationSeconds int                             `json:"maxDurationSeconds,omitempty"`
+	MaxPixels          int64                           `json:"maxPixels,omitempty"`
+	Criteria           []ArtifactRubricCriterionOutput `json:"criteria" nullable:"false"`
+	PassRule           string                          `json:"passRule" enum:"all_required"`
+	ReviewPolicy       string                          `json:"reviewPolicy" enum:"reject,parent_review"`
+	FeedbackStyle      string                          `json:"feedbackStyle,omitempty" enum:"age_appropriate,concise"`
+}
+
+type ArtifactCriterionEvaluationOutput struct {
+	ID          string `json:"id" format:"uuid"`
+	CriterionID string `json:"criterionId"`
+	Required    bool   `json:"required"`
+	Status      string `json:"status" enum:"accepted,rejected,unavailable,pending"`
+	Evidence    string `json:"evidence,omitempty"`
+	Feedback    string `json:"feedback,omitempty"`
+}
+
+type ArtifactEvaluationOutput struct {
+	Status         string                              `json:"status" enum:"ready,queued,loading,evaluating,rejected,review,complete,error"`
+	Accepted       bool                                `json:"accepted"`
+	NextStep       string                              `json:"nextStep,omitempty"`
+	Provider       string                              `json:"provider,omitempty"`
+	Model          string                              `json:"model,omitempty"`
+	PolicyVersion  string                              `json:"policyVersion,omitempty"`
+	ArtifactDigest string                              `json:"artifactDigest,omitempty"`
+	RubricRevision string                              `json:"rubricRevision,omitempty"`
+	Criteria       []ArtifactCriterionEvaluationOutput `json:"criteria" nullable:"false"`
+}
+
+type ArtifactSubmissionOutput struct {
+	ID         string                    `json:"id" format:"uuid"`
+	ArtifactID string                    `json:"artifactId" format:"uuid"`
+	Kind       string                    `json:"kind" enum:"image,video,audio"`
+	MediaType  string                    `json:"mediaType"`
+	SizeBytes  int64                     `json:"sizeBytes"`
+	Digest     string                    `json:"digest,omitempty"`
+	Status     string                    `json:"status" enum:"reserved,uploading,validating,evaluating,rejected,review,complete"`
+	CreatedAt  time.Time                 `json:"createdAt" format:"date-time"`
+	Evaluation *ArtifactEvaluationOutput `json:"evaluation,omitempty"`
+}
+
+type ArtifactStateResponse struct {
+	OccurrenceID       string                     `json:"occurrenceId" format:"uuid"`
+	RequirementID      string                     `json:"requirementId" format:"uuid"`
+	RubricRevision     string                     `json:"rubricRevision" format:"uuid"`
+	Config             ArtifactRubricConfigOutput `json:"config"`
+	Status             string                     `json:"status" enum:"ready,queued,loading,evaluating,rejected,review,complete,error"`
+	Submissions        []ArtifactSubmissionOutput `json:"submissions" nullable:"false"`
+	ActiveSubmissionID string                     `json:"activeSubmissionId,omitempty" format:"uuid"`
+	Evaluation         *ArtifactEvaluationOutput  `json:"evaluation,omitempty"`
+}
+
+// The old HTTP façades retain an occurrence in their internal payload because
+// they predate the path-parameter Huma boundary. They are never used to derive
+// the public OpenAPI schema.
 type artifactReservationInput struct {
 	OccurrenceID   string `json:"occurrenceId"`
 	RequirementID  string `json:"requirementId"`
@@ -39,41 +163,21 @@ type artifactFinalizeInput struct {
 	Digest         string `json:"digest"`
 	DurationMS     int64  `json:"durationMs"`
 	IdempotencyKey string `json:"idempotencyKey"`
+	SizeBytes      int64  `json:"sizeBytes"`
+	MediaType      string `json:"mediaType"`
+	Filename       string `json:"filename"`
 }
-type artifactReservationOutput struct {
-	ReservationID  string    `json:"reservationId"`
-	IdempotencyKey string    `json:"idempotencyKey"`
-	ArtifactID     string    `json:"artifactId"`
-	UploadURL      string    `json:"uploadUrl"`
-	PartCount      int       `json:"partCount"`
-	ExpiresAt      time.Time `json:"expiresAt"`
-}
-type artifactOutput struct {
-	ID            string `json:"id"`
-	Kind          string `json:"kind"`
-	ContentType   string `json:"contentType"`
-	Size          int64  `json:"size"`
-	SHA256        string `json:"sha256,omitempty"`
-	Width         int    `json:"width,omitempty"`
-	Height        int    `json:"height,omitempty"`
-	DurationMS    int64  `json:"durationMs,omitempty"`
-	Status        string `json:"status"`
-	SubmissionID  string `json:"submissionId,omitempty"`
-	DerivativeURL string `json:"derivativeUrl,omitempty"`
-}
+type artifactReservationOutput = ArtifactReservationOutput
+type artifactOutput = ArtifactOutput
 
 func (s *Server) registerArtifactRoutes(r *chi.Mux) {
-	// The occurrence-prefixed aliases are the browser contract. The shorter
-	// artifact routes remain for direct bounded-streaming and multipart clients.
-	r.Post("/student/occurrences/{occurrence}/artifacts/reserve", s.requireStudent(s.reserveArtifact))
-	r.Get("/student/occurrences/{occurrence}/artifacts", s.requireStudent(s.studentArtifactState))
+	// JSON reserve/state/finalize/retry/inspect routes are Huma operations.
+	// Only bounded binary PUT/GET façades remain here; their object keys and
+	// storage-provider URLs never enter the browser contract.
 	r.Put("/student/artifacts/{id}/upload", s.requireStudent(s.uploadArtifact))
 	r.Put("/student/artifacts/{id}/parts/{part}", s.requireStudent(s.uploadArtifactPart))
-	r.Post("/student/occurrences/{occurrence}/artifacts/finalize", s.requireStudent(s.finalizeArtifact))
-	r.Post("/student/occurrences/{occurrence}/artifacts/retry", s.requireStudent(s.retryArtifactEvaluation))
 	r.Get("/student/artifacts/{id}/derivative/{kind}", s.requireStudent(s.studentDerivative))
 	r.Get("/parent/artifacts/{id}/original", s.requireParent(s.parentOriginal))
-	r.Get("/occurrences/{occurrence}/artifacts/inspect", s.requireParent(s.parentArtifactState))
 	r.Get("/occurrences/{occurrence}/artifacts/{id}/derivative", s.requireParent(s.parentDerivative))
 }
 func (s *Server) artifactTenant(ctx context.Context, student uuid.UUID) (uuid.UUID, error) {
@@ -88,29 +192,113 @@ func parseArtifactKind(v string) (artifact.Kind, error) {
 	}
 	return k, nil
 }
+
+type artifactLimitsConfig struct {
+	MaxBytes           int64 `json:"maxBytes"`
+	MaxDurationMS      int64 `json:"maxDurationMs"`
+	MaxDurationSeconds int64 `json:"maxDurationSeconds"`
+	MaxPixels          int64 `json:"maxPixels"`
+	MaxCount           int   `json:"maxCount"`
+}
+
 func mediaLimits(kind artifact.Kind, raw []byte) artifact.Limits {
-	l := artifact.DefaultLimits(kind)
-	var c map[string]any
-	_ = json.Unmarshal(raw, &c)
-	for key, dst := range map[string]*int64{"maxBytes": &l.MaxBytes, "maxDurationMs": &l.MaxDurationMS, "maxPixels": &l.MaxPixels} {
-		if n, ok := c[key].(float64); ok && n > 0 {
-			*dst = int64(n)
-		}
+	limits := artifact.DefaultLimits(kind)
+	var config artifactLimitsConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return limits
 	}
-	if l.MaxDurationMS == artifact.DefaultLimits(kind).MaxDurationMS {
-		if n, ok := c["maxDurationSeconds"].(float64); ok && n > 0 {
-			l.MaxDurationMS = int64(n * 1000)
-		}
+	if config.MaxBytes > 0 {
+		limits.MaxBytes = config.MaxBytes
 	}
-	if n, ok := c["maxCount"].(float64); ok && n > 0 {
-		l.MaxCount = int(n)
+	if config.MaxDurationMS > 0 {
+		limits.MaxDurationMS = config.MaxDurationMS
+	} else if config.MaxDurationSeconds > 0 {
+		limits.MaxDurationMS = config.MaxDurationSeconds * 1000
 	}
-	if a, ok := c["acceptedKinds"].([]any); ok && len(a) > 0 { /* acceptedKinds is checked by caller; limits remain kind-specific */
+	if config.MaxPixels > 0 {
+		limits.MaxPixels = config.MaxPixels
 	}
-	return l
+	if config.MaxCount > 0 {
+		limits.MaxCount = config.MaxCount
+	}
+	return limits
 }
 func uploadKey(tenant, id uuid.UUID) string {
 	return fmt.Sprintf("tenants/%s/artifacts/%s/original", tenant, id)
+}
+
+func (s *Server) reserveArtifactData(ctx context.Context, student uuid.UUID, occurrence string, in ArtifactReservationInput) (ArtifactReservationOutput, error) {
+	if s.DB == nil || s.Artifacts == nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusServiceUnavailable, "artifact storage is not configured")
+	}
+	tenant, err := s.artifactTenant(ctx, student)
+	if err != nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusUnauthorized, "student session required")
+	}
+	kind, err := parseArtifactKind(in.Kind)
+	if err != nil || in.Size <= 0 || len(in.Filename) > 255 {
+		return ArtifactReservationOutput{}, newProblem(http.StatusBadRequest, "artifact metadata is invalid")
+	}
+	if in.PartCount < 1 {
+		in.PartCount = 1
+	}
+	if in.PartCount > 10000 {
+		return ArtifactReservationOutput{}, newProblem(http.StatusBadRequest, "part count is too large")
+	}
+	if in.RequirementID == "" {
+		_ = s.DB.QueryRow(ctx, `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.tenant_id=vr.tenant_id AND o.revision_id=vr.revision_id WHERE o.id=$1 AND o.student_id=$2 AND vr.executor='fantasy' AND vr.kind='agent_artifact_rubric' ORDER BY vr.ordinal LIMIT 1`, occurrence, student).Scan(&in.RequirementID)
+	}
+	if strings.TrimSpace(in.IdempotencyKey) == "" || len(in.IdempotencyKey) > 128 {
+		return ArtifactReservationOutput{}, newProblem(http.StatusBadRequest, "idempotency key is required")
+	}
+	var config []byte
+	var accepted string
+	err = s.DB.QueryRow(ctx, `SELECT vr.config,COALESCE(vr.config->>'acceptedKinds','') FROM verification_requirements vr JOIN task_occurrences o ON o.tenant_id=vr.tenant_id AND o.revision_id=vr.revision_id WHERE vr.tenant_id=$1 AND vr.id=$2 AND o.id=$3 AND o.student_id=$4 AND o.status NOT IN ('completed','canceled')`, tenant, in.RequirementID, occurrence, student).Scan(&config, &accepted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ArtifactReservationOutput{}, newProblem(http.StatusNotFound, "artifact requirement not found")
+	}
+	if err != nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusInternalServerError, "unable to load artifact requirement")
+	}
+	if accepted != "" && !strings.Contains(strings.ToLower(accepted), string(kind)) {
+		return ArtifactReservationOutput{}, newProblem(http.StatusBadRequest, "artifact kind is not allowed by requirement")
+	}
+	limits := mediaLimits(kind, config)
+	var prior int
+	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM artifact_upload_reservations u JOIN artifacts a ON a.tenant_id=u.tenant_id AND a.id=u.artifact_id WHERE u.tenant_id=$1 AND u.student_id=$2 AND u.occurrence_id=$3 AND u.requirement_id=$4 AND u.status IN ('reserved','finalized') AND a.status IN ('reserved','uploaded','finalized') AND u.expires_at>now() AND NOT EXISTS (SELECT 1 FROM artifact_submissions sub WHERE sub.tenant_id=u.tenant_id AND sub.artifact_id=u.artifact_id AND sub.status IN ('rejected','review'))`, tenant, student, occurrence, in.RequirementID).Scan(&prior); err != nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusInternalServerError, "unable to count artifact submissions")
+	}
+	if limits.MaxCount > 0 && prior >= limits.MaxCount {
+		return ArtifactReservationOutput{}, newProblem(http.StatusConflict, "artifact count limit has been reached")
+	}
+	if in.Size > limits.MaxBytes {
+		return ArtifactReservationOutput{}, newProblem(http.StatusBadRequest, "artifact exceeds requirement size limit")
+	}
+	var existing ArtifactReservationOutput
+	err = s.DB.QueryRow(ctx, `SELECT r.id,r.artifact_id,r.part_count,r.expires_at FROM artifact_upload_reservations r WHERE r.tenant_id=$1 AND r.student_id=$2 AND r.idempotency_key=$3 AND r.status IN ('reserved','finalized') AND r.expires_at>now()`, tenant, student, in.IdempotencyKey).Scan(&existing.ReservationID, &existing.ArtifactID, &existing.PartCount, &existing.ExpiresAt)
+	if err == nil {
+		existing.UploadURL = "/api/student/artifacts/" + existing.ArtifactID + "/upload"
+		existing.IdempotencyKey = in.IdempotencyKey
+		return existing, nil
+	}
+	rid, aid := uuid.New(), uuid.New()
+	expires := time.Now().UTC().Add(20 * time.Minute)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusInternalServerError, "unable to reserve artifact")
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO artifacts(id,tenant_id,student_id,object_key,kind,original_name,declared_content_type,byte_size,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, aid, tenant, student, uploadKey(tenant, aid), kind, in.Filename, in.ContentType, in.Size, expires)
+	if err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO artifact_upload_reservations(id,tenant_id,student_id,artifact_id,occurrence_id,requirement_id,idempotency_key,part_count,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, rid, tenant, student, aid, occurrence, in.RequirementID, in.IdempotencyKey, in.PartCount, expires)
+	}
+	if err != nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusConflict, "upload reservation already exists or is invalid")
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return ArtifactReservationOutput{}, newProblem(http.StatusInternalServerError, "unable to commit reservation")
+	}
+	return ArtifactReservationOutput{ReservationID: rid.String(), ArtifactID: aid.String(), IdempotencyKey: in.IdempotencyKey, UploadURL: "/api/student/artifacts/" + aid.String() + "/upload", PartCount: in.PartCount, ExpiresAt: expires}, nil
 }
 
 func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student uuid.UUID) {
@@ -239,7 +427,7 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 		return
 	}
 	if status == "finalized" {
-		jsonOK(w, map[string]string{"status": "already_uploaded"})
+		jsonOK(w, ArtifactUploadOutput{Status: "already_uploaded", Size: size, ExpiresAt: expires})
 		return
 	}
 	if partCount != 1 {
@@ -277,157 +465,120 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 		problem(w, 500, "internal", "unable to record upload")
 		return
 	}
-	jsonOK(w, map[string]any{"status": "uploaded", "size": obj.Size, "expiresAt": expires})
+	jsonOK(w, ArtifactUploadOutput{Status: "uploaded", Size: obj.Size, ExpiresAt: expires})
 }
 
-func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, student uuid.UUID) {
-	var in artifactFinalizeInput
-	if !decode(w, r, &in) {
-		return
-	}
-	tenant, err := s.artifactTenant(r.Context(), student)
+func (s *Server) finalizeArtifactData(ctx context.Context, student uuid.UUID, occurrence string, in ArtifactFinalizeInput) (ArtifactOutput, error) {
+	tenant, err := s.artifactTenant(ctx, student)
 	if err != nil {
-		problem(w, 401, "revoked", "student session required")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusUnauthorized, "student session required")
 	}
-	artifactID := chi.URLParam(r, "id")
-	if artifactID == "" {
-		artifactID = in.ArtifactID
-	}
+	artifactID := in.ArtifactID
 	aid, e := uuid.Parse(artifactID)
 	if e != nil {
-		problem(w, 404, "not_found", "artifact not found")
-		return
-	}
-	if in.OccurrenceID == "" {
-		in.OccurrenceID = chi.URLParam(r, "occurrence")
-	}
-	if _, e = uuid.Parse(in.OccurrenceID); e != nil {
-		problem(w, 400, "invalid_request", "occurrenceId is required")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusNotFound, "artifact not found")
 	}
 	if in.RequirementID == "" {
-		_ = s.DB.QueryRow(r.Context(), `SELECT requirement_id FROM artifact_upload_reservations WHERE tenant_id=$1 AND artifact_id=$2`, tenant, aid).Scan(&in.RequirementID)
+		_ = s.DB.QueryRow(ctx, `SELECT requirement_id FROM artifact_upload_reservations WHERE tenant_id=$1 AND artifact_id=$2`, tenant, aid).Scan(&in.RequirementID)
 	}
 	if _, e = uuid.Parse(in.RequirementID); e != nil {
-		problem(w, 400, "invalid_request", "requirementId is required")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "requirementId is required")
 	}
 	if in.SHA256 == "" {
 		in.SHA256 = in.Digest
 	}
 	if strings.TrimSpace(in.SHA256) == "" {
-		problem(w, 400, "invalid_request", "sha256 digest is required")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "sha256 digest is required")
 	}
 	var key, kind, declared, status string
 	var expected int64
 	var partCount int
 	var config []byte
-	e = s.DB.QueryRow(r.Context(), `SELECT a.object_key,a.kind,a.declared_content_type,a.byte_size,a.status,u.part_count,vr.config FROM artifacts a JOIN artifact_upload_reservations u ON u.tenant_id=a.tenant_id AND u.artifact_id=a.id JOIN verification_requirements vr ON vr.tenant_id=u.tenant_id AND vr.id=u.requirement_id JOIN task_occurrences o ON o.tenant_id=u.tenant_id AND o.id=u.occurrence_id AND o.student_id=$2 WHERE a.tenant_id=$1 AND a.student_id=$2 AND a.id=$3 AND u.occurrence_id=$4 AND u.requirement_id=$5 AND u.status IN ('reserved','finalized') AND (u.status='finalized' OR u.expires_at>now())`, tenant, student, aid, in.OccurrenceID, in.RequirementID).Scan(&key, &kind, &declared, &expected, &status, &partCount, &config)
+	e = s.DB.QueryRow(ctx, `SELECT a.object_key,a.kind,a.declared_content_type,a.byte_size,a.status,u.part_count,vr.config FROM artifacts a JOIN artifact_upload_reservations u ON u.tenant_id=a.tenant_id AND u.artifact_id=a.id JOIN verification_requirements vr ON vr.tenant_id=u.tenant_id AND vr.id=u.requirement_id JOIN task_occurrences o ON o.tenant_id=u.tenant_id AND o.id=u.occurrence_id AND o.student_id=$2 WHERE a.tenant_id=$1 AND a.student_id=$2 AND a.id=$3 AND u.occurrence_id=$4 AND u.requirement_id=$5 AND u.status IN ('reserved','finalized') AND (u.status='finalized' OR u.expires_at>now())`, tenant, student, aid, occurrence, in.RequirementID).Scan(&key, &kind, &declared, &expected, &status, &partCount, &config)
 	if errors.Is(e, pgx.ErrNoRows) {
-		problem(w, 404, "not_found", "artifact reservation not found")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusNotFound, "artifact reservation not found")
 	}
 	if e != nil {
-		problem(w, 500, "internal", "unable to load artifact")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to load artifact")
 	}
 	if status == "finalized" {
 		var sub string
-		_ = s.DB.QueryRow(r.Context(), `SELECT id FROM artifact_submissions WHERE tenant_id=$1 AND artifact_id=$2 ORDER BY created_at DESC LIMIT 1`, tenant, aid).Scan(&sub)
-		jsonStatus(w, artifactOutput{ID: aid.String(), Kind: kind, Status: status, SubmissionID: sub}, http.StatusOK)
-		return
+		_ = s.DB.QueryRow(ctx, `SELECT id FROM artifact_submissions WHERE tenant_id=$1 AND artifact_id=$2 ORDER BY created_at DESC LIMIT 1`, tenant, aid).Scan(&sub)
+		return ArtifactOutput{ID: aid.String(), Kind: kind, Status: status, SubmissionID: sub}, nil
 	}
 	// Direct presigned PUTs do not pass through the API. Finalize therefore
 	// reconciles the scoped object-store key itself; the client cannot claim
 	// that an upload exists by changing metadata.
 	if status != "uploaded" && status != "reserved" {
-		problem(w, 409, "conflict", "artifact is not available for finalize")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusConflict, "artifact is not available for finalize")
 	}
 	var occurrenceStatus string
-	if e = s.DB.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2`, tenant, in.OccurrenceID).Scan(&occurrenceStatus); e != nil || occurrenceStatus == "completed" || occurrenceStatus == "canceled" {
-		problem(w, 409, "conflict", "occurrence is no longer accepting evidence")
-		return
+	if e = s.DB.QueryRow(ctx, `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2`, tenant, occurrence).Scan(&occurrenceStatus); e != nil || occurrenceStatus == "completed" || occurrenceStatus == "canceled" {
+		return ArtifactOutput{}, newProblem(http.StatusConflict, "occurrence is no longer accepting evidence")
 	}
 	if partCount > 1 {
-		rows, re := s.DB.Query(r.Context(), `SELECT object_key FROM artifact_upload_parts p JOIN artifact_upload_reservations u ON u.tenant_id=p.tenant_id AND u.id=p.reservation_id WHERE p.tenant_id=$1 AND u.artifact_id=$2 ORDER BY p.part_number`, tenant, aid)
+		rows, re := s.DB.Query(ctx, `SELECT object_key FROM artifact_upload_parts p JOIN artifact_upload_reservations u ON u.tenant_id=p.tenant_id AND u.id=p.reservation_id WHERE p.tenant_id=$1 AND u.artifact_id=$2 ORDER BY p.part_number`, tenant, aid)
 		if re != nil {
-			problem(w, 500, "internal", "unable to load upload parts")
-			return
+			return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to load upload parts")
 		}
 		var parts []string
 		for rows.Next() {
 			var p string
 			if re = rows.Scan(&p); re != nil {
 				rows.Close()
-				problem(w, 500, "internal", "unable to load upload parts")
-				return
+				return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to load upload parts")
 			}
 			parts = append(parts, p)
 		}
 		rows.Close()
 		if len(parts) != partCount {
-			problem(w, 409, "conflict", "not all upload parts are present")
-			return
+			return ArtifactOutput{}, newProblem(http.StatusConflict, "not all upload parts are present")
 		}
 		composer, ok := s.Artifacts.(artifactstore.Composer)
 		if !ok {
-			problem(w, 503, "unavailable", "multipart composition is not configured")
-			return
+			return ArtifactOutput{}, newProblem(http.StatusServiceUnavailable, "multipart composition is not configured")
 		}
-		if _, re = composer.Compose(r.Context(), key, declared, parts, expected); re != nil {
-			problem(w, 400, "invalid_request", "upload parts could not be composed")
-			return
+		if _, re = composer.Compose(ctx, key, declared, parts, expected); re != nil {
+			return ArtifactOutput{}, newProblem(http.StatusBadRequest, "upload parts could not be composed")
 		}
 	}
-	f, obj, e := s.Artifacts.Open(r.Context(), key)
+	f, obj, e := s.Artifacts.Open(ctx, key)
 	if e != nil {
-		problem(w, 400, "invalid_request", "stored object is missing")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "stored object is missing")
 	}
 	defer f.Close()
-	k, parseErr := parseArtifactKind(kind)
-	if parseErr != nil {
-		problem(w, 400, "invalid_request", "artifact kind is invalid")
-		return
+	k, _ := parseArtifactKind(kind)
+	if k != artifact.Image && in.DurationMS <= 0 {
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "duration is required for audio and video")
 	}
-	// DurationMS and declared content type are browser hints only. The
-	// authoritative A/V values come from the bounded ffprobe/decoder boundary.
-	result, e := artifact.ValidateContext(r.Context(), f, artifact.Input{Kind: k, DeclaredType: declared, ExpectedSize: expected, ExpectedSHA256: in.SHA256, DurationMS: in.DurationMS}, mediaLimits(k, config))
+	result, e := artifact.Validate(f, artifact.Input{Kind: k, DeclaredType: declared, ExpectedSize: expected, ExpectedSHA256: in.SHA256, DurationMS: in.DurationMS}, mediaLimits(k, config))
 	if e != nil {
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
-		problem(w, 400, "invalid_request", e.Error())
-		return
+		_, _ = s.DB.Exec(ctx, `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
+		_, _ = s.DB.Exec(ctx, `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, e.Error())
 	}
 	if k != artifact.Image && !result.DurationAuthoritative {
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
-		problem(w, 400, "invalid_request", "encoded media duration could not be verified")
-		return
+		_, _ = s.DB.Exec(ctx, `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
+		_, _ = s.DB.Exec(ctx, `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "encoded media duration could not be verified")
 	}
 	if obj.Size != expected {
-		problem(w, 400, "invalid_request", "stored object size does not match reservation")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "stored object size does not match reservation")
 	}
-	tx, e := s.DB.Begin(r.Context())
+	tx, e := s.DB.Begin(ctx)
 	if e != nil {
-		problem(w, 500, "internal", "unable to finalize artifact")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to finalize artifact")
 	}
-	defer tx.Rollback(r.Context())
+	defer tx.Rollback(ctx)
 	var attempt uuid.UUID
 	var attemptStatus string
 	var hasDecision bool
-	e = tx.QueryRow(r.Context(), `SELECT va.id,va.status,EXISTS(SELECT 1 FROM verification_decisions d WHERE d.tenant_id=va.tenant_id AND d.attempt_id=va.id) FROM verification_attempts va WHERE va.tenant_id=$1 AND va.occurrence_id=$2 AND va.requirement_id=$3 ORDER BY va.number DESC LIMIT 1`, tenant, in.OccurrenceID, in.RequirementID).Scan(&attempt, &attemptStatus, &hasDecision)
+	e = tx.QueryRow(ctx, `SELECT va.id,va.status,EXISTS(SELECT 1 FROM verification_decisions d WHERE d.tenant_id=va.tenant_id AND d.attempt_id=va.id) FROM verification_attempts va WHERE va.tenant_id=$1 AND va.occurrence_id=$2 AND va.requirement_id=$3 ORDER BY va.number DESC LIMIT 1`, tenant, occurrence, in.RequirementID).Scan(&attempt, &attemptStatus, &hasDecision)
 	if errors.Is(e, pgx.ErrNoRows) || attemptStatus != "open" || hasDecision {
-		e = tx.QueryRow(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) SELECT $1,$2,$3,$4,COALESCE(MAX(number),0)+1 FROM verification_attempts WHERE tenant_id=$2 AND occurrence_id=$3 AND requirement_id=$4 RETURNING id`, uuid.New(), tenant, in.OccurrenceID, in.RequirementID).Scan(&attempt)
+		e = tx.QueryRow(ctx, `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) SELECT $1,$2,$3,$4,COALESCE(MAX(number),0)+1 FROM verification_attempts WHERE tenant_id=$2 AND occurrence_id=$3 AND requirement_id=$4 RETURNING id`, uuid.New(), tenant, occurrence, in.RequirementID).Scan(&attempt)
 	}
 	if e != nil {
-		problem(w, 409, "conflict", "verification attempt is unavailable")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusConflict, "verification attempt is unavailable")
 	}
 	sub := uuid.New()
 	idem := in.IdempotencyKey
@@ -435,43 +586,38 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		idem = result.SHA256
 	}
 	var existing string
-	e = tx.QueryRow(r.Context(), `INSERT INTO artifact_submissions(id,tenant_id,student_id,occurrence_id,requirement_id,attempt_id,artifact_id,idempotency_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted') ON CONFLICT(tenant_id,student_id,occurrence_id,idempotency_key) DO UPDATE SET id=artifact_submissions.id RETURNING id`, sub, tenant, student, in.OccurrenceID, in.RequirementID, attempt, aid, idem).Scan(&existing)
+	e = tx.QueryRow(ctx, `INSERT INTO artifact_submissions(id,tenant_id,student_id,occurrence_id,requirement_id,attempt_id,artifact_id,idempotency_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted') ON CONFLICT(tenant_id,student_id,occurrence_id,idempotency_key) DO UPDATE SET id=artifact_submissions.id RETURNING id`, sub, tenant, student, occurrence, in.RequirementID, attempt, aid, idem).Scan(&existing)
 	if e != nil {
-		problem(w, 409, "conflict", "submission idempotency key is already used")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusConflict, "submission idempotency key is already used")
 	}
 	sub = uuid.MustParse(existing)
-	_, e = tx.Exec(r.Context(), `UPDATE artifacts SET status='finalized',detected_content_type=$1,sha256=$2,width=$3,height=$4,duration_ms=$5,finalized_at=now() WHERE tenant_id=$6 AND id=$7`, result.ContentType, result.SHA256, result.Width, result.Height, result.DurationMS, tenant, aid)
+	_, e = tx.Exec(ctx, `UPDATE artifacts SET status='finalized',detected_content_type=$1,sha256=$2,width=$3,height=$4,duration_ms=$5,finalized_at=now() WHERE tenant_id=$6 AND id=$7`, result.ContentType, result.SHA256, result.Width, result.Height, result.DurationMS, tenant, aid)
 	if e != nil {
-		problem(w, 500, "internal", "unable to finalize artifact")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to finalize artifact")
 	}
-	_, e = tx.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='finalized' WHERE tenant_id=$1 AND artifact_id=$2`, tenant, aid)
+	_, e = tx.Exec(ctx, `UPDATE artifact_upload_reservations SET status='finalized' WHERE tenant_id=$1 AND artifact_id=$2`, tenant, aid)
 	if e != nil {
-		problem(w, 500, "internal", "unable to close reservation")
-		return
+		return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to close reservation")
 	}
-	_, _ = tx.Exec(r.Context(), `INSERT INTO artifact_scans(tenant_id,artifact_id,scanner,status,detail) VALUES($1,$2,'none','not_configured','no malware scanner configured') ON CONFLICT(tenant_id,artifact_id) DO NOTHING`, tenant, aid)
-	_, _ = tx.Exec(r.Context(), `INSERT INTO artifact_retention(tenant_id,artifact_id,retain_original_until,retain_derivatives_until) VALUES($1,$2,now()+interval '30 days',now()+interval '180 days') ON CONFLICT DO NOTHING`, tenant, aid)
+	_, _ = tx.Exec(ctx, `INSERT INTO artifact_scans(tenant_id,artifact_id,scanner,status,detail) VALUES($1,$2,'none','not_configured','no malware scanner configured') ON CONFLICT(tenant_id,artifact_id) DO NOTHING`, tenant, aid)
+	_, _ = tx.Exec(ctx, `INSERT INTO artifact_retention(tenant_id,artifact_id,retain_original_until,retain_derivatives_until) VALUES($1,$2,now()+interval '30 days',now()+interval '180 days') ON CONFLICT DO NOTHING`, tenant, aid)
 	var requirementKind string
-	_ = tx.QueryRow(r.Context(), `SELECT kind FROM verification_requirements WHERE tenant_id=$1 AND id=$2`, tenant, in.RequirementID).Scan(&requirementKind)
+	_ = tx.QueryRow(ctx, `SELECT kind FROM verification_requirements WHERE tenant_id=$1 AND id=$2`, tenant, in.RequirementID).Scan(&requirementKind)
 	if requirementKind == "agent_artifact_rubric" {
-		_, e = tx.Exec(r.Context(), `INSERT INTO artifact_rubric_jobs(id,tenant_id,submission_id,rubric_snapshot,available_at) VALUES($1,$2,$3,$4,now()+interval '1 second') ON CONFLICT(tenant_id,submission_id) DO NOTHING`, uuid.New(), tenant, sub, config)
+		_, e = tx.Exec(ctx, `INSERT INTO artifact_rubric_jobs(id,tenant_id,submission_id,rubric_snapshot,available_at) VALUES($1,$2,$3,$4,now()+interval '1 second') ON CONFLICT(tenant_id,submission_id) DO NOTHING`, uuid.New(), tenant, sub, config)
 		if e != nil {
-			problem(w, 500, "internal", "unable to enqueue artifact review")
-			return
+			return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to enqueue artifact review")
 		}
 	}
-	if e = tx.Commit(r.Context()); e != nil {
-		problem(w, 500, "internal", "unable to commit artifact")
-		return
+	if e = tx.Commit(ctx); e != nil {
+		return ArtifactOutput{}, newProblem(http.StatusInternalServerError, "unable to commit artifact")
 	}
 	out := artifactOutput{ID: aid.String(), Kind: kind, ContentType: result.ContentType, Size: result.Size, SHA256: result.SHA256, Width: result.Width, Height: result.Height, DurationMS: result.DurationMS, Status: "finalized", SubmissionID: sub.String()}
 	if k == artifact.Image {
 		if thumb, tw, th, te := artifact.Thumbnail(result.Bytes, 640, 640); te == nil {
 			dk := fmt.Sprintf("tenants/%s/artifacts/%s/derivatives/thumbnail", tenant, aid)
-			if _, pe := s.Artifacts.Put(r.Context(), dk, "image/png", bytes.NewReader(thumb), int64(len(thumb))); pe == nil {
-				_, _ = s.DB.Exec(r.Context(), `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256,width,height) VALUES($1,$2,$3,'thumbnail',$4,'image/png',$5,$6,$7,$8) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, len(thumb), digestBytes(thumb), tw, th)
+			if _, pe := s.Artifacts.Put(ctx, dk, "image/png", bytes.NewReader(thumb), int64(len(thumb))); pe == nil {
+				_, _ = s.DB.Exec(ctx, `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256,width,height) VALUES($1,$2,$3,'thumbnail',$4,'image/png',$5,$6,$7,$8) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, len(thumb), digestBytes(thumb), tw, th)
 				out.DerivativeURL = "/student/artifacts/" + aid.String() + "/derivative/thumbnail"
 			}
 		}
@@ -483,10 +629,35 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		if strings.HasPrefix(strings.ToLower(declared), string(k)+"/") {
 			previewType = declared
 		}
-		if _, pe := s.Artifacts.Put(r.Context(), dk, previewType, bytes.NewReader(result.Bytes), int64(len(result.Bytes))); pe == nil {
-			_, _ = s.DB.Exec(r.Context(), `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256,metadata_stripped) VALUES($1,$2,$3,'preview',$4,$5,$6,$7,false) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, previewType, len(result.Bytes), digestBytes(result.Bytes))
+		if _, pe := s.Artifacts.Put(ctx, dk, previewType, bytes.NewReader(result.Bytes), int64(len(result.Bytes))); pe == nil {
+			_, _ = s.DB.Exec(ctx, `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256,metadata_stripped) VALUES($1,$2,$3,'preview',$4,$5,$6,$7,false) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, previewType, len(result.Bytes), digestBytes(result.Bytes))
 			out.DerivativeURL = "/student/artifacts/" + aid.String() + "/derivative/preview"
 		}
+	}
+	return out, nil
+}
+
+func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, student uuid.UUID) {
+	var in artifactFinalizeInput
+	if !decode(w, r, &in) {
+		return
+	}
+	occurrence := in.OccurrenceID
+	if occurrence == "" {
+		occurrence = chi.URLParam(r, "occurrence")
+	}
+	out, err := s.finalizeArtifactData(r.Context(), student, occurrence, ArtifactFinalizeInput{
+		ArtifactID: in.ArtifactID, RequirementID: in.RequirementID, SHA256: in.SHA256,
+		Digest: in.Digest, DurationMS: in.DurationMS, IdempotencyKey: in.IdempotencyKey,
+		SizeBytes: in.SizeBytes, MediaType: in.MediaType, Filename: in.Filename,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if statusErr, ok := err.(interface{ GetStatus() int }); ok {
+			status = statusErr.GetStatus()
+		}
+		problem(w, status, "invalid_request", err.Error())
+		return
 	}
 	jsonStatus(w, out, http.StatusOK)
 }
@@ -549,68 +720,112 @@ func (s *Server) parentOriginal(w http.ResponseWriter, r *http.Request, sc scope
 	_, _ = io.Copy(w, f)
 }
 
-func (s *Server) artifactState(ctx context.Context, tenant uuid.UUID, occurrence string, student *uuid.UUID) (map[string]any, error) {
+func (s *Server) artifactState(ctx context.Context, tenant uuid.UUID, occurrence string, student *uuid.UUID) (ArtifactStateResponse, error) {
 	var reqID uuid.UUID
-	var config []byte
-	var status string
-	query := `SELECT vr.id,vr.config,o.status FROM task_occurrences o JOIN verification_requirements vr ON vr.tenant_id=o.tenant_id AND vr.revision_id=o.revision_id WHERE o.tenant_id=$1 AND o.id=$2 AND vr.kind='agent_artifact_rubric'`
+	var configBytes []byte
+	query := `SELECT vr.id,vr.config FROM task_occurrences o JOIN verification_requirements vr ON vr.tenant_id=o.tenant_id AND vr.revision_id=o.revision_id WHERE o.tenant_id=$1 AND o.id=$2 AND vr.kind='agent_artifact_rubric'`
 	args := []any{tenant, occurrence}
 	if student != nil {
 		query += ` AND o.student_id=$3`
 		args = append(args, *student)
 	}
 	query += ` ORDER BY vr.ordinal LIMIT 1`
-	if err := s.DB.QueryRow(ctx, query, args...).Scan(&reqID, &config, &status); err != nil {
-		return nil, err
+	if err := s.DB.QueryRow(ctx, query, args...).Scan(&reqID, &configBytes); err != nil {
+		return ArtifactStateResponse{}, err
+	}
+
+	config := ArtifactRubricConfigOutput{}
+	if len(configBytes) > 0 {
+		if err := json.Unmarshal(configBytes, &config); err != nil {
+			return ArtifactStateResponse{}, fmt.Errorf("decode artifact rubric config: %w", err)
+		}
 	}
 	rows, err := s.DB.Query(ctx, `SELECT sub.id,sub.artifact_id,a.kind,a.declared_content_type,a.byte_size,a.sha256,sub.status,sub.created_at FROM artifact_submissions sub JOIN artifacts a ON a.tenant_id=sub.tenant_id AND a.id=sub.artifact_id WHERE sub.tenant_id=$1 AND sub.occurrence_id=$2 AND sub.requirement_id=$3 ORDER BY sub.created_at`, tenant, occurrence, reqID)
 	if err != nil {
-		return nil, err
+		return ArtifactStateResponse{}, err
 	}
 	defer rows.Close()
-	submissions := make([]map[string]any, 0)
+	submissions := make([]ArtifactSubmissionOutput, 0)
 	latest := ""
-	for rows.Next() {
-		var id, aid, kind, ct, sha, subStatus string
-		var size int64
-		var created time.Time
-		if err := rows.Scan(&id, &aid, &kind, &ct, &size, &sha, &subStatus, &created); err != nil {
-			return nil, err
-		}
-		latest = id
-		mapped := map[string]string{"submitted": "evaluating", "evaluating": "evaluating", "accepted": "complete", "rejected": "rejected", "review": "review"}[subStatus]
-		if mapped == "" {
-			mapped = "queued"
-		}
-		submissions = append(submissions, map[string]any{"id": id, "artifactId": aid, "kind": kind, "mediaType": ct, "sizeBytes": size, "digest": sha, "status": mapped, "createdAt": created})
-	}
 	state := "ready"
-	if len(submissions) > 0 {
-		state = submissions[len(submissions)-1]["status"].(string)
+	for rows.Next() {
+		var submission ArtifactSubmissionOutput
+		var rawStatus string
+		if err := rows.Scan(&submission.ID, &submission.ArtifactID, &submission.Kind, &submission.MediaType, &submission.SizeBytes, &submission.Digest, &rawStatus, &submission.CreatedAt); err != nil {
+			return ArtifactStateResponse{}, err
+		}
+		latest = submission.ID
+		submission.Status = artifactSubmissionStatus(rawStatus)
+		state = submission.Status
+		submissions = append(submissions, submission)
 	}
-	result := map[string]any{}
+	if err := rows.Err(); err != nil {
+		return ArtifactStateResponse{}, err
+	}
+
+	var evaluation *ArtifactEvaluationOutput
 	if latest != "" {
-		var provider, model, policy string
-		_ = s.DB.QueryRow(ctx, `SELECT provider,model,'agent_artifact_rubric.v1' FROM artifact_rubric_jobs WHERE tenant_id=$1 AND submission_id=$2`, tenant, latest).Scan(&provider, &model, &policy)
+		current := &ArtifactEvaluationOutput{Status: state, Accepted: state == "complete", Criteria: make([]ArtifactCriterionEvaluationOutput, 0)}
+		_ = s.DB.QueryRow(ctx, `SELECT provider,model,'agent_artifact_rubric.v1' FROM artifact_rubric_jobs WHERE tenant_id=$1 AND submission_id=$2`, tenant, latest).Scan(&current.Provider, &current.Model, &current.PolicyVersion)
 		criteriaRows, criteriaErr := s.DB.Query(ctx, `SELECT id::text,criterion_id,required,status,evidence,feedback FROM artifact_criterion_evaluations WHERE tenant_id=$1 AND submission_id=$2 ORDER BY created_at`, tenant, latest)
 		if criteriaErr == nil {
-			criteria := make([]map[string]any, 0)
 			for criteriaRows.Next() {
-				var id, criterionID, criterionStatus, evidence, feedback string
-				var required bool
-				if scanErr := criteriaRows.Scan(&id, &criterionID, &required, &criterionStatus, &evidence, &feedback); scanErr == nil {
-					criteria = append(criteria, map[string]any{"id": id, "criterionId": criterionID, "required": required, "status": criterionStatus, "evidence": evidence, "feedback": feedback})
+				var criterion ArtifactCriterionEvaluationOutput
+				if scanErr := criteriaRows.Scan(&criterion.ID, &criterion.CriterionID, &criterion.Required, &criterion.Status, &criterion.Evidence, &criterion.Feedback); scanErr != nil {
+					criteriaRows.Close()
+					return ArtifactStateResponse{}, scanErr
 				}
+				current.Criteria = append(current.Criteria, criterion)
+			}
+			if closeErr := criteriaRows.Err(); closeErr != nil {
+				criteriaRows.Close()
+				return ArtifactStateResponse{}, closeErr
 			}
 			criteriaRows.Close()
-			result = map[string]any{"status": state, "accepted": state == "complete", "provider": provider, "model": model, "policyVersion": policy, "criteria": criteria}
 		}
+		evaluation = current
 	}
-	var cfg any
-	if len(config) > 0 {
-		_ = json.Unmarshal(config, &cfg)
+	return ArtifactStateResponse{
+		OccurrenceID: occurrence, RequirementID: reqID.String(), RubricRevision: reqID.String(),
+		Config: config, Status: state, Submissions: submissions, ActiveSubmissionID: latest, Evaluation: evaluation,
+	}, nil
+}
+
+func artifactSubmissionStatus(status string) string {
+	switch status {
+	case "submitted", "evaluating":
+		return "evaluating"
+	case "accepted":
+		return "complete"
+	case "rejected":
+		return "rejected"
+	case "review":
+		return "review"
+	default:
+		return "queued"
 	}
-	return map[string]any{"occurrenceId": occurrence, "requirementId": reqID.String(), "rubricRevision": reqID.String(), "config": cfg, "status": state, "submissions": submissions, "activeSubmissionId": latest, "evaluation": result}, rows.Err()
+}
+
+func (s *Server) retryArtifactState(ctx context.Context, student uuid.UUID, occurrence string) (ArtifactStateResponse, error) {
+	tenant, err := s.artifactTenant(ctx, student)
+	if err != nil {
+		return ArtifactStateResponse{}, newProblem(http.StatusUnauthorized, "student session required")
+	}
+	tag, err := s.DB.Exec(ctx, `UPDATE artifact_rubric_jobs j SET status='queued',available_at=now(),lease_owner=NULL,lease_until=NULL,updated_at=now() FROM artifact_submissions sub WHERE sub.tenant_id=j.tenant_id AND sub.id=j.submission_id AND sub.tenant_id=$1 AND sub.occurrence_id=$2 AND sub.student_id=$3 AND j.status IN ('failed','review')`, tenant, occurrence, student)
+	if err != nil {
+		return ArtifactStateResponse{}, newProblem(http.StatusInternalServerError, "unable to retry artifact review")
+	}
+	if tag.RowsAffected() == 0 {
+		return ArtifactStateResponse{}, newProblem(http.StatusConflict, "artifact review is not retryable")
+	}
+	state, err := s.artifactState(ctx, tenant, occurrence, &student)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ArtifactStateResponse{}, newProblem(http.StatusNotFound, "artifact requirement not found")
+	}
+	if err != nil {
+		return ArtifactStateResponse{}, newProblem(http.StatusInternalServerError, "unable to load artifact state")
+	}
+	return state, nil
 }
 
 func (s *Server) studentArtifactState(w http.ResponseWriter, r *http.Request, student uuid.UUID) {

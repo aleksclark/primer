@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // The types in this file are the Tasks wire boundary. Huma derives the
@@ -179,25 +182,36 @@ type NoContentOutput struct {
 	ResponseHeaders
 }
 
+// ArtifactReservationInput and ArtifactFinalizeInput are the strict Phase 5 JSON
+// boundaries. The binary upload/download routes are deliberately kept outside
+// these Huma operations (see registerArtifactRoutes).
 type ArtifactOccurrenceInput struct {
-	Occurrence string                   `path:"occurrence"`
-	Body       artifactReservationInput `required:"true"`
+	Occurrence string                   `path:"occurrence" format:"uuid"`
+	Body       ArtifactReservationInput `required:"true"`
 }
 type ArtifactFinalizeBoundaryInput struct {
-	Occurrence string                `path:"occurrence"`
-	Body       artifactFinalizeInput `required:"true"`
+	Occurrence string                `path:"occurrence" format:"uuid"`
+	Body       ArtifactFinalizeInput `required:"true"`
+}
+type ArtifactOccurrencePath struct {
+	Occurrence string `path:"occurrence" format:"uuid"`
 }
 type ArtifactStateOutput struct {
 	ResponseHeaders
-	Body map[string]any
+	Body ArtifactStateResponse
+}
+
+// artifactPathRequest is shared by the JSON state and retry operations.
+type artifactPathRequest struct {
+	Occurrence string `path:"occurrence" format:"uuid"`
 }
 type ArtifactReservationBoundaryOutput struct {
 	ResponseHeaders
-	Body artifactReservationOutput
+	Body ArtifactReservationOutput
 }
 type ArtifactOutputBoundary struct {
 	ResponseHeaders
-	Body artifactOutput
+	Body ArtifactOutput
 }
 
 // Problem is the existing browser error envelope. It is also Huma's error
@@ -252,6 +266,39 @@ func register[I, O any](api huma.API, op huma.Operation, handler func(context.Co
 	if registered != nil {
 		delete(registered.Responses, "422")
 	}
+}
+
+func humaRequest(ctx context.Context) (*http.Request, error) {
+	hctx, ok := ctx.Value(humaContextKey{}).(huma.Context)
+	if !ok {
+		return nil, huma.Error500InternalServerError("Huma request context missing")
+	}
+	req, _ := humachi.Unwrap(hctx)
+	return req, nil
+}
+
+func (s *Server) humaStudent(ctx context.Context) (uuid.UUID, error) {
+	req, err := humaRequest(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	student, err := s.studentFromCookie(req)
+	if err != nil {
+		return uuid.Nil, newProblem(http.StatusUnauthorized, "student session required")
+	}
+	return student, nil
+}
+
+func (s *Server) humaParent(ctx context.Context) (scope, error) {
+	req, err := humaRequest(ctx)
+	if err != nil {
+		return scope{}, err
+	}
+	parent, err := s.parentScope(req)
+	if err != nil {
+		return scope{}, newProblem(http.StatusUnauthorized, "parent session required")
+	}
+	return parent, nil
 }
 
 // humaAPI is the sole production registration function. Routes and offline
@@ -351,35 +398,64 @@ func (s *Server) humaAPI() huma.API {
 	// Artifact JSON routes are registered through the same Huma boundary as
 	// the rest of the REST API. Binary PUTs remain the single explicitly
 	// allowlisted streaming façade and are registered on the shared router.
-	register(api, huma.Operation{OperationID: "student-artifact-reserve", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/reserve", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *ArtifactOccurrenceInput) (*ArtifactReservationBoundaryOutput, error) {
-		body := in.Body
-		body.OccurrenceID = in.Occurrence
-		out, headers, err := legacyJSON[artifactReservationOutput](ctx, s.requireStudent(s.reserveArtifact), body)
-		return &ArtifactReservationBoundaryOutput{ResponseHeaders: headers, Body: out}, err
+	register(api, huma.Operation{OperationID: "student-artifact-reserve", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/reserve", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 404, 409, 500}}, func(ctx context.Context, in *ArtifactOccurrenceInput) (*ArtifactReservationBoundaryOutput, error) {
+		student, err := s.humaStudent(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := s.reserveArtifactData(ctx, student, in.Occurrence, in.Body)
+		return &ArtifactReservationBoundaryOutput{Body: out}, err
 	})
-	register(api, huma.Operation{OperationID: "student-artifact-state", Method: http.MethodGet, Path: "/student/occurrences/{occurrence}/artifacts", Errors: []int{401, 404, 500}}, func(ctx context.Context, in *struct {
-		Occurrence string `path:"occurrence"`
-	}) (*ArtifactStateOutput, error) {
-		out, headers, err := legacyJSON[map[string]any](ctx, s.requireStudent(s.studentArtifactState), nil)
-		return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err
+	register(api, huma.Operation{OperationID: "student-artifact-state", Method: http.MethodGet, Path: "/student/occurrences/{occurrence}/artifacts", Errors: []int{401, 404, 500}}, func(ctx context.Context, in *artifactPathRequest) (*ArtifactStateOutput, error) {
+		student, err := s.humaStudent(ctx)
+		if err != nil {
+			return nil, err
+		}
+		tenant, err := s.artifactTenant(ctx, student)
+		if err != nil {
+			return nil, newProblem(http.StatusUnauthorized, "student session required")
+		}
+		out, err := s.artifactState(ctx, tenant, in.Occurrence, &student)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, newProblem(http.StatusNotFound, "artifact requirement not found")
+		}
+		if err != nil {
+			return nil, newProblem(http.StatusInternalServerError, "unable to load artifact state")
+		}
+		return &ArtifactStateOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "student-artifact-retry", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/retry", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *struct {
-		Occurrence string `path:"occurrence"`
-	}) (*ArtifactStateOutput, error) {
-		out, headers, err := legacyJSON[map[string]any](ctx, s.requireStudent(s.retryArtifactEvaluation), nil)
-		return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err
+	register(api, huma.Operation{OperationID: "student-artifact-retry", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/retry", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, in *artifactPathRequest) (*ArtifactStateOutput, error) {
+		student, err := s.humaStudent(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := s.retryArtifactState(ctx, student, in.Occurrence)
+		if err != nil {
+			return nil, err
+		}
+		return &ArtifactStateOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "parent-artifact-inspect", Method: http.MethodGet, Path: "/occurrences/{occurrence}/artifacts/inspect", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *struct {
-		Occurrence string `path:"occurrence"`
-	}) (*ArtifactStateOutput, error) {
-		out, headers, err := legacyJSON[map[string]any](ctx, s.requireParent(s.parentArtifactState), nil)
-		return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err
+	register(api, huma.Operation{OperationID: "parent-artifact-inspect", Method: http.MethodGet, Path: "/occurrences/{occurrence}/artifacts/inspect", Errors: []int{401, 404, 500}}, func(ctx context.Context, in *artifactPathRequest) (*ArtifactStateOutput, error) {
+		parent, err := s.humaParent(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := s.artifactState(ctx, uuid.MustParse(parent.Tenant), in.Occurrence, nil)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, newProblem(http.StatusNotFound, "artifact requirement not found")
+		}
+		if err != nil {
+			return nil, newProblem(http.StatusInternalServerError, "unable to load artifact state")
+		}
+		return &ArtifactStateOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "student-artifact-finalize", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/finalize", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *ArtifactFinalizeBoundaryInput) (*ArtifactOutputBoundary, error) {
-		body := in.Body
-		body.OccurrenceID = in.Occurrence
-		out, headers, err := legacyJSON[artifactOutput](ctx, s.requireStudent(s.finalizeArtifact), body)
-		return &ArtifactOutputBoundary{ResponseHeaders: headers, Body: out}, err
+	register(api, huma.Operation{OperationID: "student-artifact-finalize", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/finalize", Errors: []int{400, 401, 404, 409, 500}}, func(ctx context.Context, in *ArtifactFinalizeBoundaryInput) (*ArtifactOutputBoundary, error) {
+		student, err := s.humaStudent(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := s.finalizeArtifactData(ctx, student, in.Occurrence, in.Body)
+		return &ArtifactOutputBoundary{Body: out}, err
 	})
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
 	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))

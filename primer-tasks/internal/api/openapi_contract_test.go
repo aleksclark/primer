@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -68,6 +69,64 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	}
 	if paths["/student/pair"].Post.RequestBody.Content["application/json"].Schema.Ref != "#/components/schemas/PairCode" {
 		t.Fatal("pairing boundary is not derived from PairCode")
+	}
+}
+
+func TestArtifactBoundariesAreStrictAndGenerated(t *testing.T) {
+	doc := New(nil, "openapi").humaAPI().OpenAPI()
+	checks := []struct {
+		path     string
+		method   string
+		request  string
+		response string
+		status   string
+	}{
+		{"/student/occurrences/{occurrence}/artifacts/reserve", http.MethodPost, "ArtifactReservationInput", "ArtifactReservationOutput", "201"},
+		{"/student/occurrences/{occurrence}/artifacts", http.MethodGet, "", "ArtifactStateResponse", "200"},
+		{"/student/occurrences/{occurrence}/artifacts/finalize", http.MethodPost, "ArtifactFinalizeInput", "ArtifactOutput", "200"},
+		{"/student/occurrences/{occurrence}/artifacts/retry", http.MethodPost, "", "ArtifactStateResponse", "200"},
+		{"/occurrences/{occurrence}/artifacts/inspect", http.MethodGet, "", "ArtifactStateResponse", "200"},
+	}
+	for _, check := range checks {
+		item := doc.Paths[check.path]
+		if item == nil {
+			t.Fatalf("artifact path %s is missing", check.path)
+		}
+		var operation *huma.Operation
+		switch check.method {
+		case http.MethodGet:
+			operation = item.Get
+		case http.MethodPost:
+			operation = item.Post
+		}
+		if operation == nil || operation.Responses[check.status] == nil {
+			t.Fatalf("artifact %s %s has no %s response", check.method, check.path, check.status)
+		}
+		if check.request != "" {
+			if operation.RequestBody == nil || operation.RequestBody.Content["application/json"].Schema.Ref != "#/components/schemas/"+check.request {
+				t.Fatalf("artifact %s request schema is not %s", check.path, check.request)
+			}
+		}
+		if got := operation.Responses[check.status].Content["application/json"].Schema.Ref; got != "#/components/schemas/"+check.response {
+			t.Fatalf("artifact %s response schema = %q, want %s", check.path, got, check.response)
+		}
+	}
+	for _, name := range []string{"ArtifactReservationInput", "ArtifactFinalizeInput", "ArtifactReservationOutput", "ArtifactOutput", "ArtifactStateResponse"} {
+		schema := doc.Components.Schemas.Map()[name]
+		if schema == nil || schema.AdditionalProperties != false {
+			t.Fatalf("artifact schema %s is not closed: %#v", name, schema)
+		}
+	}
+}
+
+func TestArtifactJSONBoundaryRejectsUnknownFields(t *testing.T) {
+	handler := New(nil, "openapi").Routes()
+	req := httptest.NewRequest(http.MethodPost, "/student/occurrences/00000000-0000-0000-0000-000000000001/artifacts/reserve", bytes.NewBufferString(`{"kind":"image","contentType":"image/png","size":4,"idempotencyKey":"idem","unexpected":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown artifact field status = %d, body=%s; want 400", rec.Code, rec.Body.String())
 	}
 }
 
