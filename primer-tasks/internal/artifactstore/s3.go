@@ -118,10 +118,17 @@ func (s *S3Store) Stat(ctx context.Context, key string) (Object, error) {
 }
 func (s *S3Store) EnsureBucket(ctx context.Context) error {
 	_, err := s.client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &s.bucket})
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "already exist") && !strings.Contains(strings.ToLower(err.Error()), "owned by you") {
+	message := strings.ToLower(errString(err))
+	if err != nil && !strings.Contains(message, "already exist") && !strings.Contains(message, "owned by you") && !strings.Contains(message, "alreadyownedbyyou") && !strings.Contains(message, "bucketalreadyexists") {
 		return err
 	}
 	return nil
+}
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 func (s *S3Store) Delete(ctx context.Context, key string) error {
 	if err := ValidateKey(key); err != nil {
