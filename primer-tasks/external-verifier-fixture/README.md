@@ -18,6 +18,7 @@ The fixture implements the Phase 6 `external_callback.v1` contract:
   callback URL or headers.
 - `POST <callbackPath>` is sent to the operator-configured
   `FIXTURE_CALLBACK_BASE_URL` and contains the production `CallbackEnvelope`
+  (with `verifierId` set from the operator-owned `FIXTURE_VERIFIER_ID`),
   fields (`callbackId`, `requestId`, `attemptRef`, `verifierId`, `sequence`,
   `requestDigest`, `type`, and exactly one typed result).
 - Both directions use the same public signature contract. The canonical input
@@ -55,8 +56,8 @@ payload is never logged or returned by the ledger endpoint.
 
 ## Egress modes
 
-`FIXTURE_CALLBACK_BASE_URL` is deployment configuration, never request data.
-Redirects are rejected and no credential is forwarded to callbacks. The
+`FIXTURE_CALLBACK_BASE_URL` and `FIXTURE_CALLBACK_ALLOWLIST` are deployment
+configuration, never request data. Redirects are rejected and no credential is forwarded to callbacks. The
 Compose default is explicitly `FIXTURE_EGRESS_MODE=test` for local HTTP
 service-DNS operation. Non-test mode requires an HTTPS callback base. The
 Tasks production catalog owns the stronger HTTPS/allowlist/resolution/private

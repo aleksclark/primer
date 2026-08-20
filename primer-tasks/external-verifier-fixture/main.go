@@ -176,7 +176,7 @@ func (f *fixture) verifyRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid verification envelope", http.StatusBadRequest)
 		return
 	}
-	if !strings.HasPrefix(req.CallbackPath, "/") || strings.HasPrefix(req.CallbackPath, "//") || strings.ContainsAny(req.CallbackPath, "?#") {
+	if !validCallbackPath(req.CallbackPath) {
 		http.Error(w, "invalid callback path", http.StatusBadRequest)
 		return
 	}
@@ -326,6 +326,19 @@ func (f *fixture) sendCallback(record requestRecord, cb callbackEnvelope) error 
 	}
 	return nil
 }
+func validCallbackPath(path string) bool {
+	decoded, err := url.PathUnescape(path)
+	if err != nil || decoded != path || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "?#\x00") {
+		return false
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 func (f *fixture) callbackURL(path string) (string, string, error) {
 	if f.callbackBase == "" {
 		return "", "", errors.New("FIXTURE_CALLBACK_BASE_URL is required")
@@ -337,6 +350,9 @@ func (f *fixture) callbackURL(path string) (string, string, error) {
 	if os.Getenv("FIXTURE_EGRESS_MODE") != "test" && base.Scheme != "https" {
 		return "", "", errors.New("production fixture egress requires HTTPS")
 	}
+	if os.Getenv("FIXTURE_EGRESS_MODE") != "test" && !allowlistedBaseHost(base.Hostname()) {
+		return "", "", errors.New("production fixture callback host is not allowlisted")
+	}
 	if os.Getenv("FIXTURE_EGRESS_MODE") == "test" && base.Scheme != "http" && base.Scheme != "https" {
 		return "", "", errors.New("test fixture egress requires HTTP(S)")
 	}
@@ -346,6 +362,15 @@ func (f *fixture) callbackURL(path string) (string, string, error) {
 		return "", "", errors.New("invalid callback path")
 	}
 	return target.String(), path, nil
+}
+
+func allowlistedBaseHost(host string) bool {
+	for _, entry := range strings.Split(os.Getenv("FIXTURE_CALLBACK_ALLOWLIST"), ",") {
+		if strings.EqualFold(strings.TrimSpace(entry), host) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *fixture) reconcile(w http.ResponseWriter, r *http.Request) {

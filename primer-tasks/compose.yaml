@@ -215,6 +215,7 @@ services:
       FIXTURE_HOST: "0.0.0.0"
       FIXTURE_PORT: "8092"
       FIXTURE_SHARED_SECRET: ${TASKS_EXTERNAL_VERIFIER_SECRET-fixture-development-secret}
+      FIXTURE_VERIFIER_ID: ${TASKS_EXTERNAL_VERIFIER_ID-fixture}
       # The callback base is an operator-owned service address; requests carry
       # only the production callbackPath and can never choose a URL or header.
       FIXTURE_CALLBACK_BASE_URL: ${TASKS_EXTERNAL_VERIFIER_CALLBACK_BASE_URL-http://api:8080}
