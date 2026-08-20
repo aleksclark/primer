@@ -21,12 +21,14 @@ func TestHumaParentRouteRequiresSessionBeforeDatabaseAccess(t *testing.T) {
 
 func TestExternalCatalogAndCallbackBoundariesFailClosedBeforeDatabaseAccess(t *testing.T) {
 	server := &Server{}
-	request := httptest.NewRequest(http.MethodGet, "/external/verifiers", nil)
-	for _, role := range []string{"student", "", "parent", "admin", "educator"} {
-		rec := httptest.NewRecorder()
-		server.listExternalVerifiers(rec, request, scope{Role: role})
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("list role=%q status=%d", role, rec.Code)
+	for _, role := range []string{"student", ""} {
+		if canReadExternalCatalog(role) {
+			t.Fatalf("unsafe catalog list role=%q allowed", role)
+		}
+	}
+	for _, role := range []string{"admin", "educator", "product_admin"} {
+		if !canReadExternalCatalog(role) {
+			t.Fatalf("safe catalog list role=%q forbidden", role)
 		}
 	}
 	for _, role := range []string{"student", "parent", "admin", "educator"} {

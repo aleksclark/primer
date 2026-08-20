@@ -78,8 +78,17 @@ func requireProductAdmin(w http.ResponseWriter, sc scope) bool {
 	return false
 }
 
+func canReadExternalCatalog(role string) bool {
+	return role == "product_admin" || role == "admin" || role == "educator"
+}
+
 func (s *Server) listExternalVerifiers(w http.ResponseWriter, r *http.Request, sc scope) {
-	if !requireProductAdmin(w, sc) {
+	// Parents may read the safe catalog projection to select an
+	// administrator-configured verifier. Mutating catalog records remains
+	// product-admin-only; this response never contains endpoints or secret
+	// references.
+	if !canReadExternalCatalog(sc.Role) {
+		problem(w, http.StatusForbidden, "forbidden", "parent catalog access required")
 		return
 	}
 	items, err := repo.NewVerifierCatalogRepository(s.DB).List(r.Context(), false)
