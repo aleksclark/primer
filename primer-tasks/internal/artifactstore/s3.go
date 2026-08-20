@@ -19,8 +19,8 @@ type S3Store struct {
 }
 
 type S3Config struct {
-	Endpoint, Region, Bucket, AccessKey, SecretKey, SessionToken string
-	ForcePathStyle                                               bool
+	Endpoint, PublicEndpoint, Region, Bucket, AccessKey, SecretKey, SessionToken string
+	ForcePathStyle                                                               bool
 }
 
 // NewS3 supports AWS S3 and S3-compatible MinIO. Credentials are supplied by
@@ -41,7 +41,16 @@ func NewS3(ctx context.Context, cfg S3Config) (*S3Store, error) {
 		return nil, err
 	}
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.ForcePathStyle })
-	return &S3Store{client: client, presigner: s3.NewPresignClient(client), bucket: cfg.Bucket}, nil
+	presignClient := client
+	// Server-side object operations use Compose DNS. Browser uploads need a
+	// separately configured Stacklane-reachable origin; only the short-lived
+	// signed URL uses it, and credentials never leave this process.
+	if strings.TrimSpace(cfg.PublicEndpoint) != "" && strings.TrimRight(cfg.PublicEndpoint, "/") != strings.TrimRight(cfg.Endpoint, "/") {
+		publicCfg := awsCfg
+		publicCfg.BaseEndpoint = aws.String(strings.TrimRight(cfg.PublicEndpoint, "/"))
+		presignClient = s3.NewFromConfig(publicCfg, func(o *s3.Options) { o.UsePathStyle = cfg.ForcePathStyle })
+	}
+	return &S3Store{client: client, presigner: s3.NewPresignClient(presignClient), bucket: cfg.Bucket}, nil
 }
 func defaultString(v, d string) string {
 	if v == "" {

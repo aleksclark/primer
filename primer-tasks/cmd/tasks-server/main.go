@@ -48,7 +48,7 @@ func main() {
 	var tasksAPI *api.Server
 	if envOr("TASKS_ARTIFACT_STORE", "filesystem") == "s3" {
 		store, storeErr := artifactstore.NewS3(workerCtx, artifactstore.S3Config{
-			Endpoint: envOr("TASKS_S3_ENDPOINT", "http://minio:9000"), Region: envOr("TASKS_S3_REGION", "us-east-1"),
+			Endpoint: envOr("TASKS_S3_ENDPOINT", "http://minio:9000"), PublicEndpoint: os.Getenv("TASKS_S3_PUBLIC_ENDPOINT"), Region: envOr("TASKS_S3_REGION", "us-east-1"),
 			Bucket: envOr("TASKS_S3_BUCKET", "primer-tasks"), AccessKey: os.Getenv("TASKS_S3_ACCESS_KEY"), SecretKey: os.Getenv("TASKS_S3_SECRET_KEY"), SessionToken: os.Getenv("TASKS_S3_SESSION_TOKEN"), ForcePathStyle: envOr("TASKS_S3_FORCE_PATH_STYLE", "true") == "true",
 		})
 		if storeErr != nil {

@@ -309,12 +309,17 @@ function StudentOccurrencePage() {
         setArtifact(null);
         return;
       }
-      const [nextDialogue, nextArtifact] = await Promise.all([
-        tasksClient.studentDialogue(id).catch(() => null),
-        tasksClient.studentArtifactState(id),
-      ]);
+      // Artifact requirements have a separate no-chat projection. Probe it
+      // first so artifact occurrences never invoke the dialogue endpoint.
+      const nextArtifact = await tasksClient.studentArtifactState(id);
+      if (nextArtifact) {
+        setArtifact(nextArtifact);
+        setDialogue(null);
+        return;
+      }
+      const nextDialogue = await tasksClient.studentDialogue(id).catch(() => null);
       setDialogue(nextDialogue);
-      setArtifact(nextArtifact);
+      setArtifact(null);
     }).catch(setError);
   }, [id]);
   useEffect(() => { void load(); }, [load]);
