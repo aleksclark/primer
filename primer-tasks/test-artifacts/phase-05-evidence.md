@@ -9,10 +9,10 @@ native, emulator, and live multimodal quality work are out of scope.
 
 - Branch: `impl/tasks-p5-media`
 - Plan revision: `24cd3abe`
-- Reviewed tip: `ee81f119` (final implementation tip; anti-cheat findings remain open)
+- Reviewed tip: `f4f2152a` (final implementation tip; independent anti-cheat findings remain open)
 - Exploratory suite: `.paseo-e2e/p5-media/` (sanitized, local evidence)
-- Terra exploratory result: **PASS** (call #35)
-- Promoted Playwright result: **PASS, 2/2** (call #36 plus fresh independent rerun)
+- Terra final exploratory result: **PASS** (call #6)
+- Promoted Playwright result: **PASS, 2/2** (call #7 plus fresh independent Chrome confirmation)
 
 ## Browser evidence
 
@@ -58,7 +58,7 @@ fixtures, and no private repository seeding, mocks, skips, or weakened assertion
 - Focused malformed-finalize/retry and S3 public-presign unit/integration checks — PASS
 - Real PostgreSQL migration and security integration checks — PASS
 - Compose `check` and real PostgreSQL/MinIO Stacklane health — PASS
-- `make -C primer-tasks tasks-cover` — **FAIL at 80.5%** (mandatory 85% minimum)
+- `make -C primer-tasks tasks-cover` — **FAIL at 79.0%** (mandatory 85% minimum)
 - `git diff --check` — PASS
 
 ## Explicit limitations
@@ -73,7 +73,8 @@ fixtures, and no private repository seeding, mocks, skips, or weakened assertion
 ## Release decision
 
 Phase 5 web/server completion gate: **NOT PASS**. Browser exploratory and
-promoted UI flows pass as wiring evidence, but the fresh anti-cheat review found
-open hard-coded scripted-evaluator, media decode/duration, cleanup/recovery,
-CSP/client-contract, and coverage issues. Controlled live image quality remains
+promoted UI flows pass as wiring evidence, and Fantasy/criterion/digest/progress
+hardening is present, but the fresh anti-cheat review still found open lease
+fencing/retry-attempt, authoritative A/V decode, retention-test, strict typed
+Huma/client, real API-MinIO-auth integration, and coverage issues. Controlled live image quality remains
 explicitly **BLOCKED**. **Phase 6 may not be dispatched.**
