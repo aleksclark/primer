@@ -545,11 +545,29 @@ func (s *Server) artifactState(ctx context.Context, tenant uuid.UUID, occurrence
 	if len(submissions) > 0 {
 		state = submissions[len(submissions)-1]["status"].(string)
 	}
+	result := map[string]any{}
+	if latest != "" {
+		var provider, model, policy string
+		_ = s.DB.QueryRow(ctx, `SELECT provider,model,'agent_artifact_rubric.v1' FROM artifact_rubric_jobs WHERE tenant_id=$1 AND submission_id=$2`, tenant, latest).Scan(&provider, &model, &policy)
+		criteriaRows, criteriaErr := s.DB.Query(ctx, `SELECT id::text,criterion_id,required,status,evidence,feedback FROM artifact_criterion_evaluations WHERE tenant_id=$1 AND submission_id=$2 ORDER BY created_at`, tenant, latest)
+		if criteriaErr == nil {
+			criteria := make([]map[string]any, 0)
+			for criteriaRows.Next() {
+				var id, criterionID, criterionStatus, evidence, feedback string
+				var required bool
+				if scanErr := criteriaRows.Scan(&id, &criterionID, &required, &criterionStatus, &evidence, &feedback); scanErr == nil {
+					criteria = append(criteria, map[string]any{"id": id, "criterionId": criterionID, "required": required, "status": criterionStatus, "evidence": evidence, "feedback": feedback})
+				}
+			}
+			criteriaRows.Close()
+			result = map[string]any{"status": state, "accepted": state == "complete", "provider": provider, "model": model, "policyVersion": policy, "criteria": criteria}
+		}
+	}
 	var cfg any
 	if len(config) > 0 {
 		_ = json.Unmarshal(config, &cfg)
 	}
-	return map[string]any{"occurrenceId": occurrence, "requirementId": reqID.String(), "rubricRevision": reqID.String(), "config": cfg, "status": state, "submissions": submissions, "activeSubmissionId": latest}, rows.Err()
+	return map[string]any{"occurrenceId": occurrence, "requirementId": reqID.String(), "rubricRevision": reqID.String(), "config": cfg, "status": state, "submissions": submissions, "activeSubmissionId": latest, "evaluation": result}, rows.Err()
 }
 
 func (s *Server) studentArtifactState(w http.ResponseWriter, r *http.Request, student uuid.UUID) {
