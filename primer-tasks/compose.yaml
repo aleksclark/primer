@@ -133,6 +133,10 @@ services:
       # Development-only dialogue failure modes exercise durable retry without
       # allowing a scripted response to claim completion.
       TASKS_AGENT_SCRIPTED_DIALOGUE_FAULT: ${TASKS_AGENT_SCRIPTED_DIALOGUE_FAULT-}
+      # Explicit non-sensitive scripted multimodal fixture qualification only;
+      # production and ordinary development remain disabled by default.
+      TASKS_ARTIFACT_SCRIPTED_FIXTURE: ${TASKS_ARTIFACT_SCRIPTED_FIXTURE-}
+      TASKS_ARTIFACT_SCRIPTED_DIGEST: ${TASKS_ARTIFACT_SCRIPTED_DIGEST-}
       # Parent agent tooling is explicit and server-owned. Empty/unknown values
       # fail closed in parent.ProviderConfig; this development default is only
       # used when a scripted qualification run is deliberately enabled.
