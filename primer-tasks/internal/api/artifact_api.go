@@ -463,6 +463,18 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 				out.DerivativeURL = "/student/artifacts/" + aid.String() + "/derivative/thumbnail"
 			}
 		}
+	} else {
+		// Audio/video previews are byte-preserving, authorization-scoped copies;
+		// unlike image thumbnails there is no metadata-stripping transcode here.
+		dk := fmt.Sprintf("tenants/%s/artifacts/%s/derivatives/preview", tenant, aid)
+		previewType := result.ContentType
+		if strings.HasPrefix(strings.ToLower(declared), string(k)+"/") {
+			previewType = declared
+		}
+		if _, pe := s.Artifacts.Put(r.Context(), dk, previewType, bytes.NewReader(result.Bytes), int64(len(result.Bytes))); pe == nil {
+			_, _ = s.DB.Exec(r.Context(), `INSERT INTO artifact_derivatives(id,tenant_id,artifact_id,derivative_kind,object_key,content_type,byte_size,sha256) VALUES($1,$2,$3,'preview',$4,$5,$6,$7) ON CONFLICT(tenant_id,artifact_id,derivative_kind) DO NOTHING`, uuid.New(), tenant, aid, dk, previewType, len(result.Bytes), digestBytes(result.Bytes))
+			out.DerivativeURL = "/student/artifacts/" + aid.String() + "/derivative/preview"
+		}
 	}
 	jsonStatus(w, out, http.StatusOK)
 }
