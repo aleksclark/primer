@@ -171,12 +171,35 @@ func TestArtifactLeaseReclaimFencesEveryWorkerMutation(t *testing.T) {
 
 	// The replacement worker is not merely allowed to read the lease: it can
 	// record progress, commit the decision, and atomically complete the job.
-	if _, _, err := (artifactRubricBackend{server: s}).RecordArtifactCriterion(newCtx, verification.ArtifactContext{TenantID: tenant.String(), JobID: job.String(), SubmissionID: submission.String(), Rubric: rubric, Provider: "new", Model: "new", PolicyVersion: verification.ArtifactRubricPolicyVersion}, verification.ArtifactCriterionResult{CriterionID: "shows-work", Required: true, Status: "accepted", Evidence: "new evidence"}); err != nil {
-		t.Fatal("replacement criterion:", err)
+	criterionBackend := artifactRubricBackend{server: s}
+	criterionScope := verification.ArtifactContext{TenantID: tenant.String(), JobID: job.String(), SubmissionID: submission.String(), Rubric: rubric, Provider: "new", Model: "new", PolicyVersion: verification.ArtifactRubricPolicyVersion}
+	storedCriterion, insertedCriterion, err := criterionBackend.RecordArtifactCriterion(newCtx, criterionScope, verification.ArtifactCriterionResult{CriterionID: "shows-work", Required: true, Status: "accepted", Evidence: "new evidence"})
+	if err != nil || !insertedCriterion || storedCriterion.CriterionID != "shows-work" {
+		t.Fatalf("replacement criterion=%+v inserted=%v err=%v", storedCriterion, insertedCriterion, err)
+	}
+	storedCriterion, insertedCriterion, err = criterionBackend.RecordArtifactCriterion(newCtx, criterionScope, verification.ArtifactCriterionResult{CriterionID: "shows-work", Required: true, Status: "rejected", Evidence: "replay cannot overwrite"})
+	if err != nil || insertedCriterion || storedCriterion.Status != "accepted" || storedCriterion.Evidence != "new evidence" {
+		t.Fatalf("criterion replay=%+v inserted=%v err=%v", storedCriterion, insertedCriterion, err)
+	}
+	wrongSubmission := uuid.NewString()
+	if err := s.finishArtifactDecision(newCtx, job.String(), tenant.String(), wrongSubmission, "new", "new", true, true); !errors.Is(err, errArtifactLeaseLost) {
+		t.Fatalf("completion scope error=%v", err)
+	}
+	if err := s.finishArtifactReview(newCtx, job.String(), tenant.String(), wrongSubmission, "scope check"); !errors.Is(err, errArtifactLeaseLost) {
+		t.Fatalf("review scope error=%v", err)
 	}
 	inserted, err := s.CommitDecision(newCtx, decision)
 	if err != nil || !inserted {
 		t.Fatalf("replacement decision inserted=%v err=%v", inserted, err)
+	}
+	// Reopening only the lease models a replay arriving before the worker's
+	// final status mutation. The unique attempt decision is idempotent and the
+	// open-attempt transition is not repeated.
+	exec(`UPDATE artifact_rubric_jobs SET status='running',lease_owner='new-worker-2',lease_until=now()+interval '5 minutes' WHERE id=$1`, job)
+	newCtx = withArtifactLease(ctx, "new-worker-2", job.String())
+	replayed, err := s.CommitDecision(newCtx, decision)
+	if err != nil || replayed {
+		t.Fatalf("decision replay inserted=%v err=%v", replayed, err)
 	}
 	if err := s.finishArtifactDecision(newCtx, job.String(), tenant.String(), submission.String(), "new", "new", true, true); err != nil {
 		t.Fatal("replacement completion:", err)

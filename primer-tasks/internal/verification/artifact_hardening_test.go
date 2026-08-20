@@ -42,6 +42,42 @@ func (c *countingCommitter) CommitDecision(_ context.Context, d Decision) (bool,
 	return c.calls == 1, nil
 }
 
+func TestArtifactRubricConfigRejectsUnsafeShapesAndKinds(t *testing.T) {
+	base := map[string]any{
+		"acceptedKinds": []any{"image"},
+		"criteria":      []any{map[string]any{"id": "shows-work", "label": "Shows work", "description": "Visible"}},
+	}
+	cases := []struct {
+		name string
+		mut  func(map[string]any)
+	}{
+		{"missing media", func(c map[string]any) { delete(c, "acceptedKinds") }},
+		{"unsupported media", func(c map[string]any) { c["acceptedKinds"] = []any{"document"} }},
+		{"missing criteria", func(c map[string]any) { delete(c, "criteria") }},
+		{"invalid criterion", func(c map[string]any) { c["criteria"] = []any{"not-an-object"} }},
+		{"empty criterion id", func(c map[string]any) {
+			c["criteria"] = []any{map[string]any{"id": "", "label": "x", "description": "y"}}
+		}},
+		{"duplicate criterion", func(c map[string]any) {
+			c["criteria"] = []any{map[string]any{"id": "x", "label": "x", "description": "y"}, map[string]any{"id": "x", "label": "x", "description": "y"}}
+		}},
+		{"missing label", func(c map[string]any) { c["criteria"] = []any{map[string]any{"id": "x", "description": "y"}} }},
+		{"missing description", func(c map[string]any) { c["criteria"] = []any{map[string]any{"id": "x", "label": "x"}} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := map[string]any{}
+			for key, value := range base {
+				config[key] = value
+			}
+			tc.mut(config)
+			if err := validateArtifactRubricConfig(config); err == nil {
+				t.Fatal("invalid rubric config accepted")
+			}
+		})
+	}
+}
+
 func TestGenericCommitDecisionDelegatesExactlyOnce(t *testing.T) {
 	committer := &countingCommitter{}
 	inserted, err := CommitDecision(context.Background(), committer, Decision{TenantID: "tenant", AttemptID: "attempt", OccurrenceID: "occurrence", Accepted: true, Reason: "rubric passed"})

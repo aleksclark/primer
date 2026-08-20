@@ -61,6 +61,30 @@ func TestS3RejectsUnsafeKeysAndInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestS3PresignAndOperationsHonorCanceledContext(t *testing.T) {
+	store, err := NewS3(context.Background(), S3Config{Endpoint: "http://127.0.0.1:1", Bucket: "tasks", AccessKey: "key", SecretKey: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.PresignPut(ctx, "tenant/object", "image/png", 1, time.Minute); err == nil {
+		t.Fatal("canceled presign succeeded")
+	}
+	if _, err := store.Put(ctx, "tenant/object", "image/png", bytes.NewReader([]byte("x")), 1); err == nil {
+		t.Fatal("canceled put succeeded")
+	}
+	if _, _, err := store.Open(ctx, "tenant/object"); err == nil {
+		t.Fatal("canceled open succeeded")
+	}
+	if _, err := store.Stat(ctx, "tenant/object"); err == nil {
+		t.Fatal("canceled stat succeeded")
+	}
+	if err := store.Delete(ctx, "tenant/object"); err == nil {
+		t.Fatal("canceled delete succeeded")
+	}
+}
+
 func TestS3ServerErrorsRemainClosed(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -114,6 +116,58 @@ func TestFSStoreComposeJoinsPartsAndChecksDeclaredSize(t *testing.T) {
 	}
 	if _, err = s.Compose(ctx, "missing-part", "text/plain", []string{"parts/missing"}, 1); err == nil {
 		t.Fatal("compose accepted missing part")
+	}
+}
+
+type exactEOFReader struct {
+	data []byte
+	read bool
+}
+
+type failingObjectReader struct{}
+
+func (failingObjectReader) Read([]byte) (int, error) { return 0, errors.New("object source failed") }
+
+func (r *exactEOFReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, io.EOF
+	}
+	r.read = true
+	copy(p, r.data)
+	return len(r.data), io.EOF
+}
+
+func TestFSStoreHandlesExactEOFAndRejectsUnusableRoots(t *testing.T) {
+	rootFile := t.TempDir() + "/not-a-directory"
+	if err := os.WriteFile(rootFile, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFS(rootFile); err == nil {
+		t.Fatal("file root accepted as an object store")
+	}
+	s, err := NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("exact eof payload")
+	object, err := s.Put(context.Background(), "exact", "text/plain", &exactEOFReader{data: payload}, int64(len(payload)))
+	if err != nil {
+		t.Fatalf("exact EOF upload failed: %v", err)
+	}
+	if object.Size != int64(len(payload)) {
+		t.Fatalf("size=%d", object.Size)
+	}
+	if _, err := s.Put(context.Background(), "read-failure", "text/plain", failingObjectReader{}, 4); err == nil || !strings.Contains(err.Error(), "object source failed") {
+		t.Fatalf("reader failure=%v", err)
+	}
+	opened, _, err := s.Open(context.Background(), "exact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(opened)
+	_ = opened.Close()
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("round trip=%q err=%v", got, err)
 	}
 }
 

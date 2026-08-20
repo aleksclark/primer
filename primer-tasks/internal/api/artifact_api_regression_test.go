@@ -561,6 +561,246 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if retryStatus != "queued" || retryError != "provider evaluation failed" {
 		t.Fatalf("provider retry status=%s error=%q", retryStatus, retryError)
 	}
+
+	// Exercise the detached evaluator's durable failure boundaries with a real
+	// finalized image and lease. These are intentionally end-to-end worker
+	// calls: a malformed rubric and a tampered derivative must each fence the
+	// job and persist the corresponding policy outcome.
+	coverageWorkerCtx := withArtifactLease(ctx, "coverage-worker", retryJobID)
+	activateJob := func(snapshot string) {
+		t.Helper()
+		mustExec(`UPDATE artifact_submissions SET status='submitted' WHERE tenant_id=$1 AND id=$2`, tenant, multipartOutput.SubmissionID)
+		mustExec(`UPDATE artifact_rubric_jobs SET status='running',attempts=0,lease_owner='coverage-worker',lease_until=now()+interval '5 minutes',rubric_snapshot=$3,last_error='' WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID, snapshot)
+	}
+	activateJob(`{}`)
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("invalid rubric worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "failed" || retryError != "invalid_rubric_snapshot" {
+		t.Fatalf("invalid rubric status=%s error=%q", retryStatus, retryError)
+	}
+	activateJob(config)
+	mustExec(`UPDATE artifact_derivatives SET sha256='tampered' WHERE tenant_id=$1 AND artifact_id=$2`, tenant, uuid.MustParse(multipartOutput.ID))
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("tampered derivative worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	var tamperedSubmissionStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM artifact_submissions WHERE tenant_id=$1 AND id=$2`, tenant, multipartOutput.SubmissionID).Scan(&tamperedSubmissionStatus); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "review" || retryError != "authorized_derivative_digest_mismatch" || tamperedSubmissionStatus != "review" {
+		t.Fatalf("tampered derivative job=%s error=%q submission=%s", retryStatus, retryError, tamperedSubmissionStatus)
+	}
+	// Storage failures remain policy outcomes rather than provider attempts.
+	// The worker must distinguish an unavailable object from a reader that
+	// fails after opening it, while still leaving a durable parent-review state.
+	authorizedBytes := []byte("authorized derivative for worker boundary")
+	authorizedKey := "coverage-authorized-derivative"
+	if _, err := store.Put(ctx, authorizedKey, "image/png", bytes.NewReader(authorizedBytes), int64(len(authorizedBytes))); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(`UPDATE artifact_derivatives SET object_key=$3,sha256=$4,content_type='image/png' WHERE tenant_id=$1 AND artifact_id=$2`, tenant, uuid.MustParse(multipartOutput.ID), authorizedKey, digestBytes(authorizedBytes))
+	activateJob(config)
+	s.Artifacts = rejectingArtifactOpenStore{Store: store}
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("unavailable derivative worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "review" || retryError != "authorized_derivative_unavailable" {
+		t.Fatalf("unavailable derivative job=%s error=%q", retryStatus, retryError)
+	}
+	activateJob(config)
+	s.Artifacts = rejectingArtifactReadStore{Store: store}
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("unreadable derivative worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "review" || retryError != "authorized_derivative_read_failed" {
+		t.Fatalf("unreadable derivative job=%s error=%q", retryStatus, retryError)
+	}
+	s.Artifacts = store
+	activateJob(config)
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_FAULT", "")
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_DIGEST", "wrong-digest")
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("provider digest worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "review" || retryError != "scripted fixture digest mismatch" {
+		t.Fatalf("provider digest job=%s error=%q", retryStatus, retryError)
+	}
+	activateJob(config)
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_DIGEST", hex.EncodeToString(validSum[:]))
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_OUTCOME", "negative")
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("negative provider worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "succeeded" || retryError != "" {
+		t.Fatalf("negative provider job=%s error=%q", retryStatus, retryError)
+	}
+	activateJob(config)
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_OUTCOME", "")
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_FIXTURE", "")
+	t.Setenv("TASKS_AGENT_MODE", "invalid-provider-mode")
+	if err := s.evaluateArtifact(coverageWorkerCtx, retryJobID, tenant.String(), multipartOutput.SubmissionID); err != nil {
+		t.Fatal("provider configuration worker outcome:", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, retryJobID).Scan(&retryStatus, &retryError); err != nil {
+		t.Fatal(err)
+	}
+	if retryStatus != "review" || retryError != "provider_configuration_invalid" {
+		t.Fatalf("provider configuration job=%s error=%q", retryStatus, retryError)
+	}
+	// Download façades authenticate and query the same durable derivative, but
+	// still fail closed when the object store disappears after the row commits.
+	storeFailureDerivativeRoute := chi.NewRouteContext()
+	storeFailureDerivativeRoute.URLParams.Add("id", multipartOutput.ID)
+	storeFailureDerivativeRoute.URLParams.Add("kind", "thumbnail")
+	s.Artifacts = rejectingArtifactOpenStore{Store: store}
+	derivativeMissingRec := httptest.NewRecorder()
+	s.studentDerivative(derivativeMissingRec, httptest.NewRequest(http.MethodGet, "/student/artifacts/derivative", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, storeFailureDerivativeRoute)), student)
+	if derivativeMissingRec.Code != http.StatusNotFound {
+		t.Fatalf("student missing derivative status=%d", derivativeMissingRec.Code)
+	}
+	storeFailureOriginalRoute := chi.NewRouteContext()
+	storeFailureOriginalRoute.URLParams.Add("id", replacement.ArtifactID)
+	parentOriginalRec := httptest.NewRecorder()
+	s.parentOriginal(parentOriginalRec, httptest.NewRequest(http.MethodGet, "/parent/artifacts/original", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, storeFailureOriginalRoute)), scope{Tenant: tenant.String()})
+	if parentOriginalRec.Code != http.StatusNotFound {
+		t.Fatalf("parent missing original status=%d", parentOriginalRec.Code)
+	}
+	storeFailureParentDerivativeRoute := chi.NewRouteContext()
+	storeFailureParentDerivativeRoute.URLParams.Add("id", multipartOutput.ID)
+	storeFailureParentDerivativeRoute.URLParams.Add("occurrence", occurrence.String())
+	storeFailureParentDerivativeRec := httptest.NewRecorder()
+	s.parentDerivative(storeFailureParentDerivativeRec, httptest.NewRequest(http.MethodGet, "/occurrences/artifacts/derivative", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, storeFailureParentDerivativeRoute)), scope{Tenant: tenant.String()})
+	if storeFailureParentDerivativeRec.Code != http.StatusNotFound {
+		t.Fatalf("parent missing derivative status=%d", storeFailureParentDerivativeRec.Code)
+	}
+	s.Artifacts = store
+	// A canceled worker step must stop before claiming a job rather than
+	// turning an infrastructure cancellation into a durable artifact result.
+	canceledCtx, cancelWorker := context.WithCancel(ctx)
+	cancelWorker()
+	if err := s.runArtifactStep(canceledCtx); err == nil {
+		t.Fatal("canceled artifact worker step unexpectedly succeeded")
+	}
+	// The typed API boundary uses the same durable reservation and finalize
+	// semantics as the compatibility façade. Exercise both a new reservation,
+	// its idempotent replay, and a finalize replay so the generated API cannot
+	// drift into a metadata-only implementation.
+	typedInput := ArtifactReservationInput{RequirementID: requirement.String(), Kind: "image", Filename: "typed.png", ContentType: "image/png", Size: int64(valid.Len()), IdempotencyKey: "typed-boundary"}
+	typedReservation, err := s.reserveArtifactData(ctx, student, occurrence.String(), typedInput)
+	if err != nil || typedReservation.ArtifactID == "" {
+		t.Fatalf("typed reservation=%#v err=%v", typedReservation, err)
+	}
+	autoInput := typedInput
+	autoInput.RequirementID = ""
+	autoInput.IdempotencyKey = "typed-auto-requirement"
+	if autoReservation, autoErr := s.reserveArtifactData(ctx, student, occurrence.String(), autoInput); autoErr != nil || autoReservation.ArtifactID == "" {
+		t.Fatalf("typed auto requirement reservation=%#v err=%v", autoReservation, autoErr)
+	}
+	typedReplay, err := s.reserveArtifactData(ctx, student, occurrence.String(), typedInput)
+	if err != nil || typedReplay.ArtifactID != typedReservation.ArtifactID || typedReplay.ReservationID != typedReservation.ReservationID {
+		t.Fatalf("typed reservation replay=%#v err=%v", typedReplay, err)
+	}
+	typedReserveError := func(name string, in ArtifactReservationInput, who uuid.UUID, want int) {
+		t.Helper()
+		_, reserveErr := s.reserveArtifactData(ctx, who, occurrence.String(), in)
+		statusErr, ok := reserveErr.(interface{ GetStatus() int })
+		if !ok || statusErr.GetStatus() != want {
+			t.Errorf("%s error=%v, want status %d", name, reserveErr, want)
+		}
+	}
+	typedReserveError("unsupported typed kind", func() ArtifactReservationInput {
+		x := typedInput
+		x.Kind = "document"
+		x.IdempotencyKey = "typed-bad-kind"
+		return x
+	}(), student, http.StatusBadRequest)
+	typedReserveError("typed zero size", func() ArtifactReservationInput {
+		x := typedInput
+		x.Size = 0
+		x.IdempotencyKey = "typed-zero"
+		return x
+	}(), student, http.StatusBadRequest)
+	typedReserveError("typed long filename", func() ArtifactReservationInput {
+		x := typedInput
+		x.Filename = strings.Repeat("x", 256)
+		x.IdempotencyKey = "typed-long-name"
+		return x
+	}(), student, http.StatusBadRequest)
+	typedReserveError("typed part bound", func() ArtifactReservationInput {
+		x := typedInput
+		x.PartCount = 10001
+		x.IdempotencyKey = "typed-parts"
+		return x
+	}(), student, http.StatusBadRequest)
+	typedReserveError("typed missing idempotency", func() ArtifactReservationInput { x := typedInput; x.IdempotencyKey = ""; return x }(), student, http.StatusBadRequest)
+	typedReserveError("typed missing requirement", func() ArtifactReservationInput {
+		x := typedInput
+		x.RequirementID = uuid.NewString()
+		x.IdempotencyKey = "typed-missing-requirement"
+		return x
+	}(), student, http.StatusNotFound)
+	mustExec(`UPDATE verification_requirements SET config=jsonb_set(config,'{maxCount}','1'::jsonb) WHERE tenant_id=$1 AND id=$2`, tenant, requirement)
+	typedReserveError("typed count limit", func() ArtifactReservationInput { x := typedInput; x.IdempotencyKey = "typed-count-limit"; return x }(), student, http.StatusConflict)
+	mustExec(`UPDATE verification_requirements SET config=jsonb_set(config,'{maxCount}','10'::jsonb) WHERE tenant_id=$1 AND id=$2`, tenant, requirement)
+	mustExec(`UPDATE verification_requirements SET config=jsonb_set(config,'{acceptedKinds}','["image"]'::jsonb) WHERE tenant_id=$1 AND id=$2`, tenant, requirement)
+	typedReserveError("typed disallowed kind", func() ArtifactReservationInput {
+		x := typedInput
+		x.Kind = "audio"
+		x.ContentType = "audio/mpeg"
+		x.IdempotencyKey = "typed-disallowed"
+		return x
+	}(), student, http.StatusBadRequest)
+	mustExec(`UPDATE verification_requirements SET config=$3 WHERE tenant_id=$1 AND id=$2`, tenant, requirement, mediaConfig)
+	typedReserveError("typed size limit", func() ArtifactReservationInput {
+		x := typedInput
+		x.Size = 50001
+		x.IdempotencyKey = "typed-size-limit"
+		return x
+	}(), student, http.StatusBadRequest)
+	typedReserveError("typed revoked student", typedInput, uuid.New(), http.StatusUnauthorized)
+
+	typedFinalizeError := func(name string, in ArtifactFinalizeInput, who uuid.UUID, want int) {
+		t.Helper()
+		_, finalizeErr := s.finalizeArtifactData(ctx, who, occurrence.String(), in)
+		statusErr, ok := finalizeErr.(interface{ GetStatus() int })
+		if !ok || statusErr.GetStatus() != want {
+			t.Errorf("%s error=%v, want status %d", name, finalizeErr, want)
+		}
+	}
+	typedFinalizeError("typed revoked student", ArtifactFinalizeInput{ArtifactID: replacement.ArtifactID, RequirementID: requirement.String(), SHA256: "digest"}, uuid.New(), http.StatusUnauthorized)
+	typedFinalizeError("typed malformed artifact", ArtifactFinalizeInput{ArtifactID: "not-a-uuid", RequirementID: requirement.String(), SHA256: "digest"}, student, http.StatusNotFound)
+	typedFinalizeError("typed malformed requirement", ArtifactFinalizeInput{ArtifactID: typedReservation.ArtifactID, RequirementID: "not-a-uuid", SHA256: "digest"}, student, http.StatusBadRequest)
+	typedFinalizeError("typed missing digest", ArtifactFinalizeInput{ArtifactID: typedReservation.ArtifactID, RequirementID: requirement.String()}, student, http.StatusBadRequest)
+	typedFinalizeError("typed inferred requirement", ArtifactFinalizeInput{ArtifactID: typedReservation.ArtifactID, SHA256: "digest"}, student, http.StatusBadRequest)
+	typedFinalizeError("typed missing object", ArtifactFinalizeInput{ArtifactID: typedReservation.ArtifactID, RequirementID: requirement.String(), SHA256: "digest"}, student, http.StatusBadRequest)
+	typedFinalizeError("typed unknown artifact", ArtifactFinalizeInput{ArtifactID: uuid.NewString(), RequirementID: requirement.String(), SHA256: "digest"}, student, http.StatusNotFound)
+	mustExec(`UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, typedReservation.ArtifactID)
+	typedFinalizeError("typed unavailable artifact", ArtifactFinalizeInput{ArtifactID: typedReservation.ArtifactID, RequirementID: requirement.String(), SHA256: "digest"}, student, http.StatusConflict)
+
+	typedFinal, err := s.finalizeArtifactData(ctx, student, occurrence.String(), ArtifactFinalizeInput{ArtifactID: replacement.ArtifactID, RequirementID: requirement.String(), SHA256: hex.EncodeToString(validSum[:]), IdempotencyKey: replacement.IdempotencyKey})
+	if err != nil || typedFinal.Status != "finalized" || typedFinal.SubmissionID == "" {
+		t.Fatalf("typed finalize replay=%#v err=%v", typedFinal, err)
+	}
+
 	revoked := uuid.New()
 	revokedUploadRec := httptest.NewRecorder()
 	s.uploadArtifact(revokedUploadRec, httptest.NewRequest(http.MethodPut, "/student/artifacts/x/upload", bytes.NewReader(valid.Bytes())), revoked)
@@ -577,7 +817,63 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if revokedDerivativeRec.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked derivative status=%d", revokedDerivativeRec.Code)
 	}
+	orphanID := uuid.New()
+	orphanKey := uploadKey(tenant, orphanID)
+	if _, err := store.Put(ctx, orphanKey, "image/png", bytes.NewReader([]byte("orphan")), int64(len("orphan"))); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(`INSERT INTO artifacts(id,tenant_id,student_id,object_key,kind,original_name,declared_content_type,byte_size,status,expires_at) VALUES($1,$2,$3,$4,'image','orphan.png','image/png',6,'reserved',now()-interval '1 hour')`, orphanID, tenant, student, orphanKey)
+	mustExec(`UPDATE artifact_retention SET retain_original_until=now()-interval '1 hour',retain_derivatives_until=now()-interval '1 hour' WHERE tenant_id=$1 AND artifact_id=$2`, tenant, uuid.MustParse(multipartOutput.ID))
 	if err := s.CleanupArtifactOrphans(ctx, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	var orphanStatus, finalizedStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM artifacts WHERE tenant_id=$1 AND id=$2`, tenant, orphanID).Scan(&orphanStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM artifacts WHERE tenant_id=$1 AND id=$2`, tenant, uuid.MustParse(multipartOutput.ID)).Scan(&finalizedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if orphanStatus != "tombstoned" || finalizedStatus != "tombstoned" {
+		t.Fatalf("cleanup statuses orphan=%s finalized=%s", orphanStatus, finalizedStatus)
+	}
+	mustExec(`UPDATE verification_requirements SET config='{"acceptedKinds":"not-an-array","criteria":[]}'::jsonb WHERE tenant_id=$1 AND id=$2`, tenant, requirement)
+	if _, err := s.artifactState(ctx, tenant, occurrence.String(), &student); err == nil || !strings.Contains(err.Error(), "decode artifact rubric config") {
+		t.Fatalf("invalid stored rubric config error=%v", err)
+	}
+	// Closed-pool failures are part of the API boundary: object rows must not
+	// become a 200/404 existence oracle when the durable store is unavailable.
+	pool.Close()
+	closedOriginalRoute := chi.NewRouteContext()
+	closedOriginalRoute.URLParams.Add("id", replacement.ArtifactID)
+	closedOriginalRec := httptest.NewRecorder()
+	s.parentOriginal(closedOriginalRec, httptest.NewRequest(http.MethodGet, "/parent/artifacts/original", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, closedOriginalRoute)), scope{Tenant: tenant.String()})
+	if closedOriginalRec.Code != http.StatusInternalServerError {
+		t.Fatalf("closed-pool original status=%d", closedOriginalRec.Code)
+	}
+	closedDerivativeRoute := chi.NewRouteContext()
+	closedDerivativeRoute.URLParams.Add("id", multipartOutput.ID)
+	closedDerivativeRoute.URLParams.Add("occurrence", occurrence.String())
+	closedDerivativeRec := httptest.NewRecorder()
+	s.parentDerivative(closedDerivativeRec, httptest.NewRequest(http.MethodGet, "/occurrences/artifacts/derivative", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, closedDerivativeRoute)), scope{Tenant: tenant.String()})
+	if closedDerivativeRec.Code != http.StatusInternalServerError {
+		t.Fatalf("closed-pool derivative status=%d", closedDerivativeRec.Code)
+	}
+	closedParentStateRoute := chi.NewRouteContext()
+	closedParentStateRoute.URLParams.Add("occurrence", occurrence.String())
+	closedParentStateRec := httptest.NewRecorder()
+	s.parentArtifactState(closedParentStateRec, httptest.NewRequest(http.MethodGet, "/occurrences/artifacts", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, closedParentStateRoute)), scope{Tenant: tenant.String()})
+	if closedParentStateRec.Code != http.StatusInternalServerError {
+		t.Fatalf("closed-pool state status=%d", closedParentStateRec.Code)
+	}
+	if err := s.CleanupArtifactOrphans(ctx, time.Now().UTC()); err == nil {
+		t.Fatal("closed-pool cleanup unexpectedly succeeded")
+	}
+	if err := s.runArtifactStep(ctx); err == nil {
+		t.Fatal("closed-pool worker unexpectedly succeeded")
+	}
+	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
+	s.StartArtifactCleanup(cleanupCtx)
+	cancelCleanup()
+	time.Sleep(20 * time.Millisecond)
 }

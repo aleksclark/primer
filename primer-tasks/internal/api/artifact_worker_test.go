@@ -4,10 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
+	"github.com/jackc/pgx/v5"
+	"primer-tasks/internal/artifactstore"
 	"primer-tasks/internal/domain/parent"
 	"primer-tasks/internal/verification"
 )
@@ -81,6 +86,79 @@ func TestArtifactModelScriptedConfigurationAndLiveQualificationFailClosed(t *tes
 	t.Setenv("TASKS_ARTIFACT_SCRIPTED_FIXTURE", "")
 	if _, _, err = (&Server{}).artifactModel(context.Background(), parent.ProviderConfig{}, "digest", nil, verification.ArtifactRubric{}); err == nil || !strings.Contains(err.Error(), "blocked") {
 		t.Fatalf("live qualification err=%v", err)
+	}
+	t.Setenv("TASKS_ARTIFACT_LIVE_QUALIFICATION", "1")
+	t.Setenv("TASKS_ARTIFACT_SCRIPTED_FIXTURE", "")
+	liveModel, liveProvider, liveErr := (&Server{}).artifactModel(context.Background(), parent.ProviderConfig{Mode: parent.ProviderScripted}, "digest", nil, verification.ArtifactRubric{})
+	if liveErr != nil || liveModel == nil || liveProvider != "scripted" {
+		t.Fatalf("scripted live qualification model=%v provider=%q err=%v", liveModel, liveProvider, liveErr)
+	}
+}
+
+type artifactLeaseRow struct {
+	active bool
+	err    error
+}
+
+func (r artifactLeaseRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	*(dest[0].(*bool)) = r.active
+	return nil
+}
+
+type artifactLeaseDB struct{ row pgx.Row }
+
+func (d artifactLeaseDB) QueryRow(context.Context, string, ...any) pgx.Row { return d.row }
+
+type rejectingArtifactOpenStore struct{ artifactstore.Store }
+
+func (rejectingArtifactOpenStore) Open(context.Context, string) (io.ReadCloser, artifactstore.Object, error) {
+	return nil, artifactstore.Object{}, errors.New("test authorized derivative open failure")
+}
+
+type failingArtifactReader struct{}
+
+func (failingArtifactReader) Read([]byte) (int, error) {
+	return 0, errors.New("test authorized derivative read failure")
+}
+func (failingArtifactReader) Close() error { return nil }
+
+type rejectingArtifactReadStore struct{ artifactstore.Store }
+
+func (rejectingArtifactReadStore) Open(context.Context, string) (io.ReadCloser, artifactstore.Object, error) {
+	return failingArtifactReader{}, artifactstore.Object{}, nil
+}
+
+func TestArtifactWorkerLifecycleTicksAndStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Server{}
+	s.StartArtifactWorker(ctx)
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	time.Sleep(20 * time.Millisecond)
+}
+
+func TestArtifactWorkerRequiresDurableConfigurationAndLeaseOwner(t *testing.T) {
+	if err := requireArtifactLeaseWithOwner(context.Background(), artifactLeaseDB{row: artifactLeaseRow{active: true}}, "tenant", "job", "owner"); err != nil {
+		t.Fatalf("active lease rejected: %v", err)
+	}
+	if err := requireArtifactLeaseWithOwner(context.Background(), artifactLeaseDB{row: artifactLeaseRow{}}, "tenant", "job", "owner"); !errors.Is(err, errArtifactLeaseLost) {
+		t.Fatalf("inactive lease error=%v", err)
+	}
+	queryErr := errors.New("lease query failed")
+	if err := requireArtifactLeaseWithOwner(context.Background(), artifactLeaseDB{row: artifactLeaseRow{err: queryErr}}, "tenant", "job", "owner"); !errors.Is(err, queryErr) {
+		t.Fatalf("lease query error=%v", err)
+	}
+	if err := (&Server{}).runArtifactStep(context.Background()); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("unconfigured worker error=%v", err)
+	}
+	if err := (&Server{}).requireArtifactLease(context.Background(), "tenant", "job"); err == nil || !strings.Contains(err.Error(), "owner missing") {
+		t.Fatalf("missing lease owner error=%v", err)
+	}
+	if got := artifactPrompt([]byte(`{"criteria":[]}`), "digest"); !strings.Contains(got, "authorized derivative") || !strings.Contains(got, "ARTIFACT_DIGEST=digest") {
+		t.Fatalf("worker prompt lost authorization boundary: %q", got)
 	}
 }
 
