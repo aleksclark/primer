@@ -110,7 +110,7 @@ export default function StudentArtifactPage({ occurrence, initialState }: { occu
       const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "audio";
       const reservation = await tasksClient.reserveArtifact(occurrence.id, { kind, mediaType: file.type, sizeBytes: file.size, digest, idempotencyKey: newArtifactIdempotencyKey() });
       await tasksClient.uploadArtifact(reservation, file, { onProgress: (current, maximum) => { setLoaded(current); setTotal(maximum); } });
-      const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, digest, sizeBytes: file.size, mediaType: file.type, filename: file.name });
+      const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, idempotencyKey: reservation.idempotencyKey, digest, sizeBytes: file.size, mediaType: file.type, filename: file.name });
       setState(next); setUploadState(next.status === "complete" ? "complete" : "queued");
     } catch (next) {
       setUploadState("error");

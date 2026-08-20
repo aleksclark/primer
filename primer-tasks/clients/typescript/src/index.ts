@@ -400,14 +400,14 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/reserve`, { method: "POST", body: JSON.stringify(payload), signal: options.signal }, (value) => {
         const record = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
         if (!record || typeof record.artifactId !== "string" || typeof record.uploadUrl !== "string") throw new TasksApiError(502, "The server returned an unusable upload reservation.");
-        return { artifactId: record.artifactId, occurrenceId: id, uploadUrl: record.uploadUrl, expiresAt: String(record.expiresAt ?? ""), kind: body.kind as ArtifactKind, mediaType: body.mediaType, maxBytes: body.sizeBytes, expectedDigest: body.digest };
+        return { artifactId: record.artifactId, occurrenceId: id, idempotencyKey: String(record.idempotencyKey ?? body.idempotencyKey), uploadUrl: record.uploadUrl, expiresAt: String(record.expiresAt ?? ""), kind: body.kind as ArtifactKind, mediaType: body.mediaType, maxBytes: body.sizeBytes, expectedDigest: body.digest };
       });
     },
     async uploadArtifact(reservation: ArtifactUploadReservation, file: File, options: ArtifactUploadOptions = {}) {
       return uploadArtifactBinary(reservation, file, options);
     },
     async finalizeArtifact(id: string, body: ArtifactFinalizeInput, options: RequestOptions = {}): Promise<ArtifactStudentState> {
-      await requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/finalize`, { method: "POST", body: JSON.stringify({ ...body, occurrenceId: id }), signal: options.signal }, (value) => value);
+      await requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/finalize`, { method: "POST", body: JSON.stringify({ ...body, occurrenceId: id, idempotencyKey: body.idempotencyKey }), signal: options.signal }, (value) => value);
       const state = await this.studentArtifactState(id, options);
       if (!state) throw new TasksApiError(502, "The server did not return artifact state after finalization.");
       return state;

@@ -116,6 +116,7 @@ export type ArtifactStudentState = {
 
 export type ArtifactUploadReservation = {
   artifactId: string;
+  idempotencyKey: string;
   occurrenceId: string;
   uploadUrl: string;
   expiresAt: string;
@@ -127,6 +128,7 @@ export type ArtifactUploadReservation = {
 
 export type ArtifactFinalizeInput = {
   artifactId: string;
+  idempotencyKey?: string;
   digest: string;
   sizeBytes: number;
   mediaType: string;

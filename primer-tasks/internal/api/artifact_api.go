@@ -40,11 +40,12 @@ type artifactFinalizeInput struct {
 	IdempotencyKey string `json:"idempotencyKey"`
 }
 type artifactReservationOutput struct {
-	ReservationID string    `json:"reservationId"`
-	ArtifactID    string    `json:"artifactId"`
-	UploadURL     string    `json:"uploadUrl"`
-	PartCount     int       `json:"partCount"`
-	ExpiresAt     time.Time `json:"expiresAt"`
+	ReservationID  string    `json:"reservationId"`
+	IdempotencyKey string    `json:"idempotencyKey"`
+	ArtifactID     string    `json:"artifactId"`
+	UploadURL      string    `json:"uploadUrl"`
+	PartCount      int       `json:"partCount"`
+	ExpiresAt      time.Time `json:"expiresAt"`
 }
 type artifactOutput struct {
 	ID            string `json:"id"`
@@ -177,6 +178,7 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 	err = s.DB.QueryRow(r.Context(), `SELECT r.id,r.artifact_id,r.part_count,r.expires_at FROM artifact_upload_reservations r WHERE r.tenant_id=$1 AND r.student_id=$2 AND r.idempotency_key=$3 AND r.status IN ('reserved','finalized') AND r.expires_at>now()`, tenant, student, in.IdempotencyKey).Scan(&existing.ReservationID, &existing.ArtifactID, &existing.PartCount, &existing.ExpiresAt)
 	if err == nil {
 		existing.UploadURL = "/student/artifacts/" + existing.ArtifactID + "/upload"
+		existing.IdempotencyKey = in.IdempotencyKey
 		jsonStatus(w, existing, 200)
 		return
 	}
@@ -200,7 +202,7 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 		problem(w, 500, "internal", "unable to commit reservation")
 		return
 	}
-	out := artifactReservationOutput{ReservationID: rid.String(), ArtifactID: aid.String(), UploadURL: "/student/artifacts/" + aid.String() + "/upload", PartCount: in.PartCount, ExpiresAt: expires}
+	out := artifactReservationOutput{ReservationID: rid.String(), ArtifactID: aid.String(), IdempotencyKey: in.IdempotencyKey, UploadURL: "/student/artifacts/" + aid.String() + "/upload", PartCount: in.PartCount, ExpiresAt: expires}
 	if ps, ok := s.Artifacts.(interface {
 		PresignPut(context.Context, string, string, int64, time.Duration) (string, error)
 	}); ok {
