@@ -24,6 +24,7 @@ import (
 	"github.com/aleksclark/primer/curriculum-studio/internal/logging"
 	studiomcp "github.com/aleksclark/primer/curriculum-studio/internal/mcp"
 	"github.com/aleksclark/primer/curriculum-studio/internal/outbox"
+	"github.com/aleksclark/primer/curriculum-studio/internal/workflow"
 )
 
 // Options customizes process bootstrap for tests.
@@ -161,6 +162,15 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
+	// The S12 runner is deliberately provider-free. The legacy stub remains a
+	// test-only API escape hatch and is never run alongside the real worker.
+	if !cfg.MatStub {
+		model, err := workflow.NewModel(cfg.ModelProvider)
+		if err != nil {
+			return err
+		}
+		go workflow.NewRunner(pool, model).Run(workerCtx)
+	}
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
@@ -193,6 +203,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
+	stopWorker()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
 	}

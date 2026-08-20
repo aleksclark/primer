@@ -235,6 +235,19 @@ func TestLoadRejectsDBURLWithoutName(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLoadRejectsNonScriptedModelProvider(t *testing.T) {
+	for _, provider := range []string{"bedrock", "openrouter", "openai"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Setenv("STUDIO_ENV", "development")
+			t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:x@localhost:5432/curriculum_studio?sslmode=disable")
+			t.Setenv("STUDIO_MODEL_PROVIDER", provider)
+			_, err := config.Load()
+			require.Error(t, err)
+			assert.Contains(t, strings.ToLower(err.Error()), "blocked")
+		})
+	}
+}
+
 func TestValidatePortZeroAllowed(t *testing.T) {
 	cfg := &config.Config{
 		DatabaseURL:           "postgres://studio:x@localhost:5432/curriculum_studio?sslmode=disable",

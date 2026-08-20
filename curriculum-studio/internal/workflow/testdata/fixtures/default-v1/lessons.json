@@ -1,0 +1,10 @@
+{
+  "items": [
+    {
+      "kind": "lesson",
+      "title": "Scripted lesson",
+      "body": {"content": "A scripted lesson."}
+    }
+  ],
+  "findings": []
+}
