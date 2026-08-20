@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "suiteId": "p5-media-terra-final",
+  "functionality": "Independent Phase 5 parent-authored artifact media acceptance on the real Compose stack",
+  "phase": "run",
+  "callCount": 3,
+  "baseUrl": "http://web.primer-tasks-p5.primer-tasks.test:5173",
+  "acceptance": [
+    "Parent authors, publishes, and schedules an artifact rubric; a fresh student pairs and completes the accepted image with no chat.",
+    "Reserve-to-same-origin bounded upload-to-finalize is visible; malformed, pixel, oversize, digest, replay, duplicate, stale/expired/revoked/foreign isolation cases fail safely and retry is same-occurrence.",
+    "Real valid and corrupt/truncated audio/video are server ffprobe-gated to explicit Parent review; parent media permissions and retention/tombstone cleanup are inspected without exposing credentials.",
+    "Progress survives reconnect; UI has CSP, responsive keyboard/a11y behavior, clean valid flow network/console, and no storage endpoint, raw reasoning, or credential disclosure."
+  ],
+  "updatedAt": "2026-08-20T11:05:00Z",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/p5-media-terra-final/exploration.md",
+    "playwrightConfig": "primer-tasks/web/playwright.config.ts",
+    "specFiles": ["primer-tasks/web/e2e/p5-media.spec.ts"],
+    "lastRun": "PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p5.primer-tasks.test:5173 CHROME_EXECUTABLE=/home/aleks/.local/bin/google-chrome npm --prefix primer-tasks/web run browser:promoted -- e2e/p5-media.spec.ts => 2 passed"
+  },
+  "qualityGates": {
+    "independentChromeVerification": true,
+    "playwrightGreen": true,
+    "relaxed": false
+  },
+  "result": "pass",
+  "blocker": null
+}

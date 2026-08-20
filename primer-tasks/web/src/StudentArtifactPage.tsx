@@ -59,17 +59,6 @@ function accepts(config: ArtifactStudentState["config"]) {
   return values.join(",");
 }
 
-async function mediaDurationMs(file: File): Promise<number> {
-  if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) return 0;
-  const source = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("The media could not be read.")); reader.onerror = () => reject(reader.error ?? new Error("The media could not be read.")); reader.readAsDataURL(file); });
-  const media = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
-  media.preload = "metadata";
-  media.src = source;
-  await new Promise<void>((resolve, reject) => { media.onloadedmetadata = () => resolve(); media.onerror = () => reject(new Error("The media duration could not be read.")); });
-  if (!Number.isFinite(media.duration) || media.duration <= 0) throw new Error("The media duration could not be read.");
-  return Math.ceil(media.duration * 1000);
-}
-
 function FilePreview({ file }: { file: File }) {
   const [source, setSource] = useState<string | null>(null);
   useEffect(() => {
@@ -128,8 +117,9 @@ export default function StudentArtifactPage({ occurrence, initialState }: { occu
       const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "audio";
       const reservation = await tasksClient.reserveArtifact(occurrence.id, { kind, mediaType: file.type, sizeBytes: file.size, digest, idempotencyKey: newArtifactIdempotencyKey() });
       await tasksClient.uploadArtifact(reservation, file, { onProgress: (current, maximum) => { setLoaded(current); setTotal(maximum); } });
-      const durationMs = await mediaDurationMs(file);
-      const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, idempotencyKey: reservation.idempotencyKey, digest, sizeBytes: file.size, mediaType: file.type, durationMs, filename: file.name });
+      // Browser MIME and duration are advisory. Finalize always lets the server
+      // probe and decode the stored bytes authoritatively, including corrupt A/V.
+      const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, idempotencyKey: reservation.idempotencyKey, digest, sizeBytes: file.size, mediaType: file.type, filename: file.name });
       setState(next); setUploadState(next.status === "complete" ? "complete" : "queued");
     } catch (next) {
       setUploadState("error");

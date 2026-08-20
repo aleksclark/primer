@@ -1,0 +1,19 @@
+COMMAND
+PRIMER_TASKS_BASE_URL=http://web.primer-tasks-p5.primer-tasks.test:5173 CHROME_EXECUTABLE=/home/aleks/.local/bin/google-chrome npm --prefix primer-tasks/web run browser:promoted -- e2e/p5-media.spec.ts
+
+OUTPUT
+> primer-tasks-web@0.0.0 browser:promoted
+> playwright test e2e/p5-media.spec.ts
+
+Running 2 tests using 1 worker
+
+  ✓  1 e2e/p5-media.spec.ts:91:1 › image completion is live, malformed input retries safely, and CSP keeps previews local (5.5s)
+  ✓  2 e2e/p5-media.spec.ts:130:1 › audio and video use local previews and deliver live parent review (8.7s)
+
+  2 passed (14.9s)
+
+PRE-RUN GATE SCAN
+PASS: no test.skip/test.fixme/test.only, expect(true), waitForTimeout, or route mock in p5-media.spec.ts.
+
+POST-RUN INDEPENDENT CHROME
+Fresh public-origin tab reloaded the repaired video occurrence and observed Parent review; console errors/warnings: none; observed API reads: 200 only.
