@@ -78,6 +78,7 @@ test("binary artifact façade rejects foreign, signed, and non-artifact targets"
       "http://tasks.test/api/other/artifacts/00000000-0000-0000-0000-000000000004/upload",
       "http://tasks.test/api/student/artifacts/00000000-0000-0000-0000-000000000004/upload?X-Amz-Signature=secret",
       "http://tasks.test/api/student/artifacts/00000000-0000-0000-0000-000000000004/derivative/thumbnail",
+      "http://tasks.test/api/student/artifacts/%2e%2e/other/upload",
     ]) {
       await assert.rejects(
         client.uploadArtifact({ ...reservation, uploadUrl }, {} as File),
