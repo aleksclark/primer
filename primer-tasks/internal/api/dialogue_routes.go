@@ -160,11 +160,19 @@ func (s *Server) dialogueInspect(w http.ResponseWriter, r *http.Request, sc scop
 		return lok && rok && left.Before(right)
 	})
 	var acceptedCount, requiredCount int
-	if err := s.DB.QueryRow(r.Context(), `SELECT COALESCE(d.accepted_count,0),COALESCE((d.config_snapshot->>'requiredQuestions')::int,0) FROM dialogue_attempts d JOIN verification_attempts a ON a.tenant_id=d.tenant_id AND a.id=d.attempt_id WHERE d.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC LIMIT 1`, sc.Tenant, id).Scan(&acceptedCount, &requiredCount); err != nil && err != pgx.ErrNoRows {
+	var provider, policy string
+	if err := s.DB.QueryRow(r.Context(), `SELECT COALESCE(d.accepted_count,0),COALESCE((d.config_snapshot->>'requiredQuestions')::int,0),COALESCE(e.provider,''),COALESCE(e.policy_version,'') FROM dialogue_attempts d JOIN verification_attempts a ON a.tenant_id=d.tenant_id AND a.id=d.attempt_id LEFT JOIN LATERAL (SELECT provider,policy_version FROM verification_evaluations WHERE tenant_id=d.tenant_id AND attempt_id=d.attempt_id ORDER BY created_at DESC,id DESC LIMIT 1) e ON true WHERE d.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC LIMIT 1`, sc.Tenant, id).Scan(&acceptedCount, &requiredCount, &provider, &policy); err != nil && err != pgx.ErrNoRows {
 		problem(w, 500, "internal", "unable to inspect dialogue counts")
 		return
 	}
-	jsonOK(w, map[string]any{"occurrenceId": occurrence, "studentId": student, "status": status, "acceptedCount": acceptedCount, "requiredCount": requiredCount, "timeline": entries, "entries": entries, "overrides": overrides})
+	response := map[string]any{"occurrenceId": occurrence, "studentId": student, "status": status, "acceptedCount": acceptedCount, "requiredCount": requiredCount, "timeline": entries, "entries": entries, "overrides": overrides}
+	if provider != "" {
+		response["provider"] = provider
+	}
+	if policy != "" {
+		response["policyVersion"] = policy
+	}
+	jsonOK(w, response)
 }
 
 func (s *Server) dialogueOverride(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -247,8 +255,15 @@ func (s *Server) studentDialogueState(w http.ResponseWriter, r *http.Request, id
 	} else {
 		current = "What is one specific fact from the parent-assigned chapter?"
 	}
+	var failed bool
+	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2 AND status='failed')`, tenant, attempt).Scan(&failed); err != nil {
+		problem(w, 500, "internal", "unable to read dialogue job state")
+		return
+	}
 	name := "in_progress"
-	if state.Terminal {
+	if failed {
+		name = "error"
+	} else if state.Terminal {
 		if state.TerminalStatus == "accepted" || state.AcceptedCount >= state.Config.RequiredQuestions {
 			name = "complete"
 		} else {
@@ -257,7 +272,11 @@ func (s *Server) studentDialogueState(w http.ResponseWriter, r *http.Request, id
 	} else if len(state.Evaluations) > 0 && !state.Evaluations[len(state.Evaluations)-1].Accepted {
 		name = "retry"
 	}
-	jsonOK(w, map[string]any{"occurrenceId": occurrenceID, "attemptId": attempt, "conversationId": attempt, "status": name, "acceptedCount": state.AcceptedCount, "requiredCount": state.Config.RequiredQuestions, "currentQuestion": current})
+	response := map[string]any{"occurrenceId": occurrenceID, "attemptId": attempt, "conversationId": attempt, "status": name, "acceptedCount": state.AcceptedCount, "requiredCount": state.Config.RequiredQuestions, "currentQuestion": current}
+	if failed {
+		response["errorExplanation"] = "The verifier could not finish this turn. Your answer is saved. Retry when ready."
+	}
+	jsonOK(w, response)
 }
 
 func (s *Server) registerDialogueRoutes(api huma.API) {

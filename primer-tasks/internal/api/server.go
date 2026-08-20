@@ -400,9 +400,12 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 		return
 	}
 	audit(r.Context(), s.DB, sc, "student.pairing_issued", pid.String())
-	origin := r.Header.Get("Origin")
+	// The pairing payload must name the server's configured public origin, not
+	// the browser BFF origin that happened to request it. Android validates the
+	// QR origin before it will use the device pairing API.
+	origin := s.Auth.PublicOrigin
 	if origin == "" {
-		origin = s.Auth.PublicOrigin
+		origin = r.Header.Get("Origin")
 	}
 	payload := map[string]any{"v": 1, "api": "/api", "origin": origin, "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
 	jsonOK(w, map[string]any{"pairingId": pid, "code": code, "expiresAt": exp, "qrPayload": string(mustJSON(payload))})

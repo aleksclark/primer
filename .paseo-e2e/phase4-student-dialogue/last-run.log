@@ -1,0 +1,8 @@
+2026-08-20 / Phase 4 web/server final gate run
+make tasks-cover -- PASS, 85.0% >= 85%
+make tasks-test tasks-agent-compat tasks-clients tasks-web -- PASS
+npm --prefix clients/typescript test -- PASS, 6/6
+npm --prefix web run typecheck && npm --prefix web run lint -- PASS (two existing warnings in prior specs)
+go test -race ./internal/verification/... ./internal/agent/... ./internal/api/... -count=10 -- PASS
+PRIMER_TASKS_BASE_URL=http://127.0.0.1:38638 npm --prefix web run browser:promoted -- e2e/phase4-student-dialogue.spec.ts -- PASS, 2/2
+Independent Chrome redrive -- PASS: fresh authentication and parent occurrence collection with durable completed dialogue records.

@@ -15,6 +15,7 @@ type dialogueBackendFake struct {
 	state               verification.DialogueState
 	getErr, questionErr error
 	evaluationErr       error
+	lastEvaluation      verification.DialogueEvaluation
 }
 
 func (f *dialogueBackendFake) GetDialogueState(context.Context, verification.DialogueContext) (verification.DialogueState, error) {
@@ -31,6 +32,7 @@ func (f *dialogueBackendFake) RecordAnswerEvaluation(_ context.Context, _ verifi
 	if f.evaluationErr != nil {
 		return e, verification.DecisionReady{}, false, f.evaluationErr
 	}
+	f.lastEvaluation = e
 	return e, verification.DecisionReady{AcceptedCount: 1, RequiredCount: 3}, true, nil
 }
 
@@ -72,7 +74,7 @@ func TestDialogueQuestionToolStripsAnswerLeakage(t *testing.T) {
 }
 
 func TestDialogueStateAndEvaluationToolsUseSafeBoundaries(t *testing.T) {
-	scope := verification.DialogueContext{TenantID: "tenant", StudentID: "student", OccurrenceID: "occ", RequirementID: "req", AttemptID: "attempt", PolicyVersion: "dialogue.v1", MessageID: "message"}
+	scope := verification.DialogueContext{TenantID: "tenant", StudentID: "student", OccurrenceID: "occ", RequirementID: "req", AttemptID: "attempt", PolicyVersion: "dialogue.v1", Provider: "scripted", Model: "fixture-model", MessageID: "message"}
 	state := verification.DialogueState{
 		Context:     scope,
 		Config:      CuratedThreeQuestionFixture().Config(),
@@ -97,6 +99,9 @@ func TestDialogueStateAndEvaluationToolsUseSafeBoundaries(t *testing.T) {
 	response, err = tools[2].Run(context.Background(), fantasy.ToolCall{ID: "eval", Input: `{"questionKey":"q1","accepted":true,"criteria":["answers address the distinct question"],"rationale":"Names a source fact."}`})
 	if err != nil || response.IsError || !strings.Contains(response.Content, "acceptedCount") {
 		t.Fatalf("evaluation response=%+v err=%v", response, err)
+	}
+	if backend.lastEvaluation.Provider != "scripted" || backend.lastEvaluation.Model != "fixture-model" {
+		t.Fatalf("evaluation provenance was not copied from the server scope: %+v", backend.lastEvaluation)
 	}
 	if _, err := NewDialogueTools(nil, scope); err == nil {
 		t.Fatal("dialogue tools accepted a missing backend")

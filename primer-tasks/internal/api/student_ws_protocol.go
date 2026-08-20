@@ -482,7 +482,10 @@ func (s *Server) enqueueDialogueJob(ctx context.Context, binding studentAttemptB
 	var existing string
 	err := s.DB.QueryRow(ctx, `SELECT id::text FROM verification_jobs WHERE tenant_id=$1 AND message_id=$2`, binding.TenantID, messageID).Scan(&existing)
 	if err == nil {
-		_, err = s.DB.Exec(ctx, `UPDATE verification_jobs SET status='queued', available_at=now(), last_error=NULL, updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status='failed'`, binding.TenantID, existing)
+		// A parent/student-visible retry starts a new bounded provider cycle for
+		// this same durable answer. It never creates another message/evaluation,
+		// while automatic attempts within the cycle remain capped by max_attempts.
+		_, err = s.DB.Exec(ctx, `UPDATE verification_jobs SET status='queued', attempts=0, available_at=now(), last_error=NULL, updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status='failed'`, binding.TenantID, existing)
 		return err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {

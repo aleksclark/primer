@@ -265,6 +265,16 @@ func TestPhase4ScriptedDialoguePostgresFlow(t *testing.T) {
 	if failureStatus != "failed" || failureError == "" {
 		t.Fatalf("provider failure job status=%q error=%q", failureStatus, failureError)
 	}
+	// A reconnecting student receives the server-owned failed projection, not
+	// fallback completion prose. This exercises the durable safe-retry route.
+	failureRoute := chi.NewRouteContext()
+	failureRoute.URLParams.Add("id", occurrence)
+	failureStateReq := httptest.NewRequest(http.MethodGet, "/student/occurrences/"+occurrence+"/dialogue", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, failureRoute))
+	failureStateRec := httptest.NewRecorder()
+	s.studentDialogueState(failureStateRec, failureStateReq, uuid.MustParse(student))
+	if failureStateRec.Code != http.StatusOK || !bytes.Contains(failureStateRec.Body.Bytes(), []byte(`"status":"error"`)) || !bytes.Contains(failureStateRec.Body.Bytes(), []byte("Your answer is saved")) {
+		t.Fatalf("failed dialogue state status=%d body=%s", failureStateRec.Code, failureStateRec.Body.String())
+	}
 	s.studentRetry(ctx, identity, sub, studentCommand{Type: "retry", ProtocolVersion: studentProtocolVersion, OccurrenceID: occurrence, AttemptID: attempt})
 	if err := pool.QueryRow(ctx, `SELECT status FROM verification_jobs WHERE id=$1`, failureJob).Scan(&failureStatus); err != nil || failureStatus != "queued" {
 		t.Fatalf("retry status=%q err=%v", failureStatus, err)
@@ -280,7 +290,7 @@ func TestPhase4ScriptedDialoguePostgresFlow(t *testing.T) {
 	inspectReq := httptest.NewRequest(http.MethodGet, "/occurrences/"+occurrence+"/inspect", nil).WithContext(context.WithValue(ctx, chi.RouteCtxKey, route))
 	inspectRec := httptest.NewRecorder()
 	s.dialogueInspect(inspectRec, inspectReq, scopeForParent(tenant, "parent-a"))
-	if inspectRec.Code != http.StatusOK || !bytes.Contains(inspectRec.Body.Bytes(), []byte("garden wall")) {
+	if inspectRec.Code != http.StatusOK || !bytes.Contains(inspectRec.Body.Bytes(), []byte("garden wall")) || !bytes.Contains(inspectRec.Body.Bytes(), []byte(`"provider":"scripted"`)) || !bytes.Contains(inspectRec.Body.Bytes(), []byte(`"policyVersion":"dialogue.v1"`)) {
 		t.Fatalf("inspect status=%d body=%s", inspectRec.Code, inspectRec.Body.String())
 	}
 	var count int
@@ -442,5 +452,21 @@ func TestPhase4ScriptedDialoguePostgresFlow(t *testing.T) {
 	var lastError string
 	if err := pool.QueryRow(ctx, `SELECT last_error FROM verification_jobs WHERE id=$1`, cancelJob).Scan(&lastError); err != nil || lastError != "canceled" {
 		t.Fatalf("canceled job last_error=%q err=%v", lastError, err)
+	}
+	// A terminal rejected attempt projects a safe error state and cannot appear
+	// complete merely because the browser reconnects.
+	if _, err := pool.Exec(ctx, `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,false,'dialogue exhausted','verification_engine')`, uuid.NewString(), tenant, startAttempt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE verification_attempts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, startAttempt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2`, tenant, startAttempt); err != nil {
+		t.Fatal(err)
+	}
+	rejectedStateRec := httptest.NewRecorder()
+	s.studentDialogueState(rejectedStateRec, startStateReq, uuid.MustParse(student))
+	if rejectedStateRec.Code != http.StatusOK || !bytes.Contains(rejectedStateRec.Body.Bytes(), []byte(`"status":"error"`)) {
+		t.Fatalf("rejected terminal state status=%d body=%s", rejectedStateRec.Code, rejectedStateRec.Body.String())
 	}
 }

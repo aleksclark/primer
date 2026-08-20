@@ -107,6 +107,9 @@ services:
       # production must supply a real provider and never accepts this mode.
       TASKS_AGENT_MODE: ${TASKS_AGENT_MODE-${TASKS_MODEL_PROVIDER-disabled}}
       TASKS_AGENT_SCRIPTED_DELAY_MS: ${TASKS_AGENT_SCRIPTED_DELAY_MS-0}
+      # Development-only dialogue failure modes exercise durable retry without
+      # allowing a scripted response to claim completion.
+      TASKS_AGENT_SCRIPTED_DIALOGUE_FAULT: ${TASKS_AGENT_SCRIPTED_DIALOGUE_FAULT-}
       # Parent agent tooling is explicit and server-owned. Empty/unknown values
       # fail closed in parent.ProviderConfig; this development default is only
       # used when a scripted qualification run is deliberately enabled.

@@ -93,7 +93,9 @@ export default function StudentDialoguePage({
     return () => { unsubscribe(); client.disconnect(); };
   }, [client]);
   const items = buildTranscript(snapshot.events, answers, liveDialogue);
-  const status = latestStatus(snapshot.events) ?? liveDialogue.status;
+  // A durable failed job must remain retryable after reconnect; stale replayed
+  // `evaluating` progress must not mask that server-owned error state.
+  const status = liveDialogue.status === "error" ? "error" : latestStatus(snapshot.events) ?? liveDialogue.status;
   const complete = liveDialogue.status === "complete" || status === "succeeded" || status === "completed";
   const offline = snapshot.connectionState === "offline" || snapshot.connectionState === "reconnecting";
   const send = (event: FormEvent) => {
@@ -103,12 +105,19 @@ export default function StudentDialoguePage({
     setAnswers((current) => [...current, { clientMessageId, text: text.trim() }].slice(-20));
     setText("");
   };
+  const retry = () => {
+    // The server owns the failed message/job and evaluates that same durable
+    // answer. Refreshing alone would strand the student in an error state.
+    client.connect();
+    client.retry();
+    onRetry();
+  };
   return <>
     <header className="page-header"><div><p className="eyebrow">Student workspace / Decide + Learn</p><h1>{occurrence.title}</h1><p>Answer the current question. Completion happens only after the server records enough accepted answers.</p></div><div className="page-actions"><span className={`status ${snapshot.connectionState === "connected" ? "active" : offline ? "attention" : ""}`} role="status">{snapshot.connectionState === "connected" ? "Connected" : offline ? "Offline" : "Connecting"}</span><button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button></div></header>
-    {snapshot.error && <div className="notice error" role="alert"><div><strong>Connection problem</strong><p>{snapshot.error.message}</p><button className="button quiet" type="button" onClick={() => { client.connect(); onRetry(); }}>Try again</button></div></div>}
+    {snapshot.error && <div className="notice error" role="alert"><div><strong>Connection problem</strong><p>{snapshot.error.message}</p><button className="button quiet" type="button" onClick={retry}>Try again</button></div></div>}
     {offline && <div className="notice attention" role="status"><div><strong>Offline</strong><p>Your previous answers stay on the server. Reconnect to continue the remaining questions.</p></div></div>}
     {liveDialogue.retryExplanation && status === "retry" && <div className="notice attention" role="status"><div><strong>Try again</strong><p>{liveDialogue.retryExplanation}</p></div></div>}
-    {liveDialogue.errorExplanation && status === "error" && <div className="notice error" role="alert"><div><strong>Verifier unavailable</strong><p>{liveDialogue.errorExplanation}</p><button className="button quiet" type="button" onClick={onRetry}>Retry</button></div></div>}
+    {liveDialogue.errorExplanation && status === "error" && <div className="notice error" role="alert"><div><strong>Verifier unavailable</strong><p>{liveDialogue.errorExplanation}</p><button className="button quiet" type="button" onClick={retry}>Retry</button></div></div>}
     <div className="dialogue-layout">
       <section className="dialogue-transcript" aria-label="Verification transcript" aria-live="polite">
         {liveDialogue.currentQuestion && <article className="dialogue-entry dialogue-question"><span className="system-label">Current question</span><p>{liveDialogue.currentQuestion}</p></article>}

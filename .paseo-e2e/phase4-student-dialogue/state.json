@@ -2,12 +2,34 @@
   "version": 1,
   "suiteId": "phase4-student-dialogue",
   "functionality": "Parent-created scheduled chapter dialogue task completes safely through a freshly paired student dialogue, including authorization, concurrency, retry, audit, privacy, accessibility, and clean-browser checks.",
-  "phase": "explore",
-  "callCount": 12,
+  "phase": "run",
+  "callCount": 18,
   "baseUrl": "http://web.phase4-dialogue-e2e11-13yu1btw.primer-tasks.test:5173",
-  "acceptance": ["Parent creates, publishes, and schedules a chapter dialogue task","Fresh student pairing and dialogue: two accepted concepts, one insufficient follow-up, third accepted and completion","Student reconnects after two answers","Prompt injection and answer-key attempts are rejected","Foreign/cross-task subscription is denied","Concurrent tabs conflict and recover","Malformed or timed-out work retries safely without invented success","Parent inspects and creates an append-only override","No raw reasoning appears in wire, database, logs, or UI","Responsive/accessibility behavior and browser console/network are clean"],
-  "updatedAt": "2026-08-19T17:31:29-05:00",
-  "artifacts": {"explorationNotes": ".paseo-e2e/phase4-student-dialogue/exploration.md","playwrightConfig": null,"specFiles": [],"packageJsonScript": null,"lastRun": ".paseo-e2e/phase4-student-dialogue/last-run.log"},
-  "qualityGates": {"independentChromeVerification": false,"playwrightGreen": false,"relaxed": false},
-  "blocker": null
+  "acceptance": [
+    "Parent creates, publishes, and schedules a chapter dialogue task",
+    "Fresh student pairing and dialogue: two accepted concepts, one insufficient follow-up, third accepted and completion",
+    "Student reconnects after two answers",
+    "Prompt injection and answer-key attempts are rejected",
+    "Foreign/cross-task subscription is denied",
+    "Concurrent tabs conflict and recover",
+    "Malformed or timed-out work retries safely without invented success",
+    "Parent inspects and creates an append-only override",
+    "No raw reasoning appears in wire, database, logs, or UI",
+    "Responsive/accessibility behavior and browser console/network are clean"
+  ],
+  "updatedAt": "2026-08-20T00:30:00Z",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/phase4-student-dialogue/exploration.md",
+    "playwrightConfig": "primer-tasks/web/playwright.config.ts",
+    "specFiles": [
+      "primer-tasks/web/e2e/phase4-student-dialogue.spec.ts"
+    ],
+    "packageJsonScript": "npm --prefix web run browser:promoted -- e2e/phase4-student-dialogue.spec.ts",
+    "lastRun": ".paseo-e2e/phase4-student-dialogue/last-run.log"
+  },
+  "qualityGates": {
+    "independentChromeVerification": true,
+    "playwrightGreen": true,
+    "relaxed": false
+  }
 }

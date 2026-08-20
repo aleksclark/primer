@@ -1,0 +1,6 @@
+anti-cheat final source scan
+clients/typescript/src/dialogue.ts:26:  "reasoning_delta",
+clients/typescript/src/dialogue.ts:30:  "systemPrompt",
+clients/typescript/src/dialogue.ts:31:  "rawPrompt",
+clients/typescript/src/dialogue.ts:32:  "provider_metadata",
+diff check

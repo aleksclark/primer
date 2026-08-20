@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"os"
 	"primer-tasks/internal/agent"
 	agentprotocol "primer-tasks/internal/agent/protocol"
 	"primer-tasks/internal/domain"
@@ -39,7 +40,17 @@ func (s *Server) claimAndRunDialogue(ctx context.Context, q *jobs.PostgresReposi
 		return err
 	}
 	if err = s.runDialogueJob(ctx, j); err != nil {
-		return q.FailDialogue(ctx, j.ID, j.LeaseOwner, err)
+		if failErr := q.FailDialogue(ctx, j.ID, j.LeaseOwner, err); failErr != nil {
+			return failErr
+		}
+		// Automatic retries remain bounded in the job queue. Once exhausted,
+		// publish a durable, generic retry state so a reconnecting student sees
+		// that their already-saved answer was not accepted or invented.
+		var status string
+		if statusErr := s.DB.QueryRow(ctx, `SELECT status FROM verification_jobs WHERE id=$1`, j.ID).Scan(&status); statusErr == nil && status == "failed" {
+			return s.publishDialogueFailure(ctx, j)
+		}
+		return nil
 	}
 	return q.CompleteDialogue(ctx, j.ID, j.LeaseOwner)
 }
@@ -73,7 +84,7 @@ func (s *Server) runDialogueJob(ctx context.Context, j jobs.DialogueJob) error {
 	answer := studentAnswer(state, j.MessageID)
 	var model fantasy.LanguageModel
 	if cfg.Mode == parent.ProviderScripted {
-		model = &scriptedDialogueModel{answer: answer, questionKey: nextDialogueKey(state), config: state.Config}
+		model = &scriptedDialogueModel{answer: answer, questionKey: nextDialogueKey(state), config: state.Config, fault: strings.TrimSpace(os.Getenv("TASKS_AGENT_SCRIPTED_DIALOGUE_FAULT"))}
 	} else if cfg.Mode == parent.ProviderDisabled {
 		return agent.ErrProviderDisabled
 	} else {
@@ -82,6 +93,9 @@ func (s *Server) runDialogueJob(ctx context.Context, j jobs.DialogueJob) error {
 			return err
 		}
 	}
+	// The persisted evaluation receives only run provenance selected by this
+	// server worker, never provenance proposed by the client or model.
+	scope.Provider, scope.Model = model.Provider(), model.Model()
 	tools, err := agent.NewDialogueTools(r, scope)
 	if err != nil {
 		return err
@@ -133,6 +147,22 @@ func (s *Server) runDialogueJob(ctx context.Context, j jobs.DialogueJob) error {
 	}
 	return s.publishDialogueResult(ctx, scope, state)
 }
+func (s *Server) publishDialogueFailure(ctx context.Context, j jobs.DialogueJob) error {
+	var student, occurrence string
+	if err := s.DB.QueryRow(ctx, `SELECT o.student_id::text,a.occurrence_id::text FROM verification_attempts a JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=a.occurrence_id WHERE a.tenant_id=$1 AND a.id=$2`, j.TenantID, j.AttemptID).Scan(&student, &occurrence); err != nil {
+		return err
+	}
+	studentID, err := uuid.Parse(student)
+	if err != nil {
+		return err
+	}
+	binding, err := s.bindStudentAttempt(ctx, studentIdentity{StudentID: studentID, TenantID: j.TenantID}, occurrence, j.AttemptID)
+	if err != nil {
+		return err
+	}
+	return s.persistStudentEvent(ctx, binding, wireStudentEvent{Type: "error", Code: "provider_unavailable", Message: "The verifier could not finish this turn. Your answer is saved.", Retryable: true, Status: "failed", AcceptedCount: binding.Accepted, RequiredCount: binding.Required})
+}
+
 func evaluationForMessage(s verification.DialogueState, id string) *verification.DialogueEvaluation {
 	for i := range s.Evaluations {
 		if s.Evaluations[i].MessageID == id {
@@ -204,17 +234,17 @@ func nextDialogueKey(s verification.DialogueState) string {
 	// turn. Evaluate that question before selecting another unseen question.
 	for i := len(s.Questions) - 1; i >= 0; i-- {
 		q := s.Questions[i]
-		evaluated := false
+		evaluated, accepted := false, false
 		for _, e := range s.Evaluations {
-			if e.QuestionID == q.ID {
-				evaluated = true
-				if !e.Accepted {
-					return q.QuestionKey
-				}
-				break
+			if e.QuestionID != q.ID {
+				continue
 			}
+			evaluated = true
+			// A rejected follow-up must not keep a question current after a
+			// later accepted evaluation for that same durable question.
+			accepted = accepted || e.Accepted
 		}
-		if !evaluated {
+		if !evaluated || !accepted {
 			return q.QuestionKey
 		}
 	}
@@ -271,7 +301,11 @@ type scriptedDialogueModel struct {
 	answer, questionKey string
 	config              domain.DialogueConfig
 	questionOnly        bool
-	calls               int
+	// fault is a development-only scripted-provider qualification seam. It
+	// exercises the real worker/job/retry path without granting a client any
+	// authority to manufacture a decision.
+	fault string
+	calls int
 }
 
 func (m *scriptedDialogueModel) Provider() string { return "scripted" }
@@ -286,6 +320,14 @@ func (m *scriptedDialogueModel) StreamObject(context.Context, fantasy.ObjectCall
 	return nil, errors.New("scripted dialogue objects disabled")
 }
 func (m *scriptedDialogueModel) Stream(ctx context.Context, _ fantasy.Call) (fantasy.StreamResponse, error) {
+	if m.fault == "timeout" {
+		return nil, context.DeadlineExceeded
+	}
+	if m.fault == "malformed" {
+		// A prose-only response deliberately makes no allowed tool call. The
+		// worker must retain the answer and fail safely rather than infer success.
+		return scriptedStream(ctx, "malformed scripted provider response"), nil
+	}
 	m.calls++
 	config := m.config
 	if config.SourceRef == "" && config.SourceText == "" {

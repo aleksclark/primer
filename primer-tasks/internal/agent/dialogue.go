@@ -190,7 +190,9 @@ func (t DialogueTools) recordEvaluation(ctx context.Context, in recordEvaluation
 	if err != nil {
 		return fantasy.NewTextErrorResponse("evaluation is invalid"), nil
 	}
-	e := verification.DialogueEvaluation{ID: uuid.NewString(), MessageID: t.Scope.MessageID, Accepted: in.Accepted, Criteria: in.Criteria, Rationale: rationale, PolicyVersion: t.Scope.PolicyVersion}
+	// Provenance is fixed by the worker's authenticated server scope; the
+	// model can propose only the evaluation fields above.
+	e := verification.DialogueEvaluation{ID: uuid.NewString(), MessageID: t.Scope.MessageID, Accepted: in.Accepted, Criteria: in.Criteria, Rationale: rationale, Provider: t.Scope.Provider, Model: t.Scope.Model, PolicyVersion: t.Scope.PolicyVersion}
 	_, ready, _, err := t.Backend.RecordAnswerEvaluation(ctx, t.Scope, strings.TrimSpace(in.QuestionKey), e)
 	if err != nil {
 		return fantasy.NewTextErrorResponse("evaluation was not recorded"), nil

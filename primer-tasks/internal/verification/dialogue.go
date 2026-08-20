@@ -29,7 +29,11 @@ type DialogueContext struct {
 	RequirementID string
 	AttemptID     string
 	PolicyVersion string
-	MessageID     string // the durable student message currently being evaluated
+	// Provider and Model are server-derived run provenance. They are never
+	// supplied by a student or model tool call.
+	Provider  string
+	Model     string
+	MessageID string // the durable student message currently being evaluated
 }
 
 func (c DialogueContext) Validate() error {
