@@ -9,7 +9,7 @@ native, emulator, and live multimodal quality work are out of scope.
 
 - Branch: `impl/tasks-p5-media`
 - Plan revision: `24cd3abe`
-- Reviewed tip: `5bf284631cceea9a071f35ca6db396565bbe9219` (final implementation tip; fresh independent anti-cheat review pending)
+- Reviewed tip: `b064aa626f7e7b2502d87551d8e7687f675fb842` (final implementation tip; fresh independent anti-cheat recheck pending)
 - Exploratory suites: `.paseo-e2e/p5-media-final/` and `.paseo-e2e/p5-media-final2/` (sanitized, local evidence)
 - Terra final exploratory result: **PASS** (call #6)
 - Promoted Playwright result: **PASS, 2/2** (call #7 plus fresh independent Chrome confirmation)
@@ -25,7 +25,10 @@ Real Stacklane Compose with PostgreSQL and MinIO verified:
   invalid reservations/submissions were reconciled and same-occurrence replacement
   succeeded. Duplicate finalize and interrupted upload/resume were replay-safe.
 - Audio and video persisted securely, rendered local/authorized previews, and were
-  visibly routed to parent review rather than silently passed.
+  visibly routed to parent review rather than silently passed. A fresh Terra
+  redrive proved truncated-video server rejection leaves `rejected/canceled`
+  lifecycle state and a valid replacement on the same occurrence reaches parent
+  review; the browser does not pre-reject based on local duration metadata.
 - Foreign tenant and revoked student access returned generic denial/revocation
   states. Browser network/DOM scans found no MinIO host, presigned query,
   X-Amz credential, tenant object key, or object-store URL.
@@ -59,6 +62,7 @@ fixtures, and no private repository seeding, mocks, skips, or weakened assertion
 - Real PostgreSQL migration and security integration checks — PASS
 - Compose `check` and real PostgreSQL/MinIO Stacklane health — PASS
 - `make -C primer-tasks tasks-cover` — PASS at **85.0%** (mandatory 85% minimum)
+- `go -C primer-tasks test -race ./... -count=1` — PASS
 - `git diff --check` — PASS
 
 ## Explicit limitations
@@ -81,7 +85,9 @@ operations and generated client types; the public authenticated API→PostgreSQL
 MinIO integration proves isolation, replay, revocation, original/derivative
 permissions, and retention cleanup; and the aggregate coverage gate is 85.0%.
 The binary client façade additionally rejects foreign origins, signed queries,
-non-artifact paths, and traversal-like targets.
+non-artifact paths, and traversal-like targets. The browser no longer uses
+browser A/V metadata to reject before server finalize; corrupt/truncated A/V
+reaches the authoritative server probe and releases its retry slot on failure.
 
 Phase 5 web/server completion gate: **PASS**. Controlled live image
 qualification remains explicitly **BLOCKED** pending approved provider
