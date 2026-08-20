@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -253,6 +254,7 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 	r.Body = http.MaxBytesReader(w, r.Body, size+1)
 	obj, e := s.Artifacts.Put(r.Context(), key, r.Header.Get("Content-Type"), r.Body, size)
 	if e != nil {
+		slog.Warn("artifact upload storage failure", "code", "object_put_failed", "kind", r.Header.Get("Content-Type"))
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
 		problem(w, 400, "invalid_request", "upload could not be stored")
