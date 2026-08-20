@@ -37,6 +37,7 @@ function effectiveStatus(state: ArtifactStudentState, socket: ArtifactClientSnap
   if (terminal?.status === "accepted") return "complete";
   if (terminal?.status === "rejected") return "rejected";
   const progress = [...socket.events].reverse().find((event) => event.kind === "progress");
+  if (progress?.phase === "review") return "review";
   if (progress?.phase === "evaluating") return "evaluating";
   if (progress?.phase === "loading") return "loading";
   if (progress?.phase === "queued") return "queued";
@@ -74,9 +75,11 @@ async function mediaDurationMs(file: File): Promise<number> {
 function FilePreview({ file }: { file: File }) {
   const [source, setSource] = useState<string | null>(null);
   useEffect(() => {
-    const next = URL.createObjectURL(file);
-    setSource(next);
-    return () => URL.revokeObjectURL(next);
+    let active = true;
+    const reader = new FileReader();
+    reader.onload = () => { if (active && typeof reader.result === "string") setSource(reader.result); };
+    reader.readAsDataURL(file);
+    return () => { active = false; reader.abort(); };
   }, [file]);
   if (!source) return null;
   if (file.type.startsWith("image/")) return <img className="artifact-file-preview" src={source} alt="Selected work preview" />;
