@@ -83,7 +83,7 @@ async function start(page: Page, title: string) {
 async function assertNoPreviewLeak(page: Page, requestURLs: string[]) {
   await expect.poll(() => requestURLs.filter((url) => url.startsWith("blob:"))).toEqual([]);
   await expect.poll(() => page.evaluate(() => ({
-    blobAttribute: Array.from(document.querySelectorAll("[src],[href]")).some((element) => /^blob:/.test(element.getAttribute("src") || element.getAttribute("href") || "")),
+    blobAttribute: Array.from(document.querySelectorAll("[src],[href]")).some((element) => (element.getAttribute("src") || element.getAttribute("href") || "").startsWith("blob:")),
     sensitiveText: /x-amz|presign|object key|signature|chain of thought|internal reasoning/i.test(document.body.innerText),
   }))).toEqual({ blobAttribute: false, sensitiveText: false });
 }

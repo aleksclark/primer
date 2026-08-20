@@ -4,7 +4,7 @@ import {
   type AgentEvent,
   type AgentMessageCommand,
   parseAgentEvent,
-} from "./agent-protocol";
+} from "./agent-protocol.ts";
 
 export type AgentConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "offline";
 

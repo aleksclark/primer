@@ -1,6 +1,6 @@
-import { parseStudentDialogueEvent, STUDENT_DIALOGUE_PROTOCOL_VERSION, type StudentDialogueCommand, type StudentDialogueEvent } from "./student-dialogue-protocol";
-import type { AgentClientError, AgentClientSnapshot } from "./agent-client";
-import type { AgentEvent } from "./agent-protocol";
+import { parseStudentDialogueEvent, STUDENT_DIALOGUE_PROTOCOL_VERSION, type StudentDialogueCommand, type StudentDialogueEvent } from "./student-dialogue-protocol.ts";
+import type { AgentClientError, AgentClientSnapshot } from "./agent-client.ts";
+import type { AgentEvent } from "./agent-protocol.ts";
 
 export type DialogueConnectionState = AgentClientSnapshot["connectionState"];
 export type DialogueClientError = AgentClientError;

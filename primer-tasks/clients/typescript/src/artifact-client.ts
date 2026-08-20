@@ -1,5 +1,5 @@
-import { parseArtifactProgressEvent, type ArtifactProgressEvent } from "./artifact";
-import type { AgentClientError, AgentClientSnapshot } from "./agent-client";
+import { parseArtifactProgressEvent, type ArtifactProgressEvent } from "./artifact.ts";
+import type { AgentClientError, AgentClientSnapshot } from "./agent-client.ts";
 
 export type ArtifactConnectionState = AgentClientSnapshot["connectionState"];
 export type ArtifactClientError = AgentClientError;
