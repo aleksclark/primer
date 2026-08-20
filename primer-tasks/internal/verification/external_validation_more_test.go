@@ -17,6 +17,22 @@ func TestExternalConfigRejectsEachRequiredFieldIndividually(t *testing.T) {
 	}
 }
 
+func TestExternalPublicOptionsRejectSensitiveAndNestedValues(t *testing.T) {
+	for _, options := range []map[string]any{
+		{"endpointUrl": "https://private.example"},
+		{"apiToken": "secret"},
+		{"headers": map[string]any{"X": "value"}},
+		{"not-valid-key!": "value"},
+	} {
+		if err := ValidatePublicOptions(options); err == nil {
+			t.Fatalf("unsafe options accepted: %#v", options)
+		}
+	}
+	if err := ValidatePublicOptions(map[string]any{"mode": "short", "percent": 50.0, "enabled": true}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExternalCallbackValidationAcceptsAllTypedResults(t *testing.T) {
 	base := CallbackEnvelope{
 		Version: 1, CallbackID: "callback", RequestID: "request", AttemptRef: "attempt",

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -36,12 +37,36 @@ type ExternalConfig struct {
 	Options    map[string]any `json:"options,omitempty"`
 }
 
+var publicOptionKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,31}$`)
+
 func (c ExternalConfig) Validate() error {
 	if strings.TrimSpace(c.VerifierID) == "" || strings.TrimSpace(c.Capability) == "" {
 		return errors.New("external verifier and capability are required")
 	}
 	if c.Schema == "" {
 		return errors.New("external schema version is required")
+	}
+	return ValidatePublicOptions(c.Options)
+}
+
+// ValidatePublicOptions is the verifier protocol's public-options boundary.
+// Options are deliberately limited to small scalar values with safe field
+// names; endpoints, headers, credentials, and opaque nested documents belong
+// to the administrator catalog, never to a parent task revision.
+func ValidatePublicOptions(options map[string]any) error {
+	if len(options) > 32 {
+		return errors.New("external public options contain too many fields")
+	}
+	for key, value := range options {
+		lower := strings.ToLower(key)
+		if !publicOptionKey.MatchString(key) || strings.Contains(lower, "url") || strings.Contains(lower, "endpoint") || strings.Contains(lower, "header") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "auth") || strings.Contains(lower, "password") || strings.Contains(lower, "credential") {
+			return errors.New("external public option name is not allowed")
+		}
+		switch value.(type) {
+		case nil, string, bool, float64, float32, int, int32, int64, uint, uint32, uint64:
+		default:
+			return errors.New("external public options must be scalar")
+		}
 	}
 	return nil
 }
@@ -222,10 +247,7 @@ func HandleExternalCallback(ctx context.Context, committer DecisionCommitter, bi
 	}
 	reason := "external verifier rejected result"
 	if c.Type == "accepted" {
-		reason = c.Accepted.Rationale
-	}
-	if c.Type == "rejected" {
-		reason = c.Rejected.Rationale
+		reason = "external verifier accepted result"
 	}
 	return CommitDecision(ctx, committer, Decision{ID: uuid.NewString(), TenantID: binding.TenantID, AttemptID: binding.AttemptID, OccurrenceID: binding.OccurrenceID, Accepted: c.Type == "accepted", Reason: reason, DecidedBy: "external_verifier"})
 }

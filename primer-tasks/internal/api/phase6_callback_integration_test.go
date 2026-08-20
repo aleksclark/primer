@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,6 +170,20 @@ func TestPhase6ExternalSignedCallbackProcessAndDecision(t *testing.T) {
 		server.publishExternalCallback(context.Background(), projection)
 	}
 	var decisions, completed int
+	var reason string
+	if err := pool.QueryRow(context.Background(), `SELECT reason FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "external verifier accepted result" {
+		t.Fatalf("unsafe external rationale persisted: %q", reason)
+	}
+	var callbackPayload []byte
+	if err := pool.QueryRow(context.Background(), `SELECT payload FROM external_verifier_callbacks WHERE tenant_id=$1 AND request_id=$2 AND result_type='accepted'`, f.tenant, f.requestID).Scan(&callbackPayload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(callbackPayload), "safe acceptance") {
+		t.Fatalf("raw callback rationale persisted: %s", callbackPayload)
+	}
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&decisions); err != nil {
 		t.Fatal(err)
 	}

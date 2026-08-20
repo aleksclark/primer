@@ -22,9 +22,10 @@ import (
 // signatures below. Persistence and the browser-facing implementation remain
 // behind that boundary.
 type Health struct {
-	Status        string    `json:"status"`
-	ModelProvider string    `json:"modelProvider"`
-	StartedAt     time.Time `json:"startedAt" format:"date-time"`
+	Status           string                  `json:"status"`
+	ModelProvider    string                  `json:"modelProvider"`
+	StartedAt        time.Time               `json:"startedAt" format:"date-time"`
+	ExternalVerifier *ExternalVerifierHealth `json:"externalVerifier,omitempty"`
 }
 
 type Session struct {
@@ -364,8 +365,8 @@ func (s *Server) humaAPI() huma.API {
 	})
 
 	register(api, huma.Operation{OperationID: "health", Method: http.MethodGet, Path: "/health"}, func(ctx context.Context, _ *struct{}) (*HealthOutput, error) {
-		body, headers, err := legacyJSON[Health](ctx, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			jsonOK(w, Health{Status: "ok", ModelProvider: envOr("TASKS_MODEL_PROVIDER", "disabled"), StartedAt: s.StartedAt})
+		body, headers, err := legacyJSON[Health](ctx, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			jsonOK(w, Health{Status: "ok", ModelProvider: envOr("TASKS_MODEL_PROVIDER", "disabled"), StartedAt: s.StartedAt, ExternalVerifier: s.externalVerifierHealth(request.Context())})
 		}), nil)
 		return &HealthOutput{ResponseHeaders: headers, Body: body}, err
 	})

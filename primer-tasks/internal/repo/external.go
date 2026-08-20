@@ -235,8 +235,15 @@ func (r *ExternalRepository) RecordCallback(ctx context.Context, b ExternalBindi
 		return false, err
 	}
 	defer tx.Rollback(ctx)
+	var deliveryStatus string
+	if err = tx.QueryRow(ctx, `SELECT status FROM external_verifier_outbox WHERE tenant_id=$1 AND request_id=$2 FOR UPDATE`, b.TenantID, b.RequestID).Scan(&deliveryStatus); err != nil {
+		return false, err
+	}
+	if deliveryStatus == "canceled" || deliveryStatus == "dead" {
+		return false, verification.ErrExternalBinding
+	}
 	var existing string
-	err = tx.QueryRow(ctx, `INSERT INTO external_verifier_callbacks(tenant_id,callback_id,request_id,attempt_id,verifier_id,sequence,result_type,request_digest,body_digest,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(tenant_id,request_id,sequence) DO NOTHING RETURNING callback_id`, b.TenantID, c.CallbackID, b.RequestID, b.AttemptID, b.VerifierID, c.Sequence, c.Type, c.RequestDigest, verification.ExternalPayloadDigest(body), jsonValue(c)).Scan(&existing)
+	err = tx.QueryRow(ctx, `INSERT INTO external_verifier_callbacks(tenant_id,callback_id,request_id,attempt_id,verifier_id,sequence,result_type,request_digest,body_digest,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(tenant_id,request_id,sequence) DO NOTHING RETURNING callback_id`, b.TenantID, c.CallbackID, b.RequestID, b.AttemptID, b.VerifierID, c.Sequence, c.Type, c.RequestDigest, verification.ExternalPayloadDigest(body), jsonValue(safeCallbackPayload(c))).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var existingDigest string
 		if err = tx.QueryRow(ctx, `SELECT callback_id,body_digest FROM external_verifier_callbacks WHERE tenant_id=$1 AND request_id=$2 AND sequence=$3`, b.TenantID, b.RequestID, c.Sequence).Scan(&existing, &existingDigest); err != nil {
@@ -250,7 +257,7 @@ func (r *ExternalRepository) RecordCallback(ctx context.Context, b ExternalBindi
 	if err != nil {
 		return false, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_events(tenant_id,request_id,sequence,kind,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, b.TenantID, b.RequestID, c.Sequence, "external."+c.Type, jsonValue(c))
+	_, err = tx.Exec(ctx, `INSERT INTO external_verifier_events(tenant_id,request_id,sequence,kind,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, b.TenantID, b.RequestID, c.Sequence, "external."+c.Type, jsonValue(safeCallbackPayload(c)))
 	if err == nil && c.Type == "progress" {
 		_, err = tx.Exec(ctx, `INSERT INTO external_verifier_facts(id,tenant_id,aggregate_type,aggregate_id,fact_type,schema_version,payload) VALUES($1,$2,'verification_attempt',$3,'verification.progressed',1,$4) ON CONFLICT DO NOTHING`, uuid.New(), b.TenantID, b.AttemptID, jsonValue(map[string]any{"status": "progress"}))
 	}
@@ -267,6 +274,13 @@ func (r *ExternalRepository) RecordCallback(ctx context.Context, b ExternalBindi
 }
 func (r *ExternalRepository) SecurityFailure(ctx context.Context, tenant, verifier, request, class string) {
 	_, _ = r.DB.Exec(ctx, `INSERT INTO external_verifier_security_events(tenant_id,verifier_id,request_id,failure_class) VALUES(NULLIF($1,'')::uuid,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,$4)`, tenant, verifier, request, class)
+}
+func safeCallbackPayload(c verification.CallbackEnvelope) map[string]any {
+	payload := map[string]any{"version": c.Version, "type": c.Type, "sequence": c.Sequence, "schemaVersion": c.SchemaVersion}
+	if c.Progress != nil {
+		payload["progress"] = map[string]any{"percent": c.Progress.Percent}
+	}
+	return payload
 }
 func jsonValue(v any) []byte { b, _ := json.Marshal(v); return b }
 func VerifierEgressTarget(ctx context.Context, raw string, policy map[string]any) (securityreview.EgressTarget, error) {

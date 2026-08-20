@@ -59,6 +59,16 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	if submit.RequestID == "" || submit.Status != "queued" {
 		t.Fatalf("submit=%+v", submit)
 	}
+	duplicateRec := httptest.NewRecorder()
+	s.submitExternal(duplicateRec, externalRouteRequest(http.MethodPost, "/student/occurrences/"+f.occurrence.String()+"/external/submit", `{"idempotencyKey":"api-flow-once","publicPayload":{"response":"different retry body"}}`, f.occurrence.String()), f.student)
+	var duplicate ExternalSubmitResult
+	if duplicateRec.Code != http.StatusAccepted || json.Unmarshal(duplicateRec.Body.Bytes(), &duplicate) != nil || duplicate.RequestID != submit.RequestID {
+		t.Fatalf("duplicate status=%d body=%s duplicate=%+v original=%+v", duplicateRec.Code, duplicateRec.Body, duplicate, submit)
+	}
+	var requestedEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM external_verifier_events WHERE tenant_id=$1 AND request_id=$2 AND sequence=0`, f.tenant, submit.RequestID).Scan(&requestedEvents); err != nil || requestedEvents != 1 {
+		t.Fatalf("requested events=%d err=%v", requestedEvents, err)
+	}
 	state, err := s.loadExternalState(ctx, f.occurrence.String(), f.student.String(), false)
 	if err != nil {
 		t.Fatal(err)
@@ -147,15 +157,31 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead' WHERE request_id=$1`, submit.RequestID); err != nil {
 		t.Fatal(err)
 	}
+	deadCallbackRec := httptest.NewRecorder()
+	s.externalCallback(deadCallbackRec, request)
+	if deadCallbackRec.Code != http.StatusUnauthorized {
+		t.Fatalf("late dead callback=%d", deadCallbackRec.Code)
+	}
 	retryRec := httptest.NewRecorder()
 	s.retryExternal(retryRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/retry", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
 	if retryRec.Code != http.StatusOK {
-		t.Fatalf("retry=%d", retryRec.Code)
+		var retryStatus string
+		_ = pool.QueryRow(ctx, `SELECT status FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&retryStatus)
+		t.Fatalf("retry=%d body=%s dbstatus=%s", retryRec.Code, retryRec.Body, retryStatus)
+	}
+	var attempts int
+	if err := pool.QueryRow(ctx, `SELECT attempts FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts); err != nil || attempts != 0 {
+		t.Fatalf("retry attempts=%d err=%v", attempts, err)
 	}
 	cancelRec := httptest.NewRecorder()
 	s.cancelExternal(cancelRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/cancel", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
 	if cancelRec.Code != http.StatusOK {
 		t.Fatalf("cancel=%d", cancelRec.Code)
+	}
+	lateCallbackRec := httptest.NewRecorder()
+	s.externalCallback(lateCallbackRec, request)
+	if lateCallbackRec.Code != http.StatusUnauthorized {
+		t.Fatalf("late canceled callback=%d", lateCallbackRec.Code)
 	}
 	fallbackRec := httptest.NewRecorder()
 	s.fallbackExternal(fallbackRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/fallback", `{"accepted":true,"reason":"Parent reviewed the safe external result."}`, f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
