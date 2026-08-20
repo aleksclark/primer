@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "suiteId": "p5-media-final",
+  "functionality": "Phase 5 artifact media inspection and typed API-backed rubric outcomes",
+  "phase": "explore",
+  "callCount": 1,
+  "baseUrl": "http://web.primer-tasks-p5.primer-tasks.test:5173",
+  "acceptance": [
+    "Parent authentication reaches real Stacklane workspace",
+    "Completed image artifact shows snapshotted rubric, two accepted criteria, digest, scripted provenance, and authorized derivative control",
+    "Audio and video artifacts show authoritative media metadata and remain in explicit parent review",
+    "Inspect UI exposes no object-store host, signed URL, or raw reasoning"
+  ],
+  "updatedAt": "2026-08-20T06:30:00Z",
+  "artifacts": {
+    "explorationNotes": ".paseo-e2e/p5-media-final/exploration.md",
+    "playwrightConfig": "primer-tasks/web/playwright.config.ts",
+    "specFiles": ["primer-tasks/web/e2e/p5-media.spec.ts"],
+    "packageJsonScript": "browser:promoted",
+    "lastRun": null
+  },
+  "qualityGates": {
+    "independentChromeVerification": true,
+    "playwrightGreen": false,
+    "relaxed": false
+  }
+}

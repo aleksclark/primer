@@ -3,7 +3,9 @@ package artifactstore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
+	"time"
 )
 
 func TestFSStoreAtomicRoundTripAndKeyIsolation(t *testing.T) {
@@ -38,6 +40,50 @@ func TestFSStoreAtomicRoundTripAndKeyIsolation(t *testing.T) {
 		}
 	}
 }
+func TestFSStoreRejectsInvalidInputsAndCanceledOperations(t *testing.T) {
+	if _, err := NewFS(""); err == nil {
+		t.Fatal("empty root accepted")
+	}
+	for _, raw := range []string{"", "/tmp/store", "ftp://store", "store.example"} {
+		if _, err := ParseEndpoint(raw); err == nil {
+			t.Fatalf("invalid endpoint accepted: %q", raw)
+		}
+	}
+	if endpoint, err := ParseEndpoint("https://store.example:9000/path"); err != nil || endpoint.Host != "store.example:9000" {
+		t.Fatalf("valid endpoint=%v err=%v", endpoint, err)
+	}
+	s, err := NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err = s.Put(canceled, "a", "", bytes.NewReader(nil), 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled put=%v", err)
+	}
+	if _, _, err = s.Open(canceled, "a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled open=%v", err)
+	}
+	if err = s.Delete(canceled, "a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled delete=%v", err)
+	}
+	if _, err = s.Put(context.Background(), "a", "", bytes.NewReader(nil), -1); err == nil {
+		t.Fatal("negative size accepted")
+	}
+	if _, err = s.Put(context.Background(), "a", "", bytes.NewReader([]byte("short")), 10); err == nil {
+		t.Fatal("short object accepted")
+	}
+	if _, err = s.Put(context.Background(), "a", "", bytes.NewReader([]byte("trailing")), 4); err == nil {
+		t.Fatal("trailing object bytes accepted")
+	}
+	if _, _, err = s.Open(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing object=%v", err)
+	}
+	if _, err = s.PresignPut(context.Background(), "a", "", 1, time.Minute); err == nil {
+		t.Fatal("filesystem presign unexpectedly available")
+	}
+}
+
 func TestFSStoreRejectsSizeMismatchAndDeletesIdempotently(t *testing.T) {
 	s, _ := NewFS(t.TempDir())
 	if _, e := s.Put(context.Background(), "a", "", bytes.NewReader([]byte("long")), 2); e == nil {

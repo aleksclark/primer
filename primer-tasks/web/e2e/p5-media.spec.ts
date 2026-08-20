@@ -121,7 +121,7 @@ test("image completion is live, malformed input retries safely, and CSP keeps pr
     await expect(s.getByText(/every required criterion was accepted/i)).toBeVisible();
     await expect(s.locator('input[type="file"]')).toBeDisabled();
     await assertNoPreviewLeak(s, requestURLs);
-    await expect(s.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", /media-src[^;]*data:/);
+    expect(response?.headers()["content-security-policy"] ?? "").toMatch(/media-src[^;]*data:/);
     expect(errors).toEqual([]);
     await learner.context.close();
   } finally { await parent.close(); }

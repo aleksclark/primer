@@ -21,6 +21,25 @@ func pngFixture(t *testing.T, width, height int) []byte {
 	return b.Bytes()
 }
 
+func TestValidateRejectsUnsupportedKindsDurationAndContent(t *testing.T) {
+	body := []byte("not media")
+	if _, err := Validate(bytes.NewReader(body), Input{Kind: Kind("document"), ExpectedSize: int64(len(body))}, DefaultLimits(Image)); err == nil {
+		t.Fatal("unsupported kind accepted")
+	}
+	if _, err := Validate(bytes.NewReader(body), Input{Kind: Audio, ExpectedSize: int64(len(body)), DurationMS: -1}, DefaultLimits(Audio)); err == nil {
+		t.Fatal("negative duration accepted")
+	}
+	if _, err := Validate(bytes.NewReader([]byte("ID3")), Input{Kind: Audio, ExpectedSize: 3, DurationMS: 31 * 60 * 1000}, DefaultLimits(Audio)); err == nil {
+		t.Fatal("audio duration limit bypassed")
+	}
+	if _, err := Validate(bytes.NewReader(body), Input{Kind: Video, ExpectedSize: int64(len(body)), DurationMS: 1000}, DefaultLimits(Video)); err == nil {
+		t.Fatal("non-video content accepted")
+	}
+	if _, err := Validate(bytes.NewReader(body), Input{Kind: Image, ExpectedSize: 20}, DefaultLimits(Image)); err == nil {
+		t.Fatal("size mismatch accepted")
+	}
+}
+
 func TestValidateMediaKindsAndBounds(t *testing.T) {
 	for _, tc := range []struct {
 		kind    Kind

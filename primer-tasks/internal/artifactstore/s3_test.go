@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestS3PresignUsesPublicEndpoint(t *testing.T) {
@@ -24,6 +25,68 @@ func TestS3PresignUsesPublicEndpoint(t *testing.T) {
 	}
 	if strings.Contains(url, "minio:9000") {
 		t.Fatal("presigned browser URL leaked internal endpoint")
+	}
+}
+
+func TestS3RejectsUnsafeKeysAndInvalidConfiguration(t *testing.T) {
+	if _, err := NewS3(context.Background(), S3Config{}); err == nil {
+		t.Fatal("empty bucket accepted")
+	}
+	store, err := NewS3(context.Background(), S3Config{Endpoint: "http://127.0.0.1:1", Bucket: "tasks", AccessKey: "key", SecretKey: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"../escape", "/absolute", "tenant\\escape"} {
+		if _, err = store.Put(context.Background(), key, "image/png", bytes.NewReader(nil), 0); err == nil {
+			t.Fatalf("unsafe Put key accepted: %q", key)
+		}
+		if _, _, err = store.Open(context.Background(), key); err == nil {
+			t.Fatalf("unsafe Open key accepted: %q", key)
+		}
+		if _, err = store.Stat(context.Background(), key); err == nil {
+			t.Fatalf("unsafe Stat key accepted: %q", key)
+		}
+		if err = store.Delete(context.Background(), key); err == nil {
+			t.Fatalf("unsafe Delete key accepted: %q", key)
+		}
+		if _, err = store.PresignPut(context.Background(), key, "image/png", 1, time.Minute); err == nil {
+			t.Fatalf("unsafe presign key accepted: %q", key)
+		}
+	}
+	if _, err = store.Put(context.Background(), "tenant/object", "image/png", bytes.NewReader([]byte("x")), -1); err == nil {
+		t.Fatal("negative S3 size accepted")
+	}
+	if _, err = store.Put(context.Background(), "tenant/object", "image/png", bytes.NewReader([]byte("short")), 10); err == nil {
+		t.Fatal("short S3 object accepted")
+	}
+}
+
+func TestS3ServerErrorsRemainClosed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	store, err := NewS3(context.Background(), S3Config{Endpoint: server.URL, Bucket: "tasks", AccessKey: "key", SecretKey: "secret", ForcePathStyle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.EnsureBucket(context.Background()); err == nil {
+		t.Fatal("bucket server error ignored")
+	}
+	if _, err = store.Put(context.Background(), "tenant/object", "image/png", bytes.NewReader([]byte("data")), 4); err == nil {
+		t.Fatal("put server error ignored")
+	}
+	if _, _, err = store.Open(context.Background(), "tenant/object"); err == nil {
+		t.Fatal("open server error ignored")
+	}
+	if _, err = store.Stat(context.Background(), "tenant/object"); err == nil {
+		t.Fatal("stat server error ignored")
+	}
+	if err = store.Delete(context.Background(), "tenant/object"); err == nil {
+		t.Fatal("delete server error ignored")
+	}
+	if _, err = store.Compose(context.Background(), "tenant/composed", "image/png", []string{"tenant/missing"}, 4); err == nil {
+		t.Fatal("compose source error ignored")
 	}
 }
 

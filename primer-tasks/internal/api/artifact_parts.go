@@ -56,7 +56,7 @@ func (s *Server) uploadArtifactPart(w http.ResponseWriter, r *http.Request, stud
 		problem(w, 400, "invalid_request", "part could not be stored")
 		return
 	}
-	_, err = s.DB.Exec(r.Context(), `INSERT INTO artifact_upload_parts(tenant_id,reservation_id,part_number,object_key,byte_size,uploaded_at) SELECT u.tenant_id,u.id,$4,$5,$6,now() FROM artifact_upload_reservations u WHERE u.tenant_id=$1 AND u.artifact_id=$2 AND u.status='reserved' ON CONFLICT(tenant_id,reservation_id,part_number) DO UPDATE SET object_key=EXCLUDED.object_key,byte_size=EXCLUDED.byte_size,uploaded_at=now()`, tenant, aid, n, partKey, obj.Size)
+	_, err = s.DB.Exec(r.Context(), `INSERT INTO artifact_upload_parts(tenant_id,reservation_id,part_number,object_key,byte_size,uploaded_at) SELECT u.tenant_id,u.id,$3,$4,$5,now() FROM artifact_upload_reservations u WHERE u.tenant_id=$1 AND u.artifact_id=$2 AND u.status='reserved' ON CONFLICT(tenant_id,reservation_id,part_number) DO UPDATE SET object_key=EXCLUDED.object_key,byte_size=EXCLUDED.byte_size,uploaded_at=now()`, tenant, aid, n, partKey, obj.Size)
 	if err != nil {
 		problem(w, 500, "internal", "unable to record upload part")
 		return
