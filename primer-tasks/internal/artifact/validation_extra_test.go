@@ -32,6 +32,9 @@ func TestValidateRejectsUnsupportedKindsDurationAndContent(t *testing.T) {
 	if _, err := Validate(bytes.NewReader(body), Input{Kind: Kind("document"), ExpectedSize: int64(len(body))}, DefaultLimits(Image)); err == nil {
 		t.Fatal("unsupported kind accepted")
 	}
+	if _, err := Validate(bytes.NewReader(body), Input{Kind: Image, ExpectedSize: int64(len(body))}, Limits{}); err == nil {
+		t.Fatal("zero limits did not fall back to image defaults")
+	}
 	if _, err := Validate(bytes.NewReader(body), Input{Kind: Audio, ExpectedSize: int64(len(body)), DurationMS: -1}, DefaultLimits(Audio)); err == nil {
 		t.Fatal("negative duration accepted")
 	}
@@ -49,6 +52,9 @@ func TestValidateRejectsUnsupportedKindsDurationAndContent(t *testing.T) {
 func TestThumbnailRejectsMalformedInputAndBounds(t *testing.T) {
 	if _, _, _, err := Thumbnail([]byte("not-an-image"), 10, 10); err == nil {
 		t.Fatal("malformed thumbnail input accepted")
+	}
+	if _, width, height, err := Thumbnail(pngFixture(t, 1, 4), 1, 1); err != nil || width != 1 || height != 1 {
+		t.Fatalf("portrait thumbnail resize=(%d,%d) err=%v", width, height, err)
 	}
 	fixture := pngFixture(t, 2, 2)
 	for _, bounds := range [][2]int{{0, 10}, {10, 0}} {
@@ -101,5 +107,8 @@ func TestValidateMediaKindsAndBounds(t *testing.T) {
 	}
 	if _, err := Validate(bytes.NewReader([]byte("bad")), Input{Kind: Image, DeclaredType: "image/png", ExpectedSize: 3}, DefaultLimits(Image)); err == nil {
 		t.Fatal("malformed image accepted")
+	}
+	if _, err := Validate(bytes.NewReader([]byte("bad")), Input{Kind: Image, ExpectedSize: 3}, Limits{MaxBytes: 3}); err == nil {
+		t.Fatal("malformed image with bounded limits accepted")
 	}
 }

@@ -17,6 +17,10 @@ func TestAgentHTTPHelperBranches(t *testing.T) {
 	if got := s.csrfToken(rec, req); got != "existing" || len(rec.Result().Cookies()) != 0 {
 		t.Fatalf("existing csrf got=%q cookies=%v", got, rec.Result().Cookies())
 	}
+	generated := httptest.NewRecorder()
+	if token := s.csrfToken(generated, httptest.NewRequest("GET", "/auth/session", nil)); len(token) != 48 || len(generated.Result().Cookies()) != 1 {
+		t.Fatalf("csrf token generation token-length=%d cookies=%v", len(token), generated.Result().Cookies())
+	}
 	if maxInt(1, 2) != 2 || maxInt(3, 2) != 3 {
 		t.Fatal("maxInt branch incorrect")
 	}

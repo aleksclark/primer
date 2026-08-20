@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
 	"primer-tasks/internal/agent"
 	"primer-tasks/internal/domain/parent"
+	"primer-tasks/internal/securityreview"
+	"primer-tasks/internal/verification"
 )
 
 func TestAgentHubTenantConversationFilteringAndBoundedSlowSubscriber(t *testing.T) {
@@ -57,6 +61,172 @@ func (h *agentHub) subscriberCountForTest() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.subscribers)
+}
+
+func TestAgentSubscriberClosedAndFullQueuesFailClosed(t *testing.T) {
+	closed := &agentSubscriber{queue: make(chan wireAgentEvent, 1), done: make(chan struct{})}
+	close(closed.done)
+	if closed.enqueue(wireAgentEvent{Type: "text_delta"}) {
+		t.Fatal("closed subscriber accepted an event")
+	}
+
+	full := &agentSubscriber{queue: make(chan wireAgentEvent, 1), done: make(chan struct{})}
+	full.queue <- wireAgentEvent{Type: "existing"}
+	if full.enqueue(wireAgentEvent{Type: "text_delta"}) {
+		t.Fatal("full subscriber queue accepted an event")
+	}
+	// Closing an evicted subscriber must remain idempotent; this is the race
+	// boundary that prevents a publisher from sending into a closed queue.
+	full.close()
+	full.close()
+	if full.enqueue(wireAgentEvent{Type: "after-close"}) {
+		t.Fatal("evicted subscriber accepted an event")
+	}
+}
+
+func TestAgentDevelopmentOriginAllowlistIsStillBounded(t *testing.T) {
+	s := &Server{Env: "development", Auth: AuthConfig{PublicOrigin: "https://tasks.example"}}
+	for _, tc := range []struct {
+		origin string
+		want   bool
+	}{
+		{"", false},
+		{"http://127.0.0.1:4173", true},
+		{"http://localhost:5173/", true},
+		{"https://evil.example", false},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+		req.Header.Set("Origin", tc.origin)
+		if got := s.agentOriginAllowed(req); got != tc.want {
+			t.Errorf("development origin %q allowed=%v, want %v", tc.origin, got, tc.want)
+		}
+	}
+	t.Setenv("TASKS_ALLOWED_ORIGINS", " https://preview.example/ , ")
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Origin", "https://preview.example")
+	if !s.agentOriginAllowed(req) {
+		t.Fatal("configured preview origin was rejected")
+	}
+}
+
+func TestScriptedAgentStreamsStopBeforeLeakingCanceledProviderOutput(t *testing.T) {
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "")
+	for _, tc := range []struct {
+		name   string
+		stream fantasy.StreamResponse
+		want   int
+	}{
+		{"tool", scriptedToolStream(context.Background(), "list_students", `{"limit":1}`), 8},
+		{"text", scriptedStream(context.Background(), "safe response"), 7},
+	} {
+		count := 0
+		tc.stream(func(part fantasy.StreamPart) bool {
+			count++
+			return true
+		})
+		if count != tc.want {
+			t.Fatalf("%s stream parts=%d, want %d", tc.name, count, tc.want)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	count := 0
+	scriptedStream(ctx, "must not emit")(func(fantasy.StreamPart) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Fatalf("canceled stream emitted %d provider parts", count)
+	}
+
+	// A consumer may stop before the provider reaches its next durable
+	// boundary. Both scripted paths must honor that backpressure.
+	for _, stream := range []fantasy.StreamResponse{
+		scriptedToolStream(context.Background(), "list_students", `{}`),
+		scriptedStream(context.Background(), "safe"),
+	} {
+		count := 0
+		stream(func(fantasy.StreamPart) bool {
+			count++
+			return false
+		})
+		if count != 1 {
+			t.Fatalf("stream ignored consumer stop after %d parts", count)
+		}
+	}
+
+	// Cancellation after the first part must prevent the artificial delay from
+	// emitting the rest of a provider response.
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "30000")
+	for _, makeStream := range []func(context.Context) fantasy.StreamResponse{
+		func(ctx context.Context) fantasy.StreamResponse {
+			return scriptedToolStream(ctx, "list_students", `{}`)
+		},
+		func(ctx context.Context) fantasy.StreamResponse { return scriptedStream(ctx, "safe") },
+	} {
+		ctx, cancel := context.WithCancel(context.Background())
+		stream := makeStream(ctx)
+		count := 0
+		stream(func(part fantasy.StreamPart) bool {
+			count++
+			cancel()
+			return true
+		})
+		if count != 1 {
+			t.Fatalf("canceled delayed stream emitted %d parts", count)
+		}
+	}
+}
+
+func TestScriptedAgentModelAndToolInputRejectUnsafeInvocationShapes(t *testing.T) {
+	model := &scriptedParentModel{prompt: "disable the schedule"}
+	for i := 0; i < 3; i++ {
+		if _, err := model.Stream(context.Background(), fantasy.Call{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools := (&Server{}).fantasyTools("tenant", "parent", []string{parent.ToolCreateSchedule}, "run")
+	if len(tools) != 1 {
+		t.Fatalf("create schedule tools=%d", len(tools))
+	}
+	response, err := tools[0].Run(context.Background(), fantasy.ToolCall{Input: `{"startAt":"not-an-rfc3339-time"}`})
+	if err == nil || !response.IsError || response.Content == "" {
+		t.Fatalf("invalid schedule input response=%+v err=%v", response, err)
+	}
+}
+
+func TestAgentAndArtifactWireSecurityRejectsProviderMaterial(t *testing.T) {
+	for _, payload := range [][]byte{
+		[]byte(`{"reasoning_delta":"private"}`),
+		[]byte(`{"tool_input":{"authorization":"Bearer secret"}}`),
+		[]byte(`{"url":"https://bucket.s3.amazonaws.com/tenant/a"}`),
+	} {
+		if err := securityreview.SafeWirePayload(payload); err == nil {
+			t.Fatalf("unsafe provider payload accepted: %s", payload)
+		}
+	}
+	if err := securityreview.TenantObjectKey("tenant/tenant-a/student-file.jpg", "tenant-a"); err == nil {
+		t.Fatal("filename-shaped object key accepted")
+	}
+	if err := securityreview.ShortLivedURL("https://objects.example/opaque", 300); err == nil {
+		t.Fatal("unsigned object URL accepted")
+	}
+}
+
+func TestArtifactDecisionBoundaryRejectsIncompleteProviderResults(t *testing.T) {
+	rubric := verification.ArtifactRubric{
+		AcceptedKinds: []string{"image"},
+		Criteria:      []verification.ArtifactCriterion{{ID: "shows-work", Label: "Shows work", Description: "Visible", Required: true}},
+		PassRule:      "all_required", ReviewPolicy: "parent_review",
+	}
+	ready, err := verification.EvaluateArtifact(rubric, nil)
+	if err != nil || ready.Ready || ready.Accepted {
+		t.Fatalf("empty provider result inferred acceptance: ready=%+v err=%v", ready, err)
+	}
+	if _, err := verification.EvaluateArtifact(rubric, []verification.ArtifactCriterionResult{{CriterionID: "shows-work", Required: true, Status: "unknown"}}); err == nil {
+		t.Fatal("unknown provider criterion status accepted")
+	}
 }
 
 func TestAgentSafeHelpersFailClosedAndHonorCancellation(t *testing.T) {

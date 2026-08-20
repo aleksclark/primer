@@ -1,11 +1,25 @@
 package api
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
 )
+
+func TestStudentArtifactSubscriptionRequiresScopedIdentifiers(t *testing.T) {
+	sub := &studentSubscriber{queue: make(chan wireStudentEvent, 1), done: make(chan struct{})}
+	(&Server{}).studentArtifactSubscribe(context.Background(), studentIdentity{StudentID: uuid.New(), TenantID: "tenant-a"}, sub, studentCommand{})
+	select {
+	case event := <-sub.queue:
+		if event.Code != "invalid_request" || event.Message == "" || event.Retryable {
+			t.Fatalf("invalid artifact subscription event=%+v", event)
+		}
+	default:
+		t.Fatal("incomplete artifact subscription did not emit an error")
+	}
+}
 
 func TestStudentDialogueRequestBoundaries(t *testing.T) {
 	if (&Server{}).StudentDialogueHandler() == nil {

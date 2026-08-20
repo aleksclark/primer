@@ -53,6 +53,12 @@ func TestReviewAssertionsRejectLeaksAndDigestSubstitution(t *testing.T) {
 	}
 }
 
+func TestJPEGMetadataStrippingRejectsNonImageBytes(t *testing.T) {
+	if _, err := StripJPEGMetadata([]byte("not-a-jpeg")); err == nil {
+		t.Fatal("invalid JPEG was accepted for metadata stripping")
+	}
+}
+
 func TestEXIFDerivativeStripsMetadataWithoutChangingDecodeability(t *testing.T) {
 	original := JPEGWithEXIF()
 	if !bytes.Contains(original, []byte("Exif")) {

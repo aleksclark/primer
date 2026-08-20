@@ -114,6 +114,35 @@ func TestS3ServerErrorsRemainClosed(t *testing.T) {
 	}
 }
 
+func TestS3ComposeClosesPriorPartsAndPropagatesFinalPutFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "missing") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Length", "4")
+			_, _ = w.Write([]byte("part"))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	store, err := NewS3(context.Background(), S3Config{Endpoint: server.URL, Bucket: "tasks", AccessKey: "key", SecretKey: "secret", ForcePathStyle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Compose(context.Background(), "tenant/joined", "application/octet-stream", []string{"tenant/one", "tenant/missing"}, 8); err == nil {
+		t.Fatal("compose swallowed a later part read failure")
+	}
+	if _, err := store.Compose(context.Background(), "tenant/joined", "application/octet-stream", []string{"tenant/one"}, 4); err == nil {
+		t.Fatal("compose swallowed final object put failure")
+	}
+}
+
 func TestS3StoreHandlesOptionalMetadataAndIdempotentBucketResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

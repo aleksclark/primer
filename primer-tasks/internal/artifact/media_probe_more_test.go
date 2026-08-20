@@ -3,10 +3,57 @@ package artifact
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestMediaProbeHelpersFailClosedAtFormatAndOutputBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		kind   Kind
+		format string
+		want   string
+	}{
+		{Video, "webm", "video/webm"},
+		{Video, "matroska", "video/x-matroska"},
+		{Video, "mov", "video/quicktime"},
+		{Video, "unknown", "video/mp4"},
+		{Audio, "mp3", "audio/mpeg"},
+		{Audio, "opus", "audio/ogg"},
+		{Audio, "wav", "audio/wav"},
+		{Audio, "flac", "audio/flac"},
+		{Audio, "matroska", "audio/x-matroska"},
+		{Audio, "unknown", "audio/mp4"},
+	} {
+		if got := mediaContentType(tc.kind, tc.format); got != tc.want {
+			t.Errorf("%s/%s content type=%q, want %q", tc.kind, tc.format, got, tc.want)
+		}
+	}
+	if got := envOrDefault("TASKS_MEDIA_HELPER_UNSET", "fallback"); got != "fallback" {
+		t.Fatalf("unset environment fallback=%q", got)
+	}
+	t.Setenv("TASKS_MEDIA_HELPER_UNSET", " configured ")
+	if got := envOrDefault("TASKS_MEDIA_HELPER_UNSET", "fallback"); got != "configured" {
+		t.Fatalf("configured environment=%q", got)
+	}
+	var bounded boundedBuffer
+	bounded.limit = 3
+	if n, err := bounded.Write([]byte("ok")); err != nil || n != 2 {
+		t.Fatalf("bounded write n=%d err=%v", n, err)
+	}
+	if _, err := bounded.Write([]byte("too large")); err == nil || !bounded.tooLarge {
+		t.Fatalf("oversized probe output err=%v tooLarge=%v", err, bounded.tooLarge)
+	}
+	base := errors.New("ffprobe failed")
+	if got := processError(base, nil); !errors.Is(got, base) {
+		t.Fatalf("bare process error=%v", got)
+	}
+	if got := processError(base, []byte("  stderr detail  ")); !strings.Contains(got.Error(), "stderr detail") {
+		t.Fatalf("stderr process error=%v", got)
+	}
+}
 
 func TestProbeMediaRejectsConfigurationAndContextBoundaries(t *testing.T) {
 	if _, err := ProbeMedia(context.Background(), Image, []byte("image"), ProbeConfig{}); err == nil {
@@ -36,6 +83,14 @@ func TestEncodedDurationUsesFormatAndRejectsNonFiniteValues(t *testing.T) {
 	for _, format := range []*probeFormat{{Duration: "N/A"}, {Duration: "0"}, nil} {
 		if _, err := encodedDuration(format, streams); err == nil {
 			t.Fatalf("invalid format duration accepted: %#v", format)
+		}
+	}
+	if _, err := encodedDuration(&probeFormat{Duration: "0.0001"}, nil); err == nil {
+		t.Fatal("sub-millisecond encoded duration accepted")
+	}
+	for _, raw := range []string{"N/A", "NaN", "+Inf", "-1"} {
+		if _, err := parseDuration(raw); err == nil {
+			t.Fatalf("invalid duration %q accepted", raw)
 		}
 	}
 	if got, err := encodedDuration(&probeFormat{Duration: "1"}, nil); err != nil || got != 1000 {
