@@ -19,11 +19,11 @@ type studentDialogueHub struct {
 }
 
 type studentSubscriber struct {
-	tenant, student, occurrence, attempt string
-	queue                                chan wireStudentEvent
-	done                                 chan struct{}
-	cancel                               context.CancelFunc
-	once                                 sync.Once
+	tenant, student, occurrence, attempt, submission string
+	queue                                            chan wireStudentEvent
+	done                                             chan struct{}
+	cancel                                           context.CancelFunc
+	once                                             sync.Once
 }
 
 type wireStudentEvent struct {
@@ -35,6 +35,7 @@ type wireStudentEvent struct {
 	Cursor           int64     `json:"cursor"`
 	TenantID         string    `json:"-"`
 	StudentID        string    `json:"-"`
+	SubmissionID     string    `json:"-"`
 	ConnectionID     string    `json:"connectionId,omitempty"`
 	HeartbeatSeconds int       `json:"heartbeatSeconds,omitempty"`
 	MessageID        string    `json:"messageId,omitempty"`
@@ -120,7 +121,7 @@ func (h *studentDialogueHub) publish(event wireStudentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for sub := range h.subscribers {
-		if sub.tenant != event.TenantID || (event.StudentID != "" && sub.student != event.StudentID) || (sub.occurrence != "" && sub.occurrence != event.OccurrenceID) {
+		if sub.tenant != event.TenantID || (event.StudentID != "" && sub.student != event.StudentID) || (sub.occurrence != "" && sub.occurrence != event.OccurrenceID) || (sub.submission != "" && sub.submission != event.SubmissionID) {
 			continue
 		}
 		if sub.attempt != "" && sub.attempt != event.AttemptID {
@@ -217,6 +218,7 @@ func (s *Server) studentArtifactSubscribe(ctx context.Context, identity studentI
 	sub.occurrence = cmd.OccurrenceID
 	sub.tenant = identity.TenantID
 	sub.student = identity.StudentID.String()
+	sub.submission = cmd.SubmissionID
 	sub.attempt = ""
 	s.sendStudentToSubscriber(sub, wireStudentEvent{Type: typeName, ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Sequence: 0, Cursor: cmd.Cursor, Phase: phase, Status: status, Time: time.Now().UTC()})
 	// Artifact progress is job-owned and durable. Replay it after the small

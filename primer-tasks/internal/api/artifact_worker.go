@@ -403,7 +403,7 @@ func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submi
 				status = "rejected"
 			}
 		}
-		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, TenantID: tenant, StudentID: student, OccurrenceID: occurrence, Sequence: sequence, Cursor: sequence, Phase: kind, Status: status, Time: time.Now().UTC()}
+		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, TenantID: tenant, StudentID: student, SubmissionID: submission, OccurrenceID: occurrence, Sequence: sequence, Cursor: sequence, Phase: kind, Status: status, Time: time.Now().UTC()}
 		payloadBytes, _ := json.Marshal(payload)
 		_ = json.Unmarshal(payloadBytes, &event)
 		s.studentDialogueHub().publish(event)
