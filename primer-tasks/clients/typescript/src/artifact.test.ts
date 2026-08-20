@@ -7,9 +7,16 @@ import {
   parseArtifactProgressEvent,
   parseArtifactStudentState,
   previewArtifactRubric,
+  sha256HexFallback,
   validateArtifactFile,
   validateArtifactRubric,
 } from "./artifact.ts";
+
+test("SHA-256 fallback remains correct without WebCrypto", () => {
+  const bytes = new TextEncoder().encode("abc");
+  assert.equal(sha256HexFallback(bytes), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  assert.equal(sha256HexFallback(new Uint8Array()), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+});
 
 test("artifact rubric preview exposes bounded parent fields only", () => {
   const config = defaultArtifactRubricConfig();
