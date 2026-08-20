@@ -96,10 +96,10 @@ export default function OccurrenceInspectPage() {
       <aside className="inspect-panel" aria-label="Inspect summary">
         <p className="eyebrow">Policy / provenance</p>
         <dl>
-          <div><dt>Status</dt><dd>{timeline.status.replaceAll("_", " ")}</dd></div>
-          <div><dt>Accepted</dt><dd>{timeline.acceptedCount} of {timeline.requiredCount}</dd></div>
-          <div><dt>Provider</dt><dd>{timeline.provider ?? "—"}</dd></div>
-          <div><dt>Policy</dt><dd>{timeline.policyVersion ?? "—"}</dd></div>
+          <div><dt>Status</dt><dd>{artifact ? artifact.status.replaceAll("_", " ") : timeline.status.replaceAll("_", " ")}</dd></div>
+          <div><dt>Accepted</dt><dd>{artifact?.evaluation ? `${artifact.evaluation.criteria.filter((criterion) => criterion.status === "accepted").length} of ${artifact.evaluation.criteria.filter((criterion) => criterion.required).length}` : `${timeline.acceptedCount} of ${timeline.requiredCount}`}</dd></div>
+          <div><dt>Provider</dt><dd>{artifact?.evaluation?.provider ?? timeline.provider ?? "—"}</dd></div>
+          <div><dt>Policy</dt><dd>{artifact?.evaluation?.policyVersion ?? timeline.policyVersion ?? "—"}</dd></div>
         </dl>
         {timeline.overrides.length > 0 && <section aria-label="Audited overrides">{timeline.overrides.map((row) => <article className="inspect-override" key={row.id}><p className="system-label">{row.accepted ? "Accepted override" : "Rejected override"}</p><p>{row.reason}</p><p className="meta">{row.actorId} · {formatWhen(row.createdAt)}</p></article>)}</section>}
         <form className="inspect-override-form" onSubmit={override}>
