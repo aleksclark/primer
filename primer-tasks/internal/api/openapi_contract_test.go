@@ -70,6 +70,10 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	if paths["/student/pair"].Post.RequestBody.Content["application/json"].Schema.Ref != "#/components/schemas/PairCode" {
 		t.Fatal("pairing boundary is not derived from PairCode")
 	}
+	revision := paths["/tasks/{id}/revisions"].Post
+	if revision == nil || len(revision.Parameters) != 1 || revision.Parameters[0].Name != "id" || revision.Parameters[0].In != "path" {
+		t.Fatalf("task revision boundary has no generated id path parameter: %#v", revision)
+	}
 }
 
 func TestArtifactBoundariesAreStrictAndGenerated(t *testing.T) {

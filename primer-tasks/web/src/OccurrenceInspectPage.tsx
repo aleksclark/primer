@@ -58,12 +58,28 @@ export default function OccurrenceInspectPage() {
   const [reason, setReason] = useState("");
   const [accepted, setAccepted] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState<"retry" | "cancel" | null>(null);
   const load = useCallback(() => {
     setError(null);
     tasksClient.inspectOccurrence(id).then(setTimeline).catch((next) => setError(next instanceof Error ? next.message : "Unable to inspect this occurrence."));
     tasksClient.inspectOccurrenceArtifacts(id).then(setArtifact).catch(() => setArtifact(null));
   }, [id]);
   useEffect(load, [load]);
+  const runOccurrenceAction = async (action: "retry" | "cancel") => {
+    if (!timeline || timeline.status === "completed" || timeline.status === "canceled") return;
+    if (action === "cancel" && !window.confirm("Cancel this occurrence? The saved evidence will remain inspectable.")) return;
+    setActionBusy(action);
+    setError(null);
+    try {
+      if (action === "retry") await tasksClient.retryOccurrence(id);
+      else await tasksClient.cancelOccurrence(id);
+      load();
+    } catch (next) {
+      setError(next instanceof Error ? next.message : `The occurrence could not be ${action === "retry" ? "retried" : "canceled"}.`);
+    } finally {
+      setActionBusy(null);
+    }
+  };
   const override = async (event: FormEvent) => {
     event.preventDefault();
     const invalid = validateOverrideInput({ accepted, reason });
@@ -86,7 +102,7 @@ export default function OccurrenceInspectPage() {
     }
   };
   return <>
-    <header className="page-header"><div><p className="eyebrow">Parent workspace / Inspect</p><h1>Occurrence inspect</h1><p>Questions, answers, evaluations, and overrides stay append-only. Prior evidence is never rewritten.</p></div><div className="page-actions"><button className="button secondary" type="button" onClick={() => navigate("/parent/occurrences")}>Back to occurrences</button></div></header>
+    <header className="page-header"><div><p className="eyebrow">Parent workspace / Inspect</p><h1>Occurrence inspect</h1><p>Questions, answers, evaluations, and overrides stay append-only. Prior evidence is never rewritten.</p></div><div className="page-actions"><button className="button secondary" type="button" onClick={() => navigate("/parent/occurrences")}>Back to occurrences</button>{timeline && timeline.status !== "completed" && timeline.status !== "canceled" && <><button className="button secondary" type="button" onClick={() => void runOccurrenceAction("retry")} disabled={actionBusy !== null}>{actionBusy === "retry" ? "Retrying…" : "Retry verification"}</button><button className="button quiet" type="button" onClick={() => void runOccurrenceAction("cancel")} disabled={actionBusy !== null}>{actionBusy === "cancel" ? "Canceling…" : "Cancel occurrence"}</button></>}</div></header>
     {error && <div className="notice error" role="alert"><div><strong>Inspect problem</strong><p>{error}</p><button className="button quiet" type="button" onClick={load}>Try again</button></div></div>}
     {!timeline && !error && <div className="notice" role="status"><p>Loading the inspect timeline…</p></div>}
     {artifact && <ArtifactInspectPanel state={artifact} />}
@@ -104,11 +120,11 @@ export default function OccurrenceInspectPage() {
         </dl>
         {timeline.overrides.length > 0 && <section aria-label="Audited overrides">{timeline.overrides.map((row) => <article className="inspect-override" key={row.id}><p className="system-label">{row.accepted ? "Accepted override" : "Rejected override"}</p><p>{row.reason}</p><p className="meta">{row.actorId} · {formatWhen(row.createdAt)}</p></article>)}</section>}
         <form className="inspect-override-form" onSubmit={override}>
-          <p className="system-label">Append-only override</p>
+          <p className="system-label">Human review fallback · append-only override</p>
           <label className="field" htmlFor="override-decision"><span>Decision</span><select id="override-decision" name="decision" className="input" aria-label="Override decision" value={accepted ? "accept" : "reject"} onChange={(event) => setAccepted(event.target.value === "accept")}><option value="accept">Accept requirement</option><option value="reject">Reject requirement</option></select></label>
           <label className="field" htmlFor="override-reason"><span>Reason</span><textarea id="override-reason" name="reason" className="input" aria-label="Override reason" rows={4} value={reason} onChange={(event) => setReason(event.target.value)} required /></label>
           <button className="button" type="submit" disabled={busy || Boolean(validateOverrideInput({ accepted, reason }))}>{busy ? "Recording…" : "Record override"}</button>
-          <p className="meta">This creates a separate audited decision. It cannot edit student answers or model evaluations.</p>
+          <p className="meta">This is the current human-review fallback. It creates a separate audited decision and cannot edit student answers or model evaluations.</p>
         </form>
       </aside>
     </div>}

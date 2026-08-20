@@ -135,6 +135,7 @@ type OccurrenceListQuery = Query<"/occurrences", "get">;
 type ScheduleListQuery = Query<"/schedules", "get">;
 type ScheduleInputBody = JsonBody<"/schedules", "post">;
 type TaskInputBody = JsonBody<"/tasks", "post">;
+type TaskRevisionInputBody = JsonBody<"/tasks/{id}/revisions", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
 type ArtifactReservationBody = JsonBody<"/student/occurrences/{occurrence}/artifacts/reserve", "post">;
 type ArtifactFinalizeBody = JsonBody<"/student/occurrences/{occurrence}/artifacts/finalize", "post">;
@@ -207,25 +208,6 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       code = body.code;
     }
     throw new TasksApiError(result.response.status, message, code);
-  }
-
-  async function requestJSON<T>(path: string, init: RequestInit = {}, parse: (body: unknown) => T | null): Promise<T> {
-    const fetchImpl = options.fetch ?? globalThis.fetch;
-    const headers = new Headers(init.headers);
-    if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-    const response = await fetchImpl(`${baseUrl}${path}`, { credentials: "include", ...init, headers, signal: init.signal });
-    let payload: unknown;
-    const text = await response.text();
-    if (text) {
-      try { payload = JSON.parse(text); } catch { payload = undefined; }
-    }
-    if (!response.ok) {
-      const body = payload && typeof payload === "object" ? payload as { detail?: string; message?: string; code?: string } : undefined;
-      throw new TasksApiError(response.status, body?.detail ?? body?.message ?? `Request failed (${response.status})`, body?.code);
-    }
-    const parsed = parse(payload);
-    if (parsed === null) throw new TasksApiError(response.status, "The server returned an unusable dialogue record.");
-    return parsed;
   }
 
   /**
@@ -338,6 +320,9 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async createTask(body: TaskInputBody, options: RequestOptions = {}) {
       return unwrap(transport.POST("/tasks", { ...options, body }));
     },
+    async reviseTask(id: string, body: TaskRevisionInputBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/tasks/{id}/revisions", { ...options, params: { path: { id } }, body }));
+    },
     async createArtifactRubricTask(body: { title: string; instructions: string; rubric: ArtifactRubricConfig }, options: RequestOptions = {}) {
       const requirement = artifactRubricRequirement("artifact-rubric", body.rubric);
       return unwrap(transport.POST("/tasks", { ...options, body: { title: body.title, instructions: body.instructions, requirements: [requirement] } }));
@@ -379,15 +364,24 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       return unwrap(transport.POST("/occurrences/{id}/cancel", { ...options, params: { path: { id } } }));
     },
     async inspectOccurrence(id: string, options: RequestOptions = {}): Promise<InspectTimeline> {
-      return requestJSON(`/occurrences/${encodeURIComponent(id)}/inspect`, { method: "GET", signal: options.signal }, parseInspectTimeline);
+      const wire = await unwrap(transport.GET("/occurrences/{id}/inspect", { ...options, params: { path: { id } } }));
+      const parsed = parseInspectTimeline(wire);
+      if (!parsed) throw new TasksApiError(502, "The server returned an unusable inspect record.");
+      return parsed;
     },
     async overrideOccurrence(id: string, body: OverrideInput, options: RequestOptions = {}): Promise<InspectTimeline> {
       const invalid = validateOverrideInput(body);
       if (invalid) throw new TasksApiError(400, invalid, "invalid_request");
-      return requestJSON(`/occurrences/${encodeURIComponent(id)}/override`, { method: "POST", body: JSON.stringify(body), signal: options.signal }, parseInspectTimeline);
+      const wire = await unwrap(transport.POST("/occurrences/{id}/override", { ...options, params: { path: { id } }, body }));
+      const parsed = parseInspectTimeline(wire);
+      if (!parsed) throw new TasksApiError(502, "The server returned an unusable inspect record.");
+      return parsed;
     },
     async studentDialogue(id: string, options: RequestOptions = {}): Promise<StudentDialogueState> {
-      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/dialogue`, { method: "GET", signal: options.signal }, parseStudentDialogueState);
+      const wire = await unwrap(transport.GET("/student/occurrences/{id}/dialogue", { ...options, params: { path: { id } } }));
+      const parsed = parseStudentDialogueState(wire);
+      if (!parsed) throw new TasksApiError(502, "The server returned an unusable dialogue record.");
+      return parsed;
     },
     async studentToday(options: RequestOptions = {}) {
       return unwrap(transport.GET("/student/today", { ...options }));

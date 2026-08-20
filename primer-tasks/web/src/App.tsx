@@ -6,6 +6,7 @@ import "./index.css";
 import AgentCommandPage from "./AgentCommandPage";
 import ArtifactRubricForm from "./ArtifactRubricForm";
 import DialogueTaskForm from "./DialogueTaskForm";
+import HealthPage from "./HealthPage";
 import OccurrenceInspectPage from "./OccurrenceInspectPage";
 import StudentArtifactPage from "./StudentArtifactPage";
 import StudentDialoguePage from "./StudentDialoguePage";
@@ -95,6 +96,7 @@ function ParentShell({ children }: { children: ReactNode }) {
           <NavLink className="nav-link" to="/parent/tasks">Tasks</NavLink>
           <NavLink className="nav-link" to="/parent/schedules">Schedules</NavLink>
           <NavLink className="nav-link" to="/parent/occurrences">Occurrences</NavLink>
+          <NavLink className="nav-link" to="/parent/health">Service health</NavLink>
           <NavLink className="nav-link" to="/parent/agent">Parent agent</NavLink>
         </div>
         <div className="nav-section">
@@ -118,7 +120,7 @@ function ParentAuthGate() {
   }, []);
   if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
   if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} />;
-  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="occurrences/:id" element={<OccurrenceInspectPage />} /><Route path="agent" element={<AgentCommandPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
+  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="occurrences/:id" element={<OccurrenceInspectPage />} /><Route path="health" element={<HealthPage />} /><Route path="agent" element={<AgentCommandPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
 }
 
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -292,6 +294,19 @@ function OccurrencesPage() {
   return <><PageHeader eyebrow="Parent workspace / Operate + Inspect" title="Occurrences" lede="Approval and rejection are durable decisions. The student never writes completion state." actions={<button className="button secondary" type="button" onClick={load}>Refresh server state</button>} />{error ? <ErrorNotice error={error} onRetry={load} /> : null}<section className="record"><div className="record-toolbar"><label className="field"><span className="system-label">Status filter</span><select className="input" aria-label="Occurrence status filter" value={status} onChange={(e) => setCollection("status", e.target.value)}><option value="">All statuses</option><option value="pending">Pending</option><option value="awaiting_verification">Awaiting verification</option><option value="completed">Completed</option></select></label><label className="field"><span className="system-label">Sort direction</span><select className="input" aria-label="Occurrence sort direction" value={dir} onChange={(e) => setCollection("dir", e.target.value)}><option value="asc">Soonest first</option><option value="desc">Latest first</option></select></label></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Student</th><th>Due</th><th>Status</th><th>Decision</th></tr></thead><tbody>{occurrences.map((o) => <tr key={o.id}><td><strong>{o.title}</strong><span className="secondary-cell">{o.id}</span></td><td className="meta">{o.studentId}</td><td className="meta">{formatOccurrenceTime(o)}</td><td><span className="status">{o.status}</span></td><td><div className="row-actions"><button className="button quiet" type="button" onClick={() => navigate(`/parent/occurrences/${o.id}`)}>Inspect</button>{o.status !== "completed" && o.status !== "canceled" && <><button className="button" type="button" onClick={() => decide(o.id, true)}>Approve</button><button className="button danger" type="button" onClick={() => decide(o.id, false)}>Reject</button><button className="button secondary" type="button" onClick={() => void tasksClient.retryOccurrence(o.id).then(load).catch(setError)}>Retry</button><button className="button quiet" type="button" onClick={() => void tasksClient.skipOccurrence(o.id).then(load).catch(setError)}>Skip</button><button className="button quiet" type="button" onClick={() => void tasksClient.cancelOccurrence(o.id).then(load).catch(setError)}>Cancel</button></>}</div></td></tr>)}</tbody></table></div>{occurrences.length === 0 && <div className="empty"><h2>No issued work</h2><p>Publish a task and create a schedule before occurrences appear here.</p></div>}</section></>;
 }
 
+function studentOccurrenceStatusCopy(status: string, attemptNumber: number) {
+  if (status === "awaiting_verification") return { title: "Verification in progress", detail: `Your submission is saved on the server${attemptNumber > 0 ? ` · attempt ${attemptNumber}` : ""}. This page will update when verification finishes.` };
+  if (status === "completed") return { title: "Complete", detail: "The server recorded a completed verification." };
+  if (status === "canceled") return { title: "Canceled", detail: "This occurrence is closed. Saved evidence remains available to your parent." };
+  if (status === "in_progress") return { title: "In progress", detail: "Continue the task, then submit it for verification." };
+  return { title: "Ready to start", detail: "Start when you are ready. The server will create the verification attempt." };
+}
+
+function StudentOccurrenceStatus({ occurrence, onRefresh }: { occurrence: Occurrence; onRefresh: () => void }) {
+  const copy = studentOccurrenceStatusCopy(occurrence.status, occurrence.attemptNumber);
+  return <section className="pair-card" aria-label="Durable verification status"><div className="record-toolbar"><div><p className="system-label">Server record</p><h2 style={{ margin: "4px 0 0" }}>{copy.title}</h2></div><span className={`status ${occurrence.status === "completed" ? "active" : occurrence.status === "awaiting_verification" ? "attention" : ""}`}>{occurrence.status.replaceAll("_", " ")}</span></div><p>{copy.detail}</p>{occurrence.status === "awaiting_verification" && <p className="meta">Reconnects and refreshes read this durable state; no browser-only completion is assumed.</p>}<button className="button secondary" type="button" onClick={onRefresh}>Refresh server state</button></section>;
+}
+
 function StudentOccurrencePage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -323,10 +338,15 @@ function StudentOccurrencePage() {
     }).catch(setError);
   }, [id]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!occurrence || occurrence.status !== "awaiting_verification") return;
+    const timer = window.setInterval(() => { tasksClient.studentOccurrence(id).then(setOccurrence).catch(() => undefined); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [id, occurrence?.status]);
   if (!occurrence) return <><PageHeader eyebrow="Student workspace / Inspect" title="Task detail" />{error ? <ErrorNotice error={error} onRetry={load} /> : <StateNotice state="loading" />}</>;
   if (artifact) return <StudentArtifactPage occurrence={occurrence} initialState={artifact} />;
   if (dialogue) return <StudentDialoguePage occurrence={occurrence} dialogue={dialogue} onRetry={load} />;
-  return <><PageHeader eyebrow="Student workspace / Inspect" title={occurrence.title} lede="The server owns this state. Ask a parent to approve after you finish." actions={<button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button>} /><section className="pair-card"><p>{occurrence.instructions}</p><p className="status">{occurrence.status}</p>{occurrence.status === "pending" && <button className="button" type="button" onClick={() => void tasksClient.startStudentOccurrence(id).then(load).catch(setError)}>Start task</button>}{occurrence.status === "awaiting_verification" && <p className="meta">Waiting for parent approval.</p>}{occurrence.status === "completed" && <p className="status active">Checked by parent</p>}</section></>;
+  return <><PageHeader eyebrow="Student workspace / Inspect" title={occurrence.title} lede="The server owns this state. Ask a parent to approve after you finish." actions={<button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button>} /><section className="pair-card"><p>{occurrence.instructions}</p>{occurrence.status === "pending" && <button className="button" type="button" onClick={() => void tasksClient.startStudentOccurrence(id).then(load).catch(setError)}>Start task</button>}</section><StudentOccurrenceStatus occurrence={occurrence} onRefresh={load} /></>;
 }
 
 function StudentChecklistPage() {

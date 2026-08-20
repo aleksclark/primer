@@ -17,6 +17,10 @@ type TaskListInput2 struct {
 type TaskInputEnvelope2 struct {
 	Body TaskInput2 `required:"true"`
 }
+type TaskRevisionInputEnvelope2 struct {
+	ID   string     `path:"id"`
+	Body TaskInput2 `required:"true"`
+}
 type ScheduleInputEnvelope2 struct {
 	Body ScheduleInput2 `required:"true"`
 }
@@ -72,7 +76,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[TaskRevision](ctx, s.requireParent(s.createTask2), in.Body)
 		return &TaskOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "tasks-revise", Method: http.MethodPost, Path: "/tasks/{id}/revisions", DefaultStatus: 201, Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *TaskInputEnvelope2) (*TaskOutput2, error) {
+	register(api, huma.Operation{OperationID: "tasks-revise", Method: http.MethodPost, Path: "/tasks/{id}/revisions", DefaultStatus: 201, Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *TaskRevisionInputEnvelope2) (*TaskOutput2, error) {
 		b, h, e := legacyJSON[TaskRevision](ctx, s.requireParent(s.reviseTask2), in.Body)
 		return &TaskOutput2{h, b}, e
 	})
