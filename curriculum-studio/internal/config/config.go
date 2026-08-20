@@ -77,6 +77,8 @@ type Config struct {
 	HTTPMaxBodyBytes int64 `envconfig:"HTTP_MAX_BODY_BYTES" default:"1048576"`
 	// MatStub marks a requested run ready with zero items. Production refuses it.
 	MatStub bool `envconfig:"MAT_STUB" default:"false"`
+	// ModelProvider is intentionally restricted to the offline scripted seam in S12.
+	ModelProvider string `envconfig:"MODEL_PROVIDER" default:"scripted"`
 }
 
 // Load reads Studio configuration from the environment and validates it.
@@ -106,6 +108,13 @@ func (c *Config) Validate() error {
 	}
 
 	c.DatabaseURL = strings.TrimSpace(c.DatabaseURL)
+	c.ModelProvider = strings.ToLower(strings.TrimSpace(c.ModelProvider))
+	if c.ModelProvider == "" {
+		c.ModelProvider = "scripted"
+	}
+	if c.ModelProvider != "scripted" {
+		return fmt.Errorf("studio config: model provider %q is blocked; only scripted is supported", c.ModelProvider)
+	}
 	c.AuthMode = strings.ToLower(strings.TrimSpace(c.AuthMode))
 	if c.AuthMode == "" {
 		c.AuthMode = "jwks"

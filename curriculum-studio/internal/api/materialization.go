@@ -343,6 +343,26 @@ func (s *Server) registerMaterializationRoutes(api huma.API) {
 		return &materializationResponse{Body: materializationView(created)}, nil
 	})
 
+	// Retrying deliberately transitions only the run back to running. The worker
+	// claims the persisted failed stage; succeeded checkpoints and items remain.
+	huma.Register(api, huma.Operation{OperationID: "retry-materialization", Method: http.MethodPost, Path: "/studio/v1/materializations/{materializationId}/retry", Tags: []string{"Materializations"}, Summary: "Retry failed materialization stage"}, func(ctx context.Context, in *materializationPath) (*materializationResponse, error) {
+		run, ws, membership, err := s.runForCaller(ctx, in.MaterializationID)
+		if err != nil {
+			return nil, materializationError(err)
+		}
+		if err := requireAuthor(ctx, membership); err != nil {
+			return nil, err
+		}
+		if run.Status != domain.MaterializationStatusFailed {
+			return nil, huma.Error409Conflict("materialization is not failed")
+		}
+		retried, err := repo.NewMaterializationRunRepo(s.querier).Start(ctx, ws, run.ID)
+		if err != nil {
+			return nil, materializationError(err)
+		}
+		return &materializationResponse{Body: materializationView(retried)}, nil
+	})
+
 	huma.Register(api, huma.Operation{OperationID: "get-materialization", Method: http.MethodGet, Path: "/studio/v1/materializations/{materializationId}", Tags: []string{"Materializations"}, Summary: "Get materialization status"}, func(ctx context.Context, in *materializationPath) (*materializationResponse, error) {
 		run, _, _, err := s.runForCaller(ctx, in.MaterializationID)
 		if err != nil {
