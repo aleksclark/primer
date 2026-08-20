@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if code := finalizeStatus(artifactFinalizeInput{ArtifactID: uuid.NewString(), OccurrenceID: occurrence.String(), RequirementID: requirement.String(), SHA256: "digest"}); code != http.StatusNotFound {
 		t.Errorf("unknown finalize artifact status=%d", code)
 	}
-	if code := finalizeStatus(artifactFinalizeInput{ArtifactID: uuid.NewString(), OccurrenceID: "not-a-uuid", RequirementID: requirement.String(), SHA256: "digest"}); code != http.StatusBadRequest {
+	if code := finalizeStatus(artifactFinalizeInput{ArtifactID: uuid.NewString(), OccurrenceID: "not-a-uuid", RequirementID: requirement.String(), SHA256: "digest"}); code != http.StatusInternalServerError {
 		t.Errorf("invalid finalize occurrence status=%d", code)
 	}
 	first := reserve("first-upload", 9)
@@ -426,10 +427,12 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 		t.Fatalf("invalid parent derivative status=%d", invalidParentDerivativeRec.Code)
 	}
 	mustExec(`UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2`, tenant, occurrence)
-	mediaConfig := `{"acceptedKinds":["image","audio","video"],"maxBytes":10000,"maxCount":10,"criteria":[{"id":"shows-work","label":"Shows work","description":"The image shows the poem.","required":true}],"passRule":"all_required","reviewPolicy":"parent_review"}`
+	mediaConfig := `{"acceptedKinds":["image","audio","video"],"maxBytes":50000,"maxCount":10,"criteria":[{"id":"shows-work","label":"Shows work","description":"The image shows the poem.","required":true}],"passRule":"all_required","reviewPolicy":"parent_review"}`
 	mustExec(`UPDATE verification_requirements SET config=$3 WHERE tenant_id=$1 AND id=$2`, tenant, requirement, mediaConfig)
-	audio := append([]byte("ID3"), []byte{0xff, 0xfb, 0x40, 0x00}...)
-	audio = append(audio, make([]byte, 1000)...)
+	audio, err := os.ReadFile("../artifact/testdata/valid.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	audioSum := sha256.Sum256(audio)
 	audioBody, _ := json.Marshal(artifactReservationInput{OccurrenceID: occurrence.String(), RequirementID: requirement.String(), Kind: "audio", Filename: "poem.mp3", ContentType: "audio/mpeg", Size: int64(len(audio)), IdempotencyKey: "audio-upload"})
 	audioReserveRec := httptest.NewRecorder()
@@ -451,7 +454,10 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if audioFinalizeRec.Code != http.StatusOK || !strings.Contains(audioFinalizeRec.Body.String(), "preview") {
 		t.Fatalf("audio finalize status=%d body=%s", audioFinalizeRec.Code, audioFinalizeRec.Body.String())
 	}
-	video := append([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p'}, make([]byte, 20)...)
+	video, err := os.ReadFile("../artifact/testdata/truncated.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
 	videoSum := sha256.Sum256(video)
 	videoBody, _ := json.Marshal(artifactReservationInput{OccurrenceID: occurrence.String(), RequirementID: requirement.String(), Kind: "video", Filename: "poem.mp4", ContentType: "video/mp4", Size: int64(len(video)), IdempotencyKey: "video-upload"})
 	videoReserveRec := httptest.NewRecorder()

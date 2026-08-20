@@ -146,6 +146,12 @@ func TestArtifactStateAndRetryAreTenantAndStudentScoped(t *testing.T) {
 	if jobStatus != "failed" {
 		t.Fatalf("foreign retry mutated job=%s", jobStatus)
 	}
+	if retried, err := s.retryArtifactState(ctx, studentA, occurrence.String()); err != nil || retried.Status != "rejected" {
+		t.Fatalf("typed retry state = %#v, err=%v", retried, err)
+	}
+	if _, err := s.retryArtifactState(ctx, studentA, occurrence.String()); err == nil || err.(interface{ GetStatus() int }).GetStatus() != http.StatusConflict {
+		t.Fatalf("non-retryable typed state error=%v", err)
+	}
 
 	// Revoked/unknown students receive the same non-disclosing auth result for
 	// state and retry rather than an existence oracle.
@@ -159,6 +165,9 @@ func TestArtifactStateAndRetryAreTenantAndStudentScoped(t *testing.T) {
 	s.retryArtifactEvaluation(revokedRetry, retryRequest(), revoked)
 	if revokedRetry.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked retry status=%d body=%s", revokedRetry.Code, revokedRetry.Body.String())
+	}
+	if _, err := s.retryArtifactState(ctx, revoked, occurrence.String()); err == nil || err.(interface{ GetStatus() int }).GetStatus() != http.StatusUnauthorized {
+		t.Fatalf("revoked typed state error=%v", err)
 	}
 
 	// A foreign parent tenant cannot inspect the occurrence either.
