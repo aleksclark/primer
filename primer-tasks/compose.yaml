@@ -207,6 +207,36 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  external-verifier-fixture:
+    build:
+      context: ./external-verifier-fixture
+      dockerfile: Dockerfile
+    environment:
+      FIXTURE_HOST: "0.0.0.0"
+      FIXTURE_PORT: "8092"
+      FIXTURE_SHARED_SECRET: ${TASKS_EXTERNAL_VERIFIER_SECRET-fixture-development-secret}
+      # The callback base is an operator-owned service address; requests carry
+      # only the production callbackPath and can never choose a URL or header.
+      FIXTURE_CALLBACK_BASE_URL: ${TASKS_EXTERNAL_VERIFIER_CALLBACK_BASE_URL-http://api:8080}
+      FIXTURE_EGRESS_MODE: ${TASKS_EXTERNAL_VERIFIER_EGRESS_MODE-test}
+      FIXTURE_LEDGER_PATH: /var/lib/external-verifier/ledger.json
+    volumes:
+      - tasks_external_verifier_data:/var/lib/external-verifier
+    ports:
+      - "127.0.0.1::8092"
+    labels:
+      stacklane.enable: "true"
+      stacklane.project: "primer-tasks"
+      stacklane.instance: "${STACKLANE_INSTANCE:-dev}"
+      stacklane.endpoint: "external-verifier"
+      stacklane.port: "8092"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8092/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
   web:
     build:
       context: ./web
@@ -261,3 +291,4 @@ volumes:
   tasks_air_build:
   tasks_web_node_modules:
   tasks_npm_cache:
+  tasks_external_verifier_data:

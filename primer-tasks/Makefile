@@ -5,7 +5,7 @@ DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi agent-protocol clients tasks-client tasks-agent-compat tasks-typecheck tasks-lint \
-	web tasks-web browser-test android e2e tasks-test tasks-cover tasks-clients tasks-android tasks-e2e tasks-live-image-e2e
+	web tasks-web browser-test android e2e tasks-test tasks-cover tasks-clients tasks-android tasks-e2e tasks-external-verifier-test tasks-external-e2e tasks-live-image-e2e
 
 check:
 	$(DEV) check
@@ -78,7 +78,13 @@ browser-test:
 android: clients
 	cd android && ./gradlew testDebugUnitTest assembleDebug
 
-tasks-test: test
+tasks-external-verifier-test:
+	cd external-verifier-fixture && GOWORK=off go test ./... -count=1
+
+tasks-external-e2e: tasks-external-verifier-test
+	@echo "External verifier fixture contract tests passed; run the Stacklane Compose service for process E2E."
+
+tasks-test: test tasks-external-verifier-test
 tasks-cover: cover
 tasks-clients: clients
 tasks-android: android
