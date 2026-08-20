@@ -64,11 +64,55 @@ func ValidateRevision(title, instructions string, requirements []VerificationReq
 		return ErrInvalidTask
 	}
 	for _, r := range requirements {
-		if r.ConfigVersion != 1 || (r.Kind != "parent_approval" && r.Kind != "agent_dialogue") {
+		if r.ConfigVersion != 1 {
+			return ErrInvalidTask
+		}
+		switch r.Kind {
+		case "parent_approval", "agent_dialogue":
+			// Existing phase requirements retain their established boundary.
+		case "agent_artifact_rubric":
+			if r.Interaction != "artifact_upload" || r.Executor != "fantasy" || !validArtifactRubric(r.Config) {
+				return ErrInvalidTask
+			}
+		default:
 			return ErrInvalidTask
 		}
 	}
 	return nil
+}
+
+func validArtifactRubric(config map[string]any) bool {
+	accepted, ok := config["acceptedKinds"].([]any)
+	if !ok || len(accepted) == 0 {
+		return false
+	}
+	for _, value := range accepted {
+		kind, ok := value.(string)
+		if !ok || (kind != "image" && kind != "video" && kind != "audio") {
+			return false
+		}
+	}
+	criteria, ok := config["criteria"].([]any)
+	if !ok || len(criteria) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, value := range criteria {
+		item, ok := value.(map[string]any)
+		if !ok {
+			return false
+		}
+		id, idOK := item["id"].(string)
+		label, labelOK := item["label"].(string)
+		description, descriptionOK := item["description"].(string)
+		if !idOK || id == "" || seen[id] || !labelOK || strings.TrimSpace(label) == "" || !descriptionOK || strings.TrimSpace(description) == "" {
+			return false
+		}
+		seen[id] = true
+	}
+	pass, passOK := config["passRule"].(string)
+	policy, policyOK := config["reviewPolicy"].(string)
+	return passOK && pass == "all_required" && policyOK && (policy == "reject" || policy == "parent_review")
 }
 func CanTransition(from, to OccurrenceStatus) bool {
 	if from == to {
