@@ -127,7 +127,7 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	}
 	dr := make([]domain.VerificationRequirement, len(rs))
 	for i, x := range rs {
-		dr[i] = domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion}
+		dr[i] = domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion, Config: x.Config, Interaction: x.Interaction, Executor: x.Executor}
 		if x.Kind == domain.AgentDialogueKind {
 			if err := domain.ValidateDialogueRequirement(domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion, Config: x.Config, Interaction: x.Interaction, Executor: x.Executor}); err != nil {
 				problem(w, 400, "invalid_request", "dialogue requirement configuration is invalid")
