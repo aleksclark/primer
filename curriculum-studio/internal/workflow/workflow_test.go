@@ -40,7 +40,7 @@ func TestP12E1HappyScriptedRun(t *testing.T) {
 	ctx := context.Background()
 	tx := testutil.Tx(t)
 	ws, run := workflowRun(t, tx)
-	runner := NewRunner(tx, &Scripted{Fixture: "golden-p12"})
+	runner := NewRunner(tx, &Scripted{Fixture: "default-v1"})
 	for i := 0; i < len(StageKeys); i++ {
 		worked, err := runner.RunOnce(ctx)
 		require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestP12E1HappyScriptedRun(t *testing.T) {
 		var provenance map[string]any
 		require.NoError(t, json.Unmarshal(item.Provenance, &provenance))
 		require.Equal(t, "scripted", provenance["provider"])
-		require.Equal(t, "golden-p12", provenance["fixture_id"])
+		require.Equal(t, "default-v1", provenance["fixture_id"])
 	}
 	require.True(t, kinds[domain.ItemKindLesson])
 	require.True(t, kinds[domain.ItemKindAssessment])
@@ -83,6 +83,15 @@ func TestP12E2KillResume(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.DB(t)
 	ws, run := workflowRun(t, pool)
+
+	// Lessons succeed before the process is interrupted while assessments is
+	// claimed. A resume must not execute that succeeded lessons stage again.
+	seed := NewRunner(pool, &Scripted{})
+	seed.LeaseTTL = 20 * time.Millisecond
+	worked, err := seed.RunOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, worked)
+
 	pause := make(chan struct{})
 	started := make(chan struct{}, 1)
 	first := NewRunner(pool, &Scripted{Pause: pause, Started: started})
@@ -90,28 +99,44 @@ func TestP12E2KillResume(t *testing.T) {
 	callCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { _, err := first.RunOnce(callCtx); done <- err }()
-	<-started // Complete is blocked after ClaimStage.
+	<-started // assessments is claimed and Complete is blocked.
+	// A concurrent worker observes the running first-unsucceeded stage; it must
+	// not leapfrog to critic while assessments still owns its lease.
+	worked, err = NewRunner(pool, &Scripted{}).RunOnce(ctx)
+	require.NoError(t, err)
+	require.False(t, worked)
 	cancel()
 	require.NoError(t, <-done)
+	stages, err := repo.NewWorkflowRepo(pool).ListStages(ctx, ws.ID, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowStageSucceeded, stages[0].Status)
+	require.Equal(t, domain.WorkflowStageRunning, stages[1].Status)
+	require.EqualValues(t, 1, stages[1].FenceToken)
 	time.Sleep(30 * time.Millisecond)
 	close(pause)
+
 	resumed := NewRunner(pool, &Scripted{})
 	resumed.LeaseTTL = 20 * time.Millisecond
-	for i := 0; i < 3; i++ {
-		_, err := resumed.RunOnce(ctx)
+	for i := 0; i < 2; i++ { // reclaim assessments, then run critic
+		worked, err := resumed.RunOnce(ctx)
 		require.NoError(t, err)
+		require.True(t, worked)
 	}
 	got, err := repo.NewMaterializationRunRepo(pool).Get(ctx, ws.ID, run.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.MaterializationStatusReady, got.Status)
-	stages, err := repo.NewWorkflowRepo(pool).ListStages(ctx, ws.ID, run.ID)
+	stages, err = repo.NewWorkflowRepo(pool).ListStages(ctx, ws.ID, run.ID)
 	require.NoError(t, err)
-	attempts, err := repo.NewWorkflowRepo(pool).ListAttempts(ctx, ws.ID, stages[0].ID)
-	require.NoError(t, err)
-	require.Len(t, attempts, 2)
+	require.EqualValues(t, 1, stages[0].FenceToken, "succeeded lessons was not re-executed")
+	require.EqualValues(t, 2, stages[1].FenceToken, "reclaimed assessment has a new fence")
+	for i, expected := range []int{1, 2, 1} {
+		attempts, err := repo.NewWorkflowRepo(pool).ListAttempts(ctx, ws.ID, stages[i].ID)
+		require.NoError(t, err)
+		require.Len(t, attempts, expected)
+	}
 	items, err := repo.NewMaterializedItemRepo(pool).ListByRunFiltered(ctx, ws.ID, run.ID, domain.ItemKindLesson, "")
 	require.NoError(t, err)
-	require.Len(t, items, 1)
+	require.Len(t, items, 1, "resume does not duplicate succeeded-stage lessons")
 }
 
 func TestP12E3ScriptedNoNetwork(t *testing.T) {
@@ -132,10 +157,15 @@ func TestP12E4FailureRetry(t *testing.T) {
 	ctx := context.Background()
 	tx := testutil.Tx(t)
 	ws, run := workflowRun(t, tx)
-	runner := NewRunner(tx, &Scripted{FailOnce: true})
-	worked, err := runner.RunOnce(ctx)
-	require.NoError(t, err)
-	require.True(t, worked)
+	runner := NewRunner(tx, &failStageOnce{stage: "assessments"})
+
+	// Lessons are durable before assessments fails. Retry must pick up only the
+	// failed assessments stage, never re-run completed lessons.
+	for i := 0; i < 2; i++ {
+		worked, err := runner.RunOnce(ctx)
+		require.NoError(t, err)
+		require.True(t, worked)
+	}
 	failed, err := repo.NewMaterializationRunRepo(tx).Get(ctx, ws.ID, run.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.MaterializationStatusFailed, failed.Status)
@@ -144,18 +174,34 @@ func TestP12E4FailureRetry(t *testing.T) {
 	require.Equal(t, 1, failedEvents)
 	_, err = repo.NewMaterializationRunRepo(tx).Start(ctx, ws.ID, run.ID) // same transition the author retry endpoint uses
 	require.NoError(t, err)
-	for i := 0; i < 3; i++ {
-		_, err := runner.RunOnce(ctx)
+	for i := 0; i < 2; i++ { // retry assessments, then critic
+		worked, err := runner.RunOnce(ctx)
 		require.NoError(t, err)
+		require.True(t, worked)
 	}
 	ready, err := repo.NewMaterializationRunRepo(tx).Get(ctx, ws.ID, run.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.MaterializationStatusReady, ready.Status)
 	stages, err := repo.NewWorkflowRepo(tx).ListStages(ctx, ws.ID, run.ID)
 	require.NoError(t, err)
-	attempts, err := repo.NewWorkflowRepo(tx).ListAttempts(ctx, ws.ID, stages[0].ID)
-	require.NoError(t, err)
-	require.Len(t, attempts, 2)
+	for i, expected := range []int{1, 2, 1} {
+		attempts, err := repo.NewWorkflowRepo(tx).ListAttempts(ctx, ws.ID, stages[i].ID)
+		require.NoError(t, err)
+		require.Len(t, attempts, expected)
+	}
+}
+
+type failStageOnce struct {
+	stage  string
+	failed bool
+}
+
+func (m *failStageOnce) Complete(_ context.Context, req Request) (Response, error) {
+	if req.Stage == m.stage && !m.failed {
+		m.failed = true
+		return Response{}, errors.New("scripted stage failure")
+	}
+	return loadFixture("default-v1", req.Stage)
 }
 
 func TestP12E5AssessmentSupportRequired(t *testing.T) {

@@ -3,7 +3,11 @@ package workflow
 
 import (
 	"context"
+	"embed"
+	"encoding/json"
 	"fmt"
+	"path"
+	"strings"
 	"sync"
 )
 
@@ -28,17 +32,20 @@ type Response struct {
 
 // Item is a generated materialization candidate.
 type Item struct {
-	Kind      string
-	Title     string
-	Body      map[string]any
-	UnitID    *string
-	OutcomeID *string
+	Kind      string         `json:"kind"`
+	Title     string         `json:"title"`
+	Body      map[string]any `json:"body"`
+	UnitID    *string        `json:"unit_id,omitempty"`
+	OutcomeID *string        `json:"outcome_id,omitempty"`
 }
 
 // LanguageModel is the only generation seam used by the runner.
 type LanguageModel interface {
 	Complete(context.Context, Request) (Response, error)
 }
+
+//go:embed testdata/fixtures
+var fixtureFiles embed.FS
 
 // Scripted is a no-network deterministic LanguageModel. Tests may block a
 // call or arrange transient/permanent failures without replacing the seam.
@@ -80,24 +87,31 @@ func (s *Scripted) Complete(ctx context.Context, req Request) (Response, error) 
 	if fixture == "" {
 		fixture = "default-v1"
 	}
-	return scriptedResponse(req.Stage, fixture), nil
+	return loadFixture(fixture, req.Stage)
 }
 
-func scriptedResponse(stage, fixture string) Response {
-	r := Response{Fixture: fixture}
-	switch stage {
-	case "lessons":
-		r.Items = []Item{{Kind: "lesson", Title: "Scripted lesson", Body: map[string]any{"content": "A scripted lesson."}}}
-	case "assessments":
-		r.Items = []Item{
-			{Kind: "assessment", Title: "Scripted assessment", Body: map[string]any{"questions": []any{"What did you learn?"}}},
-			{Kind: "rubric", Title: "Scripted assessment rubric", Body: map[string]any{"criteria": []any{"accuracy"}}},
-			{Kind: "answer_key", Title: "Scripted assessment answers", Body: map[string]any{"answers": []any{"A complete response."}}},
-		}
-	case "critic":
-		r.Findings = []map[string]any{}
+// loadFixture reads generation data embedded into the binary. Fixture names are
+// directory identifiers, never host paths, so the scripted provider has neither
+// filesystem nor network dependencies at runtime.
+func loadFixture(fixture, stage string) (Response, error) {
+	fixture = strings.TrimSpace(fixture)
+	stage = strings.TrimSpace(stage)
+	if fixture == "" || strings.Contains(fixture, "/") || strings.Contains(fixture, "\\") || fixture == "." || fixture == ".." {
+		return Response{}, fmt.Errorf("invalid scripted fixture %q", fixture)
 	}
-	return r
+	if stage == "" || strings.Contains(stage, "/") || strings.Contains(stage, "\\") {
+		return Response{}, fmt.Errorf("invalid scripted stage %q", stage)
+	}
+	raw, err := fixtureFiles.ReadFile(path.Join("testdata/fixtures", fixture, stage+".json"))
+	if err != nil {
+		return Response{}, fmt.Errorf("load scripted fixture %s/%s: %w", fixture, stage, err)
+	}
+	var response Response
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return Response{}, fmt.Errorf("decode scripted fixture %s/%s: %w", fixture, stage, err)
+	}
+	response.Fixture = fixture // provenance is the stable directory identifier.
+	return response, nil
 }
 
 // NewModel fails closed: live providers are intentionally not part of S12.

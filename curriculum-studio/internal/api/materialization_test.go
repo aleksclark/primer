@@ -18,6 +18,7 @@ import (
 	"github.com/aleksclark/primer/curriculum-studio/internal/api"
 	"github.com/aleksclark/primer/curriculum-studio/internal/authn"
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
+	"github.com/aleksclark/primer/curriculum-studio/internal/fingerprint"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 	"github.com/aleksclark/primer/curriculum-studio/internal/testutil"
 	"github.com/aleksclark/primer/curriculum-studio/internal/testutil/factory"
@@ -161,6 +162,38 @@ func TestP11ViewerCannotCreateRun(t *testing.T) {
 	revID := publishPlan(t, pool, handler, authorTok, workspace.ID, author)
 	denied := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revID+"/materializations", map[string]any{"window": map[string]any{"availableMinutes": 10}}, viewerTok)
 	assert.Equal(t, http.StatusForbidden, denied.Code)
+}
+
+func TestP12E4RetryHTTPAuthorizationAndConflict(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := testutil.DB(t)
+	handler, key, now := newStubMaterializationHandler(t, false)
+	author, viewer := uuid.New(), uuid.New()
+	workspace := factory.Workspace(t, pool)
+	factory.SeedMembership(t, pool, workspace.ID, domain.HumanSubjectRef(author), domain.MembershipRoleAuthor)
+	factory.SeedMembership(t, pool, workspace.ID, domain.HumanSubjectRef(viewer), domain.MembershipRoleViewer)
+	authorToken := mintHuman(t, key, now, author)
+	viewerToken := mintHuman(t, key, now, viewer)
+	revisionID := decodePrefixed(t, publishPlan(t, pool, handler, authorToken, workspace.ID, author), "prev_")
+	snapshot := json.RawMessage(`{"retry":true}`)
+	fingerprint, err := fingerprint.Hash(snapshot)
+	require.NoError(t, err)
+	runs := repo.NewMaterializationRunRepo(pool)
+	run, err := runs.Create(ctx, &domain.MaterializationRun{WorkspaceID: workspace.ID, PlanRevisionID: revisionID, InputSnapshot: snapshot, InputFingerprint: fingerprint})
+	require.NoError(t, err)
+	_, err = runs.Start(ctx, workspace.ID, run.ID)
+	require.NoError(t, err)
+	_, err = runs.Fail(ctx, workspace.ID, run.ID)
+	require.NoError(t, err)
+	path := "/studio/v1/materializations/mat_" + strings.ReplaceAll(run.ID.String(), "-", "") + "/retry"
+
+	allowed := doJSON(t, handler, http.MethodPost, path, nil, authorToken)
+	require.Equal(t, http.StatusOK, allowed.Code, allowed.Body.String())
+	denied := doJSON(t, handler, http.MethodPost, path, nil, viewerToken)
+	assert.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
+	conflict := doJSON(t, handler, http.MethodPost, path, nil, authorToken)
+	assert.Equal(t, http.StatusConflict, conflict.Code, conflict.Body.String())
 }
 
 func newStubMaterializationHandler(t *testing.T, stub bool) (http.Handler, *jwttest.Keypair, time.Time) {
