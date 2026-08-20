@@ -242,8 +242,12 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 		problem(w, 409, "conflict", "multipart reservation requires part endpoints")
 		return
 	}
-	if r.ContentLength < 0 || r.ContentLength != size {
-		problem(w, 400, "invalid_request", "upload size does not match reservation")
+	// Reverse proxies may legitimately de-chunk a same-origin XHR and omit
+	// Content-Length. The object store adapter still enforces the reserved
+	// exact byte count; reject only a known over/under-sized request before it
+	// is persisted.
+	if r.ContentLength > size {
+		problem(w, 400, "invalid_request", "upload size exceeds reservation")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, size+1)
