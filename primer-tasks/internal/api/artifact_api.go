@@ -440,7 +440,7 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 	// a streaming http.MaxBytesReader body.
 	cancel := func() {
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
-		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status NOT IN ('canceled','expired')`, tenant, aid)
 	}
 	if r.ContentLength > size {
 		cancel()
@@ -556,12 +556,12 @@ func (s *Server) finalizeArtifactData(ctx context.Context, student uuid.UUID, oc
 	result, e := artifact.ValidateContext(ctx, f, artifact.Input{Kind: k, DeclaredType: declared, ExpectedSize: expected, ExpectedSHA256: in.SHA256, DurationMS: in.DurationMS}, mediaLimits(k, config))
 	if e != nil {
 		_, _ = s.DB.Exec(ctx, `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
-		_, _ = s.DB.Exec(ctx, `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		_, _ = s.DB.Exec(ctx, `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status NOT IN ('canceled','expired')`, tenant, aid)
 		return ArtifactOutput{}, newProblem(http.StatusBadRequest, e.Error())
 	}
 	if k != artifact.Image && !result.DurationAuthoritative {
 		_, _ = s.DB.Exec(ctx, `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
-		_, _ = s.DB.Exec(ctx, `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		_, _ = s.DB.Exec(ctx, `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status NOT IN ('canceled','expired')`, tenant, aid)
 		return ArtifactOutput{}, newProblem(http.StatusBadRequest, "encoded media duration could not be verified")
 	}
 	if obj.Size != expected {

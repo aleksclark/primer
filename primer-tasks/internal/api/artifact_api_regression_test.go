@@ -504,6 +504,16 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if videoFinalizeRec.Code != http.StatusBadRequest {
 		t.Fatalf("unverified video duration status=%d body=%s", videoFinalizeRec.Code, videoFinalizeRec.Body.String())
 	}
+	var failedVideoArtifactStatus, failedVideoReservationStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM artifacts WHERE tenant_id=$1 AND id=$2`, tenant, videoReservation.ArtifactID).Scan(&failedVideoArtifactStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM artifact_upload_reservations WHERE tenant_id=$1 AND artifact_id=$2`, tenant, videoReservation.ArtifactID).Scan(&failedVideoReservationStatus); err != nil {
+		t.Fatal(err)
+	}
+	if failedVideoArtifactStatus != "rejected" || failedVideoReservationStatus != "canceled" {
+		t.Fatalf("failed A/V finalize left retry slot: artifact=%s reservation=%s", failedVideoArtifactStatus, failedVideoReservationStatus)
+	}
 	// Audio is persisted and routed to review rather than entering the image
 	// evaluator. The detached worker path still owns that policy transition.
 	time.Sleep(1100 * time.Millisecond)
