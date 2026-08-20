@@ -83,10 +83,20 @@ func TestCSPReviewRequiresNoObjectOrInlineScriptLeak(t *testing.T) {
 	if err := ValidateCSP(good); err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateCSP(string([]byte{0xff, 0xfe})); err == nil {
+		t.Fatal("invalid UTF-8 CSP accepted")
+	}
 	for _, policy := range []string{
 		"default-src *; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 		"default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 		"default-src 'self'; script-src 'self'; object-src 'none'",
+		"default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+		"default-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+		"default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'",
+		"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'",
+		"default-src 'self'; script-src 'unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+		"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors *",
+		"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; img-src *",
 	} {
 		if err := ValidateCSP(policy); err == nil {
 			t.Fatalf("unsafe CSP accepted: %s", policy)
@@ -99,10 +109,15 @@ func TestShortLivedURLRequiresBoundedExpiry(t *testing.T) {
 	if err := ShortLivedURL(good, 300); err != nil {
 		t.Fatal(err)
 	}
+	if err := ShortLivedURL("https://objects.example.test/opaque?expires=60", 300); err != nil {
+		t.Fatal(err)
+	}
 	for _, raw := range []string{
 		"https://objects.example.test/tenant/a/opaque",
 		"https://objects.example.test/tenant/a/opaque?X-Amz-Expires=301",
 		"https://objects.example.test/tenant/a/opaque?expires=0",
+		"not-a-url?X-Amz-Expires=60",
+		"https://objects.example.test/tenant/a/opaque?X-Amz-Expires=not-number",
 	} {
 		if err := ShortLivedURL(raw, 300); err == nil {
 			t.Fatalf("unbounded URL accepted: %s", raw)

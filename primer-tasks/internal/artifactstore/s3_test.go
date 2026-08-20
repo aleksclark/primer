@@ -114,6 +114,48 @@ func TestS3ServerErrorsRemainClosed(t *testing.T) {
 	}
 }
 
+func TestS3StoreHandlesOptionalMetadataAndIdempotentBucketResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodHead:
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			_, _ = w.Write([]byte("data"))
+		case http.MethodPut:
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusOK)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	store, err := NewS3(context.Background(), S3Config{Endpoint: server.URL, Bucket: "tasks", AccessKey: "key", SecretKey: "secret", ForcePathStyle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureBucket(context.Background()); err != nil {
+		t.Fatalf("idempotent bucket response: %v", err)
+	}
+	opened, object, err := store.Open(context.Background(), "tenant/object")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(opened)
+	_ = opened.Close()
+	if err != nil || string(body) != "data" || object.Size != 4 || object.ContentType == "" {
+		t.Fatalf("object metadata body=%q object=%+v err=%v", body, object, err)
+	}
+	stat, err := store.Stat(context.Background(), "tenant/object")
+	if err != nil || stat.Size != 0 || stat.ETag != "" {
+		t.Fatalf("optional stat=%+v err=%v", stat, err)
+	}
+	if _, err := store.Compose(context.Background(), "tenant/composed", "image/png", []string{"tenant/object"}, 5); err == nil {
+		t.Fatal("compose accepted a declared size that differed from source")
+	}
+}
+
 func TestS3StoreOperationsUseObjectBoundary(t *testing.T) {
 	t.Setenv("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

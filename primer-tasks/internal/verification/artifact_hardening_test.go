@@ -63,6 +63,11 @@ func TestArtifactRubricConfigRejectsUnsafeShapesAndKinds(t *testing.T) {
 		}},
 		{"missing label", func(c map[string]any) { c["criteria"] = []any{map[string]any{"id": "x", "description": "y"}} }},
 		{"missing description", func(c map[string]any) { c["criteria"] = []any{map[string]any{"id": "x", "label": "x"}} }},
+		{"invalid media shape", func(c map[string]any) { c["acceptedKinds"] = []any{123} }},
+		{"invalid pass rule", func(c map[string]any) { c["passRule"] = "any" }},
+		{"missing pass rule", func(c map[string]any) { delete(c, "passRule") }},
+		{"invalid review policy", func(c map[string]any) { c["reviewPolicy"] = "student" }},
+		{"missing review policy", func(c map[string]any) { delete(c, "reviewPolicy") }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,6 +80,15 @@ func TestArtifactRubricConfigRejectsUnsafeShapesAndKinds(t *testing.T) {
 				t.Fatal("invalid rubric config accepted")
 			}
 		})
+	}
+}
+
+func TestGenericCommitDecisionRejectsUnavailableCommitters(t *testing.T) {
+	if inserted, err := CommitDecision(context.Background(), nil, Decision{AttemptID: "attempt"}); err == nil || inserted {
+		t.Fatalf("nil committer result=%v err=%v", inserted, err)
+	}
+	if inserted, err := CommitDecision(context.Background(), &countingCommitter{}, Decision{}); err == nil || inserted {
+		t.Fatalf("empty attempt result=%v err=%v", inserted, err)
 	}
 }
 
