@@ -19,6 +19,7 @@ type scriptedModel struct {
 	calls  int
 	cancel bool
 	fail   bool
+	files  [][]byte
 }
 
 func (m *scriptedModel) Provider() string { return "scripted" }
@@ -32,7 +33,14 @@ func (m *scriptedModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fa
 func (m *scriptedModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
 	return nil, errors.New("not used")
 }
-func (m *scriptedModel) Stream(ctx context.Context, _ fantasy.Call) (fantasy.StreamResponse, error) {
+func (m *scriptedModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+	for _, message := range call.Prompt {
+		for _, part := range message.Content {
+			if file, ok := fantasy.AsMessagePart[fantasy.FilePart](part); ok {
+				m.files = append(m.files, append([]byte(nil), file.Data...))
+			}
+		}
+	}
 	if m.fail {
 		return nil, errors.New("scripted provider failure")
 	}
@@ -100,6 +108,21 @@ func TestFantasyQualificationUsesPublicTypedToolAndSafeCallbacks(t *testing.T) {
 		t.Fatalf("events=%#v text=%q thinking=%d tools=%d", events, text.String(), thinking, toolProgress)
 	}
 }
+func TestFantasyRuntimePassesFilesThroughThePublicAgentStreamCall(t *testing.T) {
+	model := &scriptedModel{calls: 1}
+	r, err := NewFantasyAgent(model, nil, Limits{MaxSteps: 4, MaxTokens: 100, Deadline: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	derivative := []byte("authorized derivative")
+	if _, err = r.ExecuteFiles(context.Background(), "run-files", "inspect", []fantasy.FilePart{{Filename: "derivative", Data: derivative, MediaType: "image/png"}}, func(protocol.Event) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.files) != 1 || string(model.files[0]) != string(derivative) {
+		t.Fatalf("Fantasy AgentStreamCall.Files = %q", model.files)
+	}
+}
+
 func TestFantasyQualificationContextCancelAndProviderFailureShape(t *testing.T) {
 	model := &scriptedModel{cancel: true}
 	r, err := NewFantasyAgent(model, nil, Limits{MaxSteps: 1, MaxTokens: 10, Deadline: time.Second})
@@ -124,8 +147,8 @@ func TestFantasyQualificationContextCancelAndProviderFailureShape(t *testing.T) 
 	}
 }
 func TestReservedFileShapeIsNotAcceptedByRuntimeWire(t *testing.T) {
-	// Phase 5 may add file parts. Phase 3 accepts only text prompt input and
-	// therefore has no path that can persist or broadcast provider files.
+	// Authorized Phase 5 files are provider-bound AgentStreamCall inputs; they
+	// must never be serialized into the browser-facing protocol wire.
 	b, _ := protocol.SchemaJSON()
 	if strings.Contains(string(b), "file") {
 		t.Fatal("file support accidentally entered phase 3 schema")

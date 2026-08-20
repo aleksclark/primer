@@ -62,12 +62,15 @@ func (r *Registry) ValidateConfig(kind string, version int, config map[string]an
 }
 
 type Decision struct {
-	ID        string
-	AttemptID string
-	Accepted  bool
-	Reason    string
-	ParentID  string
-	CreatedAt time.Time
+	ID           string
+	TenantID     string
+	AttemptID    string
+	OccurrenceID string
+	Accepted     bool
+	Reason       string
+	DecidedBy    string
+	ParentID     string
+	CreatedAt    time.Time
 }
 type Policy struct{ All bool }
 

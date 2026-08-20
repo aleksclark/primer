@@ -89,8 +89,8 @@ func testMigrateAgainstURL(t *testing.T, dsn string) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
-	if applied != 13 {
-		t.Fatalf("applied migrations = %d, want 13", applied)
+	if applied != 14 {
+		t.Fatalf("applied migrations = %d, want 14", applied)
 	}
 	var tables int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('tenants','students','auth_states','student_sessions')`).Scan(&tables); err != nil {

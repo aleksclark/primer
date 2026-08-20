@@ -213,7 +213,36 @@ func (s *Server) studentArtifactSubscribe(ctx context.Context, identity studentI
 	case "evaluating":
 		phase = "evaluating"
 	}
-	s.sendStudentToSubscriber(sub, wireStudentEvent{Type: typeName, ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Sequence: 1, Cursor: 1, Phase: phase, Status: status, Time: time.Now().UTC()})
+	s.sendStudentToSubscriber(sub, wireStudentEvent{Type: typeName, ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Sequence: 0, Cursor: cmd.Cursor, Phase: phase, Status: status, Time: time.Now().UTC()})
+	// Artifact progress is job-owned and durable. Replay it after the small
+	// state snapshot so reconnects do not depend on the worker or websocket
+	// having stayed alive.
+	rows, replayErr := s.DB.Query(ctx, `SELECT e.sequence,e.kind,e.payload,e.created_at FROM artifact_rubric_events e WHERE e.tenant_id=$1 AND e.submission_id=$2 AND e.sequence>$3 ORDER BY e.sequence LIMIT 200`, identity.TenantID, cmd.SubmissionID, cmd.Cursor)
+	if replayErr != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sequence int64
+		var kind string
+		var payload []byte
+		var createdAt time.Time
+		if rows.Scan(&sequence, &kind, &payload, &createdAt) != nil {
+			continue
+		}
+		eventType := "progress"
+		if kind == "complete" || kind == "rejected" {
+			eventType = "complete"
+		}
+		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Sequence: sequence, Cursor: sequence, Phase: kind, Status: status, Time: createdAt}
+		if json.Unmarshal(payload, &event) != nil {
+			continue
+		}
+		event.Type, event.ProtocolVersion, event.Sequence, event.Cursor, event.OccurrenceID, event.Time = eventType, studentProtocolVersion, sequence, sequence, cmd.OccurrenceID, createdAt
+		if !sub.enqueue(event) {
+			return
+		}
+	}
 }
 
 func (s *Server) studentSubscribe(ctx context.Context, identity studentIdentity, sub *studentSubscriber, cmd studentCommand) {

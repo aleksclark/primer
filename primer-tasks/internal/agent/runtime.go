@@ -70,6 +70,13 @@ func NewFantasyAgent(model fantasy.LanguageModel, tools []fantasy.AgentTool, lim
 }
 
 func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(protocol.Event) error) (Execution, error) {
+	return r.ExecuteFiles(ctx, runID, prompt, nil, emit)
+}
+
+// ExecuteFiles is the multimodal boundary. Files are passed through Fantasy's
+// public AgentStreamCall.Files field; callers must provide bytes already read
+// from an authorized derivative rather than an object-store URL.
+func (r *Runtime) ExecuteFiles(ctx context.Context, runID, prompt string, files []fantasy.FilePart, emit func(protocol.Event) error) (Execution, error) {
 	if r == nil || r.Agent == nil {
 		return Execution{}, ErrProviderDisabled
 	}
@@ -81,7 +88,7 @@ func (r *Runtime) Execute(ctx context.Context, runID, prompt string, emit func(p
 	seq := int64(0)
 	retries := 0
 	next := func(e protocol.Event) error { seq++; e.Sequence = seq; e.Cursor = seq; return emit(e) }
-	call := fantasy.AgentStreamCall{Prompt: prompt, MaxOutputTokens: ptr(int64(r.Limits.MaxTokens)), StopWhen: []fantasy.StopCondition{fantasy.StepCountIs(r.Limits.MaxSteps), fantasy.MaxTokensUsed(int64(r.Limits.MaxTokens))},
+	call := fantasy.AgentStreamCall{Prompt: prompt, Files: files, MaxOutputTokens: ptr(int64(r.Limits.MaxTokens)), StopWhen: []fantasy.StopCondition{fantasy.StepCountIs(r.Limits.MaxSteps), fantasy.MaxTokensUsed(int64(r.Limits.MaxTokens))},
 		OnTextStart: func(id string) error { return next(protocol.TextStart(runID, seq+1)) },
 		OnTextDelta: func(id, text string) error { return next(protocol.TextDelta(runID, seq+1, text)) },
 		OnTextEnd:   func(id string) error { return next(protocol.TextEnd(runID, seq+1)) },
@@ -171,7 +178,8 @@ func safeToolLabels() map[string]string {
 		"list_schedules": "List schedules", "create_schedule": "Create schedule",
 		"update_schedule": "Update schedule", "disable_schedule": "Disable schedule",
 		"list_occurrences": "List occurrences", "preview_action": "Prepare change",
-		"confirm_action": "Confirm change",
+		"confirm_action":            "Confirm change",
+		ToolRecordArtifactCriterion: "Record rubric criterion",
 	}
 }
 func (r *Runtime) label(name string) string {
