@@ -55,6 +55,19 @@ function accepts(config: ArtifactStudentState["config"]) {
   return values.join(",");
 }
 
+async function mediaDurationMs(file: File): Promise<number> {
+  if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) return 0;
+  const source = URL.createObjectURL(file);
+  try {
+    const media = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
+    media.preload = "metadata";
+    media.src = source;
+    await new Promise<void>((resolve, reject) => { media.onloadedmetadata = () => resolve(); media.onerror = () => reject(new Error("The media duration could not be read.")); });
+    if (!Number.isFinite(media.duration) || media.duration <= 0) throw new Error("The media duration could not be read.");
+    return Math.ceil(media.duration * 1000);
+  } finally { URL.revokeObjectURL(source); }
+}
+
 function FilePreview({ file }: { file: File }) {
   const [source, setSource] = useState<string | null>(null);
   useEffect(() => {
@@ -110,7 +123,8 @@ export default function StudentArtifactPage({ occurrence, initialState }: { occu
       const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "audio";
       const reservation = await tasksClient.reserveArtifact(occurrence.id, { kind, mediaType: file.type, sizeBytes: file.size, digest, idempotencyKey: newArtifactIdempotencyKey() });
       await tasksClient.uploadArtifact(reservation, file, { onProgress: (current, maximum) => { setLoaded(current); setTotal(maximum); } });
-      const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, idempotencyKey: reservation.idempotencyKey, digest, sizeBytes: file.size, mediaType: file.type, filename: file.name });
+      const durationMs = await mediaDurationMs(file);
+      const next = await tasksClient.finalizeArtifact(occurrence.id, { artifactId: reservation.artifactId, idempotencyKey: reservation.idempotencyKey, digest, sizeBytes: file.size, mediaType: file.type, durationMs, filename: file.name });
       setState(next); setUploadState(next.status === "complete" ? "complete" : "queued");
     } catch (next) {
       setUploadState("error");

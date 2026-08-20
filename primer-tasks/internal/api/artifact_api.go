@@ -99,6 +99,11 @@ func mediaLimits(kind artifact.Kind, raw []byte) artifact.Limits {
 			*dst = int64(n)
 		}
 	}
+	if l.MaxDurationMS == artifact.DefaultLimits(kind).MaxDurationMS {
+		if n, ok := c["maxDurationSeconds"].(float64); ok && n > 0 {
+			l.MaxDurationMS = int64(n * 1000)
+		}
+	}
 	if n, ok := c["maxCount"].(float64); ok && n > 0 {
 		l.MaxCount = int(n)
 	}

@@ -129,6 +129,7 @@ export type ArtifactUploadReservation = {
 export type ArtifactFinalizeInput = {
   artifactId: string;
   idempotencyKey?: string;
+  durationMs?: number;
   digest: string;
   sizeBytes: number;
   mediaType: string;
