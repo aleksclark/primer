@@ -74,11 +74,22 @@ func ValidateRevision(title, instructions string, requirements []VerificationReq
 			if r.Interaction != "artifact_upload" || r.Executor != "fantasy" || !validArtifactRubric(r.Config) {
 				return ErrInvalidTask
 			}
+		case "external_callback":
+			if r.Interaction != "external" || r.Executor != "external" || !validExternalCallback(r.Config) {
+				return ErrInvalidTask
+			}
 		default:
 			return ErrInvalidTask
 		}
 	}
 	return nil
+}
+
+func validExternalCallback(config map[string]any) bool {
+	verifier, vok := config["verifierId"].(string)
+	capability, cok := config["capability"].(string)
+	schema, sok := config["schemaVersion"].(string)
+	return vok && strings.TrimSpace(verifier) != "" && cok && strings.TrimSpace(capability) != "" && sok && schema != ""
 }
 
 func validArtifactRubric(config map[string]any) bool {

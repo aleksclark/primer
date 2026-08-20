@@ -460,6 +460,7 @@ func (s *Server) humaAPI() huma.API {
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
 	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))
 	s.registerArtifactRoutes(r)
+	s.registerExternalRoutes(r)
 	return api
 }
 

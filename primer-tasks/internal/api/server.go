@@ -18,18 +18,20 @@ import (
 	"net/url"
 	"os"
 	"primer-tasks/internal/artifactstore"
+	"primer-tasks/internal/jobs"
 	"strings"
 	"time"
 )
 
 type Server struct {
-	DB           *pgxpool.Pool
-	Env          string
-	Artifacts    artifactstore.Store
-	SecureCookie bool
-	Auth         AuthConfig
-	StartedAt    time.Time
-	agentHub     *agentHub
+	DB              *pgxpool.Pool
+	Env             string
+	Artifacts       artifactstore.Store
+	SecureCookie    bool
+	Auth            AuthConfig
+	StartedAt       time.Time
+	ExternalSecrets jobs.SecretResolver
+	agentHub        *agentHub
 }
 type scope struct{ Tenant, Subject string }
 
