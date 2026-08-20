@@ -404,7 +404,7 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		idem = result.SHA256
 	}
 	var existing string
-	e = tx.QueryRow(r.Context(), `INSERT INTO artifact_submissions(id,tenant_id,student_id,occurrence_id,requirement_id,attempt_id,artifact_id,idempotency_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted') ON CONFLICT(tenant_id,student_id,idempotency_key) DO UPDATE SET id=artifact_submissions.id RETURNING id`, sub, tenant, student, in.OccurrenceID, in.RequirementID, attempt, aid, idem).Scan(&existing)
+	e = tx.QueryRow(r.Context(), `INSERT INTO artifact_submissions(id,tenant_id,student_id,occurrence_id,requirement_id,attempt_id,artifact_id,idempotency_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted') ON CONFLICT(tenant_id,student_id,occurrence_id,idempotency_key) DO UPDATE SET id=artifact_submissions.id RETURNING id`, sub, tenant, student, in.OccurrenceID, in.RequirementID, attempt, aid, idem).Scan(&existing)
 	if e != nil {
 		problem(w, 409, "conflict", "submission idempotency key is already used")
 		return
