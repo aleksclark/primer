@@ -8,7 +8,7 @@ const allowedHosts = (process.env.DEV_ALLOWED_HOSTS ?? ".test,localhost,127.0.0.
   .map((host) => host.trim())
   .filter(Boolean);
 const hmrHost = process.env.HMR_HOST;
-const strictCSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' blob: data:; media-src 'self' blob: data:; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'";
+const strictCSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; media-src 'self' data:; connect-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'";
 const devCSP = strictCSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'");
 const hmr = hmrHost
   ? {

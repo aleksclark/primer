@@ -68,7 +68,7 @@ func (s *Server) runArtifactStep(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 	var job, tenant, submission string
-	err = tx.QueryRow(ctx, `UPDATE artifact_rubric_jobs SET status='running',attempts=attempts+1,lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now() WHERE id=(SELECT id FROM artifact_rubric_jobs WHERE status='queued' AND available_at<=now() ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,tenant_id,submission_id`, uuid.NewString()).Scan(&job, &tenant, &submission)
+	err = tx.QueryRow(ctx, `UPDATE artifact_rubric_jobs SET status='running',attempts=attempts+1,lease_owner=$1,lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=(SELECT id FROM artifact_rubric_jobs WHERE status='queued' AND available_at<=now() ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,tenant_id,submission_id`, uuid.NewString()).Scan(&job, &tenant, &submission)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -174,6 +174,9 @@ func (s *Server) evaluateArtifact(ctx context.Context, job, tenant, submission s
 	inserted, err := verification.CommitDecision(ctx, s, verification.Decision{ID: uuid.NewString(), TenantID: tenant, AttemptID: attempt, OccurrenceID: occurrence, Accepted: ready.Accepted, Reason: ready.Reason, DecidedBy: "verification_engine"})
 	if err != nil {
 		return err
+	}
+	if !inserted {
+		return s.resolveArtifactPolicy(ctx, job, tenant, submission, rubric, "verification decision already exists")
 	}
 	if err := s.finishArtifactDecision(ctx, job, tenant, submission, model.Provider(), model.Model(), ready.Accepted, inserted); err != nil {
 		return err
@@ -384,8 +387,8 @@ func (s *Server) appendArtifactProgress(ctx context.Context, tenant, job, submis
 }
 
 func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submission, kind string, payload map[string]any) error {
-	var occurrence string
-	if err := s.DB.QueryRow(ctx, `SELECT occurrence_id FROM artifact_submissions WHERE tenant_id=$1 AND id=$2`, tenant, submission).Scan(&occurrence); err == nil {
+	var occurrence, student string
+	if err := s.DB.QueryRow(ctx, `SELECT occurrence_id,student_id FROM artifact_submissions WHERE tenant_id=$1 AND id=$2`, tenant, submission).Scan(&occurrence, &student); err == nil {
 		eventType := "progress"
 		if kind == "complete" || kind == "rejected" {
 			eventType = "complete"
@@ -400,7 +403,7 @@ func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submi
 				status = "rejected"
 			}
 		}
-		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, TenantID: tenant, OccurrenceID: occurrence, Sequence: sequence, Cursor: sequence, Phase: kind, Status: status, Time: time.Now().UTC()}
+		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, TenantID: tenant, StudentID: student, OccurrenceID: occurrence, Sequence: sequence, Cursor: sequence, Phase: kind, Status: status, Time: time.Now().UTC()}
 		payloadBytes, _ := json.Marshal(payload)
 		_ = json.Unmarshal(payloadBytes, &event)
 		s.studentDialogueHub().publish(event)

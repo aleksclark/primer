@@ -143,6 +143,7 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	t.Setenv("TASKS_AGENT_MODE", "scripted")
 	t.Setenv("TASKS_ARTIFACT_SCRIPTED_FIXTURE", "1")
 	t.Setenv("TASKS_ARTIFACT_SCRIPTED_DIGEST", hex.EncodeToString(validSum[:]))
+	time.Sleep(1100 * time.Millisecond)
 	if err := s.runArtifactStep(ctx); err != nil {
 		t.Fatal(err)
 	}

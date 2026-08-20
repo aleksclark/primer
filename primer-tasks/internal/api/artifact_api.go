@@ -417,8 +417,10 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 	}
 	defer tx.Rollback(r.Context())
 	var attempt uuid.UUID
-	e = tx.QueryRow(r.Context(), `SELECT va.id FROM verification_attempts va WHERE va.tenant_id=$1 AND va.occurrence_id=$2 AND va.requirement_id=$3 ORDER BY va.number DESC LIMIT 1`, tenant, in.OccurrenceID, in.RequirementID).Scan(&attempt)
-	if errors.Is(e, pgx.ErrNoRows) {
+	var attemptStatus string
+	var hasDecision bool
+	e = tx.QueryRow(r.Context(), `SELECT va.id,va.status,EXISTS(SELECT 1 FROM verification_decisions d WHERE d.tenant_id=va.tenant_id AND d.attempt_id=va.id) FROM verification_attempts va WHERE va.tenant_id=$1 AND va.occurrence_id=$2 AND va.requirement_id=$3 ORDER BY va.number DESC LIMIT 1`, tenant, in.OccurrenceID, in.RequirementID).Scan(&attempt, &attemptStatus, &hasDecision)
+	if errors.Is(e, pgx.ErrNoRows) || attemptStatus != "open" || hasDecision {
 		e = tx.QueryRow(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) SELECT $1,$2,$3,$4,COALESCE(MAX(number),0)+1 FROM verification_attempts WHERE tenant_id=$2 AND occurrence_id=$3 AND requirement_id=$4 RETURNING id`, uuid.New(), tenant, in.OccurrenceID, in.RequirementID).Scan(&attempt)
 	}
 	if e != nil {
@@ -452,7 +454,7 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 	var requirementKind string
 	_ = tx.QueryRow(r.Context(), `SELECT kind FROM verification_requirements WHERE tenant_id=$1 AND id=$2`, tenant, in.RequirementID).Scan(&requirementKind)
 	if requirementKind == "agent_artifact_rubric" {
-		_, e = tx.Exec(r.Context(), `INSERT INTO artifact_rubric_jobs(id,tenant_id,submission_id,rubric_snapshot) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,submission_id) DO NOTHING`, uuid.New(), tenant, sub, config)
+		_, e = tx.Exec(r.Context(), `INSERT INTO artifact_rubric_jobs(id,tenant_id,submission_id,rubric_snapshot,available_at) VALUES($1,$2,$3,$4,now()+interval '1 second') ON CONFLICT(tenant_id,submission_id) DO NOTHING`, uuid.New(), tenant, sub, config)
 		if e != nil {
 			problem(w, 500, "internal", "unable to enqueue artifact review")
 			return
@@ -499,7 +501,7 @@ func (s *Server) studentDerivative(w http.ResponseWriter, r *http.Request, stude
 		return
 	}
 	var key, ct string
-	e = s.DB.QueryRow(r.Context(), `SELECT d.object_key,d.content_type FROM artifact_derivatives d JOIN artifacts a ON a.tenant_id=d.tenant_id AND a.id=d.artifact_id WHERE d.tenant_id=$1 AND a.student_id=$2 AND d.artifact_id=$3 AND d.derivative_kind=$4 AND a.status='finalized'`, tenant, student, aid, chi.URLParam(r, "kind")).Scan(&key, &ct)
+	e = s.DB.QueryRow(r.Context(), `SELECT d.object_key,d.content_type FROM artifact_derivatives d JOIN artifacts a ON a.tenant_id=d.tenant_id AND a.id=d.artifact_id WHERE d.tenant_id=$1 AND a.student_id=$2 AND d.artifact_id=$3 AND d.derivative_kind=$4 AND a.status IN ('finalized','tombstoned')`, tenant, student, aid, chi.URLParam(r, "kind")).Scan(&key, &ct)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "artifact derivative not found")
 		return
@@ -647,7 +649,7 @@ func (s *Server) retryArtifactEvaluation(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	occurrence := chi.URLParam(r, "occurrence")
-	_, err = s.DB.Exec(r.Context(), `UPDATE artifact_rubric_jobs j SET status='queued',available_at=now(),lease_owner=NULL,lease_until=NULL,updated_at=now() FROM artifact_submissions sub WHERE sub.tenant_id=j.tenant_id AND sub.id=j.submission_id AND sub.tenant_id=$1 AND sub.occurrence_id=$2`, tenant, occurrence)
+	_, err = s.DB.Exec(r.Context(), `UPDATE artifact_rubric_jobs j SET status='queued',available_at=now(),lease_owner=NULL,lease_until=NULL,updated_at=now() FROM artifact_submissions sub WHERE sub.tenant_id=j.tenant_id AND sub.id=j.submission_id AND sub.tenant_id=$1 AND sub.occurrence_id=$2 AND sub.student_id=$3`, tenant, occurrence, student)
 	if err != nil {
 		problem(w, 500, "internal", "unable to retry artifact review")
 		return
