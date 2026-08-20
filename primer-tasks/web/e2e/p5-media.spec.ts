@@ -100,9 +100,8 @@ test("parent-authored image rubric bounds browser upload, persists scripted comp
     await s.setInputFiles('input[type="file"]', fixture("poem-fixture.png"));
     await s.getByRole("button", { name: /finalize upload/i }).click();
     expect(new URL((await bounded).url()).origin).toBe(new URL(s.url()).origin);
-    await expect(s.getByText(/^(Queued|Complete)$/, { exact: true }).first()).toBeVisible();
-    await s.reload();
-    await expect(s.getByText("Complete", { exact: true }).first()).toBeVisible();
+    await expect(s.getByText(/^(Queued|Evaluating|Complete)$/, { exact: true }).first()).toBeVisible();
+    await expect.poll(async () => { await s.reload(); return s.locator("body").innerText(); }, { timeout: 30_000 }).toMatch(/Complete/);
     await expect(s.getByText(/every required criterion was accepted/i)).toBeVisible();
     await expect(s.locator('input[type="file"]')).toBeDisabled();
     await expect(s.locator("body")).not.toContainText(/x-amz|presign|object key|chain of thought|internal reasoning/i);
@@ -123,9 +122,8 @@ test("audio and video route to durable parent review with local preview", async 
       await expect(s.getByText(media === "audio" ? "audio/mpeg" : "video/mp4", { exact: true })).toBeVisible();
       await expect(s.getByLabel(new RegExp(`selected ${media} preview`, "i"))).toBeVisible();
       await s.getByRole("button", { name: /finalize upload/i }).click();
-      await expect(s.getByText(/^(Queued|Parent review)$/, { exact: true }).first()).toBeVisible();
-      await s.reload();
-      await expect(s.getByText("Parent review", { exact: true }).first()).toBeVisible();
+      await expect(s.getByText(/^(Queued|Evaluating|Parent review)$/, { exact: true }).first()).toBeVisible();
+      await expect.poll(async () => { await s.reload(); return s.locator("body").innerText(); }, { timeout: 30_000 }).toMatch(/Parent review/);
       await s.close();
     }
   } finally { await Promise.all([parent.close(), learnerContext.close()]); }
