@@ -159,8 +159,16 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 50 {
-		t.Fatalf("registered %d operations, want 50", operationCount)
+	if operationCount != 59 {
+		t.Fatalf("registered %d operations, want 59", operationCount)
+	}
+	externalSubmit := registered["/student/occurrences/{id}/external/submit"]
+	if externalSubmit == nil || externalSubmit.Post == nil || externalSubmit.Post.OperationID != "student-external-submit" {
+		t.Fatal("external student submit operation is missing or has the wrong operation ID")
+	}
+	externalInspect := registered["/occurrences/{id}/external/inspect"]
+	if externalInspect == nil || externalInspect.Get == nil || externalInspect.Get.OperationID != "parent-external-inspect" {
+		t.Fatal("external parent inspect operation is missing or has the wrong operation ID")
 	}
 	dialogueInspect := registered["/occurrences/{id}/inspect"]
 	if dialogueInspect == nil || dialogueInspect.Get == nil || dialogueInspect.Get.OperationID != "occurrence-dialogue-inspect" {

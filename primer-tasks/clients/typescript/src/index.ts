@@ -139,6 +139,10 @@ type TaskRevisionInputBody = JsonBody<"/tasks/{id}/revisions", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
 type ArtifactReservationBody = JsonBody<"/student/occurrences/{occurrence}/artifacts/reserve", "post">;
 type ArtifactFinalizeBody = JsonBody<"/student/occurrences/{occurrence}/artifacts/finalize", "post">;
+type ExternalVerifierCreateBody = JsonBody<"/admin/verifiers", "post">;
+type ExternalVerifierPatchBody = JsonBody<"/admin/verifiers/{id}", "patch">;
+type ExternalSubmitBody = JsonBody<"/student/occurrences/{id}/external/submit", "post">;
+type ExternalFallbackBody = JsonBody<"/occurrences/{id}/external/fallback", "post">;
 export type ArtifactReservationResponse = components["schemas"]["ArtifactReservationOutput"];
 export type ArtifactStateResponse = components["schemas"]["ArtifactStateResponse"];
 export type ArtifactFinalizeResponse = components["schemas"]["ArtifactOutput"];
@@ -151,6 +155,11 @@ export type Schedule = components["schemas"]["Schedule2"];
 export type Occurrence = components["schemas"]["Occurrence2"];
 export type OccurrencePage = components["schemas"]["OccurrencePage2"];
 export type AgentConversation = components["schemas"]["AgentConversation"];
+export type ExternalVerifier = components["schemas"]["ExternalVerifierOutput"];
+export type ExternalVerifierList = components["schemas"]["ExternalVerifierList"];
+export type ExternalState = components["schemas"]["ExternalStateOutput"];
+export type ExternalSubmitInput = components["schemas"]["ExternalSubmitInput"];
+export type ExternalSubmitResult = components["schemas"]["ExternalSubmitResult"];
 
 export interface TasksClientOptions {
   baseUrl?: string;
@@ -279,6 +288,15 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       return unwrap(transport.POST("/auth/logout", { ...options }));
     },
 
+    async listExternalVerifiers(options: RequestOptions = {}) {
+      return unwrap(transport.GET("/admin/verifiers", { ...options }));
+    },
+    async createExternalVerifier(body: ExternalVerifierCreateBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/admin/verifiers", { ...options, body }));
+    },
+    async setExternalVerifierActive(id: string, body: ExternalVerifierPatchBody, options: RequestOptions = {}) {
+      return unwrap(transport.PATCH("/admin/verifiers/{id}", { ...options, params: { path: { id } }, body }));
+    },
     async listStudents(query: StudentListQuery, options: RequestOptions = {}) {
       return unwrap(transport.GET("/students", { ...options, params: { query } }));
     },
@@ -376,6 +394,24 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       const parsed = parseInspectTimeline(wire);
       if (!parsed) throw new TasksApiError(502, "The server returned an unusable inspect record.");
       return parsed;
+    },
+    async studentExternalState(id: string, options: RequestOptions = {}): Promise<ExternalState> {
+      return unwrap(transport.GET("/student/occurrences/{id}/external", { ...options, params: { path: { id } } }));
+    },
+    async submitExternal(id: string, body: ExternalSubmitBody, options: RequestOptions = {}): Promise<ExternalSubmitResult> {
+      return unwrap(transport.POST("/student/occurrences/{id}/external/submit", { ...options, params: { path: { id } }, body }));
+    },
+    async inspectExternal(id: string, options: RequestOptions = {}): Promise<ExternalState> {
+      return unwrap(transport.GET("/occurrences/{id}/external/inspect", { ...options, params: { path: { id } } }));
+    },
+    async retryExternal(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/external/retry", { ...options, params: { path: { id } } }));
+    },
+    async cancelExternal(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/external/cancel", { ...options, params: { path: { id } } }));
+    },
+    async fallbackExternal(id: string, body: ExternalFallbackBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/external/fallback", { ...options, params: { path: { id } }, body }));
     },
     async studentDialogue(id: string, options: RequestOptions = {}): Promise<StudentDialogueState> {
       const wire = await unwrap(transport.GET("/student/occurrences/{id}/dialogue", { ...options, params: { path: { id } } }));

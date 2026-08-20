@@ -82,7 +82,7 @@ func (w *ExternalWorker) deliver(ctx context.Context, d repo.ExternalDelivery) e
 	if !catalog.Active {
 		return w.fail(ctx, d, "verifier_disabled", true, nil)
 	}
-	if err = verification.ValidateEndpoint(catalog.EndpointURL); err != nil {
+	if err = repo.ValidateCatalogEndpoint(ctx, catalog.EndpointURL, catalog.EgressPolicy); err != nil {
 		return w.fail(ctx, d, "verifier_endpoint_invalid", true, err)
 	}
 	if w.Secrets == nil {

@@ -24,9 +24,9 @@ import (
 )
 
 const (
-	signatureHeader = "X-External-Signature"
-	timestampHeader = "X-External-Timestamp"
-	requestIDHeader = "X-External-Request-ID"
+	signatureHeader = "X-Primer-Signature"
+	timestampHeader = "X-Primer-Timestamp"
+	requestIDHeader = "X-Primer-Request-ID"
 )
 
 type requestEnvelope struct {
@@ -136,6 +136,9 @@ func (f *fixture) setFaults(modes []string) {
 }
 
 func (f *fixture) verify(method, path string, body []byte, h http.Header) error {
+	if h.Get("X-Primer-Key-ID") != envOr("FIXTURE_SECRET_VERSION", "1") {
+		return errors.New("unknown secret version")
+	}
 	at, err := time.Parse(time.RFC3339Nano, h.Get(timestampHeader))
 	if err != nil || time.Since(at) > f.window || time.Until(at) > f.window {
 		return errors.New("timestamp outside signature window")
@@ -232,7 +235,7 @@ func (f *fixture) deliver(record requestRecord) error {
 		order = []int64{3, 1, 2}
 	}
 	for _, sequence := range order {
-		cb := callbackEnvelope{Version: 1, CallbackID: callbackID(record.Request.RequestID, sequence), RequestID: record.Request.RequestID, AttemptRef: record.Request.AttemptRef, VerifierID: envOr("FIXTURE_VERIFIER_ID", "fixture"), SchemaVersion: record.Request.SchemaVersion, Sequence: sequence, RequestDigest: record.Request.PayloadDigest}
+		cb := callbackEnvelope{Version: 1, CallbackID: callbackID(record.Request.RequestID, sequence), RequestID: record.Request.RequestID, AttemptRef: record.Request.AttemptRef, VerifierID: requestVerifierID(record.Request), SchemaVersion: record.Request.SchemaVersion, Sequence: sequence, RequestDigest: record.Request.PayloadDigest}
 		switch sequence {
 		case 1:
 			cb.Type = "progress"
@@ -270,17 +273,29 @@ func (f *fixture) deliver(record requestRecord) error {
 	}
 	return f.ledger.updateRequest(record.Request.IdempotencyKey, func(r *requestRecord) {
 		r.Final = true
-		r.Outcome = cbOutcome(record)
+		r.Outcome = f.cbOutcome(record)
 		r.Deliveries++
 		r.LastDelivery = time.Now().UTC()
 	})
 }
-func cbOutcome(r requestRecord) string {
-	if f := strings.ToLower(os.Getenv("FIXTURE_OUTCOME")); f == "rejected" {
-		return f
+func requestVerifierID(request requestEnvelope) string {
+	path := strings.TrimSuffix(request.CallbackPath, "/callback")
+	const prefix = "/external/verifiers/"
+	if strings.HasPrefix(path, prefix) && strings.Trim(path[len(prefix):], "/") != "" {
+		return strings.Trim(path[len(prefix):], "/")
 	}
-	if os.Getenv("FIXTURE_FAULT_MODE") == "terminal_error" {
+	return envOr("FIXTURE_VERIFIER_ID", "fixture")
+}
+
+func (f *fixture) cbOutcome(r requestRecord) string {
+	if outcome := strings.ToLower(os.Getenv("FIXTURE_OUTCOME")); outcome == "rejected" {
+		return outcome
+	}
+	if f.fault("terminal_error") {
 		return "terminal_error"
+	}
+	if f.fault("retryable_error") {
+		return "retryable_error"
 	}
 	return "accepted"
 }
@@ -311,6 +326,7 @@ func (f *fixture) sendCallback(record requestRecord, cb callbackEnvelope) error 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(signatureHeader, signature)
+	req.Header.Set("X-Primer-Key-ID", envOr("FIXTURE_SECRET_VERSION", "1"))
 	req.Header.Set(timestampHeader, at.UTC().Format(time.RFC3339Nano))
 	req.Header.Set(requestIDHeader, cb.CallbackID)
 	req.Header.Set("Idempotency-Key", cb.CallbackID)

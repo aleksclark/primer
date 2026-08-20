@@ -1,110 +1,81 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"sort"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"primer-tasks/internal/jobs"
+	"primer-tasks/internal/repo"
+	"primer-tasks/internal/verification"
 )
 
-// phase6DialogueFixture is deliberately made only from tables in the current
-// production migrations. Phase 6's external_callback driver is not present in
-// this checkout, so these tests exercise the existing durable verifier queue,
-// decision boundary, and replay facts rather than inventing that boundary.
-type phase6DialogueFixture struct {
-	tenant, student, template, revision, requirement uuid.UUID
-	schedule, occurrence, attempt                    uuid.UUID
-	messages                                         []uuid.UUID
+type phase6ExternalFixture struct {
+	tenant, student, template, revision, requirement, schedule, occurrence, attempt, verifier uuid.UUID
+	requestID                                                                                 string
 }
 
-func phase6Fixture(t *testing.T, pool *pgxpool.Pool, messageCount int) phase6DialogueFixture {
+func seedPhase6External(t *testing.T, pool *pgxpool.Pool) phase6ExternalFixture {
 	t.Helper()
-	f := phase6DialogueFixture{
-		tenant: uuid.New(), student: uuid.New(), template: uuid.New(), revision: uuid.New(), requirement: uuid.New(),
-		schedule: uuid.New(), occurrence: uuid.New(), attempt: uuid.New(),
-	}
+	f := phase6ExternalFixture{tenant: uuid.New(), student: uuid.New(), template: uuid.New(), revision: uuid.New(), requirement: uuid.New(), schedule: uuid.New(), occurrence: uuid.New(), attempt: uuid.New(), verifier: uuid.New(), requestID: uuid.NewString()}
 	exec := func(query string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(context.Background(), query, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	exec(`INSERT INTO tenants(id,name) VALUES($1,'Phase 6 database concurrency')`, f.tenant)
-	exec(`INSERT INTO students(id,tenant_id,display_name) VALUES($1,$2,'Concurrency student')`, f.student, f.tenant)
-	exec(`INSERT INTO task_templates(id,tenant_id,title,status,current_revision) VALUES($1,$2,'Concurrency task','published',1)`, f.template, f.tenant)
-	exec(`INSERT INTO task_revisions(id,tenant_id,template_id,version,title,status) VALUES($1,$2,$3,1,'Concurrency task','published')`, f.revision, f.tenant, f.template)
-	exec(`INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES($1,$2,$3,1,'agent_dialogue',1,'{}','chat','fantasy')`, f.requirement, f.tenant, f.revision)
+	exec(`INSERT INTO tenants(id,name) VALUES($1,'Phase 6 external')`, f.tenant)
+	exec(`INSERT INTO students(id,tenant_id,display_name) VALUES($1,$2,'External student')`, f.student, f.tenant)
+	exec(`INSERT INTO task_templates(id,tenant_id,title,status,current_revision) VALUES($1,$2,'External task','published',1)`, f.template, f.tenant)
+	exec(`INSERT INTO task_revisions(id,tenant_id,template_id,version,title,status) VALUES($1,$2,$3,1,'External task','published')`, f.revision, f.tenant, f.template)
+	config := `{"verifierId":"` + f.verifier.String() + `","capability":"response","schemaVersion":"external_callback.v1","options":{}}`
+	exec(`INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES($1,$2,$3,1,'external_callback',1,$4,'external','external')`, f.requirement, f.tenant, f.revision, config)
 	exec(`INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local) VALUES($1,$2,$3,$4,$5,'one_off','UTC',now())`, f.schedule, f.tenant, f.student, f.template, f.revision)
 	exec(`INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,status) VALUES($1,$2,$3,$4,$5,now(),now()+interval '1 hour','awaiting_verification')`, f.occurrence, f.tenant, f.schedule, f.student, f.revision)
 	exec(`INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1)`, f.attempt, f.tenant, f.occurrence, f.requirement)
-	for i := 0; i < messageCount; i++ {
-		message := uuid.New()
-		f.messages = append(f.messages, message)
-		exec(`INSERT INTO verification_messages(id,tenant_id,attempt_id,sequence,role,content,client_message_id) VALUES($1,$2,$3,$4,'student',$5,$6)`, message, f.tenant, f.attempt, i+1, "durable answer", "phase6-message-"+uuid.NewString())
-	}
+	exec(`INSERT INTO external_verifier_catalog(id,name,endpoint_url,active,schema_versions,capabilities,secret_ref,secret_version,egress_policy) VALUES($1,'fixture','https://verifier.example.test',true,'["external_callback.v1"]','["response"]','fixture','1','{"allowlist":["verifier.example.test"]}')`, f.verifier)
 	return f
 }
 
-func cleanupPhase6Fixture(t *testing.T, pool *pgxpool.Pool, f phase6DialogueFixture) {
+func seedPhase6ExternalDelivery(t *testing.T, pool *pgxpool.Pool, f phase6ExternalFixture) {
+	t.Helper()
+	envelope, err := verification.NewRequestEnvelope(f.requestID, f.attempt.String(), f.requirement.String(), verification.ExternalCallbackSchemaVersion, "external-once", "/external/verifiers/"+f.verifier.String()+"/callback", map[string]any{"response": "answer"}, time.Now().UTC(), time.Hour, []string{"attempt", "requirement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := verification.MarshalRequestEnvelope(envelope)
+	if err := repo.NewExternalRepository(pool).Enqueue(context.Background(), repo.ExternalDelivery{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: f.attempt.String(), RequirementID: f.requirement.String(), VerifierID: f.verifier.String(), RequestID: f.requestID, IdempotencyKey: "external-once", SchemaVersion: envelope.SchemaVersion, CallbackPath: envelope.CallbackPath, Envelope: body, PayloadDigest: envelope.PayloadDigest, MaxAttempts: 5, ExpiresAt: envelope.ExpiresAt}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func cleanupPhase6External(t *testing.T, pool *pgxpool.Pool, f phase6ExternalFixture) {
 	t.Helper()
 	for _, query := range []string{
-		"DELETE FROM audit_records WHERE tenant_id=$1",
-		"DELETE FROM verification_events WHERE tenant_id=$1",
-		"DELETE FROM verification_jobs WHERE tenant_id=$1",
-		"DELETE FROM verification_overrides WHERE tenant_id=$1",
-		"DELETE FROM verification_evaluations WHERE tenant_id=$1",
-		"DELETE FROM dialogue_questions WHERE tenant_id=$1",
-		"DELETE FROM verification_messages WHERE tenant_id=$1",
-		"DELETE FROM dialogue_attempts WHERE tenant_id=$1",
-		"DELETE FROM verification_decisions WHERE tenant_id=$1",
-		"DELETE FROM verification_attempts WHERE tenant_id=$1",
-		"DELETE FROM task_occurrences WHERE tenant_id=$1",
-		"DELETE FROM verification_requirements WHERE tenant_id=$1",
-		"DELETE FROM task_schedules WHERE tenant_id=$1",
-		"DELETE FROM task_revisions WHERE tenant_id=$1",
-		"DELETE FROM task_templates WHERE tenant_id=$1",
-		"DELETE FROM students WHERE tenant_id=$1",
-		"DELETE FROM tenants WHERE id=$1",
+		"DELETE FROM external_verifier_facts WHERE tenant_id=$1", "DELETE FROM external_verifier_events WHERE tenant_id=$1", "DELETE FROM external_verifier_callbacks WHERE tenant_id=$1", "DELETE FROM external_verifier_outbox WHERE tenant_id=$1", "DELETE FROM external_verifier_attempts WHERE tenant_id=$1", "DELETE FROM external_verifier_security_events WHERE tenant_id=$1", "DELETE FROM external_verifier_secret_versions WHERE verifier_id=$1", "DELETE FROM verification_submissions WHERE tenant_id=$1", "DELETE FROM verification_decisions WHERE tenant_id=$1", "DELETE FROM verification_attempts WHERE tenant_id=$1", "DELETE FROM task_occurrences WHERE tenant_id=$1", "DELETE FROM verification_requirements WHERE tenant_id=$1", "DELETE FROM task_schedules WHERE tenant_id=$1", "DELETE FROM task_revisions WHERE tenant_id=$1", "DELETE FROM task_templates WHERE tenant_id=$1", "DELETE FROM external_verifier_catalog WHERE id=$1", "DELETE FROM students WHERE tenant_id=$1", "DELETE FROM tenants WHERE id=$1",
 	} {
-		if _, err := pool.Exec(context.Background(), query, f.tenant); err != nil {
+		if _, err := pool.Exec(context.Background(), query, func() any {
+			if query == "DELETE FROM external_verifier_catalog WHERE id=$1" || query == "DELETE FROM external_verifier_secret_versions WHERE verifier_id=$1" {
+				return f.verifier
+			}
+			return f.tenant
+		}()); err != nil {
 			t.Fatalf("cleanup %s: %v", query, err)
 		}
 	}
 }
 
-func TestPhase6PostgresDialogueClaimRaceIsExactlyOnceAndStaleCompletionIsFenced(t *testing.T) {
+func TestPhase6ExternalPostgresLeaseRaceAndStaleFence(t *testing.T) {
 	pool := integrationPool(t)
-	f := phase6Fixture(t, pool, 4)
-	t.Cleanup(func() { cleanupPhase6Fixture(t, pool, f) })
-	ctx := context.Background()
-	queue := jobs.NewPostgresRepository(pool)
-	for i, message := range f.messages {
-		if err := queue.EnqueueDialogue(ctx, jobs.DialogueJob{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: f.attempt.String(), MessageID: message.String(), MaxAttempts: 3}); err != nil {
-			t.Fatal(err)
-		}
-		if i == 0 {
-			// Make the first row eligible immediately; the production enqueue
-			// default is also now when no future time is provided.
-			if _, err := pool.Exec(ctx, `UPDATE verification_jobs SET available_at=now() WHERE tenant_id=$1`, f.tenant); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-
-	// Every caller uses the actual PostgresRepository ClaimDialogue method.
-	// Its CTE uses FOR UPDATE SKIP LOCKED, so a row can be returned to only one
-	// concurrent worker even when all workers start at the same instant.
+	f := seedPhase6External(t, pool)
+	seedPhase6ExternalDelivery(t, pool, f)
+	t.Cleanup(func() { cleanupPhase6External(t, pool, f) })
+	queue := repo.NewExternalRepository(pool)
 	start := make(chan struct{})
-	claims := make(chan jobs.DialogueJob, len(f.messages))
+	claims := make(chan repo.ExternalDelivery, 8)
 	errs := make(chan error, 8)
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -112,13 +83,11 @@ func TestPhase6PostgresDialogueClaimRaceIsExactlyOnceAndStaleCompletionIsFenced(
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			claimed, ok, err := queue.ClaimDialogue(ctx, "phase6-worker-"+uuid.NewString(), time.Minute)
+			d, ok, err := queue.Claim(context.Background(), "worker-"+uuid.NewString(), time.Minute)
 			if err != nil {
 				errs <- err
-				return
-			}
-			if ok {
-				claims <- claimed
+			} else if ok {
+				claims <- d
 			}
 		}(i)
 	}
@@ -131,216 +100,87 @@ func TestPhase6PostgresDialogueClaimRaceIsExactlyOnceAndStaleCompletionIsFenced(
 			t.Fatal(err)
 		}
 	}
-
-	claimedIDs := make([]string, 0, len(claims))
-	owners := make(map[string]string)
-	var first jobs.DialogueJob
-	for claimed := range claims {
-		claimedIDs = append(claimedIDs, claimed.ID)
-		if _, duplicate := owners[claimed.ID]; duplicate {
-			t.Fatalf("job %s was claimed by multiple workers", claimed.ID)
-		}
-		owners[claimed.ID] = claimed.LeaseOwner
-		if first.ID == "" {
-			first = claimed
-		}
+	var claimed repo.ExternalDelivery
+	count := 0
+	for d := range claims {
+		claimed = d
+		count++
 	}
-	sort.Strings(claimedIDs)
-	if len(claimedIDs) != len(f.messages) {
-		t.Fatalf("claimed %d jobs, want %d (ids=%v)", len(claimedIDs), len(f.messages), claimedIDs)
+	if count != 1 {
+		t.Fatalf("claims=%d, want exactly one", count)
 	}
-	if len(owners) != len(f.messages) {
-		t.Fatalf("unique owners=%d, want %d", len(owners), len(f.messages))
-	}
-
-	// The repository methods deliberately return no error for an update that
-	// affects zero rows. State, rather than an in-memory acknowledgement, is the
-	// fencing contract: an old owner cannot complete the replacement's row.
-	if err := queue.CompleteDialogue(ctx, first.ID, "stale-after-claim"); err != nil {
+	if err := queue.Finish(context.Background(), claimed, "stale-worker", "accepted", "", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	var status, owner string
-	if err := pool.QueryRow(ctx, `SELECT status,lease_owner FROM verification_jobs WHERE id=$1`, first.ID).Scan(&status, &owner); err != nil {
+	if err := pool.QueryRow(context.Background(), `SELECT status,COALESCE(lease_owner,'') FROM external_verifier_outbox WHERE request_id=$1`, f.requestID).Scan(&status, &owner); err != nil {
 		t.Fatal(err)
 	}
-	if status != string(jobs.Running) || owner != first.LeaseOwner {
-		t.Fatalf("stale completion changed job: status=%q owner=%q want running/%q", status, owner, first.LeaseOwner)
+	if status != "running" || owner != claimed.LeaseOwner {
+		t.Fatalf("stale finish mutated status=%q owner=%q", status, owner)
 	}
-	if err := queue.CompleteDialogue(ctx, first.ID, first.LeaseOwner); err != nil {
+	if err := queue.Finish(context.Background(), claimed, claimed.LeaseOwner, "waiting", "", time.Time{}); err != nil {
 		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT status FROM verification_jobs WHERE id=$1`, first.ID).Scan(&status); err != nil {
-		t.Fatal(err)
-	}
-	if status != "succeeded" {
-		t.Fatalf("valid completion status=%q", status)
 	}
 }
 
-func TestPhase6PostgresDialogueReclaimBackoffDeadLetterAndRestart(t *testing.T) {
+func TestPhase6ExternalCallbackReplayHasOneDecisionAndFactSet(t *testing.T) {
 	pool := integrationPool(t)
-	f := phase6Fixture(t, pool, 1)
-	t.Cleanup(func() { cleanupPhase6Fixture(t, pool, f) })
+	f := seedPhase6External(t, pool)
+	seedPhase6ExternalDelivery(t, pool, f)
+	t.Cleanup(func() { cleanupPhase6External(t, pool, f) })
 	ctx := context.Background()
-	queue := jobs.NewPostgresRepository(pool)
-	jobID := uuid.NewString()
-	if err := queue.EnqueueDialogue(ctx, jobs.DialogueJob{ID: jobID, TenantID: f.tenant.String(), AttemptID: f.attempt.String(), MessageID: f.messages[0].String(), MaxAttempts: 3}); err != nil {
+	queue := repo.NewExternalRepository(pool)
+	binding, err := queue.Binding(ctx, f.requestID, f.verifier.String(), f.attempt.String())
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	first, ok, err := queue.ClaimDialogue(ctx, "process-before-restart", time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("initial claim=%+v ok=%v err=%v", first, ok, err)
+	callback := verification.CallbackEnvelope{Version: 1, CallbackID: uuid.NewString(), RequestID: f.requestID, AttemptRef: f.attempt.String(), VerifierID: f.verifier.String(), SchemaVersion: verification.ExternalCallbackSchemaVersion, Sequence: 1, RequestDigest: binding.PayloadDigest, Type: "accepted", Accepted: &verification.AcceptedResult{Rationale: "accepted"}}
+	body, _ := json.Marshal(callback)
+	if inserted, err := queue.RecordCallback(ctx, binding, callback, body); err != nil || inserted {
+		t.Fatalf("first callback inserted=%v err=%v", inserted, err)
 	}
-	// A process restart leaves the lease row behind. Reconcile is the durable
-	// recovery boundary; forcing the timestamp expired models that passage of
-	// time without making the test sleep for a production lease duration.
-	if _, err := pool.Exec(ctx, `UPDATE verification_jobs SET lease_until=now()-interval '1 second' WHERE id=$1`, jobID); err != nil {
-		t.Fatal(err)
-	}
-	restartedQueue := jobs.NewPostgresRepository(pool)
-	if err := restartedQueue.RequeueExpiredDialogue(ctx, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	second, ok, err := restartedQueue.ClaimDialogue(ctx, "process-after-restart", time.Minute)
-	if err != nil || !ok || second.ID != jobID || second.Attempts != 2 {
-		t.Fatalf("reclaimed=%+v ok=%v err=%v", second, ok, err)
-	}
-
-	if err := restartedQueue.FailDialogue(ctx, jobID, second.LeaseOwner, context.DeadlineExceeded); err != nil {
-		t.Fatal(err)
-	}
-	var status, lastError string
-	var available time.Time
-	if err := pool.QueryRow(ctx, `SELECT status,last_error,available_at FROM verification_jobs WHERE id=$1`, jobID).Scan(&status, &lastError, &available); err != nil {
-		t.Fatal(err)
-	}
-	if status != "queued" || lastError != "dialogue_job_failed" || !available.After(time.Now()) {
-		t.Fatalf("retry state status=%q error=%q available=%s", status, lastError, available)
-	}
-	if _, ok, err := restartedQueue.ClaimDialogue(ctx, "too-early", time.Minute); err != nil || ok {
-		t.Fatalf("backoff claim ok=%v err=%v, want no claim", ok, err)
-	}
-
-	// Move only the production availability field forward, then claim the
-	// retry as a fresh worker. This is the same durable action a scheduler waits
-	// for after the one-second bounded backoff.
-	if _, err := pool.Exec(ctx, `UPDATE verification_jobs SET available_at=now() WHERE id=$1`, jobID); err != nil {
-		t.Fatal(err)
-	}
-	third, ok, err := restartedQueue.ClaimDialogue(ctx, "retry-worker", time.Minute)
-	if err != nil || !ok || third.Attempts != 3 {
-		t.Fatalf("second retry claim=%+v ok=%v err=%v", third, ok, err)
-	}
-	if err := restartedQueue.FailDialogue(ctx, jobID, third.LeaseOwner, context.Canceled); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM verification_jobs WHERE id=$1`, jobID).Scan(&status, &lastError); err != nil {
-		t.Fatal(err)
-	}
-	if status != "failed" || lastError != "canceled" {
-		t.Fatalf("exhausted cancellation status=%q error=%q", status, lastError)
-	}
-}
-
-func TestPhase6PostgresVersionedProgressReplayAndDecisionReplayAreTransactional(t *testing.T) {
-	pool := integrationPool(t)
-	f := phase6Fixture(t, pool, 1)
-	t.Cleanup(func() { cleanupPhase6Fixture(t, pool, f) })
-	ctx := context.Background()
-	queue := jobs.NewPostgresRepository(pool)
-
-	// Competing workers may replay the same durable fact. The natural key is
-	// (tenant, attempt, sequence), and the repository must retain one immutable
-	// version rather than append duplicate progress.
+	server := NewWithStore(pool, "test", nil)
 	var wg sync.WaitGroup
-	errs := make(chan error, 12)
-	for i := 0; i < 12; i++ {
+	committed := make(chan bool, 8)
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
 		wg.Add(1)
-		go func(i int) {
+		go func() {
 			defer wg.Done()
-			errs <- queue.AppendDialogueEvent(ctx, jobs.DialogueEvent{
-				TenantID: f.tenant.String(), AttemptID: f.attempt.String(), Sequence: 1,
-				Kind: "progress", Payload: []byte(`{"phase":"same-version"}`),
-			})
-		}(i)
+			ok, err := server.commitExternalDecision(ctx, verification.Decision{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: f.attempt.String(), OccurrenceID: f.occurrence.String(), Accepted: true, Reason: "accepted", DecidedBy: "external_verifier"})
+			committed <- ok
+			errs <- err
+		}()
 	}
 	wg.Wait()
+	close(committed)
 	close(errs)
 	for err := range errs {
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2 AND sequence=1`, f.tenant, f.attempt).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("versioned fact count=%d err=%v", count, err)
-	}
-
-	for sequence := int64(2); sequence <= 3; sequence++ {
-		if err := queue.AppendDialogueEvent(ctx, jobs.DialogueEvent{TenantID: f.tenant.String(), AttemptID: f.attempt.String(), Sequence: sequence, Kind: "progress", Payload: []byte(`{"phase":"next"}`)}); err != nil {
-			t.Fatal(err)
+	wins := 0
+	for ok := range committed {
+		if ok {
+			wins++
 		}
 	}
-	replayed, err := queue.ReplayDialogueEvents(ctx, f.tenant.String(), f.attempt.String(), 0, 10)
-	if err != nil || len(replayed) != 3 {
-		t.Fatalf("replay=%+v err=%v", replayed, err)
+	if wins != 1 {
+		t.Fatalf("decision winners=%d, want one", wins)
 	}
-	for i, event := range replayed {
-		if event.Sequence != int64(i+1) {
-			t.Fatalf("replay sequence[%d]=%d", i, event.Sequence)
-		}
-	}
-	cursor, err := queue.ReplayDialogueEvents(ctx, f.tenant.String(), f.attempt.String(), 1, 10)
-	if err != nil || len(cursor) != 2 || cursor[0].Sequence != 2 {
-		t.Fatalf("cursor replay=%+v err=%v", cursor, err)
-	}
-
-	// The generic decision transaction is the closest existing production
-	// contract to an external callback result. It locks the attempt, inserts
-	// one unique immutable decision, and projects completion transactionally.
-	if _, err := pool.Exec(ctx, `UPDATE task_occurrences SET status='awaiting_verification' WHERE id=$1`, f.occurrence); err != nil {
-		t.Fatal(err)
-	}
-	s := NewWithStore(pool, "test", nil)
-	start := make(chan struct{})
-	codes := make(chan int, 8)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			route := chi.NewRouteContext()
-			route.URLParams.Add("id", f.occurrence.String())
-			req := httptest.NewRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/override", bytes.NewBufferString(`{"accepted":true,"reason":"replayed durable callback result"}`)).WithContext(context.WithValue(ctx, chi.RouteCtxKey, route))
-			rec := httptest.NewRecorder()
-			s.dialogueOverride(rec, req, scope{Tenant: f.tenant.String(), Subject: "phase6-parent"})
-			codes <- rec.Code
-		}()
-	}
-	close(start)
-	wg.Wait()
-	close(codes)
-	for code := range codes {
-		if code != http.StatusOK {
-			t.Fatalf("concurrent decision status=%d", code)
-		}
-	}
-	var decisions, overrides, audits int
+	var decisions, completedFacts, occurrenceCompleted int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&decisions); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM verification_overrides WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&overrides); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM external_verifier_facts WHERE tenant_id=$1 AND aggregate_id=$2 AND fact_type='verification.decided'`, f.tenant, f.attempt).Scan(&completedFacts); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_records WHERE tenant_id=$1 AND entity_id=$2 AND action='verification_override'`, f.tenant, f.occurrence).Scan(&audits); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM external_verifier_facts WHERE tenant_id=$1 AND aggregate_id=$2 AND fact_type='occurrence.completed'`, f.tenant, f.occurrence).Scan(&occurrenceCompleted); err != nil {
 		t.Fatal(err)
 	}
-	var attemptStatus, occurrenceStatus string
-	if err := pool.QueryRow(ctx, `SELECT a.status,o.status FROM verification_attempts a JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$2 WHERE a.tenant_id=$1 AND a.id=$3`, f.tenant, f.occurrence, f.attempt).Scan(&attemptStatus, &occurrenceStatus); err != nil {
-		t.Fatal(err)
-	}
-	if decisions != 1 || overrides != 8 || audits != 8 || attemptStatus != "accepted" || occurrenceStatus != "completed" {
-		t.Fatalf("decision effects decisions=%d overrides=%d audits=%d attempt=%q occurrence=%q", decisions, overrides, audits, attemptStatus, occurrenceStatus)
+	if decisions != 1 || completedFacts != 1 || occurrenceCompleted != 1 {
+		t.Fatalf("decisions=%d decidedFacts=%d completedFacts=%d", decisions, completedFacts, occurrenceCompleted)
 	}
 }

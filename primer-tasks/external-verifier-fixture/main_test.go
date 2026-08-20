@@ -21,6 +21,7 @@ func signedRequest(t *testing.T, secret []byte, path string, envelope requestEnv
 	at := time.Now().UTC()
 	r := httptest.NewRequest(http.MethodPost, "http://fixture.test"+path, bytes.NewReader(body))
 	r.Header.Set(signatureHeader, sign(secret, http.MethodPost, path, envelope.RequestID, body, at))
+	r.Header.Set("X-Primer-Key-ID", "1")
 	r.Header.Set(timestampHeader, at.Format(time.RFC3339Nano))
 	r.Header.Set(requestIDHeader, envelope.RequestID)
 	r.Header.Set("Content-Type", "application/json")

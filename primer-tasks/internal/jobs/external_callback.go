@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -58,22 +59,19 @@ func (p *CallbackProcessor) Process(ctx context.Context, method, path, keyID, ti
 	if skew <= 0 {
 		skew = 5 * time.Minute
 	}
-	if err = verification.Verify(method, path, stamp, c.RequestID, signature, body, secret, now, skew); err != nil {
+	if err = verification.Verify(method, path, stamp, c.CallbackID, signature, body, secret, now, skew); err != nil {
 		return false, err
 	}
 	binding, err := p.Outbox.Binding(ctx, c.RequestID, c.VerifierID, c.AttemptRef)
 	if err != nil {
 		return false, verification.ErrExternalBinding
 	}
-	if binding.CallbackPath != path || c.RequestDigest != binding.PayloadDigest {
+	if binding.CallbackPath != path || c.RequestDigest != binding.PayloadDigest || c.SchemaVersion != binding.SchemaVersion {
 		return false, verification.ErrExternalBinding
 	}
-	inserted, err := p.Outbox.RecordCallback(ctx, binding, c, body)
+	_, err = p.Outbox.RecordCallback(ctx, binding, c, body)
 	if err != nil {
 		return false, err
-	}
-	if !inserted {
-		return false, nil
 	}
 	return verification.HandleExternalCallback(ctx, p.Committer, binding, c)
 }
@@ -82,17 +80,16 @@ func (p *CallbackProcessor) Process(ctx context.Context, method, path, keyID, ti
 // endpoint, secret, or arbitrary forwarding target from the caller.
 func (p *CallbackProcessor) HTTPHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body := make([]byte, 1<<20+1)
-		n, err := r.Body.Read(body)
-		if err != nil && n == 0 {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		if err != nil {
 			http.Error(w, "invalid callback", 400)
 			return
 		}
-		if n > 1<<20 {
-			http.Error(w, "callback too large", 413)
+		if callback, decodeErr := verification.DecodeCallback(body); decodeErr == nil && r.Header.Get("X-Primer-Request-ID") != callback.CallbackID {
+			http.Error(w, "callback rejected", http.StatusUnauthorized)
 			return
 		}
-		accepted, err := p.Process(r.Context(), r.Method, r.URL.EscapedPath(), r.Header.Get("X-Primer-Key-ID"), r.Header.Get("X-Primer-Timestamp"), r.Header.Get("X-Primer-Signature"), body[:n])
+		accepted, err := p.Process(r.Context(), r.Method, r.URL.EscapedPath(), r.Header.Get("X-Primer-Key-ID"), r.Header.Get("X-Primer-Timestamp"), r.Header.Get("X-Primer-Signature"), body)
 		if err != nil {
 			http.Error(w, "callback rejected", 401)
 			return

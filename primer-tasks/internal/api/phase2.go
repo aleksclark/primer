@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"primer-tasks/internal/domain"
 	"primer-tasks/internal/schedule"
+	"primer-tasks/internal/verification"
 )
 
 type TaskPage2 struct {
@@ -134,6 +135,10 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 				return
 			}
 		}
+		if x.Kind == verification.ExternalCallbackKind && s.validateExternalConfig(r.Context(), x.Config) != nil {
+			problem(w, 400, "invalid_request", "external verifier capability or schema is unavailable")
+			return
+		}
 	}
 	if errors.Is(domain.ValidateRevision(in.Title, in.Instructions, dr), domain.ErrInvalidTask) {
 		problem(w, 400, "invalid_request", "a task requires a title and supported verification requirement")
@@ -204,6 +209,29 @@ func (s *Server) listTasks2(w http.ResponseWriter, r *http.Request, sc scope) {
 func (s *Server) publishTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	id := chi.URLParam(r, "id")
 	ctx := r.Context()
+	rows, queryErr := s.DB.Query(ctx, `SELECT kind,config FROM verification_requirements WHERE tenant_id=$1 AND revision_id=$2`, sc.Tenant, id)
+	if queryErr != nil {
+		problem(w, 500, "internal", "unable to validate task requirements")
+		return
+	}
+	for rows.Next() {
+		var kind string
+		var raw []byte
+		if err := rows.Scan(&kind, &raw); err != nil {
+			rows.Close()
+			problem(w, 500, "internal", "unable to validate task requirements")
+			return
+		}
+		if kind == verification.ExternalCallbackKind {
+			var config map[string]any
+			if json.Unmarshal(raw, &config) != nil || s.validateExternalConfig(ctx, config) != nil {
+				rows.Close()
+				problem(w, 409, "blocked", "external verifier capability or schema is unavailable")
+				return
+			}
+		}
+	}
+	rows.Close()
 	var x TaskRevision
 	e := s.DB.QueryRow(ctx, `UPDATE task_revisions SET status='published',published_at=now() WHERE tenant_id=$1 AND id=$2 AND status='draft' AND EXISTS(SELECT 1 FROM task_templates t WHERE t.tenant_id=task_revisions.tenant_id AND t.id=task_revisions.template_id AND t.status<>'retired') RETURNING id,template_id,version,title,instructions,status,created_at`, sc.Tenant, id).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
@@ -390,6 +418,13 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 			return
 		}
 	}
+	if reqKind == verification.ExternalCallbackKind {
+		config, configErr := externalConfig(rawConfig)
+		if configErr != nil || snapshotExternalAttempt(r.Context(), tx, tenant, attemptID.String(), req, config) != nil {
+			problem(w, 409, "blocked", "external verifier capability is unavailable")
+			return
+		}
+	}
 	if e = tx.Commit(r.Context()); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -481,6 +516,13 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		return
 	}
 	n := previousNumber + 1
+	var previousExternalAttempt string
+	if kind == verification.ExternalCallbackKind {
+		if err := s.DB.QueryRow(r.Context(), `SELECT id FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1`, sc.Tenant, oid).Scan(&previousExternalAttempt); err != nil {
+			problem(w, 409, "blocked", "external verifier snapshot is unavailable")
+			return
+		}
+	}
 	if kind == domain.AgentDialogueKind {
 		var raw map[string]any
 		if len(snapshot) == 0 || json.Unmarshal(snapshot, &raw) != nil {
@@ -505,6 +547,12 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 	if kind == domain.AgentDialogueKind {
 		if _, e = tx.Exec(r.Context(), `INSERT INTO dialogue_attempts(tenant_id,attempt_id,occurrence_id,requirement_id,policy_version,config_snapshot,next_sequence) VALUES($1,$2,$3,$4,'dialogue.v1',$5,1)`, sc.Tenant, attemptID, oid, req, snapshot); e != nil {
 			problem(w, 500, "internal", e.Error())
+			return
+		}
+	}
+	if kind == verification.ExternalCallbackKind {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO external_verifier_attempts(tenant_id,attempt_id,verifier_id,capability,schema_version,public_options,manifest_snapshot) SELECT tenant_id,$1,verifier_id,capability,schema_version,public_options,manifest_snapshot FROM external_verifier_attempts WHERE tenant_id=$2 AND attempt_id=$3`, attemptID, sc.Tenant, previousExternalAttempt); e != nil {
+			problem(w, 500, "internal", "external verifier snapshot could not be copied")
 			return
 		}
 	}

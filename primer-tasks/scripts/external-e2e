@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
+instance="${STACKLANE_INSTANCE:-$(basename "$(git -C "$ROOT" rev-parse --show-toplevel)")}"
+COMPOSE_PROJECT="primer-tasks-$instance"
+compose=(docker compose -p "$COMPOSE_PROJECT" -f "$ROOT/compose.yaml" --project-directory "$ROOT")
+api_port=$(${compose[@]} port api 8080 | sed -E 's/.*:([0-9]+)$/\1/')
+api="http://127.0.0.1:${api_port}"
+parent_cookie="p6-parent-process-e2e"
+student_cookie="p6-student-process-e2e"
+parent_hash=$(printf '%s' "$parent_cookie" | sha256sum | awk '{print $1}')
+student_hash=$(printf '%s' "$student_cookie" | sha256sum | awk '{print $1}')
+student=00000000-0000-0000-0000-0000000006b2
+template=00000000-0000-0000-0000-0000000006b3
+revision=00000000-0000-0000-0000-0000000006b4
+requirement=00000000-0000-0000-0000-0000000006b5
+schedule=00000000-0000-0000-0000-0000000006b6
+occurrence=00000000-0000-0000-0000-0000000006b7
+verifier=00000000-0000-0000-0000-0000000006a1
+cleanup() {
+  "${compose[@]}" exec -T postgres psql -U tasks -d primer_tasks -v ON_ERROR_STOP=1 >/dev/null <<SQL || true
+DELETE FROM external_verifier_facts WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM external_verifier_events WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM external_verifier_callbacks WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM external_verifier_outbox WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM external_verifier_attempts WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM verification_submissions WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM verification_decisions WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM verification_attempts WHERE tenant_id='00000000-0000-0000-0000-0000000000a1';
+DELETE FROM task_occurrences WHERE id='$occurrence';
+DELETE FROM verification_requirements WHERE id='$requirement';
+DELETE FROM task_schedules WHERE id='$schedule';
+DELETE FROM task_revisions WHERE id='$revision';
+DELETE FROM task_templates WHERE id='$template';
+DELETE FROM student_sessions WHERE student_id='$student';
+DELETE FROM bff_sessions WHERE handle_hash IN (decode('$parent_hash','hex'),decode('$student_hash','hex'));
+DELETE FROM students WHERE id='$student';
+SQL
+}
+trap cleanup EXIT
+"${compose[@]}" exec -T postgres psql -U tasks -d primer_tasks -v ON_ERROR_STOP=1 >/dev/null <<SQL
+INSERT INTO students(id,tenant_id,display_name) VALUES('$student','00000000-0000-0000-0000-0000000000a1','Process E2E Student');
+INSERT INTO task_templates(id,tenant_id,title,status,current_revision) VALUES('$template','00000000-0000-0000-0000-0000000000a1','Process E2E External','published',1);
+INSERT INTO task_revisions(id,tenant_id,template_id,version,title,instructions,status) VALUES('$revision','00000000-0000-0000-0000-0000000000a1','$template',1,'Process E2E External','Submit a response','published');
+INSERT INTO verification_requirements(id,tenant_id,revision_id,ordinal,kind,config_version,config,interaction,executor) VALUES('$requirement','00000000-0000-0000-0000-0000000000a1','$revision',1,'external_callback',1,jsonb_build_object('verifierId','$verifier','capability','response','schemaVersion','external_callback.v1','options',jsonb_build_object()),'external','external');
+INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local) VALUES('$schedule','00000000-0000-0000-0000-0000000000a1','$student','$template','$revision','one_off','UTC',now());
+INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,status) VALUES('$occurrence','00000000-0000-0000-0000-0000000000a1','$schedule','$student','$revision',now(),now()+interval '1 hour','pending');
+INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES(decode('$parent_hash','hex'),'00000000-0000-0000-0000-0000000000a1','parent-a','parent',now()+interval '1 hour'),(decode('$student_hash','hex'),'00000000-0000-0000-0000-0000000000a1','student:$student','student',now()+interval '1 hour');
+INSERT INTO student_sessions(id,tenant_id,student_id,handle_hash,expires_at) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-0000000000a1','$student',decode('$student_hash','hex'),now()+interval '1 hour');
+SQL
+curl --fail --silent --show-error -X POST -H 'Cookie: tasks_student='"$student_cookie" -H 'Content-Type: application/json' "$api/student/occurrences/$occurrence/start" >/tmp/tasks-external-start.json
+idempotency="process-e2e-$(date +%s%N)"
+curl --fail --silent --show-error -X POST -H 'Cookie: tasks_student='"$student_cookie" -H 'Content-Type: application/json' -d '{"idempotencyKey":"'"$idempotency"'","publicPayload":{"response":"the durable answer"}}' "$api/student/occurrences/$occurrence/external/submit" >/tmp/tasks-external-submit.json
+for _ in $(seq 1 30); do
+  state=$(curl --fail --silent --show-error -H 'Cookie: tasks_student='"$student_cookie" "$api/student/occurrences/$occurrence/external")
+  status=$(printf '%s' "$state" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  if [[ "$status" == completed ]]; then
+    parent=$(curl --fail --silent --show-error -H 'Cookie: tasks_parent='"$parent_cookie" "$api/occurrences/$occurrence/external/inspect")
+    printf '%s\n' "$parent" | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("source"); assert x.get("status")=="completed"; print("external process E2E PASS", x["source"], x["status"])'
+    exit 0
+  fi
+  sleep 1
+done
+echo "external process E2E timed out: $state" >&2
+exit 1

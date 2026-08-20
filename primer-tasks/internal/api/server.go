@@ -33,7 +33,7 @@ type Server struct {
 	ExternalSecrets jobs.SecretResolver
 	agentHub        *agentHub
 }
-type scope struct{ Tenant, Subject string }
+type scope struct{ Tenant, Subject, Role string }
 
 type AuthConfig struct {
 	Mode            string
@@ -74,7 +74,7 @@ func New(db *pgxpool.Pool, env string) *Server {
 }
 
 func NewWithStore(db *pgxpool.Pool, env string, store artifactstore.Store) *Server {
-	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
+	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: authConfigFromEnv(env), StartedAt: time.Now().UTC(), ExternalSecrets: externalSecretResolver(env), agentHub: newAgentHub()}
 }
 
 func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
@@ -89,7 +89,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
+	return &Server{DB: db, Env: env, Artifacts: store, SecureCookie: env == "production", Auth: auth, StartedAt: time.Now().UTC(), ExternalSecrets: externalSecretResolver(env), agentHub: newAgentHub()}
 }
 func (s *Server) Routes() http.Handler {
 	inner := s.humaAPI().Adapter()
@@ -147,7 +147,7 @@ func (s *Server) parentScope(r *http.Request) (scope, error) {
 		return scope{}, err
 	}
 	var out scope
-	err = s.DB.QueryRow(r.Context(), `SELECT tenant_id,subject_ref FROM bff_sessions WHERE handle_hash=$1 AND expires_at>now() AND revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
+	err = s.DB.QueryRow(r.Context(), `SELECT s.tenant_id,s.subject_ref,COALESCE(m.role,'') FROM bff_sessions s LEFT JOIN parent_memberships m ON m.tenant_id=s.tenant_id AND m.subject_ref=s.subject_ref WHERE s.handle_hash=$1 AND s.expires_at>now() AND s.revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject, &out.Role)
 	return out, err
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

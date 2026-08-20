@@ -6,10 +6,12 @@ import "./index.css";
 import AgentCommandPage from "./AgentCommandPage";
 import ArtifactRubricForm from "./ArtifactRubricForm";
 import DialogueTaskForm from "./DialogueTaskForm";
+import ExternalTaskForm from "./ExternalTaskForm";
 import HealthPage from "./HealthPage";
 import OccurrenceInspectPage from "./OccurrenceInspectPage";
 import StudentArtifactPage from "./StudentArtifactPage";
 import StudentDialoguePage from "./StudentDialoguePage";
+import ExternalVerifierPage from "./ExternalVerifierPage";
 
 type Theme = "dark" | "light";
 
@@ -266,6 +268,7 @@ function TasksPage() {
   return <><PageHeader eyebrow="Parent workspace / Explore + Configure" title="Tasks" lede={`Published revisions are immutable. Parent approval remains available; dialogue verification can be configured below. Model provider: ${health?.modelProvider ?? "loading"}. Server started: ${health ? new Date(health.startedAt).toLocaleString() : "loading"}.`} />
     <section className="record" aria-label="Dialogue verification"><div className="record-toolbar"><div><p className="system-label">Dialogue task</p><p style={{ margin: "4px 0 0", color: "var(--muted)" }}>Parent-authored source, rubric, question count, and retry policy. Hidden prompts stay off this form.</p></div></div><div style={{ padding: 16 }}><DialogueTaskForm onCreated={load} /></div></section>
     <section className="record" aria-label="Artifact rubric verification"><div className="record-toolbar"><div><p className="system-label">Image / video / audio task</p><p style={{ margin: "4px 0 0", color: "var(--muted)" }}>Author a stable rubric and preview the student-facing limits. The server snapshots this configuration with each occurrence.</p></div></div><div style={{ padding: 16 }}><ArtifactRubricForm onCreated={load} /></div></section>
+    <section className="record" aria-label="External verifier configuration"><div className="record-toolbar"><div><p className="system-label">External callback verifier</p><p style={{ margin: "4px 0 0", color: "var(--muted)" }}>Select an administrator-managed verifier capability. Endpoints, credentials, and signatures stay server-side.</p></div></div><div style={{ padding: 16 }}><ExternalTaskForm onCreated={load} /></div></section>
     <section className="record"><form className="record-toolbar" onSubmit={create}><input className="input" aria-label="Task title" placeholder="Brush your teeth" value={title} onChange={(e) => setTitle(e.target.value)} /><button className="button" type="submit" disabled={busy || !title.trim()}>Create draft</button></form><form className="record-toolbar" onSubmit={(event) => { event.preventDefault(); const task = tasks.find((x) => x.id === scheduleTaskId); if (!task || !studentId || !scheduleAt) return; void tasksClient.createSchedule({ studentId, templateId: task.templateId, revisionId: task.id, kind: rrule.trim() ? "recurrence" : "one_off", timezone, startAt: new Date(scheduleAt).toISOString(), rrule: rrule.trim() || undefined, dueOffsetMinutes: 0 }).then(() => { setScheduleAt(""); setRrule(""); window.alert("Schedule saved and occurrences materialized."); }).catch(setError); }}><select className="input" aria-label="Task to schedule" value={scheduleTaskId} onChange={(e) => setScheduleTaskId(e.target.value)}><option value="">Choose a published task</option>{tasks.filter((x) => x.status === "published").map((x) => <option value={x.id} key={x.id}>{x.title} · v{x.version}</option>)}</select><select className="input" aria-label="Student to schedule" value={studentId} onChange={(e) => setStudentId(e.target.value)}><option value="">Choose a student</option>{students.map((x) => <option value={x.id} key={x.id}>{x.displayName}</option>)}</select><input className="input" aria-label="Schedule start" type="text" inputMode="numeric" placeholder="2026-08-19T14:00" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} /><input className="input" aria-label="IANA timezone" placeholder="America/New_York" value={timezone} onChange={(e) => setTimezone(e.target.value)} /><input className="input" aria-label="RRULE" placeholder="Optional: FREQ=DAILY;COUNT=7" value={rrule} onChange={(e) => setRrule(e.target.value)} /><button className="button secondary" type="submit" disabled={!scheduleTaskId || !studentId || !scheduleAt}>Schedule task</button></form><div className="record-toolbar"><input className="input" aria-label="Search tasks" placeholder="Search tasks" value={q} onChange={(e) => { const next = new URLSearchParams(params); if (e.target.value) next.set("q", e.target.value); else next.delete("q"); setParams(next); }} /></div>{error ? <ErrorNotice error={error} onRetry={load} /> : null}<div className="table-wrap"><table><thead><tr><th>Task</th><th>Revision</th><th>Status</th><th>Action</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}><td><strong>{task.title}</strong><span className="secondary-cell">{task.templateId}</span></td><td className="meta">v{task.version}</td><td><span className="status">{task.status}</span></td><td>{task.status === "draft" ? <button className="button" type="button" onClick={() => void tasksClient.publishTask(task.id).then(load).catch(setError)}>Publish</button> : task.status === "published" ? <button className="button danger" type="button" onClick={() => void tasksClient.retireTask(task.templateId).then(load).catch(setError)}>Retire</button> : null}</td></tr>)}</tbody></table></div>{tasks.length === 0 && <div className="empty"><h2>No tasks match</h2><p>Create a draft to begin a versioned task.</p></div>}</section>
   </>;
 }
@@ -312,6 +315,7 @@ function StudentOccurrencePage() {
   const navigate = useNavigate();
   const [occurrence, setOccurrence] = useState<Occurrence | null>(null);
   const [dialogue, setDialogue] = useState<StudentDialogueState | null>(null);
+  const [external, setExternal] = useState<Awaited<ReturnType<typeof tasksClient.studentExternalState>> | null>(null);
   const [artifact, setArtifact] = useState<Awaited<ReturnType<typeof tasksClient.studentArtifactState>>>(null);
   const [error, setError] = useState<unknown>(null);
   const load = useCallback(() => {
@@ -321,6 +325,16 @@ function StudentOccurrencePage() {
       // a pending occurrence; a pre-start 404 is not an application failure.
       if (next.status === "pending") {
         setDialogue(null);
+        setExternal(null);
+        setArtifact(null);
+        return;
+      }
+      // External callback requirements have a durable state projection. A 404
+      // means this is an older non-external occurrence, not a browser failure.
+      const nextExternal = await tasksClient.studentExternalState(id).catch(() => null);
+      if (nextExternal) {
+        setExternal(nextExternal);
+        setDialogue(null);
         setArtifact(null);
         return;
       }
@@ -329,11 +343,13 @@ function StudentOccurrencePage() {
       const nextArtifact = await tasksClient.studentArtifactState(id);
       if (nextArtifact) {
         setArtifact(nextArtifact);
+        setExternal(null);
         setDialogue(null);
         return;
       }
       const nextDialogue = await tasksClient.studentDialogue(id).catch(() => null);
       setDialogue(nextDialogue);
+      setExternal(null);
       setArtifact(null);
     }).catch(setError);
   }, [id]);
@@ -344,6 +360,7 @@ function StudentOccurrencePage() {
     return () => window.clearInterval(timer);
   }, [id, occurrence?.status]);
   if (!occurrence) return <><PageHeader eyebrow="Student workspace / Inspect" title="Task detail" />{error ? <ErrorNotice error={error} onRetry={load} /> : <StateNotice state="loading" />}</>;
+  if (external) return <ExternalVerifierPage occurrence={occurrence} onRefresh={load} />;
   if (artifact) return <StudentArtifactPage occurrence={occurrence} initialState={artifact} />;
   if (dialogue) return <StudentDialoguePage occurrence={occurrence} dialogue={dialogue} onRetry={load} />;
   return <><PageHeader eyebrow="Student workspace / Inspect" title={occurrence.title} lede="The server owns this state. Ask a parent to approve after you finish." actions={<button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button>} /><section className="pair-card"><p>{occurrence.instructions}</p>{occurrence.status === "pending" && <button className="button" type="button" onClick={() => void tasksClient.startStudentOccurrence(id).then(load).catch(setError)}>Start task</button>}</section><StudentOccurrenceStatus occurrence={occurrence} onRefresh={load} /></>;

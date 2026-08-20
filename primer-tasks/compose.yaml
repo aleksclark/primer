@@ -156,6 +156,9 @@ services:
       TASKS_OIDC_REDIRECT_URL: ${TASKS_OIDC_REDIRECT_URL-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173}/auth/callback}
       TASKS_TEST_PRINCIPAL: ${TASKS_TEST_PRINCIPAL-parent-a}
       TASKS_TEST_ISSUER_SECRET: ${TASKS_TEST_ISSUER_SECRET-primer-tasks-test-issuer-secret}
+      TASKS_EXTERNAL_VERIFIER_SECRET: ${TASKS_EXTERNAL_VERIFIER_SECRET-fixture-development-secret}
+      TASKS_EXTERNAL_VERIFIER_SECRET_REF: ${TASKS_EXTERNAL_VERIFIER_SECRET_REF-fixture}
+      TASKS_EXTERNAL_VERIFIER_SECRET_VERSION: ${TASKS_EXTERNAL_VERIFIER_SECRET_VERSION-1}
       TASKS_DATABASE_URL: postgres://tasks@postgres:5432/primer_tasks?sslmode=disable
       TASKS_PUBLIC_ORIGIN: ${TASKS_PUBLIC_ORIGIN-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173}}
       TASKS_ALLOWED_ORIGINS: ${TASKS_ALLOWED_ORIGINS-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173},http://127.0.0.1}
@@ -215,6 +218,7 @@ services:
       FIXTURE_HOST: "0.0.0.0"
       FIXTURE_PORT: "8092"
       FIXTURE_SHARED_SECRET: ${TASKS_EXTERNAL_VERIFIER_SECRET-fixture-development-secret}
+      FIXTURE_SECRET_VERSION: ${TASKS_EXTERNAL_VERIFIER_SECRET_VERSION-1}
       FIXTURE_VERIFIER_ID: ${TASKS_EXTERNAL_VERIFIER_ID-fixture}
       # The callback base is an operator-owned service address; requests carry
       # only the production callbackPath and can never choose a URL or header.

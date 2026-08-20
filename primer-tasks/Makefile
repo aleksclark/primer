@@ -82,7 +82,7 @@ tasks-external-verifier-test:
 	cd external-verifier-fixture && GOWORK=off go test ./... -count=1
 
 tasks-external-e2e: tasks-external-verifier-test
-	@echo "External verifier fixture contract tests passed; run the Stacklane Compose service for process E2E."
+	./scripts/external-e2e
 
 tasks-test: test tasks-external-verifier-test
 tasks-cover: cover

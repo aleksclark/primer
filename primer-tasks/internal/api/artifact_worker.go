@@ -587,6 +587,10 @@ func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submi
 // attempt/occurrence transition are one transaction and the unique constraint
 // makes retries/replays idempotent.
 func (s *Server) CommitDecision(ctx context.Context, decision verification.Decision) (bool, error) {
+	var kind string
+	if err := s.DB.QueryRow(ctx, `SELECT r.kind FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id WHERE a.tenant_id=$1 AND a.id=$2`, decision.TenantID, decision.AttemptID).Scan(&kind); err == nil && kind == verification.ExternalCallbackKind {
+		return s.commitExternalDecision(ctx, decision)
+	}
 	job := artifactLeaseJob(ctx)
 	if err := s.requireArtifactLease(ctx, decision.TenantID, job); err != nil {
 		return false, err
@@ -630,6 +634,76 @@ func (s *Server) CommitDecision(ctx context.Context, decision verification.Decis
 		return false, err
 	}
 	return true, nil
+}
+
+// commitExternalDecision is the generic external decision boundary. It is
+// deliberately independent of the artifact worker lease: callbacks are
+// authenticated and bound by the external protocol worker before they reach
+// this transaction. The decision unique key and versioned facts make replay
+// and callback races exactly-once in effect.
+func (s *Server) commitExternalDecision(ctx context.Context, decision verification.Decision) (bool, error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var status string
+	if err = tx.QueryRow(ctx, `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, decision.TenantID, decision.AttemptID).Scan(&status); err != nil {
+		return false, err
+	}
+	if status != "open" {
+		return false, nil
+	}
+	decisionID := decision.ID
+	if decisionID == "" {
+		decisionID = uuid.NewString()
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,attempt_id) DO NOTHING`, decisionID, decision.TenantID, decision.AttemptID, decision.Accepted, boundedSafeReason(decision.Reason), decision.DecidedBy)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	attemptStatus, occurrenceStatus := "rejected", "pending"
+	if decision.Accepted {
+		attemptStatus, occurrenceStatus = "accepted", "completed"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE verification_attempts SET status=$3 WHERE tenant_id=$1 AND id=$2`, decision.TenantID, decision.AttemptID, attemptStatus); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE task_occurrences SET status=$3 WHERE tenant_id=$1 AND id=$2 AND status NOT IN ('canceled','completed')`, decision.TenantID, decision.OccurrenceID, occurrenceStatus); err != nil {
+		return false, err
+	}
+	decisionPayload, _ := json.Marshal(map[string]any{"accepted": decision.Accepted, "reason": boundedSafeReason(decision.Reason), "attemptId": decision.AttemptID})
+	if _, err = tx.Exec(ctx, `INSERT INTO external_verifier_facts(id,tenant_id,aggregate_type,aggregate_id,fact_type,schema_version,payload) VALUES($1,$2,'verification_attempt',$3,'verification.decided',1,$4) ON CONFLICT DO NOTHING`, uuid.New(), decision.TenantID, decision.AttemptID, decisionPayload); err != nil {
+		return false, err
+	}
+	if decision.Accepted {
+		if _, err = tx.Exec(ctx, `INSERT INTO external_verifier_facts(id,tenant_id,aggregate_type,aggregate_id,fact_type,schema_version,payload) VALUES($1,$2,'task_occurrence',$3,'occurrence.completed',1,$4) ON CONFLICT DO NOTHING`, uuid.New(), decision.TenantID, decision.OccurrenceID, decisionPayload); err != nil {
+			return false, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE external_verifier_outbox SET status=$3,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND attempt_id=$2 AND status NOT IN ('canceled','dead')`, decision.TenantID, decision.AttemptID, func() string {
+		if decision.Accepted {
+			return "accepted"
+		}
+		return "rejected"
+	}()); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func boundedSafeReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if len(reason) > 500 {
+		return reason[:500]
+	}
+	return reason
 }
 
 // scriptedArtifactModel is a non-sensitive qualification fixture. It checks

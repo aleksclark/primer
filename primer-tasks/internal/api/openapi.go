@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"primer-tasks/internal/repo"
 )
 
 // The types in this file are the Tasks wire boundary. Huma derives the
@@ -180,6 +181,54 @@ type RedirectOutput struct {
 }
 type NoContentOutput struct {
 	ResponseHeaders
+}
+
+type ExternalVerifierList struct {
+	Items []externalVerifierOutput `json:"items"`
+}
+type ExternalVerifierListOutput struct {
+	ResponseHeaders
+	Body ExternalVerifierList
+}
+type ExternalVerifierOutputBoundary struct {
+	ResponseHeaders
+	Body externalVerifierOutput
+}
+type ExternalStateOutputBoundary struct {
+	ResponseHeaders
+	Body externalStateOutput
+}
+type ExternalSubmitResult struct {
+	OccurrenceID string `json:"occurrenceId"`
+	AttemptID    string `json:"attemptId"`
+	RequestID    string `json:"requestId"`
+	Status       string `json:"status"`
+}
+type ExternalSubmitOutputBoundary struct {
+	ResponseHeaders
+	Body ExternalSubmitResult
+}
+type ExternalVerifierCreateBoundary struct {
+	Body externalVerifierInput `required:"true"`
+}
+type ExternalVerifierPathBoundary struct {
+	ID   string `path:"id"`
+	Body struct {
+		Active        bool   `json:"active"`
+		SecretRef     string `json:"secretRef,omitempty"`
+		SecretVersion string `json:"secretVersion,omitempty"`
+	} `required:"true"`
+}
+type ExternalOccurrenceBoundary struct {
+	ID string `path:"id"`
+}
+type ExternalSubmitBoundary struct {
+	ID   string              `path:"id"`
+	Body externalSubmitInput `required:"true"`
+}
+type ExternalFallbackBoundary struct {
+	ID   string         `path:"id"`
+	Body DecisionInput2 `required:"true"`
 }
 
 // ArtifactReservationInput and ArtifactFinalizeInput are the strict Phase 5 JSON
@@ -388,6 +437,57 @@ func (s *Server) humaAPI() huma.API {
 	register(api, huma.Operation{OperationID: "agent-conversation-create", Method: http.MethodPost, Path: "/agent/conversations", DefaultStatus: http.StatusCreated, Errors: []int{401, 500}}, func(ctx context.Context, _ *struct{}) (*AgentConversationOutput, error) {
 		body, headers, err := legacyJSON[AgentConversation](ctx, s.requireParent(s.createAgentConversation), nil)
 		return &AgentConversationOutput{ResponseHeaders: headers, Body: body}, err
+	})
+
+	register(api, huma.Operation{OperationID: "admin-verifiers-list", Method: http.MethodGet, Path: "/admin/verifiers", Errors: []int{401, 403, 500}}, func(ctx context.Context, _ *struct{}) (*ExternalVerifierListOutput, error) {
+		parent, err := s.humaParent(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if parent.Role != "admin" && parent.Role != "educator" {
+			return nil, newProblem(http.StatusForbidden, "administrator role required")
+		}
+		items, err := repo.NewVerifierCatalogRepository(s.DB).List(ctx, false)
+		if err != nil {
+			return nil, newProblem(500, "unable to list verifier catalog")
+		}
+		out := ExternalVerifierList{Items: make([]externalVerifierOutput, 0, len(items))}
+		for _, item := range items {
+			out.Items = append(out.Items, externalVerifierView(item))
+		}
+		return &ExternalVerifierListOutput{Body: out}, nil
+	})
+	register(api, huma.Operation{OperationID: "admin-verifiers-create", Method: http.MethodPost, Path: "/admin/verifiers", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 403, 409, 500}}, func(ctx context.Context, in *ExternalVerifierCreateBoundary) (*ExternalVerifierOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalVerifierOutput](ctx, s.requireParent(s.createExternalVerifier), in.Body)
+		return &ExternalVerifierOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "admin-verifiers-activate", Method: http.MethodPatch, Path: "/admin/verifiers/{id}", Errors: []int{400, 401, 403, 404, 500}}, func(ctx context.Context, in *ExternalVerifierPathBoundary) (*ExternalVerifierOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalVerifierOutput](ctx, s.requireParent(s.setExternalVerifierActive), in.Body)
+		return &ExternalVerifierOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "student-external-state", Method: http.MethodGet, Path: "/student/occurrences/{id}/external", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalStateOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireStudent(s.externalState), nil)
+		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "student-external-submit", Method: http.MethodPost, Path: "/student/occurrences/{id}/external/submit", DefaultStatus: http.StatusAccepted, Errors: []int{400, 401, 404, 409, 500}}, func(ctx context.Context, in *ExternalSubmitBoundary) (*ExternalSubmitOutputBoundary, error) {
+		body, headers, err := legacyJSON[ExternalSubmitResult](ctx, s.requireStudent(func(w http.ResponseWriter, r *http.Request, student uuid.UUID) { s.submitExternal(w, r, student) }), in.Body)
+		return &ExternalSubmitOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "parent-external-inspect", Method: http.MethodGet, Path: "/occurrences/{id}/external/inspect", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalStateOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.inspectExternal), nil)
+		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "parent-external-retry", Method: http.MethodPost, Path: "/occurrences/{id}/external/retry", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalStateOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.retryExternal), nil)
+		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "parent-external-cancel", Method: http.MethodPost, Path: "/occurrences/{id}/external/cancel", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, _ *ExternalOccurrenceBoundary) (*ExternalStateOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.cancelExternal), nil)
+		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
+	})
+	register(api, huma.Operation{OperationID: "parent-external-fallback", Method: http.MethodPost, Path: "/occurrences/{id}/external/fallback", Errors: []int{400, 401, 409, 500}}, func(ctx context.Context, in *ExternalFallbackBoundary) (*ExternalStateOutputBoundary, error) {
+		body, headers, err := legacyJSON[externalStateOutput](ctx, s.requireParent(s.fallbackExternal), in.Body)
+		return &ExternalStateOutputBoundary{ResponseHeaders: headers, Body: body}, err
 	})
 
 	s.registerPhase2(api)

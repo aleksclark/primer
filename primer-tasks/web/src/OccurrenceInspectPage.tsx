@@ -5,6 +5,7 @@ import {
   validateOverrideInput,
   type InspectEntry,
   type ArtifactStudentState,
+  type ExternalState,
   type InspectTimeline,
 } from "@primer-tasks/client";
 
@@ -54,6 +55,7 @@ export default function OccurrenceInspectPage() {
   const navigate = useNavigate();
   const [timeline, setTimeline] = useState<InspectTimeline | null>(null);
   const [artifact, setArtifact] = useState<ArtifactStudentState | null>(null);
+  const [external, setExternal] = useState<ExternalState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [accepted, setAccepted] = useState(true);
@@ -63,6 +65,7 @@ export default function OccurrenceInspectPage() {
     setError(null);
     tasksClient.inspectOccurrence(id).then(setTimeline).catch((next) => setError(next instanceof Error ? next.message : "Unable to inspect this occurrence."));
     tasksClient.inspectOccurrenceArtifacts(id).then(setArtifact).catch(() => setArtifact(null));
+    tasksClient.inspectExternal(id).then(setExternal).catch(() => setExternal(null));
   }, [id]);
   useEffect(load, [load]);
   const runOccurrenceAction = async (action: "retry" | "cancel") => {
@@ -105,6 +108,7 @@ export default function OccurrenceInspectPage() {
     <header className="page-header"><div><p className="eyebrow">Parent workspace / Inspect</p><h1>Occurrence inspect</h1><p>Questions, answers, evaluations, and overrides stay append-only. Prior evidence is never rewritten.</p></div><div className="page-actions"><button className="button secondary" type="button" onClick={() => navigate("/parent/occurrences")}>Back to occurrences</button>{timeline && timeline.status !== "completed" && timeline.status !== "canceled" && <><button className="button secondary" type="button" onClick={() => void runOccurrenceAction("retry")} disabled={actionBusy !== null}>{actionBusy === "retry" ? "Retrying…" : "Retry verification"}</button><button className="button quiet" type="button" onClick={() => void runOccurrenceAction("cancel")} disabled={actionBusy !== null}>{actionBusy === "cancel" ? "Canceling…" : "Cancel occurrence"}</button></>}</div></header>
     {error && <div className="notice error" role="alert"><div><strong>Inspect problem</strong><p>{error}</p><button className="button quiet" type="button" onClick={load}>Try again</button></div></div>}
     {!timeline && !error && <div className="notice" role="status"><p>Loading the inspect timeline…</p></div>}
+    {external && <section className="record" aria-label="External verifier delivery"><div className="record-toolbar"><div><p className="system-label">External verifier</p><p className="meta">Source: {external.source} · status: {external.status}</p></div><span className={`status ${external.status === "completed" ? "active" : "attention"}`}>{external.status}</span></div>{external.progress?.length ? <ol>{external.progress.map((item, index) => <li key={`${String(item.sequence ?? index)}-${index}`}>{String(item.message ?? item.status ?? "Verifier update")}</li>)}</ol> : <p className="meta">No safe progress has been reported yet.</p>}{external.safeRationale && <p>{external.safeRationale}</p>}<div className="page-actions">{external.canRetry && <button className="button secondary" type="button" onClick={() => void tasksClient.retryExternal(id).then(load).catch(setError)}>Retry external delivery</button>}{external.canCancel && <button className="button quiet" type="button" onClick={() => void tasksClient.cancelExternal(id).then(load).catch(setError)}>Cancel external delivery</button>}</div></section>}
     {artifact && <ArtifactInspectPanel state={artifact} />}
     {timeline && <div className="inspect-layout">
       <section className="inspect-timeline" aria-label="Verification timeline">
