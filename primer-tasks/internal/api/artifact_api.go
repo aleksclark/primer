@@ -388,12 +388,14 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		return
 	}
 	defer f.Close()
-	k, _ := parseArtifactKind(kind)
-	if k != artifact.Image && in.DurationMS <= 0 {
-		problem(w, 400, "invalid_request", "duration is required for audio and video")
+	k, parseErr := parseArtifactKind(kind)
+	if parseErr != nil {
+		problem(w, 400, "invalid_request", "artifact kind is invalid")
 		return
 	}
-	result, e := artifact.Validate(f, artifact.Input{Kind: k, DeclaredType: declared, ExpectedSize: expected, ExpectedSHA256: in.SHA256, DurationMS: in.DurationMS}, mediaLimits(k, config))
+	// DurationMS and declared content type are browser hints only. The
+	// authoritative A/V values come from the bounded ffprobe/decoder boundary.
+	result, e := artifact.ValidateContext(r.Context(), f, artifact.Input{Kind: k, DeclaredType: declared, ExpectedSize: expected, ExpectedSHA256: in.SHA256, DurationMS: in.DurationMS}, mediaLimits(k, config))
 	if e != nil {
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)

@@ -160,6 +160,10 @@ services:
       TASKS_PUBLIC_ORIGIN: ${TASKS_PUBLIC_ORIGIN-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173}}
       TASKS_ALLOWED_ORIGINS: ${TASKS_ALLOWED_ORIGINS-http://web.${STACKLANE_INSTANCE:-dev}.primer-tasks.${STACKLANE_BASE_DOMAIN:-test}:${STACKLANE_WEB_PUBLIC_PORT:-5173},http://127.0.0.1}
       TASKS_ARTIFACT_STORE_DIR: /var/lib/primer-tasks/artifacts
+      # Server-side media validation only; browser MIME/duration metadata is
+      # never authoritative. Dockerfile.dev installs both binaries.
+      TASKS_FFPROBE_PATH: /usr/bin/ffprobe
+      TASKS_FFMPEG_PATH: /usr/bin/ffmpeg
       TASKS_ARTIFACT_STORE: ${TASKS_ARTIFACT_STORE-s3}
       TASKS_OBJECT_STORE_ENDPOINT: ${TASKS_OBJECT_STORE_ENDPOINT-${TASKS_S3_ENDPOINT-http://minio:9000}}
       TASKS_OBJECT_STORE_PUBLIC_ENDPOINT: ${TASKS_OBJECT_STORE_PUBLIC_ENDPOINT-}

@@ -4,7 +4,10 @@
 # outside this product-local stack.
 FROM golang:1.26-alpine
 
-RUN apk add --no-cache git tzdata
+# ffmpeg provides the ffprobe metadata boundary and decoder used to validate
+# uploaded audio/video bytes. It is a runtime dependency, not a browser/native
+# client dependency.
+RUN apk add --no-cache git tzdata ffmpeg
 # Keep the watcher version reproducible; Air remains PID 1 in Compose.
 RUN go install github.com/air-verse/air@v1.61.7
 

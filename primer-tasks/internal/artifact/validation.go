@@ -5,6 +5,7 @@ package artifact
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,7 +15,6 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"io"
-	"mime"
 	"net/http"
 	"strings"
 )
@@ -67,6 +67,12 @@ type Result struct {
 var ErrInvalid = errors.New("invalid artifact")
 
 func Validate(r io.Reader, in Input, l Limits) (Result, error) {
+	return ValidateContext(context.Background(), r, in, l)
+}
+
+// ValidateContext is Validate with cancellation propagated to the external
+// audio/video probe and decoder boundary.
+func ValidateContext(ctx context.Context, r io.Reader, in Input, l Limits) (Result, error) {
 	if l.MaxBytes <= 0 {
 		l = DefaultLimits(in.Kind)
 	}
@@ -89,12 +95,19 @@ func Validate(r io.Reader, in Input, l Limits) (Result, error) {
 		return Result{}, fmt.Errorf("%w: digest mismatch", ErrInvalid)
 	}
 	ct := http.DetectContentType(b)
-	if !allowed(in.Kind, ct, b) {
-		return Result{}, fmt.Errorf("%w: content does not match media kind", ErrInvalid)
-	}
-	probedDuration, authoritative := ProbeDuration(in.Kind, b)
-	if authoritative && in.Kind != Image {
-		in.DurationMS = probedDuration
+	authoritative := false
+	if in.Kind == Image {
+		if !allowedImage(ct) {
+			return Result{}, fmt.Errorf("%w: content does not match media kind", ErrInvalid)
+		}
+	} else {
+		info, probeErr := ProbeMedia(ctx, in.Kind, b, DefaultProbeConfig())
+		if probeErr != nil {
+			return Result{}, fmt.Errorf("%w: encoded media validation failed: %v", ErrInvalid, probeErr)
+		}
+		ct = info.ContentType
+		in.DurationMS = info.DurationMS
+		authoritative = true
 	}
 	out := Result{ContentType: ct, Size: int64(len(b)), SHA256: got, DurationMS: in.DurationMS, DurationAuthoritative: authoritative, Bytes: b}
 	if in.Kind == Image {
@@ -115,19 +128,9 @@ func Validate(r io.Reader, in Input, l Limits) (Result, error) {
 	}
 	return out, nil
 }
-func allowed(k Kind, ct string, b []byte) bool {
-	media, _, _ := mime.ParseMediaType(ct)
-	switch k {
-	case Image:
-		return media == "image/jpeg" || media == "image/png" || media == "image/gif"
-	case Video:
-		return strings.HasPrefix(media, "video/") || bytes.HasPrefix(b, []byte("RIFF")) || hasISOBaseMediaHeader(b) || bytes.HasPrefix(b, []byte{0x1a, 0x45, 0xdf, 0xa3})
-	case Audio:
-		return strings.HasPrefix(media, "audio/") || bytes.HasPrefix(b, []byte("ID3")) || bytes.HasPrefix(b, []byte("OggS")) || hasISOBaseMediaHeader(b)
-	}
-	return false
+func allowedImage(ct string) bool {
+	return ct == "image/jpeg" || ct == "image/png" || ct == "image/gif"
 }
-func hasISOBaseMediaHeader(b []byte) bool { return len(b) >= 8 && string(b[4:8]) == "ftyp" }
 
 // Thumbnail decodes and re-encodes pixels, intentionally dropping EXIF and
 // all container metadata. PNG is lossless and deterministic for tests.
