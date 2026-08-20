@@ -114,6 +114,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	s.RegisterRoutes(humaAPI)
 	s.registerPlanRoutes(humaAPI)
 	s.registerMaterializationRoutes(humaAPI)
+	s.registerWebhookRoutes(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
@@ -260,4 +261,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "# HELP studio_http_requests_total Total HTTP requests handled.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE studio_http_requests_total counter\n")
 	_, _ = fmt.Fprintf(w, "studio_http_requests_total %d\n", s.reqTotal.Load())
+	if s.querier != nil {
+		lag, err := repo.NewMetricsRepo(s.querier).OutboxLag(context.Background(), s.now())
+		if err == nil {
+			_, _ = fmt.Fprintf(w, "# HELP studio_outbox_lag_seconds Age of the oldest unpublished outbox event.\n")
+			_, _ = fmt.Fprintf(w, "# TYPE studio_outbox_lag_seconds gauge\n")
+			_, _ = fmt.Fprintf(w, "studio_outbox_lag_seconds %.3f\n", lag.Seconds())
+		}
+	}
 }

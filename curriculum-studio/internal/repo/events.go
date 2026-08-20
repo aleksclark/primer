@@ -54,6 +54,52 @@ func (r *OutboxRepo) MarkPublished(ctx context.Context, id uuid.UUID) (*domain.O
 	return out, nil
 }
 
+// ListByWorkspace returns durable outbox rows for a workspace, oldest first.
+func (r *OutboxRepo) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.OutboxEvent, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	rows, e := r.Q.Query(ctx, `SELECT id,workspace_id,event_type,aggregate_kind,aggregate_id,payload,created_at,published_at FROM curriculum_studio.outbox_events WHERE workspace_id=$1 ORDER BY created_at,id`, workspaceID)
+	if e != nil {
+		return nil, MapError(e)
+	}
+	defer rows.Close()
+	var out []domain.OutboxEvent
+	for rows.Next() {
+		v, e := scanOutboxEvent(rows)
+		if e != nil {
+			return nil, MapError(e)
+		}
+		out = append(out, *v)
+	}
+	if e := rows.Err(); e != nil {
+		return nil, MapError(e)
+	}
+	if out == nil {
+		out = []domain.OutboxEvent{}
+	}
+	return out, nil
+}
+
+// FanoutUnpublished claims one unpublished outbox row with FOR UPDATE SKIP LOCKED
+// and runs fn inside that transaction. fn typically schedules deliveries and
+// calls MarkPublished. ErrNotFound means the unpublished queue is empty.
+func (r *OutboxRepo) FanoutUnpublished(ctx context.Context, fn func(q Querier, event *domain.OutboxEvent) error) error {
+	if r == nil || r.Q == nil {
+		return fmt.Errorf("%w", ErrClosed)
+	}
+	if fn == nil {
+		return fmt.Errorf("fanout callback is required")
+	}
+	return MapError(WithTx(ctx, r.Q, func(q Querier) error {
+		event, e := scanOutboxEvent(q.QueryRow(ctx, `SELECT id,workspace_id,event_type,aggregate_kind,aggregate_id,payload,created_at,published_at FROM curriculum_studio.outbox_events WHERE published_at IS NULL ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`))
+		if e != nil {
+			return e
+		}
+		return fn(q, event)
+	}))
+}
+
 // WebhookEndpointRepo persists subscriptions; secret_ref is only a secret-store pointer.
 type WebhookEndpointRepo struct{ Q Querier }
 
@@ -104,6 +150,81 @@ func (r *WebhookEndpointRepo) List(ctx context.Context, workspaceID uuid.UUID) (
 	}
 	return out, nil
 }
+func (r *WebhookEndpointRepo) Get(ctx context.Context, id uuid.UUID) (*domain.WebhookEndpoint, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	out, e := scanWebhookEndpoint(r.Q.QueryRow(ctx, `SELECT id,workspace_id,url,secret_ref,event_types,status,created_at,updated_at FROM curriculum_studio.webhook_endpoints WHERE id=$1`, id))
+	if e != nil {
+		return nil, MapError(e)
+	}
+	return out, nil
+}
+func (r *WebhookEndpointRepo) Update(ctx context.Context, in *domain.WebhookEndpoint) (*domain.WebhookEndpoint, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if in == nil || in.ID == uuid.Nil || strings.TrimSpace(in.URL) == "" {
+		return nil, fmt.Errorf("endpoint id and URL are required")
+	}
+	status := in.Status
+	if status == "" {
+		status = "active"
+	}
+	types := in.EventTypes
+	if types == nil {
+		types = []string{}
+	}
+	out, e := scanWebhookEndpoint(r.Q.QueryRow(ctx, `UPDATE curriculum_studio.webhook_endpoints SET url=$2,secret_ref=$3,event_types=$4,status=$5,updated_at=now() WHERE id=$1 RETURNING id,workspace_id,url,secret_ref,event_types,status,created_at,updated_at`, in.ID, in.URL, in.SecretRef, types, status))
+	if e != nil {
+		return nil, MapError(e)
+	}
+	return out, nil
+}
+func (r *WebhookEndpointRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	if r == nil || r.Q == nil {
+		return fmt.Errorf("%w", ErrClosed)
+	}
+	tag, e := r.Q.Exec(ctx, `DELETE FROM curriculum_studio.webhook_endpoints WHERE id=$1`, id)
+	if e != nil {
+		return MapError(e)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w", ErrNotFound)
+	}
+	return nil
+}
+
+// ListActiveForEvent returns ACTIVE endpoints in the same workspace whose
+// event_types include eventType or are empty (all types). There is no global endpoint.
+func (r *WebhookEndpointRepo) ListActiveForEvent(ctx context.Context, workspaceID uuid.UUID, eventType string) ([]domain.WebhookEndpoint, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil {
+		return []domain.WebhookEndpoint{}, nil
+	}
+	rows, e := r.Q.Query(ctx, `SELECT id,workspace_id,url,secret_ref,event_types,status,created_at,updated_at FROM curriculum_studio.webhook_endpoints WHERE workspace_id=$1 AND status='active' AND (event_types = '{}'::text[] OR $2 = ANY(event_types)) ORDER BY created_at,id`, workspaceID, eventType)
+	if e != nil {
+		return nil, MapError(e)
+	}
+	defer rows.Close()
+	var out []domain.WebhookEndpoint
+	for rows.Next() {
+		v, e := scanWebhookEndpoint(rows)
+		if e != nil {
+			return nil, MapError(e)
+		}
+		out = append(out, *v)
+	}
+	if e := rows.Err(); e != nil {
+		return nil, MapError(e)
+	}
+	if out == nil {
+		out = []domain.WebhookEndpoint{}
+	}
+	return out, nil
+}
 
 // WebhookDeliveryRepo provides DB lease/at-least-once delivery persistence.
 type WebhookDeliveryRepo struct{ Q Querier }
@@ -123,6 +244,13 @@ func (r *WebhookDeliveryRepo) Schedule(ctx context.Context, endpointID, eventID 
 	return out, nil
 }
 func (r *WebhookDeliveryRepo) Claim(ctx context.Context, owner string, leaseTTL time.Duration) (*domain.WebhookDelivery, error) {
+	return r.ClaimRetryable(ctx, owner, leaseTTL, 0)
+}
+
+// ClaimRetryable claims one due delivery with FOR UPDATE SKIP LOCKED.
+// When maxAttempts > 0, rows that have already reached that attempt count are
+// left as dead-lettered failures and are not claimed again.
+func (r *WebhookDeliveryRepo) ClaimRetryable(ctx context.Context, owner string, leaseTTL time.Duration, maxAttempts int) (*domain.WebhookDelivery, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
@@ -131,9 +259,15 @@ func (r *WebhookDeliveryRepo) Claim(ctx context.Context, owner string, leaseTTL 
 	}
 	var out *domain.WebhookDelivery
 	err := WithTx(ctx, r.Q, func(q Querier) error {
-		const sel = `SELECT id FROM curriculum_studio.webhook_deliveries WHERE status IN ('pending','failed') AND (lease_expires_at IS NULL OR lease_expires_at<=now()) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`
+		sel := `SELECT id FROM curriculum_studio.webhook_deliveries WHERE status IN ('pending','failed') AND (lease_expires_at IS NULL OR lease_expires_at<=now())`
+		args := []any{}
+		if maxAttempts > 0 {
+			sel += ` AND attempt_count < $1`
+			args = append(args, maxAttempts)
+		}
+		sel += ` ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`
 		var id uuid.UUID
-		if e := q.QueryRow(ctx, sel).Scan(&id); e != nil {
+		if e := q.QueryRow(ctx, sel, args...).Scan(&id); e != nil {
 			return e
 		}
 		var e error
@@ -145,11 +279,79 @@ func (r *WebhookDeliveryRepo) Claim(ctx context.Context, owner string, leaseTTL 
 	}
 	return out, nil
 }
+
+// ReleaseForRetry keeps a failed attempt retryable after backoff by leaving
+// status=failed and a future lease expiry. Claim will pick it up once the
+// lease expires. Does not mark delivered.
+func (r *WebhookDeliveryRepo) ReleaseForRetry(ctx context.Context, id uuid.UUID, owner, message string, backoff time.Duration) (*domain.WebhookDelivery, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if backoff < 0 {
+		backoff = 0
+	}
+	out, e := scanWebhookDelivery(r.Q.QueryRow(ctx, `UPDATE curriculum_studio.webhook_deliveries SET status='failed',last_error=$3,lease_owner='',lease_expires_at=now()+($4 * interval '1 second'),attempt_started_at=NULL WHERE id=$1 AND lease_owner=$2 AND lease_expires_at>now() RETURNING id,endpoint_id,event_id,idempotency_key,status,attempt_count,last_error,delivered_at,lease_owner,lease_expires_at,attempt_started_at,created_at`, id, owner, message, backoff.Seconds()))
+	if e != nil {
+		if e == pgx.ErrNoRows {
+			return nil, fmt.Errorf("%w", ErrLeaseLost)
+		}
+		return nil, MapError(e)
+	}
+	return out, nil
+}
 func (r *WebhookDeliveryRepo) MarkDelivered(ctx context.Context, id uuid.UUID, owner string) (*domain.WebhookDelivery, error) {
 	return r.finishDelivery(ctx, id, owner, "delivered", "")
 }
 func (r *WebhookDeliveryRepo) MarkFailed(ctx context.Context, id uuid.UUID, owner, message string) (*domain.WebhookDelivery, error) {
 	return r.finishDelivery(ctx, id, owner, "failed", message)
+}
+func (r *WebhookDeliveryRepo) Get(ctx context.Context, id uuid.UUID) (*domain.WebhookDelivery, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	out, e := scanWebhookDelivery(r.Q.QueryRow(ctx, `SELECT id,endpoint_id,event_id,idempotency_key,status,attempt_count,last_error,delivered_at,lease_owner,lease_expires_at,attempt_started_at,created_at FROM curriculum_studio.webhook_deliveries WHERE id=$1`, id))
+	if e != nil {
+		return nil, MapError(e)
+	}
+	return out, nil
+}
+func (r *WebhookDeliveryRepo) ListByEndpoint(ctx context.Context, endpointID uuid.UUID, limit, offset int) ([]domain.WebhookDelivery, int, error) {
+	if r == nil || r.Q == nil {
+		return nil, 0, fmt.Errorf("%w", ErrClosed)
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, e := r.Q.Query(ctx, `SELECT id,endpoint_id,event_id,idempotency_key,status,attempt_count,last_error,delivered_at,lease_owner,lease_expires_at,attempt_started_at,created_at FROM curriculum_studio.webhook_deliveries WHERE endpoint_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`, endpointID, limit, offset)
+	if e != nil {
+		return nil, 0, MapError(e)
+	}
+	defer rows.Close()
+	var out []domain.WebhookDelivery
+	for rows.Next() {
+		v, e := scanWebhookDelivery(rows)
+		if e != nil {
+			return nil, 0, MapError(e)
+		}
+		out = append(out, *v)
+	}
+	if e := rows.Err(); e != nil {
+		return nil, 0, MapError(e)
+	}
+	if out == nil {
+		out = []domain.WebhookDelivery{}
+	}
+	var total int
+	if e := r.Q.QueryRow(ctx, `SELECT count(*) FROM curriculum_studio.webhook_deliveries WHERE endpoint_id=$1`, endpointID).Scan(&total); e != nil {
+		return nil, 0, MapError(e)
+	}
+	return out, total, nil
 }
 func (r *WebhookDeliveryRepo) finishDelivery(ctx context.Context, id uuid.UUID, owner, status, message string) (*domain.WebhookDelivery, error) {
 	if r == nil || r.Q == nil {
