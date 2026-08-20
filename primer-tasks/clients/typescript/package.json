@@ -9,6 +9,7 @@
   "scripts": {
     "generate": "node ./generate-client.mjs",
     "check:boundary": "node ./scripts/check-agent-boundary.mjs",
+    "check:generated": "node ./scripts/check-generated-boundary.mjs",
     "test": "node --test --experimental-strip-types src/*.test.ts"
   },
   "dependencies": {

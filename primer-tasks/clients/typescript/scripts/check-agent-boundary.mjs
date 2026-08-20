@@ -29,8 +29,9 @@ if (/reasoning_delta|provider_metadata|rawPrompt/.test(protocol)) {
   console.error("Agent protocol projection contains an unsafe provider field.");
   process.exit(1);
 }
-if (constructors.length !== 1 || !constructors[0].endsWith("src/agent-client.ts")) {
-  console.error("Agent transport boundary violation: only src/agent-client.ts may construct WebSocket.");
+const allowedConstructors = new Set(["src/agent-client.ts", "src/dialogue-client.ts"]);
+if (constructors.length !== allowedConstructors.size || constructors.some((file) => !allowedConstructors.has(file))) {
+  console.error("Client transport boundary violation: only the owned agent/dialogue façades may construct WebSocket.");
   console.error(constructors.join("\n") || "no façade constructor found");
   process.exit(1);
 }
