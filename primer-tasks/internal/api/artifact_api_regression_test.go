@@ -60,7 +60,7 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(out.UploadURL, "/student/artifacts/") || strings.Contains(out.UploadURL, "minio") || strings.Contains(out.UploadURL, "X-Amz") || strings.Contains(out.UploadURL, "tenants/") {
+		if !strings.HasPrefix(out.UploadURL, "/api/student/artifacts/") || strings.Contains(out.UploadURL, "minio") || strings.Contains(out.UploadURL, "X-Amz") || strings.Contains(out.UploadURL, "tenants/") {
 			t.Fatalf("browser upload contract leaked object-store URL: %q", out.UploadURL)
 		}
 		return out

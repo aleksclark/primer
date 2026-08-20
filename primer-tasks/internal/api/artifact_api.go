@@ -177,7 +177,7 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 	var existing artifactReservationOutput
 	err = s.DB.QueryRow(r.Context(), `SELECT r.id,r.artifact_id,r.part_count,r.expires_at FROM artifact_upload_reservations r WHERE r.tenant_id=$1 AND r.student_id=$2 AND r.idempotency_key=$3 AND r.status IN ('reserved','finalized') AND r.expires_at>now()`, tenant, student, in.IdempotencyKey).Scan(&existing.ReservationID, &existing.ArtifactID, &existing.PartCount, &existing.ExpiresAt)
 	if err == nil {
-		existing.UploadURL = "/student/artifacts/" + existing.ArtifactID + "/upload"
+		existing.UploadURL = "/api/student/artifacts/" + existing.ArtifactID + "/upload"
 		existing.IdempotencyKey = in.IdempotencyKey
 		jsonStatus(w, existing, 200)
 		return
@@ -202,20 +202,10 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 		problem(w, 500, "internal", "unable to commit reservation")
 		return
 	}
-	out := artifactReservationOutput{ReservationID: rid.String(), ArtifactID: aid.String(), IdempotencyKey: in.IdempotencyKey, UploadURL: "/student/artifacts/" + aid.String() + "/upload", PartCount: in.PartCount, ExpiresAt: expires}
-	// Bounded server streaming is the default browser path. Direct presigned
-	// PUTs are an explicit deployment opt-in because exposing signed object URLs
-	// also exposes provider credential metadata and opaque object keys to a
-	// browser network inspector.
-	if envOr("TASKS_ARTIFACT_DIRECT_UPLOAD", "false") == "true" {
-		if ps, ok := s.Artifacts.(interface {
-			PresignPut(context.Context, string, string, int64, time.Duration) (string, error)
-		}); ok {
-			if u, e := ps.PresignPut(r.Context(), uploadKey(tenant, aid), in.ContentType, in.Size, 10*time.Minute); e == nil {
-				out.UploadURL = u
-			}
-		}
-	}
+	out := artifactReservationOutput{ReservationID: rid.String(), ArtifactID: aid.String(), IdempotencyKey: in.IdempotencyKey, UploadURL: "/api/student/artifacts/" + aid.String() + "/upload", PartCount: in.PartCount, ExpiresAt: expires}
+	// Browser bytes always travel through the same-origin allowlisted binary
+	// façade. Object-store keys and signed provider URLs never enter a page
+	// contract or browser network request.
 	jsonStatus(w, out, http.StatusCreated)
 }
 
@@ -259,6 +249,8 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request, student 
 	r.Body = http.MaxBytesReader(w, r.Body, size+1)
 	obj, e := s.Artifacts.Put(r.Context(), key, r.Header.Get("Content-Type"), r.Body, size)
 	if e != nil {
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
 		problem(w, 400, "invalid_request", "upload could not be stored")
 		return
 	}
