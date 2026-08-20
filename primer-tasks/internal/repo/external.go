@@ -214,7 +214,7 @@ func (r *ExternalRepository) Finish(ctx context.Context, d ExternalDelivery, own
 	return err
 }
 func (r *ExternalRepository) RequeueExpired(ctx context.Context, now time.Time) error {
-	if _, err := r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',lease_owner=NULL,lease_until=NULL,updated_at=$1 WHERE status IN ('waiting','retryable_error') AND (expires_at<=$1 OR attempts>=max_attempts)`, now); err != nil {
+	if _, err := r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',lease_owner=NULL,lease_until=NULL,updated_at=$1 WHERE status IN ('queued','waiting','retryable_error') AND (expires_at<=$1 OR attempts>=max_attempts)`, now); err != nil {
 		return err
 	}
 	_, err := r.DB.Exec(ctx, `UPDATE external_verifier_outbox SET status=CASE WHEN expires_at<=$1 OR attempts>=max_attempts THEN 'dead' ELSE 'queued' END,lease_owner=NULL,lease_until=NULL,available_at=CASE WHEN expires_at<=$1 THEN available_at ELSE $1 END,updated_at=$1 WHERE status='running' AND lease_until<$1`, now)

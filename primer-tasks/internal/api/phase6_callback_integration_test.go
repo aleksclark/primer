@@ -169,6 +169,15 @@ func TestPhase6ExternalSignedCallbackProcessAndDecision(t *testing.T) {
 		projection.Error = &verification.ErrorResult{Code: "temporary", Retryable: kind == "retryable_error"}
 		server.publishExternalCallback(context.Background(), projection)
 	}
+	if _, err := pool.Exec(context.Background(), `UPDATE external_verifier_catalog SET active=false WHERE id=$1`, f.verifier); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := processor.Process(context.Background(), http.MethodPost, path, "1", negativeStamp.Format(time.RFC3339Nano), negativeSignature, negativeBody); err == nil {
+		t.Fatal("disabled verifier accepted an in-flight callback")
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE external_verifier_catalog SET active=true WHERE id=$1`, f.verifier); err != nil {
+		t.Fatal(err)
+	}
 	var decisions, completed int
 	var reason string
 	if err := pool.QueryRow(context.Background(), `SELECT reason FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&reason); err != nil {
@@ -183,6 +192,12 @@ func TestPhase6ExternalSignedCallbackProcessAndDecision(t *testing.T) {
 	}
 	if strings.Contains(string(callbackPayload), "safe acceptance") {
 		t.Fatalf("raw callback rationale persisted: %s", callbackPayload)
+	}
+	duplicateSubmit := httptest.NewRecorder()
+	server.submitExternal(duplicateSubmit, externalRouteRequest(http.MethodPost, "/student/occurrences/"+f.occurrence.String()+"/external/submit", `{"idempotencyKey":"external-once","publicPayload":{"response":"late duplicate"}}`, f.occurrence.String()), f.student)
+	var duplicateSubmitBody map[string]any
+	if duplicateSubmit.Code != http.StatusAccepted || json.Unmarshal(duplicateSubmit.Body.Bytes(), &duplicateSubmitBody) != nil || duplicateSubmitBody["requestId"] != f.requestID {
+		t.Fatalf("completed duplicate status=%d body=%s", duplicateSubmit.Code, duplicateSubmit.Body)
 	}
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&decisions); err != nil {
 		t.Fatal(err)

@@ -40,6 +40,12 @@ SQL
 trap cleanup EXIT
 cleanup
 "${compose[@]}" exec -T postgres psql -U tasks -d primer_tasks -v ON_ERROR_STOP=1 >/dev/null <<SQL
+INSERT INTO external_verifier_catalog(id,name,endpoint_url,active,schema_versions,capabilities,secret_ref,secret_version,timeout_seconds,max_attempts,max_age_seconds,egress_policy)
+VALUES('$verifier','Stacklane fixture verifier','http://external-verifier-fixture:8092/v1/verify',true,'["external_callback.v1"]','["response"]','fixture','1',30,5,86400,'{"testFixture":true}')
+ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,endpoint_url=EXCLUDED.endpoint_url,active=true,schema_versions=EXCLUDED.schema_versions,capabilities=EXCLUDED.capabilities,secret_ref=EXCLUDED.secret_ref,secret_version=EXCLUDED.secret_version,timeout_seconds=EXCLUDED.timeout_seconds,max_attempts=EXCLUDED.max_attempts,max_age_seconds=EXCLUDED.max_age_seconds,egress_policy=EXCLUDED.egress_policy,updated_at=now();
+INSERT INTO external_verifier_secret_versions(verifier_id,secret_ref,secret_version) VALUES('$verifier','fixture','1') ON CONFLICT (verifier_id,secret_version) DO UPDATE SET secret_ref=EXCLUDED.secret_ref,retired_at=NULL;
+SQL
+"${compose[@]}" exec -T postgres psql -U tasks -d primer_tasks -v ON_ERROR_STOP=1 >/dev/null <<SQL
 INSERT INTO students(id,tenant_id,display_name) VALUES('$student','00000000-0000-0000-0000-0000000000a1','Process E2E Student');
 INSERT INTO task_templates(id,tenant_id,title,status,current_revision) VALUES('$template','00000000-0000-0000-0000-0000000000a1','Process E2E External','published',1);
 INSERT INTO task_revisions(id,tenant_id,template_id,version,title,instructions,status) VALUES('$revision','00000000-0000-0000-0000-0000000000a1','$template',1,'Process E2E External','Submit a response','published');

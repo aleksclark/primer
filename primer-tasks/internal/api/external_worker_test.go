@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"primer-tasks/internal/jobs"
 )
 
@@ -32,6 +34,23 @@ func TestExternalSecretResolverFailsClosedInProductionAndBindsDevelopmentVersion
 	}
 	if secret, err := resolver.Resolve(context.Background(), "managed-ref", "v1"); err == nil || secret != nil {
 		t.Fatalf("unexpected old secret=%q err=%v", secret, err)
+	}
+}
+
+func TestExternalVerifierHealthIsAbsentWithoutDatabase(t *testing.T) {
+	if health := (&Server{}).externalVerifierHealth(context.Background()); health != nil {
+		t.Fatalf("health without database=%+v", health)
+	}
+}
+
+func TestExternalVerifierHealthReturnsNilWhenDatabaseIsUnavailable(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://tasks:tasks@127.0.0.1:1/does_not_exist?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if health := (&Server{DB: pool}).externalVerifierHealth(context.Background()); health != nil {
+		t.Fatalf("unavailable database health=%+v", health)
 	}
 }
 

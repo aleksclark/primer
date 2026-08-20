@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,7 +155,7 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 		t.Fatalf("callback=%d body=%s", callbackRec.Code, callbackRec.Body)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead' WHERE request_id=$1`, submit.RequestID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',expires_at=now()-interval '1 second' WHERE request_id=$1`, submit.RequestID); err != nil {
 		t.Fatal(err)
 	}
 	deadCallbackRec := httptest.NewRecorder()
@@ -170,8 +171,9 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 		t.Fatalf("retry=%d body=%s dbstatus=%s", retryRec.Code, retryRec.Body, retryStatus)
 	}
 	var attempts int
-	if err := pool.QueryRow(ctx, `SELECT attempts FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts); err != nil || attempts != 0 {
-		t.Fatalf("retry attempts=%d err=%v", attempts, err)
+	var expiresAt, envelopeExpiresAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT attempts,expires_at,(envelope->>'expiresAt')::timestamptz FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts, &expiresAt, &envelopeExpiresAt); err != nil || attempts != 0 || !expiresAt.After(time.Now()) || !envelopeExpiresAt.After(time.Now()) {
+		t.Fatalf("retry attempts=%d expires=%s envelopeExpires=%s err=%v", attempts, expiresAt, envelopeExpiresAt, err)
 	}
 	cancelRec := httptest.NewRecorder()
 	s.cancelExternal(cancelRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/cancel", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
@@ -189,8 +191,11 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 		t.Fatalf("fallback=%d body=%s", fallbackRec.Code, fallbackRec.Body)
 	}
 	var occurrenceStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM task_occurrences WHERE id=$1`, f.occurrence).Scan(&occurrenceStatus); err != nil || occurrenceStatus != "completed" {
+	if err := pool.QueryRow(ctx, `SELECT status FROM task_occurrences WHERE id=$1`, f.occurrence).Scan(&occurrenceStatus); err != nil || occurrenceStatus != "awaiting_verification" {
 		t.Fatalf("occurrence=%s err=%v", occurrenceStatus, err)
+	}
+	if strings.Contains(fallbackRec.Body.String(), `"inserted":true`) {
+		t.Fatalf("fallback decided canceled delivery: %s", fallbackRec.Body)
 	}
 
 	createRec := httptest.NewRecorder()
@@ -239,6 +244,21 @@ func TestExternalAPIBoundariesFailClosed(t *testing.T) {
 	if badSubmit.Code != http.StatusBadRequest {
 		t.Fatalf("bad submit=%d", badSubmit.Code)
 	}
+	missingAttempt := httptest.NewRecorder()
+	s.submitExternal(missingAttempt, httptest.NewRequest(http.MethodPost, "/student/occurrences/"+missing+"/external/submit", bytes.NewBufferString(`{"idempotencyKey":"missing","publicPayload":{}}`)), uuid.New())
+	if missingAttempt.Code != http.StatusNotFound {
+		t.Fatalf("missing attempt=%d", missingAttempt.Code)
+	}
+	longKey := httptest.NewRecorder()
+	s.submitExternal(longKey, httptest.NewRequest(http.MethodPost, "/student/occurrences/"+missing+"/external/submit", bytes.NewBufferString(`{"idempotencyKey":"`+strings.Repeat("k", 201)+`","publicPayload":{}}`)), uuid.New())
+	if longKey.Code != http.StatusBadRequest {
+		t.Fatalf("long idempotency key=%d", longKey.Code)
+	}
+	largePayload := httptest.NewRecorder()
+	s.submitExternal(largePayload, httptest.NewRequest(http.MethodPost, "/student/occurrences/"+missing+"/external/submit", bytes.NewBufferString(`{"idempotencyKey":"large","publicPayload":{"response":"`+strings.Repeat("x", 1<<20)+`"}}`)), uuid.New())
+	if largePayload.Code != http.StatusBadRequest {
+		t.Fatalf("large payload=%d", largePayload.Code)
+	}
 	badFallback := httptest.NewRecorder()
 	s.fallbackExternal(badFallback, externalRouteRequest(http.MethodPost, "/occurrences/"+missing+"/external/fallback", "{", missing), scope{Tenant: uuid.NewString(), Role: "admin"})
 	if badFallback.Code != http.StatusBadRequest {
@@ -258,6 +278,11 @@ func TestExternalAPIBoundariesFailClosed(t *testing.T) {
 	s.externalState(student, externalRouteRequest(http.MethodGet, "/student/occurrences/"+missing+"/external", "", missing), uuid.New())
 	if student.Code != http.StatusNotFound {
 		t.Fatalf("missing student=%d", student.Code)
+	}
+	archive := httptest.NewRecorder()
+	s.archiveStudent(archive, externalRouteRequest(http.MethodDelete, "/students/"+missing, "", missing), scope{Tenant: uuid.NewString(), Role: "admin"})
+	if archive.Code != http.StatusNotFound {
+		t.Fatalf("missing archive=%d", archive.Code)
 	}
 	parent := httptest.NewRecorder()
 	s.inspectExternal(parent, externalRouteRequest(http.MethodGet, "/occurrences/"+missing+"/external/inspect", "", missing), scope{Tenant: uuid.NewString(), Role: "admin"})

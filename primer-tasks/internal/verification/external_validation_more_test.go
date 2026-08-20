@@ -1,6 +1,7 @@
 package verification
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -21,6 +22,10 @@ func TestExternalPublicOptionsRejectSensitiveAndNestedValues(t *testing.T) {
 	for _, options := range []map[string]any{
 		{"endpointUrl": "https://private.example"},
 		{"apiToken": "secret"},
+		{"apiKey": "secret"},
+		{"callback": "https://private.example"},
+		{"bearer": "secret"},
+		{"cookie": "secret"},
 		{"headers": map[string]any{"X": "value"}},
 		{"not-valid-key!": "value"},
 	} {
@@ -30,6 +35,13 @@ func TestExternalPublicOptionsRejectSensitiveAndNestedValues(t *testing.T) {
 	}
 	if err := ValidatePublicOptions(map[string]any{"mode": "short", "percent": 50.0, "enabled": true}); err != nil {
 		t.Fatal(err)
+	}
+	tooMany := make(map[string]any, 33)
+	for i := 0; i < 33; i++ {
+		tooMany[fmt.Sprintf("field%d", i)] = "public"
+	}
+	if err := ValidatePublicOptions(tooMany); err == nil {
+		t.Fatal("oversized public options accepted")
 	}
 }
 

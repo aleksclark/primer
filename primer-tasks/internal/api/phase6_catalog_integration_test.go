@@ -75,6 +75,14 @@ func TestPhase6ExternalCatalogRotationAndAttemptSnapshot(t *testing.T) {
 	if err := server.validateExternalConfig(ctx, config); err != nil {
 		t.Fatal(err)
 	}
+	unsupportedSchema := map[string]any{"verifierId": f.verifier.String(), "capability": "response", "schemaVersion": "unsupported"}
+	if err := server.validateExternalConfig(ctx, unsupportedSchema); err == nil {
+		t.Fatal("unsupported external schema accepted")
+	}
+	unsupportedCapability := map[string]any{"verifierId": f.verifier.String(), "capability": "private", "schemaVersion": verification.ExternalCallbackSchemaVersion}
+	if err := server.validateExternalConfig(ctx, unsupportedCapability); err == nil {
+		t.Fatal("unsupported external capability accepted")
+	}
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -86,6 +94,11 @@ func TestPhase6ExternalCatalogRotationAndAttemptSnapshot(t *testing.T) {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
+	}
+	seedPhase6ExternalDelivery(t, pool, f)
+	health := server.externalVerifierHealth(ctx)
+	if health == nil || health.Attempts < 0 {
+		t.Fatalf("external verifier health=%+v", health)
 	}
 	fallbackRoute := chi.NewRouteContext()
 	fallbackRoute.URLParams.Add("id", f.occurrence.String())

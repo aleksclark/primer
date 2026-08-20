@@ -75,6 +75,19 @@ func TestPhase6ExternalPostgresLeaseRaceAndStaleFence(t *testing.T) {
 	seedPhase6ExternalDelivery(t, pool, f)
 	t.Cleanup(func() { cleanupPhase6External(t, pool, f) })
 	queue := repo.NewExternalRepository(pool)
+	if _, err := pool.Exec(context.Background(), `UPDATE external_verifier_outbox SET expires_at=now()-interval '1 second' WHERE request_id=$1`, f.requestID); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.RequeueExpired(context.Background(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var expiredStatus string
+	if err := pool.QueryRow(context.Background(), `SELECT status FROM external_verifier_outbox WHERE request_id=$1`, f.requestID).Scan(&expiredStatus); err != nil || expiredStatus != "dead" {
+		t.Fatalf("queued expiry status=%s err=%v", expiredStatus, err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE external_verifier_outbox SET status='queued',expires_at=now()+interval '1 hour' WHERE request_id=$1`, f.requestID); err != nil {
+		t.Fatal(err)
+	}
 	start := make(chan struct{})
 	claims := make(chan repo.ExternalDelivery, 8)
 	errs := make(chan error, 8)
@@ -207,5 +220,30 @@ func TestPhase6ExternalCallbackReplayHasOneDecisionAndFactSet(t *testing.T) {
 	}
 	if decisions != 1 || completedFacts != 1 || occurrenceCompleted != 1 {
 		t.Fatalf("decisions=%d decidedFacts=%d completedFacts=%d", decisions, completedFacts, occurrenceCompleted)
+	}
+}
+
+func TestPhase6ExternalDecisionFenceRejectsDeadDelivery(t *testing.T) {
+	pool := integrationPool(t)
+	f := seedPhase6External(t, pool)
+	seedPhase6ExternalDelivery(t, pool, f)
+	t.Cleanup(func() { cleanupPhase6External(t, pool, f) })
+	if _, err := pool.Exec(context.Background(), `UPDATE external_verifier_outbox SET status='dead' WHERE request_id=$1`, f.requestID); err != nil {
+		t.Fatal(err)
+	}
+	server := NewWithStore(pool, "test", nil)
+	inserted, err := server.commitExternalDecision(context.Background(), verification.Decision{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: f.attempt.String(), OccurrenceID: f.occurrence.String(), Accepted: true, Reason: "late", DecidedBy: "external_verifier"})
+	if err != nil || inserted {
+		t.Fatalf("dead delivery decision inserted=%v err=%v", inserted, err)
+	}
+	var decisions, completed int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, f.tenant, f.attempt).Scan(&decisions); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM external_verifier_facts WHERE tenant_id=$1 AND aggregate_id=$2 AND fact_type='occurrence.completed'`, f.tenant, f.occurrence).Scan(&completed); err != nil {
+		t.Fatal(err)
+	}
+	if decisions != 0 || completed != 0 {
+		t.Fatalf("dead delivery mutated decisions=%d completed=%d", decisions, completed)
 	}
 }

@@ -647,11 +647,17 @@ func (s *Server) commitExternalDecision(ctx context.Context, decision verificati
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	var status string
+	var status, deliveryStatus string
 	if err = tx.QueryRow(ctx, `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, decision.TenantID, decision.AttemptID).Scan(&status); err != nil {
 		return false, err
 	}
 	if status != "open" {
+		return false, nil
+	}
+	if err = tx.QueryRow(ctx, `SELECT status FROM external_verifier_outbox WHERE tenant_id=$1 AND attempt_id=$2 FOR UPDATE`, decision.TenantID, decision.AttemptID).Scan(&deliveryStatus); err != nil {
+		return false, err
+	}
+	if deliveryStatus == "canceled" || deliveryStatus == "dead" {
 		return false, nil
 	}
 	decisionID := decision.ID

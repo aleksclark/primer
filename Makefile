@@ -457,6 +457,9 @@ tasks-android:
 tasks-e2e:
 	$(MAKE) -C primer-tasks e2e
 
+tasks-external-e2e:
+	$(MAKE) -C primer-tasks tasks-external-e2e
+
 # Browser automation is intentionally gated on independent exploratory PASS;
 # this forwarding target does not author or promote Playwright prematurely.
 tasks-browser-test:

@@ -37,7 +37,7 @@ func (p *CallbackProcessor) Process(ctx context.Context, method, path, keyID, ti
 		return false, verification.ErrExternalBinding
 	}
 	catalog, err := p.Catalog.Get(ctx, verifierID)
-	if err != nil {
+	if err != nil || !catalog.Active {
 		return false, verification.ErrExternalBinding
 	}
 	binding, err := p.Outbox.Binding(ctx, c.RequestID, c.VerifierID, c.AttemptRef)

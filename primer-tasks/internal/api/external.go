@@ -310,6 +310,20 @@ func (s *Server) submitExternal(w http.ResponseWriter, r *http.Request, student 
 		return
 	}
 	defer tx.Rollback(ctx)
+	var existingRequest, existingStatus, existingAttempt, existingOccurrence string
+	err = tx.QueryRow(ctx, `SELECT d.request_id,d.status,a.id::text,a.occurrence_id::text FROM students s JOIN external_verifier_outbox d ON d.tenant_id=s.tenant_id JOIN verification_attempts a ON a.tenant_id=d.tenant_id AND a.id=d.attempt_id WHERE s.id=$1 AND d.idempotency_key=$2 LIMIT 1`, student, input.IdempotencyKey).Scan(&existingRequest, &existingStatus, &existingAttempt, &existingOccurrence)
+	if err == nil {
+		if err = tx.Commit(ctx); err != nil {
+			problem(w, 500, "internal", "external submission could not be committed")
+			return
+		}
+		jsonStatus(w, map[string]any{"occurrenceId": existingOccurrence, "attemptId": existingAttempt, "requestId": existingRequest, "status": existingStatus}, http.StatusAccepted)
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		problem(w, 500, "internal", "external submission idempotency lookup failed")
+		return
+	}
 	var tenant, attempt, requirement, verifier, capability, schema string
 	var options []byte
 	var maxAgeSeconds int
@@ -333,7 +347,7 @@ func (s *Server) submitExternal(w http.ResponseWriter, r *http.Request, student 
 	var queuedRequestID, queuedStatus string
 	err = tx.QueryRow(ctx, `INSERT INTO external_verifier_outbox(id,tenant_id,attempt_id,requirement_id,verifier_id,request_id,idempotency_key,schema_version,callback_path,envelope,payload_digest,secret_version,max_attempts,expires_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,c.secret_version,c.max_attempts,$12 FROM external_verifier_catalog c WHERE c.id=$5 ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING request_id,status`, deliveryID, tenant, attempt, requirement, verifier, envelope.RequestID, input.IdempotencyKey, schema, callbackPath, body, envelope.PayloadDigest, envelope.ExpiresAt).Scan(&queuedRequestID, &queuedStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if err = tx.QueryRow(ctx, `SELECT request_id,status FROM external_verifier_outbox WHERE tenant_id=$1 AND idempotency_key=$2`, tenant, input.IdempotencyKey).Scan(&queuedRequestID, &queuedStatus); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT d.request_id,d.status,a.id::text,a.occurrence_id::text FROM external_verifier_outbox d JOIN verification_attempts a ON a.tenant_id=d.tenant_id AND a.id=d.attempt_id WHERE d.tenant_id=$1 AND d.idempotency_key=$2`, tenant, input.IdempotencyKey).Scan(&queuedRequestID, &queuedStatus, &existingAttempt, &existingOccurrence); err != nil {
 			problem(w, 409, "conflict", "external submission idempotency record is unavailable")
 			return
 		}
@@ -341,7 +355,7 @@ func (s *Server) submitExternal(w http.ResponseWriter, r *http.Request, student 
 			problem(w, 500, "internal", "external submission could not be committed")
 			return
 		}
-		jsonStatus(w, map[string]any{"occurrenceId": occurrence, "attemptId": attempt, "requestId": queuedRequestID, "status": queuedStatus}, http.StatusAccepted)
+		jsonStatus(w, map[string]any{"occurrenceId": existingOccurrence, "attemptId": existingAttempt, "requestId": queuedRequestID, "status": queuedStatus}, http.StatusAccepted)
 		return
 	}
 	if err != nil {
@@ -461,7 +475,7 @@ func (s *Server) cancelExternal(w http.ResponseWriter, r *http.Request, sc scope
 	jsonOK(w, map[string]string{"status": "canceled"})
 }
 func (s *Server) retryExternal(w http.ResponseWriter, r *http.Request, sc scope) {
-	n, err := s.DB.Exec(r.Context(), `UPDATE external_verifier_outbox d SET status='queued',attempts=0,expires_at=now()+(c.max_age_seconds * interval '1 second'),available_at=now(),lease_owner=NULL,lease_until=NULL,last_error_code='',updated_at=now() FROM verification_attempts a,external_verifier_catalog c WHERE d.tenant_id=$1 AND d.attempt_id=a.id AND a.occurrence_id=$2 AND c.id=d.verifier_id AND d.status IN ('dead','retryable_error','terminal_error')`, sc.Tenant, chi.URLParam(r, "id"))
+	n, err := s.DB.Exec(r.Context(), `UPDATE external_verifier_outbox d SET status='queued',attempts=0,expires_at=now()+(c.max_age_seconds * interval '1 second'),envelope=jsonb_set(d.envelope::jsonb,'{expiresAt}',to_jsonb(now()+(c.max_age_seconds * interval '1 second')))::json,available_at=now(),lease_owner=NULL,lease_until=NULL,last_error_code='',updated_at=now() FROM verification_attempts a,external_verifier_catalog c WHERE d.tenant_id=$1 AND d.attempt_id=a.id AND a.occurrence_id=$2 AND c.id=d.verifier_id AND d.status IN ('dead','retryable_error','terminal_error')`, sc.Tenant, chi.URLParam(r, "id"))
 	if err != nil || n.RowsAffected() == 0 {
 		problem(w, 409, "conflict", "external delivery is not retryable")
 		return

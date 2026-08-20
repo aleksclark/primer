@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"primer-tasks/internal/verification"
 )
 
 func TestExternalRepositoryRejectsInvalidDeliveriesBeforeDatabaseAccess(t *testing.T) {
@@ -21,6 +22,13 @@ func TestExternalRepositoryRejectsInvalidDeliveriesBeforeDatabaseAccess(t *testi
 	}
 	if interval := leaseInterval(-time.Second); interval != time.Minute.String() {
 		t.Fatalf("negative lease interval=%q", interval)
+	}
+}
+
+func TestSafeCallbackPayloadDropsExternalProse(t *testing.T) {
+	payload := safeCallbackPayload(verification.CallbackEnvelope{Version: 1, SchemaVersion: "external_callback.v1", Sequence: 2, Type: "accepted", Accepted: &verification.AcceptedResult{Rationale: "private verifier reasoning"}})
+	if _, ok := payload["rationale"]; ok || payload["type"] != "accepted" {
+		t.Fatalf("unsafe callback projection=%v", payload)
 	}
 }
 

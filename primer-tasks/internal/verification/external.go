@@ -59,7 +59,7 @@ func ValidatePublicOptions(options map[string]any) error {
 	}
 	for key, value := range options {
 		lower := strings.ToLower(key)
-		if !publicOptionKey.MatchString(key) || strings.Contains(lower, "url") || strings.Contains(lower, "endpoint") || strings.Contains(lower, "header") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "auth") || strings.Contains(lower, "password") || strings.Contains(lower, "credential") {
+		if !publicOptionKey.MatchString(key) || strings.Contains(lower, "url") || strings.Contains(lower, "endpoint") || strings.Contains(lower, "header") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "auth") || strings.Contains(lower, "password") || strings.Contains(lower, "credential") || strings.Contains(lower, "key") || strings.Contains(lower, "bearer") || strings.Contains(lower, "cookie") || strings.Contains(lower, "private") || strings.Contains(lower, "server") || strings.Contains(lower, "callback") {
 			return errors.New("external public option name is not allowed")
 		}
 		switch value.(type) {
