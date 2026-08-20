@@ -203,11 +203,17 @@ func (s *Server) reserveArtifact(w http.ResponseWriter, r *http.Request, student
 		return
 	}
 	out := artifactReservationOutput{ReservationID: rid.String(), ArtifactID: aid.String(), IdempotencyKey: in.IdempotencyKey, UploadURL: "/student/artifacts/" + aid.String() + "/upload", PartCount: in.PartCount, ExpiresAt: expires}
-	if ps, ok := s.Artifacts.(interface {
-		PresignPut(context.Context, string, string, int64, time.Duration) (string, error)
-	}); ok {
-		if u, e := ps.PresignPut(r.Context(), uploadKey(tenant, aid), in.ContentType, in.Size, 10*time.Minute); e == nil {
-			out.UploadURL = u
+	// Bounded server streaming is the default browser path. Direct presigned
+	// PUTs are an explicit deployment opt-in because exposing signed object URLs
+	// also exposes provider credential metadata and opaque object keys to a
+	// browser network inspector.
+	if envOr("TASKS_ARTIFACT_DIRECT_UPLOAD", "false") == "true" {
+		if ps, ok := s.Artifacts.(interface {
+			PresignPut(context.Context, string, string, int64, time.Duration) (string, error)
+		}); ok {
+			if u, e := ps.PresignPut(r.Context(), uploadKey(tenant, aid), in.ContentType, in.Size, 10*time.Minute); e == nil {
+				out.UploadURL = u
+			}
 		}
 	}
 	jsonStatus(w, out, http.StatusCreated)
@@ -376,6 +382,7 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 	result, e := artifact.Validate(f, artifact.Input{Kind: k, DeclaredType: declared, ExpectedSize: expected, ExpectedSHA256: in.SHA256, DurationMS: in.DurationMS}, mediaLimits(k, config))
 	if e != nil {
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
 		problem(w, 400, "invalid_request", e.Error())
 		return
 	}
