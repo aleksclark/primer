@@ -420,9 +420,9 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 	}
 	_, _ = tx.Exec(r.Context(), `INSERT INTO artifact_scans(tenant_id,artifact_id,scanner,status,detail) VALUES($1,$2,'none','not_configured','no malware scanner configured') ON CONFLICT(tenant_id,artifact_id) DO NOTHING`, tenant, aid)
 	_, _ = tx.Exec(r.Context(), `INSERT INTO artifact_retention(tenant_id,artifact_id,retain_original_until,retain_derivatives_until) VALUES($1,$2,now()+interval '30 days',now()+interval '180 days') ON CONFLICT DO NOTHING`, tenant, aid)
-	var executor string
-	_ = tx.QueryRow(r.Context(), `SELECT executor FROM verification_requirements WHERE tenant_id=$1 AND id=$2`, tenant, in.RequirementID).Scan(&executor)
-	if executor == "agent_artifact_rubric" {
+	var requirementKind string
+	_ = tx.QueryRow(r.Context(), `SELECT kind FROM verification_requirements WHERE tenant_id=$1 AND id=$2`, tenant, in.RequirementID).Scan(&requirementKind)
+	if requirementKind == "agent_artifact_rubric" {
 		_, e = tx.Exec(r.Context(), `INSERT INTO artifact_rubric_jobs(id,tenant_id,submission_id,rubric_snapshot) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,submission_id) DO NOTHING`, uuid.New(), tenant, sub, config)
 		if e != nil {
 			problem(w, 500, "internal", "unable to enqueue artifact review")
