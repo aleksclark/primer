@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,6 @@ async function createStudent(page: Page, name: string) {
   await page.getByRole("button", { name: /^save student$/i }).click();
   await created;
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Students", exact: true })).toBeVisible();
   await page.getByLabel("Search students").fill(name);
   await expect(page.getByText(name, { exact: true })).toBeVisible();
 }
@@ -60,19 +59,20 @@ async function schedule(page: Page, title: string, student: string) {
   await (await dialog).accept();
 }
 
-async function pair(parent: Page, context: BrowserContext, student: string) {
+async function pair(parent: Page, browser: Browser, student: string): Promise<{ context: BrowserContext; page: Page }> {
   await parent.goto("/parent/students");
   await parent.getByLabel("Search students").fill(student);
   await parent.getByText(student, { exact: true }).click();
   await parent.getByRole("button", { name: /issue pairing qr/i }).click();
   const code = await parent.locator(".code").textContent();
   if (!code?.trim()) throw new Error("pairing code absent from the public parent UI");
-  const learner = await context.newPage();
-  await learner.goto("/student/pair");
-  await learner.getByLabel("Pairing code").fill(code.trim());
-  await learner.getByRole("button", { name: /pair this browser/i }).click();
-  await expect(learner.getByRole("heading", { name: /today with/i })).toBeVisible();
-  return learner;
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto("/student/pair");
+  await page.getByLabel("Pairing code").fill(code.trim());
+  await page.getByRole("button", { name: /pair this browser/i }).click();
+  await expect(page.getByRole("heading", { name: /today with/i })).toBeVisible();
+  return { context, page };
 }
 
 async function start(page: Page, title: string) {
@@ -80,13 +80,28 @@ async function start(page: Page, title: string) {
   await page.getByRole("button", { name: /^start task$/i }).click();
 }
 
-test("parent-authored image rubric bounds browser upload, persists scripted completion, and rejects malformed retry safely", async ({ browser }, testInfo) => {
+async function assertNoPreviewLeak(page: Page, requestURLs: string[]) {
+  await expect.poll(() => requestURLs.filter((url) => url.startsWith("blob:"))).toEqual([]);
+  await expect.poll(() => page.evaluate(() => ({
+    blobAttribute: Array.from(document.querySelectorAll("[src],[href]")).some((element) => /^blob:/.test(element.getAttribute("src") || element.getAttribute("href") || "")),
+    sensitiveText: /x-amz|presign|object key|signature|chain of thought|internal reasoning/i.test(document.body.innerText),
+  }))).toEqual({ blobAttribute: false, sensitiveText: false });
+}
+
+test("image completion is live, malformed input retries safely, and CSP keeps previews local", async ({ browser }, testInfo) => {
   const suffix = Date.now().toString(36), student = `P5 image ${suffix}`, title = `P5 image rubric ${suffix}`;
-  const parent = await browser.newContext(), learnerContext = await browser.newContext();
+  const parent = await browser.newContext();
+  const errors: string[] = [], requestURLs: string[] = [];
   try {
     const p = await parent.newPage();
+    const response = await p.goto("/");
+    expect(response?.headers()["content-security-policy"] ?? "").toContain("object-src 'none'");
+    expect(response?.headers()["content-security-policy"] ?? "").toContain("frame-ancestors 'none'");
     await signIn(p); await createStudent(p, student); await createArtifactTask(p, title, "image"); await schedule(p, title, student);
-    const s = await pair(p, learnerContext, student); await start(s, title);
+    const learner = await pair(p, browser, student), s = learner.page;
+    s.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+    s.on("request", (request) => requestURLs.push(request.url()));
+    await start(s, title);
     const oversize = path.join(testInfo.outputDir, "oversize.png");
     await fs.mkdir(testInfo.outputDir, { recursive: true });
     await fs.writeFile(oversize, Buffer.alloc(25 * 1024 * 1024 + 1));
@@ -95,36 +110,46 @@ test("parent-authored image rubric bounds browser upload, persists scripted comp
     await s.setInputFiles('input[type="file"]', fixture("malformed.png"));
     await s.getByRole("button", { name: /finalize upload/i }).click();
     await expect(s.getByRole("alert")).toContainText(/invalid artifact/i);
+    expect(errors).toEqual(["Failed to load resource: the server responded with a status of 400 (Bad Request)"]);
+    errors.length = 0;
     await s.getByRole("button", { name: /submit a new file/i }).click();
     const bounded = s.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/student\/artifacts\/[^/]+\/upload$/.test(new URL(r.url()).pathname));
     await s.setInputFiles('input[type="file"]', fixture("poem-fixture.png"));
     await s.getByRole("button", { name: /finalize upload/i }).click();
     expect(new URL((await bounded).url()).origin).toBe(new URL(s.url()).origin);
-    await expect(s.getByText(/^(Queued|Evaluating|Complete)$/, { exact: true }).first()).toBeVisible();
-    await expect.poll(async () => { await s.reload(); return s.locator("body").innerText(); }, { timeout: 30_000 }).toMatch(/Complete/);
+    await expect(s.getByText(/^Complete$/, { exact: true }).first()).toBeVisible();
     await expect(s.getByText(/every required criterion was accepted/i)).toBeVisible();
     await expect(s.locator('input[type="file"]')).toBeDisabled();
-    await expect(s.locator("body")).not.toContainText(/x-amz|presign|object key|chain of thought|internal reasoning/i);
-  } finally { await Promise.all([parent.close(), learnerContext.close()]); }
+    await assertNoPreviewLeak(s, requestURLs);
+    await expect(s.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", /media-src[^;]*data:/);
+    expect(errors).toEqual([]);
+    await learner.context.close();
+  } finally { await parent.close(); }
 });
 
-test("audio and video route to durable parent review with local preview", async ({ browser }) => {
+test("audio and video use local previews and deliver live parent review", async ({ browser }) => {
   const suffix = Date.now().toString(36), student = `P5 media ${suffix}`;
-  const parent = await browser.newContext(), learnerContext = await browser.newContext();
+  const parent = await browser.newContext();
   try {
     const p = await parent.newPage();
     await signIn(p); await createStudent(p, student);
     for (const [media, file] of [["audio", "evidence.mp3"], ["video", "evidence.mp4"]] as const) {
-      const title = `P5 ${media} ${suffix}`;
+      const title = `P5 ${media} ${suffix}`, errors: string[] = [], requestURLs: string[] = [];
       await createArtifactTask(p, title, media); await schedule(p, title, student);
-      const s = await pair(p, learnerContext, student); await start(s, title);
+      const learner = await pair(p, browser, student), s = learner.page;
+      s.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+      s.on("request", (request) => requestURLs.push(request.url()));
+      await start(s, title);
       await s.setInputFiles('input[type="file"]', fixture(file));
       await expect(s.getByText(media === "audio" ? "audio/mpeg" : "video/mp4", { exact: true })).toBeVisible();
-      await expect(s.getByLabel(new RegExp(`selected ${media} preview`, "i"))).toBeVisible();
       await s.getByRole("button", { name: /finalize upload/i }).click();
-      await expect(s.getByText(/^(Queued|Evaluating|Parent review)$/, { exact: true }).first()).toBeVisible();
-      await expect.poll(async () => { await s.reload(); return s.locator("body").innerText(); }, { timeout: 30_000 }).toMatch(/Parent review/);
-      await s.close();
+      await expect(s.getByLabel(new RegExp(`selected ${media} preview`, "i"))).toBeVisible();
+      await expect(s.getByText(/^Parent review$/, { exact: true }).first()).toBeVisible();
+      await expect(s.getByText(/automatic review cannot decide this media safely/i)).toBeVisible();
+      await expect(s.getByRole("button", { name: /submit a new file/i })).toBeVisible();
+      await assertNoPreviewLeak(s, requestURLs);
+      expect(errors).toEqual([]);
+      await learner.context.close();
     }
-  } finally { await Promise.all([parent.close(), learnerContext.close()]); }
+  } finally { await parent.close(); }
 });
