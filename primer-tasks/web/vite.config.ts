@@ -28,7 +28,7 @@ export default defineConfig({
     host: process.env.DEV_SERVER_HOST ?? "0.0.0.0",
     port: Number(process.env.DEV_SERVER_PORT ?? "5173"),
     strictPort: true,
-    headers: { "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'" },
+    headers: { "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' blob: data:; media-src 'self' blob: data:; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'" },
     allowedHosts,
     hmr,
     proxy: {

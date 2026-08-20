@@ -61,15 +61,13 @@ function accepts(config: ArtifactStudentState["config"]) {
 
 async function mediaDurationMs(file: File): Promise<number> {
   if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) return 0;
-  const source = URL.createObjectURL(file);
-  try {
-    const media = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
-    media.preload = "metadata";
-    media.src = source;
-    await new Promise<void>((resolve, reject) => { media.onloadedmetadata = () => resolve(); media.onerror = () => reject(new Error("The media duration could not be read.")); });
-    if (!Number.isFinite(media.duration) || media.duration <= 0) throw new Error("The media duration could not be read.");
-    return Math.ceil(media.duration * 1000);
-  } finally { URL.revokeObjectURL(source); }
+  const source = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("The media could not be read.")); reader.onerror = () => reject(reader.error ?? new Error("The media could not be read.")); reader.readAsDataURL(file); });
+  const media = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
+  media.preload = "metadata";
+  media.src = source;
+  await new Promise<void>((resolve, reject) => { media.onloadedmetadata = () => resolve(); media.onerror = () => reject(new Error("The media duration could not be read.")); });
+  if (!Number.isFinite(media.duration) || media.duration <= 0) throw new Error("The media duration could not be read.");
+  return Math.ceil(media.duration * 1000);
 }
 
 function FilePreview({ file }: { file: File }) {
