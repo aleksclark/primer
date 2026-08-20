@@ -4,12 +4,30 @@ import {
   tasksClient,
   validateOverrideInput,
   type InspectEntry,
+  type ArtifactStudentState,
   type InspectTimeline,
 } from "@primer-tasks/client";
 
 function formatWhen(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+}
+
+function ArtifactInspectPanel({ state }: { state: ArtifactStudentState }) {
+  const submission = state.submissions.at(-1);
+  const evaluation = state.evaluation;
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  const showDerivative = async () => {
+    if (!submission) return;
+    setPreviewError(null);
+    try {
+      const blob = await tasksClient.getArtifactDerivative(state.occurrenceId, submission.artifactId);
+      setPreviewUrl((current) => { if (current) URL.revokeObjectURL(current); return URL.createObjectURL(blob); });
+    } catch (next) { setPreviewError(next instanceof Error ? next.message : "The authorized derivative could not be loaded."); }
+  };
+  return <section className="artifact-inspect" aria-label="Artifact and rubric evaluation"><div className="record-toolbar"><div><p className="system-label">Artifact evidence</p><p className="meta">Authorized metadata and derivative review only · no object-store URL is exposed.</p></div><span className={`status ${evaluation?.accepted ? "active" : evaluation?.status === "review" ? "attention" : ""}`}>{evaluation?.status ?? state.status}</span></div>{!submission ? <div className="empty"><p>No media submission has been finalized.</p></div> : <div className="artifact-inspect-body"><p className="system-label">Snapshotted rubric</p><ul className="artifact-inspect-rubric">{state.config.criteria.map((criterion) => <li key={criterion.id}><strong>{criterion.label}</strong> — {criterion.description}{criterion.required ? " (required)" : " (supporting)"}</li>)}</ul><dl className="inspect-provenance"><div><dt>Media</dt><dd>{submission.kind} · {submission.mediaType}</dd></div><div><dt>Size</dt><dd>{Math.ceil(submission.sizeBytes / 1024)} KB</dd></div><div><dt>Digest</dt><dd>{submission.digest ?? "Pending validation"}</dd></div><div><dt>Submission</dt><dd>{submission.status}</dd></div></dl><div className="page-actions"><button className="button secondary" type="button" onClick={() => void showDerivative()}>View authorized derivative</button></div>{previewError && <p className="meta">{previewError}</p>}{previewUrl && submission.kind === "image" && <img className="artifact-file-preview" src={previewUrl} alt="Authorized student work derivative" />}{previewUrl && submission.kind === "video" && <video className="artifact-file-preview" src={previewUrl} controls aria-label="Authorized student video derivative" />}{previewUrl && submission.kind === "audio" && <audio src={previewUrl} controls aria-label="Authorized student audio derivative" />}{evaluation && <div className="artifact-criteria-results">{evaluation.criteria.map((criterion) => <article className={`artifact-criterion-result artifact-result-${criterion.status}`} key={criterion.id}><span className="status">{criterion.status}</span><strong>{criterion.criterionId}</strong>{criterion.feedback && <p>{criterion.feedback}</p>}{criterion.evidence && <p className="meta">Evidence: {criterion.evidence}</p>}</article>)}</div>}<p className="meta">Provider: {evaluation?.provider ?? "—"} · Model: {evaluation?.model ?? "—"} · Policy: {evaluation?.policyVersion ?? "—"}</p></div>}</section>;
 }
 
 function Entry({ entry }: { entry: InspectEntry }) {
@@ -34,6 +52,7 @@ export default function OccurrenceInspectPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [timeline, setTimeline] = useState<InspectTimeline | null>(null);
+  const [artifact, setArtifact] = useState<ArtifactStudentState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [accepted, setAccepted] = useState(true);
@@ -41,6 +60,7 @@ export default function OccurrenceInspectPage() {
   const load = useCallback(() => {
     setError(null);
     tasksClient.inspectOccurrence(id).then(setTimeline).catch((next) => setError(next instanceof Error ? next.message : "Unable to inspect this occurrence."));
+    tasksClient.inspectOccurrenceArtifacts(id).then(setArtifact).catch(() => setArtifact(null));
   }, [id]);
   useEffect(load, [load]);
   const override = async (event: FormEvent) => {
@@ -68,6 +88,7 @@ export default function OccurrenceInspectPage() {
     <header className="page-header"><div><p className="eyebrow">Parent workspace / Inspect</p><h1>Occurrence inspect</h1><p>Questions, answers, evaluations, and overrides stay append-only. Prior evidence is never rewritten.</p></div><div className="page-actions"><button className="button secondary" type="button" onClick={() => navigate("/parent/occurrences")}>Back to occurrences</button></div></header>
     {error && <div className="notice error" role="alert"><div><strong>Inspect problem</strong><p>{error}</p><button className="button quiet" type="button" onClick={load}>Try again</button></div></div>}
     {!timeline && !error && <div className="notice" role="status"><p>Loading the inspect timeline…</p></div>}
+    {artifact && <ArtifactInspectPanel state={artifact} />}
     {timeline && <div className="inspect-layout">
       <section className="inspect-timeline" aria-label="Verification timeline">
         {timeline.entries.length === 0 ? <div className="empty"><h2>No dialogue evidence yet</h2><p>The student has not produced a durable question or answer for this occurrence.</p></div> : timeline.entries.map((entry) => <Entry key={entry.id} entry={entry} />)}

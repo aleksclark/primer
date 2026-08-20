@@ -8,6 +8,15 @@ import {
   type OverrideInput,
   type StudentDialogueState,
 } from "./dialogue";
+import {
+  artifactRubricRequirement,
+  parseArtifactStudentState,
+  type ArtifactFinalizeInput,
+  type ArtifactRubricConfig,
+  type ArtifactRubricRequirement,
+  type ArtifactStudentState,
+  type ArtifactUploadReservation,
+} from "./artifact";
 
 export {
   AGENT_PROTOCOL_VERSION,
@@ -28,6 +37,8 @@ export { createAgentClient, readDurableAgentConversation, writeDurableAgentConve
 export { STUDENT_DIALOGUE_PROTOCOL_VERSION, parseStudentDialogueEvent } from "./student-dialogue-protocol";
 export type { StudentDialogueCommand, StudentDialogueEvent } from "./student-dialogue-protocol";
 export { createDialogueClient } from "./dialogue-client";
+export { createArtifactClient } from "./artifact-client";
+export type { ArtifactClient, ArtifactClientError, ArtifactClientOptions, ArtifactClientSnapshot, ArtifactConnectionState } from "./artifact-client";
 export type {
   AgentClient,
   AgentClientError,
@@ -70,6 +81,42 @@ export type {
   StudentDialogueState,
   StudentDialogueStatus,
 } from "./dialogue";
+export {
+  ARTIFACT_KINDS,
+  ARTIFACT_LIMITS,
+  ARTIFACT_RUBRIC_CONFIG_VERSION,
+  ARTIFACT_RUBRIC_EXECUTOR,
+  ARTIFACT_RUBRIC_INTERACTION,
+  ARTIFACT_RUBRIC_KIND,
+  artifactRubricRequirement,
+  defaultArtifactRubricConfig,
+  mediaKind,
+  normalizeArtifactRubricConfig,
+  parseArtifactProgressEvent,
+  parseArtifactStudentState,
+  previewArtifactRubric,
+  sha256Hex,
+  validateArtifactFile,
+  validateArtifactRubric,
+} from "./artifact";
+export type {
+  ArtifactCriterionEvaluation,
+  ArtifactEvaluation,
+  ArtifactEvaluationStatus,
+  ArtifactFinalizeInput,
+  ArtifactKind,
+  ArtifactProgressEvent,
+  ArtifactReviewPolicy,
+  ArtifactRubricConfig,
+  ArtifactRubricCriterion,
+  ArtifactRubricIssue,
+  ArtifactRubricPreview,
+  ArtifactRubricRequirement,
+  ArtifactStudentState,
+  ArtifactSubmission,
+  ArtifactSubmissionStatus,
+  ArtifactUploadReservation,
+} from "./artifact";
 
 export type { components, paths } from "../generated/schema";
 export type Student = components["schemas"]["Student"];
@@ -89,6 +136,7 @@ type ScheduleListQuery = Query<"/schedules", "get">;
 type ScheduleInputBody = JsonBody<"/schedules", "post">;
 type TaskInputBody = JsonBody<"/tasks", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
+export type ArtifactRequirementBody = ArtifactRubricRequirement;
 export type Task = components["schemas"]["TaskRevision"];
 export type TaskPage = components["schemas"]["TaskPage2"];
 export type Schedule = components["schemas"]["Schedule2"];
@@ -103,6 +151,12 @@ export interface TasksClientOptions {
 
 export interface RequestOptions {
   signal?: AbortSignal;
+  fetch?: typeof globalThis.fetch;
+}
+
+export interface ArtifactUploadOptions {
+  signal?: AbortSignal;
+  onProgress?: (loaded: number, total: number) => void;
 }
 
 export class TasksApiError extends Error {
@@ -165,6 +219,43 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     const parsed = parse(payload);
     if (parsed === null) throw new TasksApiError(response.status, "The server returned an unusable dialogue record.");
     return parsed;
+  }
+
+  /**
+   * The sole binary transport façade. Pages receive a reservation or an
+   * occurrence-scoped derivative response and never choose an object-store
+   * URL. Both PUT and GET targets are checked before browser transport.
+   */
+  function artifactTarget(value: string): URL {
+    const target = new URL(value, window.location.origin);
+    if (!/^https?:$/.test(target.protocol) || target.username || target.password || target.hash || !target.pathname.includes("/artifacts/")) {
+      throw new TasksApiError(400, "The server returned an invalid artifact target.", "invalid_artifact_target");
+    }
+    return target;
+  }
+
+  async function uploadArtifactBinary(reservation: ArtifactUploadReservation, file: File, options: ArtifactUploadOptions = {}): Promise<void> {
+    const target = artifactTarget(reservation.uploadUrl);
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", target.toString(), true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("Content-Type", file.type || reservation.mediaType);
+      if (reservation.expectedDigest) xhr.setRequestHeader("X-Artifact-Digest", reservation.expectedDigest);
+      if (options.signal) options.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+      xhr.upload.onprogress = (event) => options.onProgress?.(event.loaded, event.lengthComputable ? event.total : file.size);
+      xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new TasksApiError(xhr.status, "The artifact upload was not accepted."));
+      xhr.onerror = () => reject(new TasksApiError(0, "The artifact upload could not reach the server.", "upload_network"));
+      xhr.onabort = () => reject(new TasksApiError(0, "The artifact upload was interrupted.", "upload_aborted"));
+      xhr.send(file);
+    });
+  }
+
+  async function downloadArtifactBinary(path: string, options: RequestOptions = {}): Promise<Blob> {
+    const target = artifactTarget(`${baseUrl}${path}`);
+    const response = await (options.fetch ?? globalThis.fetch)(target.toString(), { credentials: "include", signal: options.signal });
+    if (!response.ok) throw new TasksApiError(response.status, "The authorized artifact preview was not available.");
+    return response.blob();
   }
 
   return {
@@ -233,6 +324,10 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async createTask(body: TaskInputBody, options: RequestOptions = {}) {
       return unwrap(transport.POST("/tasks", { ...options, body }));
     },
+    async createArtifactRubricTask(body: { title: string; instructions: string; rubric: ArtifactRubricConfig }, options: RequestOptions = {}) {
+      const requirement = artifactRubricRequirement("artifact-rubric", body.rubric);
+      return unwrap(transport.POST("/tasks", { ...options, body: { title: body.title, instructions: body.instructions, requirements: [requirement] } }));
+    },
     async publishTask(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/tasks/{id}/publish", { ...options, params: { path: { id } } }));
     },
@@ -288,6 +383,33 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     },
     async studentOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.GET("/student/occurrences/{id}", { ...options, params: { path: { id } } }));
+    },
+    /** Phase 5 REST projections are intentionally parsed before reaching pages. */
+    async studentArtifactState(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState | null> {
+      try {
+        return await requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts`, { method: "GET", signal: options.signal }, parseArtifactStudentState);
+      } catch (next) {
+        if (next instanceof TasksApiError && next.status === 404) return null;
+        throw next;
+      }
+    },
+    async reserveArtifact(id: string, body: { kind: string; mediaType: string; sizeBytes: number; digest?: string; idempotencyKey: string }, options: RequestOptions = {}): Promise<ArtifactUploadReservation> {
+      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/reserve`, { method: "POST", body: JSON.stringify(body), signal: options.signal }, (value) => value as ArtifactUploadReservation);
+    },
+    async uploadArtifact(reservation: ArtifactUploadReservation, file: File, options: ArtifactUploadOptions = {}) {
+      return uploadArtifactBinary(reservation, file, options);
+    },
+    async finalizeArtifact(id: string, body: ArtifactFinalizeInput, options: RequestOptions = {}): Promise<ArtifactStudentState> {
+      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/finalize`, { method: "POST", body: JSON.stringify(body), signal: options.signal }, (value) => parseArtifactStudentState(value));
+    },
+    async retryArtifactEvaluation(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState> {
+      return requestJSON(`/student/occurrences/${encodeURIComponent(id)}/artifacts/retry`, { method: "POST", signal: options.signal }, (value) => parseArtifactStudentState(value));
+    },
+    async inspectOccurrenceArtifacts(id: string, options: RequestOptions = {}): Promise<ArtifactStudentState> {
+      return requestJSON(`/occurrences/${encodeURIComponent(id)}/artifacts/inspect`, { method: "GET", signal: options.signal }, (value) => parseArtifactStudentState(value));
+    },
+    async getArtifactDerivative(occurrenceId: string, artifactId: string, options: RequestOptions = {}): Promise<Blob> {
+      return downloadArtifactBinary(`/occurrences/${encodeURIComponent(occurrenceId)}/artifacts/${encodeURIComponent(artifactId)}/derivative`, options);
     },
     async startStudentOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/student/occurrences/{id}/start", { ...options, params: { path: { id } } }));
