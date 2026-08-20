@@ -24,6 +24,22 @@ import (
 // StartArtifactWorker owns non-chat rubric evaluation after the browser has
 // disconnected. Only safe, durable progress is emitted; provider reasoning
 // and tool arguments never enter the event surface.
+func (s *Server) StartArtifactCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		_ = s.CleanupArtifactOrphans(ctx, time.Now().UTC())
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = s.CleanupArtifactOrphans(ctx, time.Now().UTC())
+			}
+		}
+	}()
+}
+
 func (s *Server) StartArtifactWorker(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(250 * time.Millisecond)
@@ -182,6 +198,10 @@ func artifactProviderSupportsFiles(provider string) bool {
 
 func (s *Server) artifactModel(ctx context.Context, cfg parent.ProviderConfig, digest string, derivative []byte, rubric verification.ArtifactRubric) (fantasy.LanguageModel, string, error) {
 	if cfg.Mode == parent.ProviderScripted && os.Getenv("TASKS_ARTIFACT_SCRIPTED_FIXTURE") == "1" {
+		expected := strings.TrimSpace(os.Getenv("TASKS_ARTIFACT_SCRIPTED_DIGEST"))
+		if expected == "" || !strings.EqualFold(expected, digest) {
+			return nil, "", errors.New("scripted fixture digest mismatch")
+		}
 		outcome := strings.TrimSpace(os.Getenv("TASKS_ARTIFACT_SCRIPTED_OUTCOME"))
 		return &scriptedArtifactModel{expectedDigest: digest, expectedDerivative: append([]byte(nil), derivative...), criteria: rubric.Criteria, accepted: outcome != "negative", fault: strings.TrimSpace(os.Getenv("TASKS_ARTIFACT_SCRIPTED_FAULT"))}, "scripted", nil
 	}
