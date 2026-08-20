@@ -213,6 +213,8 @@ func (s *Server) studentArtifactSubscribe(ctx context.Context, identity studentI
 	case "evaluating":
 		phase = "evaluating"
 	}
+	sub.occurrence = cmd.OccurrenceID
+	sub.attempt = ""
 	s.sendStudentToSubscriber(sub, wireStudentEvent{Type: typeName, ProtocolVersion: studentProtocolVersion, OccurrenceID: cmd.OccurrenceID, Sequence: 0, Cursor: cmd.Cursor, Phase: phase, Status: status, Time: time.Now().UTC()})
 	// Artifact progress is job-owned and durable. Replay it after the small
 	// state snapshot so reconnects do not depend on the worker or websocket
