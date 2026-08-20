@@ -146,7 +146,7 @@ func minioUpload(t *testing.T, h http.Handler, uploadURL, cookie string, body []
 
 func minioReservation(t *testing.T, h http.Handler, occurrence, requirement, cookie, idem string, size int) artifactReservationOutput {
 	t.Helper()
-	body, _ := json.Marshal(artifactReservationInput{OccurrenceID: occurrence, RequirementID: requirement, Kind: "image", Filename: "evidence.png", ContentType: "image/png", Size: int64(size), IdempotencyKey: idem})
+	body, _ := json.Marshal(ArtifactReservationInput{RequirementID: requirement, Kind: "image", Filename: "evidence.png", ContentType: "image/png", Size: int64(size), IdempotencyKey: idem})
 	rec := minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+occurrence+"/artifacts/reserve", cookie, body)
 	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("reserve = %d: %s", rec.Code, rec.Body.String())
@@ -163,7 +163,7 @@ func minioReservation(t *testing.T, h http.Handler, occurrence, requirement, coo
 
 func minioFinalize(t *testing.T, h http.Handler, occurrence, requirement, cookie string, reservation artifactReservationOutput, digest string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, _ := json.Marshal(artifactFinalizeInput{ArtifactID: reservation.ArtifactID, OccurrenceID: occurrence, RequirementID: requirement, SHA256: digest, IdempotencyKey: reservation.IdempotencyKey})
+	body, _ := json.Marshal(ArtifactFinalizeInput{ArtifactID: reservation.ArtifactID, RequirementID: requirement, Digest: digest, SHA256: digest, IdempotencyKey: reservation.IdempotencyKey})
 	return minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+occurrence+"/artifacts/finalize", cookie, body)
 }
 
@@ -341,10 +341,10 @@ func TestTasksArtifactAPIWithPostgresAndMinIO(t *testing.T) {
 	if rec := minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+occurrenceB.String()+"/artifacts/reserve", cookieA, []byte(`{"requirementId":"`+requirementB.String()+`","kind":"image","filename":"foreign.png","contentType":"image/png","size":10,"idempotencyKey":"foreign-occurrence"}`)); rec.Code != http.StatusNotFound {
 		t.Fatalf("cross-tenant reserve = %d, want 404", rec.Code)
 	}
-	if rec := minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+occurrenceA.String()+"/artifacts/finalize", cookieB, []byte(`{"artifactId":"`+reservation.ArtifactID+`","occurrenceId":"`+occurrenceA.String()+`","requirementId":"`+requirementA.String()+`","sha256":"`+digestHex+`","idempotencyKey":"foreign-finalize"}`)); rec.Code != http.StatusNotFound {
+	if rec := minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+occurrenceA.String()+"/artifacts/finalize", cookieB, []byte(`{"artifactId":"`+reservation.ArtifactID+`","requirementId":"`+requirementA.String()+`","digest":"`+digestHex+`","sha256":"`+digestHex+`","idempotencyKey":"foreign-finalize"}`)); rec.Code != http.StatusNotFound {
 		t.Fatalf("cross-tenant finalize = %d, want 404", rec.Code)
 	}
-	if rec := minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+otherOccurrenceA.String()+"/artifacts/finalize", cookieA, []byte(`{"artifactId":"`+reservation.ArtifactID+`","requirementId":"`+requirementA.String()+`","sha256":"`+digestHex+`","idempotencyKey":"wrong-occurrence"}`)); rec.Code != http.StatusNotFound {
+	if rec := minioStudentRequest(t, h, http.MethodPost, "/student/occurrences/"+otherOccurrenceA.String()+"/artifacts/finalize", cookieA, []byte(`{"artifactId":"`+reservation.ArtifactID+`","requirementId":"`+requirementA.String()+`","digest":"`+digestHex+`","sha256":"`+digestHex+`","idempotencyKey":"wrong-occurrence"}`)); rec.Code != http.StatusNotFound {
 		t.Fatalf("cross-occurrence finalize = %d, want 404", rec.Code)
 	}
 	if rec := minioStudentRequest(t, h, http.MethodGet, "/student/artifacts/"+reservation.ArtifactID+"/derivative/thumbnail", cookieB, nil); rec.Code != http.StatusNotFound {
