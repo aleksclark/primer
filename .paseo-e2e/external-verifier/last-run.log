@@ -1,26 +1,29 @@
-EXTERNAL VERIFIER FINAL-TIP EXPLORATION — PASS
-UTC: 2026-08-20T11:23:30Z
+PHASE 6 EXTERNAL VERIFIER FINAL GATES
 
-1) Fresh isolated Chrome browser acceptance
-COMMAND: Chrome DevTools MCP isolated parent and student contexts; real configured Tasks SPA origin.
-RUNTIME: manual exploration approximately 9 minutes.
-RESULT: PASS
-- Parent selected the seeded administrator-managed fixture verifier, created a fresh external task, published it, and scheduled it for the seeded student.
-- A separate student browser was paired with fresh one-use material (value not retained), started the occurrence, and submitted a benign response (body not retained).
-- Student observed queued safe progress, reloaded while delivery was in flight, then observed completed with durable safe progress.
-- Parent independently opened the occurrence inspector and observed the same fixture source, completed status, and ordered safe progress.
-- Browser-facing traffic was same-origin only; the student never contacted the verifier directly. Submit returned 202 and state/inspect polling returned 200. No URLs, bodies, opaque identifiers, cookies, signatures, headers, secrets, or reasoning are recorded here.
-- Student console had one non-functional CSP inline-style violation/issue from the dev application. Parent inspection also made two unrelated artifact-inspector requests that returned 404 while the external inspector returned 200. Neither blocked submission, progress, reload recovery, or completion; both are recorded rather than hidden.
+FINAL RUNTIME TIP: 457547efcd899bc3695394d31dd988dc59cd6690
+BRANCH: impl/tasks-p6-external
 
-2) Focused real browser regression
+Fresh Terra exploratory acceptance: PASS on exact final tip.
+- New isolated Parent A and student contexts used separate Tasks/Postgres/external-verifier-fixture processes.
+- Safe catalog read, fresh author/publish/schedule, fresh pairing, submit, in-flight reload, durable completion, and matching Parent Inspect passed.
+- No endpoint, secret, signature, callback body, opaque identifier, or private reasoning rendered or retained.
+
+Promoted browser regression after exploratory PASS:
 COMMAND: PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 PRIMER_TASKS_BASE_URL=[configured] PRIMER_TASKS_BROWSER_COMMAND='npx playwright test e2e/external-verifier-progress.spec.ts' npm run browser:test
-RUNTIME: 8 seconds wall clock; Playwright reports 1 passed in 7.2 seconds.
-RESULT: PASS — 1 test passed.
+RESULT: PASS — 1 passed (7.1s)
 
-3) Separate external-process boundary check
+Independent Chrome redrive after Playwright:
+RESULT: PASS — new isolated parent/student contexts, fresh task/pairing, reload recovery, durable completion, and matching Parent Inspect.
+
+Separate process boundary:
 COMMAND: make tasks-external-e2e
-RUNTIME: 2 seconds wall clock.
-RESULT: PASS
-- The product-local process check passed with the standalone external-verifier fixture; its result confirms one effective request and the expected callback sequence without retaining fixture ledger identifiers or payloads.
+RESULT: PASS — standalone fixture process, own ledger, signed callback sequence, and effective request behavior.
 
-ASSERTION INTEGRITY: No product code, assertions, fixture settings, or acceptance gates were changed by this run.
+Code gates on final tip:
+- go test ./... -count=1: PASS
+- go test -race ./... -count=1: PASS
+- make tasks-cover: PASS — 85.0% >= 85%
+- make tasks-clients, tasks-typecheck, tasks-lint, tasks-web: PASS
+- fixture tests and Compose health: PASS
+
+Residuals recorded rather than hidden: unrelated Parent Inspect artifact-inspection 404s and the dev-app CSP inline-style issue. They are outside the external-callback acceptance path. No raw snapshots or test-results retained.

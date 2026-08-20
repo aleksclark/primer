@@ -1,18 +1,17 @@
 {
   "version": 1,
   "suiteId": "external-verifier",
-  "functionality": "Parent selects the pre-seeded external verifier, publishes and schedules an external callback task; student submits through the SPA; both observe durable signed progress and final completion without secret-bearing details.",
+  "functionality": "Fresh ordinary-parent external-verifier acceptance through student completion and matching parent inspection",
   "phase": "run",
-  "callCount": 6,
-  "baseUrl": "[configured Tasks SPA origin]",
+  "callCount": 22,
+  "baseUrl": "configured Tasks SPA origin",
+  "runtimeTip": "457547efcd899bc3695394d31dd988dc59cd6690",
   "acceptance": [
-    "Parent can select the real pre-seeded verifier and create, publish, and schedule an external_callback task.",
-    "Student can submit through the SPA and sees durable safe verifier progress followed by completion.",
-    "Parent observes the same durable progress and final completion.",
-    "Endpoint, secret, raw callback body, and reasoning are never exposed in the UI.",
-    "Student reconnect during in-flight delivery retains durable state and reaches completion."
+    "Active safe catalog entry is visible to Parent A without endpoint or secret exposure",
+    "A newly authored, published, and explicitly scheduled task completes after fresh student pairing and in-flight reload",
+    "The exact fresh occurrence has matching safe requested, in-progress, and accepted projections in Student and Parent Inspect"
   ],
-  "updatedAt": "2026-08-20T11:23:30Z",
+  "updatedAt": "2026-08-20T15:16:06Z",
   "artifacts": {
     "explorationNotes": ".paseo-e2e/external-verifier/exploration.md",
     "playwrightConfig": "primer-tasks/web/playwright.config.ts",
@@ -23,10 +22,7 @@
   "qualityGates": {
     "independentChromeVerification": true,
     "playwrightGreen": true,
-    "separateExternalProcessGreen": true,
-    "redactionProbed": true,
-    "reconnectProbed": true,
     "relaxed": false
   },
-  "lastResult": "PASS"
+  "lastResult": "INDEPENDENT CHROME PASS on final tip 457547ef after fresh Terra PASS and promoted Playwright; known unrelated Parent Inspect artifact 404s and dev CSP issue retained as residual risk"
 }
