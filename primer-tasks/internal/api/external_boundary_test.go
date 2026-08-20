@@ -22,14 +22,14 @@ func TestHumaParentRouteRequiresSessionBeforeDatabaseAccess(t *testing.T) {
 func TestExternalCatalogAndCallbackBoundariesFailClosedBeforeDatabaseAccess(t *testing.T) {
 	server := &Server{}
 	request := httptest.NewRequest(http.MethodGet, "/external/verifiers", nil)
-	for _, role := range []string{"student", "", "parent"} {
+	for _, role := range []string{"student", "", "parent", "admin", "educator"} {
 		rec := httptest.NewRecorder()
 		server.listExternalVerifiers(rec, request, scope{Role: role})
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("list role=%q status=%d", role, rec.Code)
 		}
 	}
-	for _, role := range []string{"student", "parent"} {
+	for _, role := range []string{"student", "parent", "admin", "educator"} {
 		rec := httptest.NewRecorder()
 		server.createExternalVerifier(rec, httptest.NewRequest(http.MethodPost, "/external/verifiers", strings.NewReader(`{}`)), scope{Role: role})
 		if rec.Code != http.StatusForbidden {
@@ -37,12 +37,12 @@ func TestExternalCatalogAndCallbackBoundariesFailClosedBeforeDatabaseAccess(t *t
 		}
 	}
 	malformedCreate := httptest.NewRecorder()
-	server.createExternalVerifier(malformedCreate, httptest.NewRequest(http.MethodPost, "/external/verifiers", strings.NewReader("not-json")), scope{Role: "admin"})
+	server.createExternalVerifier(malformedCreate, httptest.NewRequest(http.MethodPost, "/external/verifiers", strings.NewReader("not-json")), scope{Role: "product_admin"})
 	if malformedCreate.Code != http.StatusBadRequest {
 		t.Fatalf("malformed create status=%d", malformedCreate.Code)
 	}
 	rec := httptest.NewRecorder()
-	server.setExternalVerifierActive(rec, httptest.NewRequest(http.MethodPost, "/external/verifiers/not-a-uuid", strings.NewReader(`{"active":true}`)), scope{Role: "admin"})
+	server.setExternalVerifierActive(rec, httptest.NewRequest(http.MethodPost, "/external/verifiers/not-a-uuid", strings.NewReader(`{"active":true}`)), scope{Role: "product_admin"})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("invalid catalog id status=%d", rec.Code)
 	}
@@ -50,7 +50,7 @@ func TestExternalCatalogAndCallbackBoundariesFailClosedBeforeDatabaseAccess(t *t
 	setRoute := chi.NewRouteContext()
 	setRoute.URLParams.Add("id", "00000000-0000-0000-0000-000000000001")
 	setReq := httptest.NewRequest(http.MethodPost, "/external/verifiers/1", strings.NewReader("not-json")).WithContext(context.WithValue(context.Background(), chi.RouteCtxKey, setRoute))
-	server.setExternalVerifierActive(malformedSet, setReq, scope{Role: "admin"})
+	server.setExternalVerifierActive(malformedSet, setReq, scope{Role: "product_admin"})
 	if malformedSet.Code != http.StatusBadRequest {
 		t.Fatalf("malformed set status=%d", malformedSet.Code)
 	}

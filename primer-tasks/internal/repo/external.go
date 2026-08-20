@@ -236,11 +236,26 @@ func (r *ExternalRepository) RecordCallback(ctx context.Context, b ExternalBindi
 	}
 	defer tx.Rollback(ctx)
 	var deliveryStatus string
-	if err = tx.QueryRow(ctx, `SELECT status FROM external_verifier_outbox WHERE tenant_id=$1 AND request_id=$2 FOR UPDATE`, b.TenantID, b.RequestID).Scan(&deliveryStatus); err != nil {
+	var expiresAt time.Time
+	var expired bool
+	if err = tx.QueryRow(ctx, `SELECT status,expires_at,expires_at<=now() FROM external_verifier_outbox WHERE tenant_id=$1 AND request_id=$2 FOR UPDATE`, b.TenantID, b.RequestID).Scan(&deliveryStatus, &expiresAt, &expired); err != nil {
 		return false, err
 	}
 	if deliveryStatus == "canceled" || deliveryStatus == "dead" {
 		return false, verification.ErrExternalBinding
+	}
+	if expired {
+		// Dead-letter the expired row while holding the same row lock that
+		// fenced this callback. The decision transaction applies the same
+		// fence, so a late final callback cannot win a race with expiry.
+		_, err = tx.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND request_id=$2 AND status NOT IN ('accepted','rejected','dead','canceled')`, b.TenantID, b.RequestID)
+		if err != nil {
+			return false, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return false, verification.ErrExternalExpired
 	}
 	var existing string
 	err = tx.QueryRow(ctx, `INSERT INTO external_verifier_callbacks(tenant_id,callback_id,request_id,attempt_id,verifier_id,sequence,result_type,request_digest,body_digest,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(tenant_id,request_id,sequence) DO NOTHING RETURNING callback_id`, b.TenantID, c.CallbackID, b.RequestID, b.AttemptID, b.VerifierID, c.Sequence, c.Type, c.RequestDigest, verification.ExternalPayloadDigest(body), jsonValue(safeCallbackPayload(c))).Scan(&existing)

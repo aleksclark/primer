@@ -90,8 +90,13 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	if parentInspect.Code != http.StatusOK {
 		t.Fatalf("parent inspect=%d", parentInspect.Code)
 	}
+	foreignInspect := httptest.NewRecorder()
+	s.inspectExternal(foreignInspect, externalRouteRequest(http.MethodGet, "/occurrences/"+f.occurrence.String()+"/external/inspect", "", f.occurrence.String()), scope{Tenant: uuid.NewString(), Subject: "foreign-parent", Role: "admin"})
+	if foreignInspect.Code != http.StatusNotFound || strings.Contains(foreignInspect.Body.String(), "fixture") {
+		t.Fatalf("cross-tenant inspect=%d body=%s", foreignInspect.Code, foreignInspect.Body.String())
+	}
 	catalogList := httptest.NewRecorder()
-	s.listExternalVerifiers(catalogList, httptest.NewRequest(http.MethodGet, "/admin/verifiers", nil), scope{Tenant: f.tenant.String(), Subject: "parent", Role: "admin"})
+	s.listExternalVerifiers(catalogList, httptest.NewRequest(http.MethodGet, "/admin/verifiers", nil), scope{Tenant: f.tenant.String(), Subject: "parent", Role: "product_admin"})
 	if catalogList.Code != http.StatusOK {
 		t.Fatalf("catalog list=%d", catalogList.Code)
 	}
@@ -155,13 +160,25 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 		t.Fatalf("callback=%d body=%s", callbackRec.Code, callbackRec.Body)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',expires_at=now()-interval '1 second' WHERE request_id=$1`, submit.RequestID); err != nil {
+	var originalEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT envelope FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&originalEnvelope); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='waiting',expires_at=now()-interval '1 second' WHERE request_id=$1`, submit.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	lateExpiredRequest := httptest.NewRequest(http.MethodPost, callbackPath, bytes.NewReader(body))
+	lateExpiredRequest.Header = request.Header.Clone()
+	lateExpiredRequest = lateExpiredRequest.WithContext(context.WithValue(lateExpiredRequest.Context(), chi.RouteCtxKey, route))
 	deadCallbackRec := httptest.NewRecorder()
-	s.externalCallback(deadCallbackRec, request)
+	s.externalCallback(deadCallbackRec, lateExpiredRequest)
 	if deadCallbackRec.Code != http.StatusUnauthorized {
-		t.Fatalf("late dead callback=%d", deadCallbackRec.Code)
+		t.Fatalf("late expired callback=%d", deadCallbackRec.Code)
+	}
+	var expiredStatus string
+	var expiredAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT status,expires_at FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&expiredStatus, &expiredAt); err != nil || expiredStatus != "dead" {
+		t.Fatalf("expired callback status=%q expires=%s response=%d body=%s err=%v", expiredStatus, expiredAt, deadCallbackRec.Code, deadCallbackRec.Body.String(), err)
 	}
 	retryRec := httptest.NewRecorder()
 	s.retryExternal(retryRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/retry", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
@@ -172,8 +189,33 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	}
 	var attempts int
 	var expiresAt, envelopeExpiresAt time.Time
-	if err := pool.QueryRow(ctx, `SELECT attempts,expires_at,(envelope->>'expiresAt')::timestamptz FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts, &expiresAt, &envelopeExpiresAt); err != nil || attempts != 0 || !expiresAt.After(time.Now()) || !envelopeExpiresAt.After(time.Now()) {
-		t.Fatalf("retry attempts=%d expires=%s envelopeExpires=%s err=%v", attempts, expiresAt, envelopeExpiresAt, err)
+	var retainedEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT attempts,expires_at,(envelope->>'expiresAt')::timestamptz,envelope FROM external_verifier_outbox WHERE request_id=$1`, submit.RequestID).Scan(&attempts, &expiresAt, &envelopeExpiresAt, &retainedEnvelope); err != nil || attempts != 2 || expiresAt.After(time.Now()) || !envelopeExpiresAt.After(time.Now()) || string(retainedEnvelope) != string(originalEnvelope) {
+		t.Fatalf("original retry envelope mutated attempts=%d expires=%s envelopeExpires=%s err=%v", attempts, expiresAt, envelopeExpiresAt, err)
+	}
+	var supersededRequest string
+	var freshEnvelope []byte
+	if err := pool.QueryRow(ctx, `SELECT request_id,envelope FROM external_verifier_outbox WHERE tenant_id=$1 AND supersedes_request_id=$2`, f.tenant, submit.RequestID).Scan(&supersededRequest, &freshEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if string(freshEnvelope) == string(originalEnvelope) || supersededRequest == submit.RequestID {
+		t.Fatal("expired retry reused the canonical request envelope or identity")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE external_verifier_outbox SET status='waiting',expires_at=now()-interval '1 second' WHERE request_id=$1`, supersededRequest); err != nil {
+		t.Fatal(err)
+	}
+	inserted, err := s.CommitDecision(ctx, verification.Decision{ID: uuid.NewString(), TenantID: f.tenant.String(), AttemptID: state.AttemptID, OccurrenceID: f.occurrence.String(), Accepted: true, Reason: "late decision", DecidedBy: "external_verifier"})
+	if err != nil || inserted {
+		t.Fatalf("expired generic decision inserted=%v err=%v", inserted, err)
+	}
+	var genericExpiredStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM external_verifier_outbox WHERE request_id=$1`, supersededRequest).Scan(&genericExpiredStatus); err != nil || genericExpiredStatus != "dead" {
+		t.Fatalf("generic expiry status=%q err=%v", genericExpiredStatus, err)
+	}
+	genericRetryRec := httptest.NewRecorder()
+	s.retryExternal(genericRetryRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/retry", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
+	if genericRetryRec.Code != http.StatusOK {
+		t.Fatalf("generic expiry retry=%d body=%s", genericRetryRec.Code, genericRetryRec.Body.String())
 	}
 	cancelRec := httptest.NewRecorder()
 	s.cancelExternal(cancelRec, externalRouteRequest(http.MethodPost, "/occurrences/"+f.occurrence.String()+"/external/cancel", "", f.occurrence.String()), scope{Tenant: f.tenant.String(), Role: "admin"})
@@ -199,7 +241,7 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	}
 
 	createRec := httptest.NewRecorder()
-	s.createExternalVerifier(createRec, httptest.NewRequest(http.MethodPost, "/admin/verifiers", bytes.NewBufferString(`{"name":"rotatable","endpointUrl":"http://external-verifier-fixture:8092/v1/verify","active":true,"schemaVersions":["external_callback.v1"],"capabilities":["response"],"secretRef":"fixture","secretVersion":"1","egressPolicy":{"testFixture":true}}`)), scope{Tenant: f.tenant.String(), Role: "admin"})
+	s.createExternalVerifier(createRec, httptest.NewRequest(http.MethodPost, "/admin/verifiers", bytes.NewBufferString(`{"name":"rotatable","endpointUrl":"http://external-verifier-fixture:8092/v1/verify","active":true,"schemaVersions":["external_callback.v1"],"capabilities":["response"],"secretRef":"fixture","secretVersion":"1","egressPolicy":{"testFixture":true}}`)), scope{Tenant: f.tenant.String(), Role: "product_admin"})
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("catalog create=%d body=%s", createRec.Code, createRec.Body)
 	}
@@ -212,7 +254,7 @@ func TestExternalAPIRealPostgresFlowAndAdminRotation(t *testing.T) {
 	rotateRoute.URLParams.Add("id", created.ID.String())
 	rotate = rotate.WithContext(context.WithValue(rotate.Context(), chi.RouteCtxKey, rotateRoute))
 	rotateRec := httptest.NewRecorder()
-	s.setExternalVerifierActive(rotateRec, rotate, scope{Tenant: f.tenant.String(), Role: "admin"})
+	s.setExternalVerifierActive(rotateRec, rotate, scope{Tenant: f.tenant.String(), Role: "product_admin"})
 	if rotateRec.Code != http.StatusOK {
 		t.Fatalf("rotate=%d", rotateRec.Code)
 	}
@@ -265,12 +307,12 @@ func TestExternalAPIBoundariesFailClosed(t *testing.T) {
 		t.Fatalf("bad fallback=%d", badFallback.Code)
 	}
 	badCreate := httptest.NewRecorder()
-	s.createExternalVerifier(badCreate, httptest.NewRequest(http.MethodPost, "/admin/verifiers", bytes.NewBufferString(`{"name":"bad","endpointUrl":"http://127.0.0.1:9","active":true,"secretRef":"fixture","secretVersion":"1"}`)), scope{Tenant: uuid.NewString(), Role: "admin"})
+	s.createExternalVerifier(badCreate, httptest.NewRequest(http.MethodPost, "/admin/verifiers", bytes.NewBufferString(`{"name":"bad","endpointUrl":"http://127.0.0.1:9","active":true,"secretRef":"fixture","secretVersion":"1"}`)), scope{Tenant: uuid.NewString(), Role: "product_admin"})
 	if badCreate.Code != http.StatusBadRequest {
 		t.Fatalf("catalog invalid=%d", badCreate.Code)
 	}
 	badID := httptest.NewRecorder()
-	s.setExternalVerifierActive(badID, externalRouteRequest(http.MethodPatch, "/admin/verifiers/not-a-uuid", `{"active":true}`, "not-a-uuid"), scope{Tenant: uuid.NewString(), Role: "admin"})
+	s.setExternalVerifierActive(badID, externalRouteRequest(http.MethodPatch, "/admin/verifiers/not-a-uuid", `{"active":true}`, "not-a-uuid"), scope{Tenant: uuid.NewString(), Role: "product_admin"})
 	if badID.Code != http.StatusNotFound {
 		t.Fatalf("bad id=%d", badID.Code)
 	}

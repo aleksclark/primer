@@ -654,10 +654,24 @@ func (s *Server) commitExternalDecision(ctx context.Context, decision verificati
 	if status != "open" {
 		return false, nil
 	}
-	if err = tx.QueryRow(ctx, `SELECT status FROM external_verifier_outbox WHERE tenant_id=$1 AND attempt_id=$2 FOR UPDATE`, decision.TenantID, decision.AttemptID).Scan(&deliveryStatus); err != nil {
+	var expiresAt time.Time
+	var expired bool
+	if err = tx.QueryRow(ctx, `SELECT status,expires_at,expires_at<=now() FROM external_verifier_outbox WHERE tenant_id=$1 AND attempt_id=$2 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, decision.TenantID, decision.AttemptID).Scan(&deliveryStatus, &expiresAt, &expired); err != nil {
 		return false, err
 	}
 	if deliveryStatus == "canceled" || deliveryStatus == "dead" {
+		return false, nil
+	}
+	if expired {
+		// Expiry is a terminal outbox decision, not merely a worker hint.
+		// Fence it under the same transaction/row lock before accepting the
+		// generic callback decision.
+		if _, err = tx.Exec(ctx, `UPDATE external_verifier_outbox SET status='dead',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND attempt_id=$2 AND status NOT IN ('accepted','rejected','dead','canceled')`, decision.TenantID, decision.AttemptID); err != nil {
+			return false, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 	decisionID := decision.ID

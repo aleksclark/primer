@@ -70,9 +70,16 @@ func (s *Server) externalVerifierHealth(ctx context.Context) *ExternalVerifierHe
 func externalVerifierView(v repo.VerifierCatalog) externalVerifierOutput {
 	return externalVerifierOutput{ID: v.ID, Name: v.Name, Active: v.Active, SchemaVersions: v.SchemaVersions, Capabilities: v.Capabilities, SecretVersion: v.SecretVersion, CreatedAt: v.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), UpdatedAt: v.UpdatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00")}
 }
+func requireProductAdmin(w http.ResponseWriter, sc scope) bool {
+	if sc.Role == "product_admin" {
+		return true
+	}
+	problem(w, http.StatusForbidden, "forbidden", "product administrator role required")
+	return false
+}
+
 func (s *Server) listExternalVerifiers(w http.ResponseWriter, r *http.Request, sc scope) {
-	if sc.Role != "admin" && sc.Role != "educator" {
-		problem(w, http.StatusForbidden, "forbidden", "administrator role required")
+	if !requireProductAdmin(w, sc) {
 		return
 	}
 	items, err := repo.NewVerifierCatalogRepository(s.DB).List(r.Context(), false)
@@ -87,8 +94,7 @@ func (s *Server) listExternalVerifiers(w http.ResponseWriter, r *http.Request, s
 	jsonOK(w, map[string]any{"items": out})
 }
 func (s *Server) createExternalVerifier(w http.ResponseWriter, r *http.Request, sc scope) {
-	if sc.Role != "admin" && sc.Role != "educator" {
-		problem(w, http.StatusForbidden, "forbidden", "administrator role required")
+	if !requireProductAdmin(w, sc) {
 		return
 	}
 	var in externalVerifierInput
@@ -117,8 +123,7 @@ func (s *Server) createExternalVerifier(w http.ResponseWriter, r *http.Request, 
 	jsonStatus(w, externalVerifierView(v), http.StatusCreated)
 }
 func (s *Server) setExternalVerifierActive(w http.ResponseWriter, r *http.Request, sc scope) {
-	if sc.Role != "admin" && sc.Role != "educator" {
-		problem(w, http.StatusForbidden, "forbidden", "administrator role required")
+	if !requireProductAdmin(w, sc) {
 		return
 	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
@@ -403,14 +408,14 @@ func (s *Server) loadExternalState(ctx context.Context, occurrence, subject stri
 	var query string
 	var args []any
 	if parent {
-		query = `SELECT o.id::text,a.id::text,e.verifier_id::text,e.capability,e.schema_version,c.name,o.status,COALESCE(d.status,'') FROM task_occurrences o JOIN verification_attempts a ON a.tenant_id=o.tenant_id AND a.occurrence_id=o.id JOIN external_verifier_attempts e ON e.tenant_id=a.tenant_id AND e.attempt_id=a.id JOIN external_verifier_catalog c ON c.id=e.verifier_id LEFT JOIN external_verifier_outbox d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id WHERE o.id=$1 ORDER BY a.number DESC LIMIT 1`
-		args = []any{occurrence}
+		query = `SELECT o.tenant_id::text,o.id::text,a.id::text,e.verifier_id::text,e.capability,e.schema_version,c.name,o.status,COALESCE(d.status,'') FROM task_occurrences o JOIN verification_attempts a ON a.tenant_id=$1 AND a.tenant_id=o.tenant_id AND a.occurrence_id=o.id JOIN external_verifier_attempts e ON e.tenant_id=$1 AND e.tenant_id=a.tenant_id AND e.attempt_id=a.id JOIN external_verifier_catalog c ON c.id=e.verifier_id LEFT JOIN LATERAL (SELECT status FROM external_verifier_outbox WHERE tenant_id=$1 AND attempt_id=a.id ORDER BY created_at DESC LIMIT 1) d ON true WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY a.number DESC LIMIT 1`
+		args = []any{subject, occurrence}
 	} else {
-		query = `SELECT o.id::text,a.id::text,e.verifier_id::text,e.capability,e.schema_version,c.name,o.status,COALESCE(d.status,'') FROM task_occurrences o JOIN verification_attempts a ON a.tenant_id=o.tenant_id AND a.occurrence_id=o.id JOIN external_verifier_attempts e ON e.tenant_id=a.tenant_id AND e.attempt_id=a.id JOIN external_verifier_catalog c ON c.id=e.verifier_id LEFT JOIN external_verifier_outbox d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id WHERE o.id=$1 AND o.student_id=$2 ORDER BY a.number DESC LIMIT 1`
+		query = `SELECT o.tenant_id::text,o.id::text,a.id::text,e.verifier_id::text,e.capability,e.schema_version,c.name,o.status,COALESCE(d.status,'') FROM task_occurrences o JOIN verification_attempts a ON a.tenant_id=o.tenant_id AND a.occurrence_id=o.id JOIN external_verifier_attempts e ON e.tenant_id=a.tenant_id AND e.attempt_id=a.id JOIN external_verifier_catalog c ON c.id=e.verifier_id LEFT JOIN LATERAL (SELECT status FROM external_verifier_outbox WHERE tenant_id=a.tenant_id AND attempt_id=a.id ORDER BY created_at DESC LIMIT 1) d ON true WHERE o.id=$1 AND o.student_id=$2 ORDER BY a.number DESC LIMIT 1`
 		args = []any{occurrence, subject}
 	}
-	var verifierName, occurrenceStatus, deliveryStatus string
-	if err := s.DB.QueryRow(ctx, query, args...).Scan(&out.OccurrenceID, &out.AttemptID, &out.VerifierID, &out.Capability, &out.SchemaVersion, &verifierName, &occurrenceStatus, &deliveryStatus); err != nil {
+	var tenantID, verifierName, occurrenceStatus, deliveryStatus string
+	if err := s.DB.QueryRow(ctx, query, args...).Scan(&tenantID, &out.OccurrenceID, &out.AttemptID, &out.VerifierID, &out.Capability, &out.SchemaVersion, &verifierName, &occurrenceStatus, &deliveryStatus); err != nil {
 		return out, err
 	}
 	out.Source = verifierName
@@ -420,7 +425,7 @@ func (s *Server) loadExternalState(ctx context.Context, occurrence, subject stri
 	}
 	out.CanCancel = out.Status != "completed" && out.Status != "canceled"
 	out.Fallback = parent
-	rows, err := s.DB.Query(ctx, `SELECT e.sequence,e.kind,e.payload FROM external_verifier_events e JOIN verification_attempts a ON a.tenant_id=e.tenant_id AND a.id=$2 JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$1 WHERE e.request_id IN (SELECT request_id FROM external_verifier_outbox WHERE tenant_id=a.tenant_id AND attempt_id=a.id) ORDER BY e.sequence`, occurrence, out.AttemptID)
+	rows, err := s.DB.Query(ctx, `SELECT e.sequence,e.kind,e.payload FROM external_verifier_events e JOIN verification_attempts a ON a.tenant_id=e.tenant_id AND a.id=$2 JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=$1 WHERE e.tenant_id=$3 AND e.request_id IN (SELECT request_id FROM external_verifier_outbox WHERE tenant_id=$3 AND attempt_id=a.id) ORDER BY e.sequence`, occurrence, out.AttemptID, tenantID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -475,12 +480,81 @@ func (s *Server) cancelExternal(w http.ResponseWriter, r *http.Request, sc scope
 	jsonOK(w, map[string]string{"status": "canceled"})
 }
 func (s *Server) retryExternal(w http.ResponseWriter, r *http.Request, sc scope) {
-	n, err := s.DB.Exec(r.Context(), `UPDATE external_verifier_outbox d SET status='queued',attempts=0,expires_at=now()+(c.max_age_seconds * interval '1 second'),envelope=jsonb_set(d.envelope::jsonb,'{expiresAt}',to_jsonb(now()+(c.max_age_seconds * interval '1 second')))::json,available_at=now(),lease_owner=NULL,lease_until=NULL,last_error_code='',updated_at=now() FROM verification_attempts a,external_verifier_catalog c WHERE d.tenant_id=$1 AND d.attempt_id=a.id AND a.occurrence_id=$2 AND c.id=d.verifier_id AND d.status IN ('dead','retryable_error','terminal_error')`, sc.Tenant, chi.URLParam(r, "id"))
-	if err != nil || n.RowsAffected() == 0 {
+	ctx := r.Context()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		problem(w, 500, "internal", "external delivery retry could not begin")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var requestID, idempotencyKey, verifierID, attemptID, requirementID, schemaVersion, callbackPath, payloadDigest, secretVersion, status string
+	var envelopeBody []byte
+	var expiresAt time.Time
+	var maxAttempts, maxAgeSeconds int
+	err = tx.QueryRow(ctx, `SELECT d.request_id::text,d.idempotency_key,d.verifier_id::text,d.attempt_id::text,d.requirement_id::text,d.schema_version,d.callback_path,d.envelope,d.payload_digest,d.secret_version,d.status,d.expires_at,d.max_attempts,c.max_age_seconds FROM external_verifier_outbox d JOIN verification_attempts a ON a.tenant_id=d.tenant_id AND a.id=d.attempt_id JOIN external_verifier_catalog c ON c.id=d.verifier_id WHERE d.tenant_id=$1 AND a.occurrence_id=$2 AND d.status IN ('dead','retryable_error','terminal_error') ORDER BY d.created_at DESC LIMIT 1 FOR UPDATE`, sc.Tenant, chi.URLParam(r, "id")).Scan(&requestID, &idempotencyKey, &verifierID, &attemptID, &requirementID, &schemaVersion, &callbackPath, &envelopeBody, &payloadDigest, &secretVersion, &status, &expiresAt, &maxAttempts, &maxAgeSeconds)
+	if err != nil {
 		problem(w, 409, "conflict", "external delivery is not retryable")
 		return
 	}
-	jsonOK(w, map[string]string{"status": "queued"})
+	_ = status
+
+	if expiresAt.After(time.Now().UTC()) {
+		// Before expiry the signed envelope is still valid, so retry the same
+		// immutable request identity. In particular, do not rewrite its expiry
+		// or body while retaining its request/idempotency keys.
+		if _, err = tx.Exec(ctx, `UPDATE external_verifier_outbox SET status='queued',attempts=0,available_at=now(),lease_owner=NULL,lease_until=NULL,last_error_code='',updated_at=now() WHERE tenant_id=$1 AND request_id=$2 AND status IN ('dead','retryable_error','terminal_error')`, sc.Tenant, requestID); err != nil {
+			problem(w, 409, "conflict", "external delivery could not be queued")
+			return
+		}
+		if err = tx.Commit(ctx); err != nil {
+			problem(w, 500, "internal", "external delivery retry could not be committed")
+			return
+		}
+		jsonOK(w, map[string]string{"status": "queued", "requestId": requestID})
+		return
+	}
+
+	// An expired envelope can never be sent again. Supersede it with a new
+	// signed request identity instead of mutating the canonical historical
+	// body. The old request remains dead and auditable; callbacks for it stay
+	// bound to its original request/digest.
+	var original verification.RequestEnvelope
+	if err = json.Unmarshal(envelopeBody, &original); err != nil || original.PayloadDigest != payloadDigest || len(original.Payload) == 0 {
+		problem(w, 409, "conflict", "external delivery envelope is not recoverable")
+		return
+	}
+	if maxAgeSeconds <= 0 {
+		problem(w, 409, "conflict", "external verifier max age is invalid")
+		return
+	}
+	newRequestID := uuid.NewString()
+	newIdempotencyKey := "retry-" + uuid.NewString()
+	now := time.Now().UTC()
+	fresh, err := verification.NewRequestEnvelope(newRequestID, attemptID, requirementID, schemaVersion, newIdempotencyKey, callbackPath, original.Payload, now, time.Duration(maxAgeSeconds)*time.Second, original.AllowedHandles)
+	if err != nil {
+		problem(w, 409, "conflict", "external delivery envelope is not recoverable")
+		return
+	}
+	freshBody, err := verification.MarshalRequestEnvelope(fresh)
+	if err != nil {
+		problem(w, 409, "conflict", "external delivery envelope is not recoverable")
+		return
+	}
+	newDeliveryID := uuid.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO external_verifier_outbox(id,tenant_id,attempt_id,requirement_id,verifier_id,request_id,idempotency_key,schema_version,callback_path,envelope,payload_digest,secret_version,max_attempts,expires_at,available_at,supersedes_request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),$15)`, newDeliveryID, sc.Tenant, attemptID, requirementID, verifierID, fresh.RequestID, fresh.IdempotencyKey, schemaVersion, callbackPath, freshBody, fresh.PayloadDigest, secretVersion, maxAttempts, fresh.ExpiresAt, requestID); err != nil {
+		problem(w, 409, "conflict", "external delivery could not be superseded")
+		return
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO external_verifier_events(tenant_id,request_id,sequence,kind,payload) VALUES($1,$2,0,'verification.requested',$3) ON CONFLICT DO NOTHING`, sc.Tenant, fresh.RequestID, json.RawMessage(`{"schemaVersion":1,"status":"queued","supersedesRequestId":"`+requestID+`"}`)); err != nil {
+		problem(w, 500, "internal", "external delivery retry event could not be recorded")
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		problem(w, 500, "internal", "external delivery retry could not be committed")
+		return
+	}
+	jsonOK(w, map[string]string{"status": "queued", "requestId": fresh.RequestID})
 }
 func (s *Server) fallbackExternal(w http.ResponseWriter, r *http.Request, sc scope) {
 	var in DecisionInput2

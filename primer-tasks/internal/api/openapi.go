@@ -445,8 +445,8 @@ func (s *Server) humaAPI() huma.API {
 		if err != nil {
 			return nil, err
 		}
-		if parent.Role != "admin" && parent.Role != "educator" {
-			return nil, newProblem(http.StatusForbidden, "administrator role required")
+		if parent.Role != "product_admin" {
+			return nil, newProblem(http.StatusForbidden, "product administrator role required")
 		}
 		items, err := repo.NewVerifierCatalogRepository(s.DB).List(ctx, false)
 		if err != nil {

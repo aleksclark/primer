@@ -46,13 +46,13 @@ func TestPhase6ExternalCatalogRotationAndAttemptSnapshot(t *testing.T) {
 		t.Fatal("disabled verifier validated")
 	}
 	listRec := httptest.NewRecorder()
-	server.listExternalVerifiers(listRec, httptest.NewRequest(http.MethodGet, "/external/verifiers", nil), scope{Role: "educator"})
+	server.listExternalVerifiers(listRec, httptest.NewRequest(http.MethodGet, "/external/verifiers", nil), scope{Role: "product_admin"})
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), "fixture") {
 		t.Fatalf("catalog list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 	createBody := `{"name":"catalog test verifier","endpointUrl":"http://external-verifier-fixture:8092/v1/verify","active":true,"schemaVersions":["external_callback.v1"],"capabilities":["response"],"secretRef":"fixture","secretVersion":"1","egressPolicy":{"testFixture":true}}`
 	createRec := httptest.NewRecorder()
-	server.createExternalVerifier(createRec, httptest.NewRequest(http.MethodPost, "/external/verifiers", strings.NewReader(createBody)), scope{Role: "admin"})
+	server.createExternalVerifier(createRec, httptest.NewRequest(http.MethodPost, "/external/verifiers", strings.NewReader(createBody)), scope{Role: "product_admin"})
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("catalog create status=%d body=%s", createRec.Code, createRec.Body.String())
 	}
@@ -68,7 +68,7 @@ func TestPhase6ExternalCatalogRotationAndAttemptSnapshot(t *testing.T) {
 	setRoute.URLParams.Add("id", f.verifier.String())
 	setReq := httptest.NewRequest(http.MethodPost, "/external/verifiers/"+f.verifier.String(), strings.NewReader(`{"active":true}`)).WithContext(context.WithValue(ctx, chi.RouteCtxKey, setRoute))
 	setRec := httptest.NewRecorder()
-	server.setExternalVerifierActive(setRec, setReq, scope{Role: "educator"})
+	server.setExternalVerifierActive(setRec, setReq, scope{Role: "product_admin"})
 	if setRec.Code != http.StatusOK {
 		t.Fatalf("catalog activation status=%d body=%s", setRec.Code, setRec.Body.String())
 	}
@@ -119,7 +119,7 @@ func TestPhase6ExternalCatalogRotationAndAttemptSnapshot(t *testing.T) {
 	rotateRoute.URLParams.Add("id", f.verifier.String())
 	rotateReq := httptest.NewRequest(http.MethodPost, "/external/verifiers/"+f.verifier.String(), strings.NewReader(`{"active":true,"secretRef":"fixture-next","secretVersion":"2"}`)).WithContext(context.WithValue(ctx, chi.RouteCtxKey, rotateRoute))
 	rotateRec := httptest.NewRecorder()
-	server.setExternalVerifierActive(rotateRec, rotateReq, scope{Role: "admin"})
+	server.setExternalVerifierActive(rotateRec, rotateReq, scope{Role: "product_admin"})
 	if rotateRec.Code != http.StatusOK {
 		t.Fatalf("catalog rotation status=%d body=%s", rotateRec.Code, rotateRec.Body.String())
 	}
