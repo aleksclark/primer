@@ -66,12 +66,10 @@ func (s *Server) registerArtifactRoutes(r *chi.Mux) {
 	// The occurrence-prefixed aliases are the browser contract. The shorter
 	// artifact routes remain for direct bounded-streaming and multipart clients.
 	r.Post("/student/occurrences/{occurrence}/artifacts/reserve", s.requireStudent(s.reserveArtifact))
-	r.Post("/student/artifacts/reserve", s.requireStudent(s.reserveArtifact))
 	r.Get("/student/occurrences/{occurrence}/artifacts", s.requireStudent(s.studentArtifactState))
 	r.Put("/student/artifacts/{id}/upload", s.requireStudent(s.uploadArtifact))
 	r.Put("/student/artifacts/{id}/parts/{part}", s.requireStudent(s.uploadArtifactPart))
 	r.Post("/student/occurrences/{occurrence}/artifacts/finalize", s.requireStudent(s.finalizeArtifact))
-	r.Post("/student/artifacts/{id}/finalize", s.requireStudent(s.finalizeArtifact))
 	r.Post("/student/occurrences/{occurrence}/artifacts/retry", s.requireStudent(s.retryArtifactEvaluation))
 	r.Get("/student/artifacts/{id}/derivative/{kind}", s.requireStudent(s.studentDerivative))
 	r.Get("/parent/artifacts/{id}/original", s.requireParent(s.parentOriginal))
@@ -400,6 +398,12 @@ func (s *Server) finalizeArtifact(w http.ResponseWriter, r *http.Request, studen
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
 		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
 		problem(w, 400, "invalid_request", e.Error())
+		return
+	}
+	if k != artifact.Image && !result.DurationAuthoritative {
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifacts SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, aid)
+		_, _ = s.DB.Exec(r.Context(), `UPDATE artifact_upload_reservations SET status='canceled' WHERE tenant_id=$1 AND artifact_id=$2 AND status='reserved'`, tenant, aid)
+		problem(w, 400, "invalid_request", "encoded media duration could not be verified")
 		return
 	}
 	if obj.Size != expected {

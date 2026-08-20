@@ -59,6 +59,9 @@ func (s *Server) runArtifactStep(ctx context.Context) error {
 	if s.DB == nil || s.Artifacts == nil {
 		return errors.New("artifact worker is not configured")
 	}
+	if _, err := s.DB.Exec(ctx, `UPDATE artifact_rubric_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE status='running' AND lease_until<now()`); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
@@ -330,6 +333,12 @@ func (s *Server) finishArtifactReview(ctx context.Context, job, tenant, submissi
 }
 
 func (s *Server) failArtifactJob(ctx context.Context, job, tenant, submission, reason string) error {
+	var raw []byte
+	if err := s.DB.QueryRow(ctx, `SELECT rubric_snapshot FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job).Scan(&raw); err == nil {
+		if rubric, parseErr := verification.ParseArtifactRubric(raw); parseErr == nil {
+			return s.resolveArtifactPolicy(ctx, job, tenant, submission, rubric, reason)
+		}
+	}
 	_, err := s.DB.Exec(ctx, `UPDATE artifact_submissions SET status='rejected' WHERE tenant_id=$1 AND id=$2`, tenant, submission)
 	if err == nil {
 		var changed int64

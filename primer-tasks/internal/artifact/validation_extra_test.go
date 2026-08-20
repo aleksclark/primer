@@ -26,7 +26,7 @@ func TestValidateMediaKindsAndBounds(t *testing.T) {
 		content  string
 		body     []byte
 		duration int64
-	}{{Image, "image/png", imageBytes, 0}, {Audio, "audio/mpeg", []byte("ID3audio"), 1000}, {Video, "video/mp4", append([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p'}, make([]byte, 20)...), 1000}} {
+	}{{Image, "image/png", imageBytes, 0}, {Audio, "audio/mpeg", append(append([]byte("ID3"), []byte{0xff, 0xfb, 0x40, 0x00}...), make([]byte, 1000)...), 1000}, {Video, "video/mp4", append([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p'}, make([]byte, 20)...), 1000}} {
 		result, err := Validate(bytes.NewReader(tc.body), Input{Kind: tc.kind, DeclaredType: tc.content, ExpectedSize: int64(len(tc.body)), DurationMS: tc.duration}, DefaultLimits(tc.kind))
 		if err != nil {
 			t.Fatalf("%s: %v", tc.kind, err)
