@@ -12,12 +12,14 @@ import (
 )
 
 func TestExternalSecretResolverFailsClosedInProductionAndBindsDevelopmentVersion(t *testing.T) {
-	oldSecret, oldRef, oldVersion := os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET"), os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET_REF"), os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET_VERSION")
+	oldSecret, oldRef, oldVersion, oldBundle := os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET"), os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET_REF"), os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET_VERSION"), os.Getenv("TASKS_EXTERNAL_VERIFIER_SECRET_BUNDLE")
 	t.Cleanup(func() {
 		_ = os.Setenv("TASKS_EXTERNAL_VERIFIER_SECRET", oldSecret)
 		_ = os.Setenv("TASKS_EXTERNAL_VERIFIER_SECRET_REF", oldRef)
 		_ = os.Setenv("TASKS_EXTERNAL_VERIFIER_SECRET_VERSION", oldVersion)
+		_ = os.Setenv("TASKS_EXTERNAL_VERIFIER_SECRET_BUNDLE", oldBundle)
 	})
+	_ = os.Unsetenv("TASKS_EXTERNAL_VERIFIER_SECRET_BUNDLE")
 	_ = os.Unsetenv("TASKS_EXTERNAL_VERIFIER_SECRET")
 	if externalSecretResolver("production") != nil {
 		t.Fatal("production resolver enabled without secret")
@@ -34,6 +36,22 @@ func TestExternalSecretResolverFailsClosedInProductionAndBindsDevelopmentVersion
 	}
 	if secret, err := resolver.Resolve(context.Background(), "managed-ref", "v1"); err == nil || secret != nil {
 		t.Fatalf("unexpected old secret=%q err=%v", secret, err)
+	}
+	_ = os.Unsetenv("TASKS_EXTERNAL_VERIFIER_SECRET")
+	_ = os.Setenv("TASKS_EXTERNAL_VERIFIER_SECRET_BUNDLE", `{"managed-ref:v1":"old-secret","managed-ref:v2":"new-secret"}`)
+	rotated := externalSecretResolver("production")
+	if rotated == nil {
+		t.Fatal("versioned production resolver missing")
+	}
+	for version, expected := range map[string]string{"v1": "old-secret", "v2": "new-secret"} {
+		secret, err := rotated.Resolve(context.Background(), "managed-ref", version)
+		if err != nil || string(secret) != expected {
+			t.Fatalf("versioned secret version=%s value=%q err=%v", version, secret, err)
+		}
+	}
+	_ = os.Setenv("TASKS_EXTERNAL_VERIFIER_SECRET_BUNDLE", "not-json")
+	if externalSecretResolver("production") != nil {
+		t.Fatal("malformed production secret bundle accepted")
 	}
 }
 
