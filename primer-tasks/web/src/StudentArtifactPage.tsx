@@ -33,6 +33,9 @@ function effectiveStatus(state: ArtifactStudentState, socket: ArtifactClientSnap
   if (state.evaluation?.status === "complete" || state.status === "complete") return "complete";
   if (state.evaluation?.status === "review" || state.status === "review") return "review";
   if (state.evaluation?.status === "rejected" || state.status === "rejected") return "rejected";
+  const terminal = [...socket.events].reverse().find((event) => event.kind === "complete");
+  if (terminal?.status === "accepted") return "complete";
+  if (terminal?.status === "rejected") return "rejected";
   const progress = [...socket.events].reverse().find((event) => event.kind === "progress");
   if (progress?.phase === "evaluating") return "evaluating";
   if (progress?.phase === "loading") return "loading";

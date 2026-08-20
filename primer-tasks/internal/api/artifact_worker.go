@@ -277,7 +277,11 @@ func (s *Server) finishArtifactDecision(ctx context.Context, job, tenant, submis
 	if err = appendArtifactProgressTx(ctx, tx, tenant, job, submission, "complete", map[string]any{"accepted": accepted, "decisionInserted": inserted}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	_ = s.publishArtifactProgress(ctx, tenant, job, submission, "complete", map[string]any{"accepted": accepted, "decisionInserted": inserted})
+	return nil
 }
 
 func (s *Server) retryOrResolveArtifact(ctx context.Context, job, tenant, submission string, rubric verification.ArtifactRubric, reason string) error {
@@ -367,6 +371,10 @@ func (s *Server) appendArtifactProgress(ctx context.Context, tenant, job, submis
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
+	return s.publishArtifactProgress(ctx, tenant, job, submission, kind, payload)
+}
+
+func (s *Server) publishArtifactProgress(ctx context.Context, tenant, job, submission, kind string, payload map[string]any) error {
 	var occurrence string
 	if err := s.DB.QueryRow(ctx, `SELECT occurrence_id FROM artifact_submissions WHERE tenant_id=$1 AND id=$2`, tenant, submission).Scan(&occurrence); err == nil {
 		eventType := "progress"
@@ -375,7 +383,15 @@ func (s *Server) appendArtifactProgress(ctx context.Context, tenant, job, submis
 		}
 		var sequence int64
 		_ = s.DB.QueryRow(ctx, `SELECT progress_sequence FROM artifact_rubric_jobs WHERE tenant_id=$1 AND id=$2`, tenant, job).Scan(&sequence)
-		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, TenantID: tenant, OccurrenceID: occurrence, Sequence: sequence, Cursor: sequence, Phase: kind, Status: "evaluating", Time: time.Now().UTC()}
+		status := "evaluating"
+		if kind == "complete" {
+			if accepted, ok := payload["accepted"].(bool); ok && accepted {
+				status = "accepted"
+			} else {
+				status = "rejected"
+			}
+		}
+		event := wireStudentEvent{Type: eventType, ProtocolVersion: studentProtocolVersion, TenantID: tenant, OccurrenceID: occurrence, Sequence: sequence, Cursor: sequence, Phase: kind, Status: status, Time: time.Now().UTC()}
 		payloadBytes, _ := json.Marshal(payload)
 		_ = json.Unmarshal(payloadBytes, &event)
 		s.studentDialogueHub().publish(event)
