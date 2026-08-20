@@ -31,8 +31,16 @@ func TestEvaluateArtifactRequiresEveryCriterionAndNeverInfersAcceptance(t *testi
 	}
 }
 
-type countingCommitter struct{ calls int; decision Decision }
-func (c *countingCommitter) CommitDecision(_ context.Context, d Decision) (bool, error) { c.calls++; c.decision = d; return c.calls == 1, nil }
+type countingCommitter struct {
+	calls    int
+	decision Decision
+}
+
+func (c *countingCommitter) CommitDecision(_ context.Context, d Decision) (bool, error) {
+	c.calls++
+	c.decision = d
+	return c.calls == 1, nil
+}
 
 func TestGenericCommitDecisionDelegatesExactlyOnce(t *testing.T) {
 	committer := &countingCommitter{}

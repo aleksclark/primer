@@ -365,10 +365,16 @@ func (s *Server) humaAPI() huma.API {
 	})
 	register(api, huma.Operation{OperationID: "student-artifact-retry", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/retry", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *struct {
 		Occurrence string `path:"occurrence"`
-	}) (*ArtifactStateOutput, error) { out, headers, err := legacyJSON[map[string]any](ctx, s.requireStudent(s.retryArtifactEvaluation), nil); return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err })
+	}) (*ArtifactStateOutput, error) {
+		out, headers, err := legacyJSON[map[string]any](ctx, s.requireStudent(s.retryArtifactEvaluation), nil)
+		return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err
+	})
 	register(api, huma.Operation{OperationID: "parent-artifact-inspect", Method: http.MethodGet, Path: "/occurrences/{occurrence}/artifacts/inspect", Errors: []int{401, 404, 500}}, func(ctx context.Context, _ *struct {
 		Occurrence string `path:"occurrence"`
-	}) (*ArtifactStateOutput, error) { out, headers, err := legacyJSON[map[string]any](ctx, s.requireParent(s.parentArtifactState), nil); return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err })
+	}) (*ArtifactStateOutput, error) {
+		out, headers, err := legacyJSON[map[string]any](ctx, s.requireParent(s.parentArtifactState), nil)
+		return &ArtifactStateOutput{ResponseHeaders: headers, Body: out}, err
+	})
 	register(api, huma.Operation{OperationID: "student-artifact-finalize", Method: http.MethodPost, Path: "/student/occurrences/{occurrence}/artifacts/finalize", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *ArtifactFinalizeBoundaryInput) (*ArtifactOutputBoundary, error) {
 		body := in.Body
 		body.OccurrenceID = in.Occurrence
