@@ -510,6 +510,7 @@ func TestMalformedArtifactFinalizeReleasesRetrySlot(t *testing.T) {
 	if err := s.runArtifactStep(ctx); err != nil {
 		t.Fatal("audio review worker step:", err)
 	}
+	noDurationReservation := reserve("completed-occurrence", int64(valid.Len()))
 	mustExec(`UPDATE task_occurrences SET status='completed' WHERE tenant_id=$1 AND id=$2`, tenant, occurrence)
 	completedOccurrenceBody, _ := json.Marshal(artifactFinalizeInput{ArtifactID: noDurationReservation.ArtifactID, OccurrenceID: occurrence.String(), RequirementID: requirement.String(), SHA256: hex.EncodeToString(audioSum[:]), DurationMS: 1000, IdempotencyKey: noDurationReservation.IdempotencyKey})
 	completedOccurrenceRec := httptest.NewRecorder()
