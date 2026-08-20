@@ -9,7 +9,7 @@ native, emulator, and live multimodal quality work are out of scope.
 
 - Branch: `impl/tasks-p5-media`
 - Plan revision: `24cd3abe`
-- Reviewed tip: `b064aa626f7e7b2502d87551d8e7687f675fb842` (final implementation tip; fresh independent anti-cheat recheck pending)
+- Reviewed tip (final code tip): `8633bacef16fa3551f5107b5634eeff820c29eee` (fresh independent anti-cheat recheck: PASS; review agent `4a644b9d-aa74-45ae-8fb8-a50e586475d6`; this evidence reconciliation commit is documentation-only)
 - Exploratory suites: `.paseo-e2e/p5-media-final/` and `.paseo-e2e/p5-media-final2/` (sanitized, local evidence)
 - Terra final exploratory result: **PASS** (call #6)
 - Promoted Playwright result: **PASS, 2/2** (call #7 plus fresh independent Chrome confirmation)
@@ -76,7 +76,7 @@ fixtures, and no private repository seeding, mocks, skips, or weakened assertion
 
 ## Final reconciliation and release decision
 
-Final implementation tip: `5bf284631cceea9a071f35ca6db396565bbe9219`.
+Final implementation tip (code): `8633bacef16fa3551f5107b5634eeff820c29eee`. The evidence-only commits after that tip reconcile this record and do not change runtime behavior.
 The final tip closes the previously reported blockers: all artifact worker
 mutations are owner- and unexpired-lease fenced with stale-reclaim tests;
 audio/video use the ffprobe-plus-decoder boundary with real valid/corrupt/
