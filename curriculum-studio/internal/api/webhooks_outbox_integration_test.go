@@ -75,8 +75,8 @@ func TestAPICreatedWebhookDeliversWithSharedSecretStore(t *testing.T) {
 	require.NoError(t, err)
 
 	worker, err := outbox.NewWorker(pool, outbox.Config{
-		Owner: "api-webhook-integration", Secrets: secrets,
-		DeliveryTimeout: time.Second, LeaseTTL: time.Second,
+		Owner: "api-webhook-integration-" + uuid.NewString(), Secrets: secrets,
+		DeliveryTimeout: time.Second, LeaseTTL: 30 * time.Second,
 	})
 	require.NoError(t, err)
 	require.NoError(t, worker.DrainUntilIdle(ctx))
@@ -97,7 +97,8 @@ func TestAPICreatedWebhookDeliversWithSharedSecretStore(t *testing.T) {
 	require.NoError(t, json.Unmarshal(deliveries.Body.Bytes(), &page))
 	require.Len(t, page.Items, 1)
 	require.NotContains(t, deliveries.Body.String(), "httpStatus")
-	var deliveryStatus string
-	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM curriculum_studio.webhook_deliveries WHERE endpoint_id=$1`, endpointID).Scan(&deliveryStatus))
-	require.Equal(t, "delivered", deliveryStatus)
+	require.Eventually(t, func() bool {
+		var deliveryStatus string
+		return pool.QueryRow(ctx, `SELECT status FROM curriculum_studio.webhook_deliveries WHERE endpoint_id=$1`, endpointID).Scan(&deliveryStatus) == nil && deliveryStatus == "delivered"
+	}, 3*time.Second, 20*time.Millisecond)
 }

@@ -229,8 +229,8 @@ func TestTenantIsolationDoesNotInvokeForeignEndpoint(t *testing.T) {
 
 func TestRestartContinuesDrainAfterReceiverDown(t *testing.T) {
 	ctx := context.Background()
-	tx := testutil.Tx(t)
-	ws := factory.Workspace(t, tx)
+	pool := testutil.DB(t)
+	ws := factory.Workspace(t, pool)
 	secrets := outbox.NewMemorySecrets()
 	secrets.Put("secret-ref:restart", []byte("restart-secret"))
 
@@ -247,18 +247,18 @@ func TestRestartContinuesDrainAfterReceiverDown(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	event, err := repo.NewOutboxRepo(tx).Enqueue(ctx, &domain.OutboxEvent{
+	event, err := repo.NewOutboxRepo(pool).Enqueue(ctx, &domain.OutboxEvent{
 		WorkspaceID: &ws.ID, EventType: domain.EventMaterializationRequested,
 		AggregateKind: "materialization_run", AggregateID: uuid.New(),
 		Payload: json.RawMessage(`{"version":1}`),
 	})
 	require.NoError(t, err)
-	_, err = repo.NewWebhookEndpointRepo(tx).Create(ctx, &domain.WebhookEndpoint{
+	_, err = repo.NewWebhookEndpointRepo(pool).Create(ctx, &domain.WebhookEndpoint{
 		WorkspaceID: ws.ID, URL: srv.URL, SecretRef: "secret-ref:restart", Status: "active",
 	})
 	require.NoError(t, err)
 
-	first, err := outbox.NewWorker(tx, outbox.Config{
+	first, err := outbox.NewWorker(pool, outbox.Config{
 		Owner: "worker-a", Secrets: secrets, PollInterval: 10 * time.Millisecond,
 		DeliveryTimeout: time.Second, LeaseTTL: time.Second, MaxAttempts: 5,
 	})
@@ -275,25 +275,25 @@ func TestRestartContinuesDrainAfterReceiverDown(t *testing.T) {
 		t.Fatal("first worker did not stop")
 	}
 
-	still, err := repo.NewOutboxRepo(tx).Get(ctx, event.ID)
+	still, err := repo.NewOutboxRepo(pool).Get(ctx, event.ID)
 	require.NoError(t, err)
 	require.NotNil(t, still)
-	delivery := mustDelivery(t, tx, event.ID)
+	delivery := mustDelivery(t, pool, event.ID)
 	require.NotEqual(t, "delivered", delivery.Status)
-	require.NoError(t, expireDeliveryLease(ctx, tx, delivery.ID))
+	require.NoError(t, expireDeliveryLease(ctx, pool, delivery.ID))
 
 	fail.Store(false)
-	second, err := outbox.NewWorker(tx, outbox.Config{
+	second, err := outbox.NewWorker(pool, outbox.Config{
 		Owner: "worker-b", Secrets: secrets, PollInterval: 10 * time.Millisecond,
 		DeliveryTimeout: time.Second, LeaseTTL: time.Second, MaxAttempts: 5,
 	})
 	require.NoError(t, err)
 	require.NoError(t, second.DrainUntilIdle(ctx))
 
-	got := mustDelivery(t, tx, event.ID)
+	got := mustDelivery(t, pool, event.ID)
 	require.Equal(t, "delivered", got.Status)
 	require.GreaterOrEqual(t, hits.Load(), int32(2))
-	unchanged, err := repo.NewOutboxRepo(tx).Get(ctx, event.ID)
+	unchanged, err := repo.NewOutboxRepo(pool).Get(ctx, event.ID)
 	require.NoError(t, err)
 	require.Equal(t, event.ID, unchanged.ID)
 }

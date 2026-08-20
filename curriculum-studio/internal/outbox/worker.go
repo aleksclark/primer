@@ -206,19 +206,35 @@ func (w *Worker) deliverOne(ctx context.Context) (bool, error) {
 		)
 		if claimed.AttemptCount >= w.maxAttempts {
 			if _, markErr := repo.NewWebhookDeliveryRepo(w.q).MarkFailed(ctx, claimed.ID, w.owner, clipErr(err)); markErr != nil {
+				if deliveryNoLongerOwned(markErr) {
+					return true, nil
+				}
 				return true, markErr
 			}
 			return true, nil
 		}
 		if _, markErr := repo.NewWebhookDeliveryRepo(w.q).ReleaseForRetry(ctx, claimed.ID, w.owner, clipErr(err), backoffFor(claimed.AttemptCount)); markErr != nil {
+			if deliveryNoLongerOwned(markErr) {
+				return true, nil
+			}
 			return true, markErr
 		}
 		return true, nil
 	}
 	if _, markErr := repo.NewWebhookDeliveryRepo(w.q).MarkDelivered(ctx, claimed.ID, w.owner); markErr != nil {
+		if deliveryNoLongerOwned(markErr) {
+			return true, nil
+		}
 		return true, markErr
 	}
 	return true, nil
+}
+
+// deliveryNoLongerOwned means a claimed row was removed or fenced by another
+// worker before this worker could persist its result. The other owner now owns
+// the row, so it is not a drain failure.
+func deliveryNoLongerOwned(err error) bool {
+	return errors.Is(err, repo.ErrLeaseLost) || errors.Is(err, repo.ErrNotFound)
 }
 
 func (w *Worker) postClaimed(ctx context.Context, claimed *domain.WebhookDelivery) error {
