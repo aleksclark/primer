@@ -99,12 +99,13 @@ export default function StudentArtifactPage({ occurrence, initialState }: { occu
   const [socket, setSocket] = useState<ArtifactClientSnapshot>({ connectionState: "idle", cursor: 0, events: [] });
   const activeSubmission = state.submissions.find((item) => item.id === state.activeSubmissionId) ?? state.submissions.at(-1);
   const artifactClient = useMemo(() => activeSubmission ? createArtifactClient({ occurrenceId: occurrence.id, submissionId: activeSubmission.id }) : null, [activeSubmission?.id, occurrence.id]);
+  const streamReview = ["queued", "loading", "evaluating"].includes(state.status) || ["uploading", "queued", "loading", "evaluating"].includes(uploadState);
   useEffect(() => {
-    if (!artifactClient) return;
+    if (!artifactClient || !streamReview) return;
     const unsubscribe = artifactClient.subscribe(setSocket);
     artifactClient.connect();
     return () => { unsubscribe(); artifactClient.disconnect(); };
-  }, [artifactClient]);
+  }, [artifactClient, streamReview]);
   const status = effectiveStatus(state, socket, uploadState);
   const [label] = statusCopy(status);
   const choose = (event: ChangeEvent<HTMLInputElement>) => {
