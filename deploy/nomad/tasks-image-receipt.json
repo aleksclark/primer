@@ -1,0 +1,101 @@
+{
+  "image_source_revision": "cf51afa0ae4e9029b873bd0d6ab6aeeacf222a66",
+  "release_manifest_revision": "the commit containing this receipt; not the image source",
+  "image": "ghcr.io/aleksclark/primer-tasks@sha256:f3d235b2d211f148e351ea6c8f7489aef7d0f67e9b30a7e2a29f3437d8e97c42",
+  "trace_tag": "sha-cf51afa0ae4e9029b873bd0d6ab6aeeacf222a66",
+  "platform": "linux/amd64",
+  "platform_manifest_digest": "sha256:dca98e5aeb9d6c2daeca76e16c6acf4ed3256b2ebf24e32447128c1d18f914a5",
+  "published_config_digest": "sha256:063cc269ca61bb2c0f44b98aeab8050379bdfd8313f519c211c6e36a638c6650",
+  "publication_run": "https://github.com/aleksclark/primer/actions/runs/33987383074",
+  "publication_artifact_id": 9975590710,
+  "attestation_manifest_digest": "sha256:4b0c9ee18d9e7bfcd17467cb864271e7b576319371bf5bbc792a31e64429b00d",
+  "attached_predicate_types": [
+    "https://spdx.dev/Document",
+    "https://slsa.dev/provenance/v1"
+  ],
+  "sbom_format": "SPDX-2.3",
+  "sbom_package_count": 37,
+  "build_input_paths": [
+    "Dockerfile.tasks",
+    "Dockerfile.tasks.dockerignore",
+    ".github/workflows/tasks-image.yml",
+    "scripts/build-tasks-image.sh",
+    "primer-tasks/go.mod",
+    "primer-tasks/go.sum",
+    "primer-tasks/internal",
+    "primer-tasks/cmd/tasks-server",
+    "primer-tasks/cmd/tasks-migrate",
+    "primer-tasks/cmd/tasks-bootstrap",
+    "primer-tasks/cmd/openapi-gen",
+    "primer-tasks/clients/typescript",
+    "primer-tasks/web",
+    "design-system/generated"
+  ],
+  "build_input_git_ls_tree_sha256": "085183fd1e2f325313f9bbb81d957641c987175bd673d050f57f6d392af10b5d",
+  "runtime_smoked_local_config_digest": "sha256:43ee22cf381c975b660b69b5e08b5a3ad9121467ba3ccb3b0d02e4c848f9ce3b",
+  "published_app_matches_runtime_smoked_app": true,
+  "app_files": {
+    "app/tasks-bootstrap": {
+      "sha256": "dbacdcbdd26dc5a56c266c75b984f22dd1714c991c3c4df29a3c083f3ac37a74",
+      "mode": "0o755",
+      "size": 9359522
+    },
+    "app/tasks-migrate": {
+      "sha256": "fe0b61fcd98e359fbafcee18b4b6d5dfc4f577e8c04b4b4a78842f30a28be578",
+      "mode": "0o755",
+      "size": 9367714
+    },
+    "app/tasks-server": {
+      "sha256": "4d336a5d7230b0acfe108ecf93a7daf733f7e9d6de6ad74d9efbe7afd1f2d0c9",
+      "mode": "0o755",
+      "size": 13545634
+    },
+    "app/web/assets/index-BE3mQr0O.css": {
+      "sha256": "28315c5c08b14504c6c0e647cec3b20bfde9c665b5e6b3c688b7d10ad410807d",
+      "mode": "0o644",
+      "size": 11011
+    },
+    "app/web/assets/index-DHHHm7rd.js": {
+      "sha256": "164ad5a6d538b09e6f042ddb44c45a06f54aae3427925fb1ce5f7152b3a5bab1",
+      "mode": "0o644",
+      "size": 418943
+    },
+    "app/web/brand/logo-light.svg": {
+      "sha256": "07cb2590937dcbf2331b4cb0c72ca13430fcee320686dac3f49a72490df6e5ff",
+      "mode": "0o644",
+      "size": 656
+    },
+    "app/web/brand/logo-mark-light.svg": {
+      "sha256": "b4dcd233d4f6fa4738397545fd9ff065562e550409101daeac0a63177901f328",
+      "mode": "0o644",
+      "size": 455
+    },
+    "app/web/brand/logo-mark.svg": {
+      "sha256": "81f732018268879fcd0db70c453613679bef1100ae439c3bf6efe7eea168f6f9",
+      "mode": "0o644",
+      "size": 455
+    },
+    "app/web/brand/logo.svg": {
+      "sha256": "2cd5d4f130826b97f9322d7a578c77996770f6392b52d8b0d50e22a42e8abad3",
+      "mode": "0o644",
+      "size": 656
+    },
+    "app/web/icons.svg": {
+      "sha256": "b45fa506195cfcdef406ba9f0c77b36ddc1a7c224040926ec70abc2fdea7b93a",
+      "mode": "0o644",
+      "size": 5031
+    },
+    "app/web/index.html": {
+      "sha256": "18e09999eda3b895c080544087afefdc63148934b6debcef4792c494d044a7c8",
+      "mode": "0o644",
+      "size": 780
+    }
+  },
+  "migration_entrypoint": "/app/tasks-migrate",
+  "migration_args": [],
+  "migration_env_names": [
+    "TASKS_DATABASE_URL"
+  ],
+  "deployment_status": "candidate only; not enrolled or submitted",
+  "public_auth_acceptance": "not claimed; explicit bootstrap and real public browser flow remain"
+}

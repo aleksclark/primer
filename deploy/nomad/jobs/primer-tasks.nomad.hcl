@@ -1,10 +1,11 @@
 # Standalone Tasks P1/P2 runtime. No shared LMS/TV database or routing changes.
-# Candidate until a real images.tasks.lock.hcl and approved fleet writer exist.
+# Real published image pinned in images.tasks.lock.hcl; still unenrolled until
+# an approved fleet project-job writer exists.
 variable "image_primer_tasks" {
   type        = string
   description = "Immutable ghcr.io/aleksclark/primer-tasks@sha256:... reference"
   validation {
-    condition     = can(regex("^ghcr\\.io/aleksclark/primer-tasks@sha256:[0-9a-f]{64}$", var.image_primer_tasks))
+    condition     = var.image_primer_tasks != "" && regex_replace(var.image_primer_tasks, "^ghcr\\.io/aleksclark/primer-tasks@sha256:[0-9a-f]{64}$", "") == ""
     error_message = "Tasks requires a published immutable GHCR digest, never a tag."
   }
 }
@@ -121,10 +122,11 @@ TASKS_DATABASE_URL={{ .tasks_database_url | toJSON }}
     }
 
     task "tasks" {
-      driver       = "docker"
-      user         = "65532:65532"
-      kill_signal  = "SIGTERM"
-      kill_timeout = "10s"
+      driver         = "docker"
+      user           = "65532:65532"
+      shutdown_delay = "5s"
+      kill_signal    = "SIGTERM"
+      kill_timeout   = "10s"
 
       config {
         image           = var.image_primer_tasks
