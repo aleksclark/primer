@@ -28,7 +28,12 @@ for text in (
 assert 'tls.certresolver=' not in job, 'reuse existing fleet TLS certificate; no new-zone ACME'
 assert job.count('readonly_rootfs = true') == 2
 assert job.count('image           = var.image_primer_tasks') == 2
-assert job.count('user         = "65532:65532"') + job.count('user   = "65532:65532"') == 2
+assert len(re.findall(r'(?m)^\s*user\s*=\s*"65532:65532"\s*$', job)) == 2
+assert 'regex_replace(var.image_primer_tasks,' in job, 'use supported Nomad HCL functions'
+assert 'can(regex(' not in job
+assert 'shutdown_delay = "5s"' in job
+lock = (root / 'deploy/nomad/images.tasks.lock.hcl').read_text()
+assert re.search(r'(?m)^image_primer_tasks\s*=\s*"ghcr\.io/aleksclark/primer-tasks@sha256:[0-9a-f]{64}"$', lock)
 for prohibited in ("stripprefix", "replacepath", "tasks-test-issuer", "CLERK_SECRET_KEY", "TASKS_TEST_AUTH"):
     assert prohibited.lower() not in job.lower(), f"unexpected runtime surface: {prohibited}"
 assert 'command         = "/app/tasks-migrate"' not in job, "must override image ENTRYPOINT, not CMD"

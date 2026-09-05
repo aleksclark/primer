@@ -16,16 +16,40 @@ these packaging files.
   SBOM. Other products' image jobs are not part of this lane.
 - `jobs/primer-tasks.nomad.hcl` and `env/tasks-home.nomadvars.hcl` are **candidate
   source artifacts, not an enrolled or submitted workload**. The existing
-  `deployment.yaml` and `images.lock.hcl` are deliberately unchanged. Once an
-  approved build is published, add the real registry digest as
-  `image_primer_tasks` in `images.tasks.lock.hcl` and enroll an isolated
-  `primer-tasks` release set using only that lock and the Tasks overlay. Never
-  substitute a local image ID, fabricated digest or tag for a registry digest.
+  `deployment.yaml` and `images.lock.hcl` are deliberately unchanged. The real
+  published registry digest is pinned as `image_primer_tasks` in the separate
+  `images.tasks.lock.hcl`. Enrollment of an isolated `primer-tasks` release set
+  using only that lock and the Tasks overlay still requires the approved writer.
+  Never substitute a local image ID, fabricated digest or tag for a registry digest.
 - The current fleet project lane is observe-only and lacks an approved writer
   for this new job. Neither image publication nor this candidate jobspec grants
   deployment authority. Resolve that with the fleet owner, do not bypass it.
   Do not run `deploy/deploy.sh`, submit Nomad directly, change tunnel/DNS, or
   silently flip `allow_create`/ownership.
+
+## Published artifact and source binding
+
+- **IMAGE-SOURCE:** `cf51afa0ae4e9029b873bd0d6ab6aeeacf222a66`
+- **Registry selector:** `ghcr.io/aleksclark/primer-tasks@sha256:f3d235b2d211f148e351ea6c8f7489aef7d0f67e9b30a7e2a29f3437d8e97c42`
+- **Publication:** [successful run 33987383074](https://github.com/aleksclark/primer/actions/runs/33987383074), artifact `9975590710`
+- **Receipt:** [`tasks-image-receipt.json`](tasks-image-receipt.json), including the
+  actual platform/config/attestation digests, attached SLSA v1 and SPDX metadata,
+  build-input tree fingerprint and matching runtime-smoked `/app` file hashes.
+
+**RELEASE-MANIFEST** is the later commit containing this lock/receipt, not the
+image source. Deployment-artifact/documentation-only changes do not cause a
+build → lock → new-SHA → rebuild loop. Before referring to this image from a
+later manifest, verify that none of the receipt's `build_input_paths` differ
+from IMAGE-SOURCE. Actual image build-input changes require a new image and
+receipt; never relabel this image as built from the lock commit.
+
+The published image was pulled by its real digest. All 11 `/app` binaries/SPA
+files and their modes match the actual production-key image used for disposable
+runtime smoke: real PostgreSQL migration/rerun (five migrations, no seeds),
+matching production JWKS startup, non-root/read-only health, parent API 401,
+mounted SPA/assets/deep links, trailing-slash redirect and clean SIGTERM. No
+real public Clerk login or bootstrap has been claimed. Attached provenance is
+BuildKit's digest-bound metadata, not a claim of independently signed provenance.
 
 ## Build contract
 
@@ -101,8 +125,9 @@ SameSite=Lax); no cross-product/shared parent cookie is introduced.
 
 The image is non-root UID/GID 65532, and both Nomad tasks use a read-only root
 filesystem with all capabilities dropped and no-new-privileges. IANA tzdata is
-included for household local-day scheduling. SIGTERM has a 10-second shutdown
-budget. No data volume is required by this P1/P2 image.
+included for household local-day scheduling. Nomad gives service deregistration
+a 5-second drain before SIGTERM, then a 10-second shutdown budget. No data volume
+is required by this P1/P2 image.
 
 ### Configuration names and delivery
 
@@ -168,15 +193,19 @@ bootstrap flags in the routine service jobspec.
 python3 deploy/nomad/tests/tasks-contract.py
 bash -n scripts/build-tasks-image.sh
 nomad fmt -check deploy/nomad/jobs/primer-tasks.nomad.hcl
-# Only after the real registry lock exists:
 nomad job validate \
   -var-file=deploy/nomad/images.tasks.lock.hcl \
   -var-file=deploy/nomad/env/tasks-home.nomadvars.hcl \
   deploy/nomad/jobs/primer-tasks.nomad.hcl
 ```
 
+Nomad HCL validation with the real lock passes, including rejection of empty/tag
+selectors. The image guard uses Nomad's supported `regex_replace` function, not
+Terraform-only `regex`. Driver configuration must still be validated by the
+approved operator's Nomad agent; local validation did not contact a live agent.
+
 Do not report static checks or an intermediate builder stage as a completed
-production image. Before enrollment, prove the combined immutable image with a
+production image. The receipt records the completed packaging smoke with a
 disposable Tasks PostgreSQL: migration/re-run, non-root/read-only server health,
 real SPA/assets under `/tasks/`, API 401 without parent auth, and clean SIGTERM.
 Then the approved operator verifies the real public login/bootstrap, student
