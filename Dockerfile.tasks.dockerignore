@@ -1,0 +1,35 @@
+# Production Tasks allowlist. Never send host credentials, test issuers, other
+# products, generated host output or dependency caches to the image builder.
+**
+!primer-tasks/
+!primer-tasks/go.mod
+!primer-tasks/go.sum
+!primer-tasks/internal/
+!primer-tasks/internal/**
+!primer-tasks/cmd/
+!primer-tasks/cmd/tasks-server/
+!primer-tasks/cmd/tasks-server/**
+!primer-tasks/cmd/tasks-migrate/
+!primer-tasks/cmd/tasks-migrate/**
+!primer-tasks/cmd/tasks-bootstrap/
+!primer-tasks/cmd/tasks-bootstrap/**
+!primer-tasks/cmd/openapi-gen/
+!primer-tasks/cmd/openapi-gen/**
+!primer-tasks/clients/
+!primer-tasks/clients/typescript/
+!primer-tasks/clients/typescript/**
+!primer-tasks/web/
+!primer-tasks/web/**
+!design-system/
+!design-system/generated/
+!design-system/generated/**
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*_test.go
+**/e2e
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+primer-tasks/clients/typescript/generated/*

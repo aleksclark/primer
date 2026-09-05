@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+# Build from the repository root; Dockerfile.tasks.dockerignore is an allowlist.
+# The production image contains only Tasks, never the test issuer or LMS/TV.
+FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS source
+ENV GOWORK=off GOPRIVATE=git.fleet.clark.team/aleksclark/authstack CGO_ENABLED=0
+RUN apk add --no-cache git ca-certificates tzdata
+WORKDIR /src/primer-tasks
+COPY primer-tasks/go.mod primer-tasks/go.sum ./
+# Authstack is fetched through its approved public HTTPS vanity path. No token,
+# SSH key, vendored copy or local workspace replacement is needed or accepted.
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY primer-tasks/internal/ ./internal/
+COPY primer-tasks/cmd/tasks-server/ ./cmd/tasks-server/
+COPY primer-tasks/cmd/tasks-migrate/ ./cmd/tasks-migrate/
+COPY primer-tasks/cmd/tasks-bootstrap/ ./cmd/tasks-bootstrap/
+COPY primer-tasks/cmd/openapi-gen/ ./cmd/openapi-gen/
+
+FROM source AS spec
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go run ./cmd/openapi-gen -out /openapi.yaml
+
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS web
+WORKDIR /src/primer-tasks
+COPY primer-tasks/clients/typescript/ ./clients/typescript/
+COPY primer-tasks/web/package.json primer-tasks/web/package-lock.json ./web/
+RUN npm --prefix web ci --no-audit --no-fund
+COPY primer-tasks/web/ ./web/
+COPY design-system/generated/ /src/design-system/generated/
+COPY --from=spec /openapi.yaml ./build/openapi.yaml
+ARG VITE_TASKS_BASE_PATH=/tasks/
+ARG VITE_TASKS_API_BASE=/tasks/api
+# This is a public browser identifier, not a Clerk secret key. There is no
+# fallback/test key: an approved Clerk profile is required for a release build.
+ARG VITE_CLERK_PUBLISHABLE_KEY
+RUN test -n "$VITE_CLERK_PUBLISHABLE_KEY" && npm --prefix web run build
+
+FROM source AS build
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && \
+    go build -trimpath -ldflags="-s -w" -o /out/tasks-server ./cmd/tasks-server && \
+    go build -trimpath -ldflags="-s -w" -o /out/tasks-migrate ./cmd/tasks-migrate && \
+    go build -trimpath -ldflags="-s -w" -o /out/tasks-bootstrap ./cmd/tasks-bootstrap
+
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/aleksclark/primer" \
+      org.opencontainers.image.title="Primer Tasks" \
+      org.opencontainers.image.revision="$SOURCE_REVISION"
+WORKDIR /app
+COPY --from=build /out/ /app/
+COPY --from=web /src/primer-tasks/web/dist/ /app/web/
+# Local-day scheduling must work in household IANA time zones in a minimal image.
+COPY --from=source /usr/share/zoneinfo/ /usr/share/zoneinfo/
+ENV TASKS_ENV=production TASKS_AUTH_MODE=clerk \
+    TASKS_HOST=0.0.0.0 TASKS_PORT=8080 \
+    TASKS_BASE_PATH=/tasks TASKS_WEB_DIR=/app/web
+USER 65532:65532
+EXPOSE 8080
+STOPSIGNAL SIGTERM
+# Migrations are a separate prestart execution of /app/tasks-migrate (no args).
+# Health is GET /health on the service port; the orchestrator performs the check.
+ENTRYPOINT ["/app/tasks-server"]

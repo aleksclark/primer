@@ -1,0 +1,102 @@
+name: tasks-image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "primer-tasks/**"
+      - "design-system/generated/**"
+      - "Dockerfile.tasks*"
+      - "scripts/build-tasks-image.sh"
+      - "deploy/nomad/jobs/primer-tasks.nomad.hcl"
+      - "deploy/nomad/env/tasks-home.nomadvars.hcl"
+      - "deploy/nomad/tests/tasks-contract.py"
+      - ".github/workflows/tasks-image.yml"
+  pull_request:
+    paths:
+      - "primer-tasks/**"
+      - "design-system/generated/**"
+      - "Dockerfile.tasks*"
+      - "scripts/build-tasks-image.sh"
+      - "deploy/nomad/jobs/primer-tasks.nomad.hcl"
+      - "deploy/nomad/env/tasks-home.nomadvars.hcl"
+      - "deploy/nomad/tests/tasks-contract.py"
+      - ".github/workflows/tasks-image.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: tasks-production-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tasks packaging contract
+        run: python3 deploy/nomad/tests/tasks-contract.py
+
+      # Public browser key, supplied only after the Clerk profile is approved for
+      # the public Tasks origin. No Clerk secret key is consumed by this workflow.
+      - name: Require approved Clerk build input
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$VITE_CLERK_PUBLISHABLE_KEY" ]; then
+            echo 'Missing approved repository variable NAME: VITE_CLERK_PUBLISHABLE_KEY' >&2
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to approved registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build production Tasks image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.tasks
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ghcr.io/aleksclark/primer-tasks:sha-${{ github.sha }}
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
+            VITE_TASKS_BASE_PATH=/tasks/
+            VITE_TASKS_API_BASE=/tasks/api
+            VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=primer-tasks
+          cache-to: type=gha,mode=max,scope=primer-tasks
+
+      - name: Record immutable publication receipt
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          mkdir -p publication
+          printf 'source_revision=%s\nimage=ghcr.io/aleksclark/primer-tasks@%s\ntrace_tag=sha-%s\n' \
+            "$SOURCE_REVISION" "$IMAGE_DIGEST" "$SOURCE_REVISION" > publication/tasks-image.txt
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: tasks-image-${{ github.sha }}
+          path: publication/tasks-image.txt
+
+# Image publication is not deployment. Fleet enrollment/authority, database,
+# Nomad Variables and the digest lock need their own approved handoff. No Nomad,
+# DNS, tunnel, bootstrap or production migration execution is done by CI.
