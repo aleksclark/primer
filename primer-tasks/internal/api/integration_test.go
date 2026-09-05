@@ -516,30 +516,88 @@ func TestPostgresPairingGuessThrottleAndEntropy(t *testing.T) {
 	if len(code) != 32 {
 		t.Fatalf("pairing entropy length = %d", len(code))
 	}
-	for i := 0; i < pairingGuessLimit; i++ {
+	guess := func(remote, body string) int {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
+		req := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		req.RemoteAddr = "203.0.113.10:54321"
+		req.Header.Set("X-Forwarded-For", "198.51.100.1")
+		req.RemoteAddr = remote
 		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusGone {
-			t.Fatalf("failed guess %d = %d, want 410", i, rec.Code)
+		return rec.Code
+	}
+	for i := 0; i < pairingGuessLimit-1; i++ {
+		if status := guess("203.0.113.10:54321", `{"code":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`); status != http.StatusGone {
+			t.Fatalf("failed guess %d = %d, want 410", i, status)
 		}
 	}
-	limited := httptest.NewRecorder()
-	limitReq := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"`+code+`"}`))
-	limitReq.Header.Set("Content-Type", "application/json")
-	limitReq.RemoteAddr = "203.0.113.10:54321"
-	h.ServeHTTP(limited, limitReq)
-	if limited.Code != http.StatusTooManyRequests {
-		t.Fatalf("throttled guess = %d, want 429", limited.Code)
+	if status := guess("203.0.113.10:54321", `{"code":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`); status != http.StatusTooManyRequests {
+		t.Fatalf("fifth failed guess = %d, want 429", status)
 	}
-	other := httptest.NewRecorder()
-	otherReq := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"`+code+`"}`))
-	otherReq.Header.Set("Content-Type", "application/json")
-	otherReq.RemoteAddr = "198.51.100.20:12345"
-	h.ServeHTTP(other, otherReq)
-	if other.Code != http.StatusOK {
-		t.Fatalf("unrelated client claim = %d: %s", other.Code, other.Body.String())
+	if status := guess("203.0.113.10:54321", `{"code":"`+code+`"}`); status != http.StatusTooManyRequests {
+		t.Fatalf("spoofed XFF still throttled = %d, want 429", status)
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pairing_guess_attempts WHERE client_key='203.0.113.10'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != pairingGuessLimit {
+		t.Fatalf("recorded guesses = %d, want %d", n, pairingGuessLimit)
+	}
+	if status := guess("198.51.100.20:12345", `{"code":"`+code+`"}`); status != http.StatusOK {
+		t.Fatalf("unrelated client claim = %d", status)
+	}
+}
+
+func TestPostgresPairingGuessParallelWindow(t *testing.T) {
+	pool := integrationPool(t)
+	alice, _ := seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("parallel-guess"), IssuerSecret: []byte("parallel-guess")})
+	h := s.Routes()
+	pairRec := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	code, _ := pairingResponse(t, pairRec)
+	var wg sync.WaitGroup
+	results := make(chan int, 12)
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.RemoteAddr = "192.0.2.55:9"
+			h.ServeHTTP(rec, req)
+			results <- rec.Code
+		}()
+	}
+	wg.Wait()
+	close(results)
+	var gone, throttled, other int
+	for status := range results {
+		switch status {
+		case http.StatusGone:
+			gone++
+		case http.StatusTooManyRequests:
+			throttled++
+		default:
+			other++
+		}
+	}
+	if other != 0 || gone+throttled != 12 || gone > pairingGuessLimit {
+		t.Fatalf("parallel guesses gone=%d throttled=%d other=%d", gone, throttled, other)
+	}
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pairing_guess_attempts WHERE client_key='192.0.2.55'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != pairingGuessLimit {
+		t.Fatalf("parallel recorded guesses = %d, want %d", n, pairingGuessLimit)
+	}
+	claim := httptest.NewRecorder()
+	claimReq := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"`+code+`"}`))
+	claimReq.Header.Set("Content-Type", "application/json")
+	claimReq.RemoteAddr = "192.0.2.55:9"
+	h.ServeHTTP(claim, claimReq)
+	if claim.Code != http.StatusTooManyRequests {
+		t.Fatalf("claim after parallel window = %d, want 429", claim.Code)
 	}
 }

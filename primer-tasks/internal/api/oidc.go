@@ -65,7 +65,7 @@ func (s *Server) exchange(ctx context.Context, code, verifier, redirectURI, clie
 		return identityClaims{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := http.DefaultClient.Do(req)
+	res, err := s.httpDo(req)
 	if err != nil {
 		return identityClaims{}, err
 	}
@@ -185,23 +185,30 @@ type jwksCache struct {
 
 var oidcHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
-func (s *Server) jwksKey(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
-	if s.jwks == nil {
-		s.jwks = &jwksCache{}
+func (s *Server) httpDo(req *http.Request) (*http.Response, error) {
+	client := s.httpClient
+	if client == nil {
+		client = oidcHTTPClient
 	}
+	return client.Do(req)
+}
+
+func (s *Server) jwksKey(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
 	s.jwks.mu.Lock()
 	defer s.jwks.mu.Unlock()
-	if time.Now().Before(s.jwks.expires) {
+	now := time.Now()
+	if now.Before(s.jwks.expires) {
 		if key, ok := s.jwks.keys[kid]; ok {
 			return key, nil
 		}
+		return nil, fmt.Errorf("unknown signing kid")
 	}
 	keys, err := s.fetchOIDCKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
 	s.jwks.keys = keys
-	s.jwks.expires = time.Now().Add(5 * time.Minute)
+	s.jwks.expires = now.Add(5 * time.Minute)
 	key, ok := keys[kid]
 	if !ok {
 		return nil, fmt.Errorf("unknown signing kid")
@@ -214,7 +221,7 @@ func (s *Server) fetchOIDCKeys(ctx context.Context) (map[string]*ecdsa.PublicKey
 	if err != nil {
 		return nil, err
 	}
-	res, err := oidcHTTPClient.Do(req)
+	res, err := s.httpDo(req)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +251,7 @@ func (s *Server) fetchOIDCKeys(ctx context.Context) (map[string]*ecdsa.PublicKey
 	if err != nil {
 		return nil, err
 	}
-	jwksRes, err := oidcHTTPClient.Do(jwksReq)
+	jwksRes, err := s.httpDo(jwksReq)
 	if err != nil {
 		return nil, err
 	}

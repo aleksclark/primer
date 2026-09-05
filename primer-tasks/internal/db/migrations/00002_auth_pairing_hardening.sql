@@ -38,9 +38,6 @@ ALTER TABLE bff_sessions ADD CONSTRAINT bff_sessions_kind_ck CHECK (session_kind
 ALTER TABLE audit_records ADD COLUMN IF NOT EXISTS metadata jsonb;
 
 -- Bounded pairing guess ledger. Secrets are never stored; only SHA-256 hashes.
-ALTER TABLE pairing_codes ADD COLUMN IF NOT EXISTS failed_attempts integer NOT NULL DEFAULT 0;
-ALTER TABLE pairing_codes ADD CONSTRAINT pairing_codes_failed_attempts_ck CHECK (failed_attempts >= 0);
-
 CREATE TABLE IF NOT EXISTS pairing_guess_attempts (
     id bigserial PRIMARY KEY,
     client_key text NOT NULL,

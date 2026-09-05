@@ -28,6 +28,7 @@ type Server struct {
 	SecureCookie bool
 	Auth         AuthConfig
 	jwks         *jwksCache
+	httpClient   *http.Client
 }
 type scope struct{ Tenant, Subject string }
 
@@ -64,7 +65,7 @@ type Student struct {
 }
 
 func New(db *pgxpool.Pool, env string) *Server {
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: authConfigFromEnv(env)}
+	return NewWithAuth(db, env, authConfigFromEnv(env))
 }
 
 func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
@@ -78,7 +79,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient}
 }
 func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
 
@@ -147,14 +148,16 @@ func requestOrigin(r *http.Request, host string) string {
 const pairingGuessLimit = 5
 
 func pairingClientKey(r *http.Request) string {
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
-		return forwarded
-	}
+	// Ignore X-Forwarded-For: public pairing routes must not let a client pick
+	// its own throttle identity. Immediate RemoteAddr is the only P1 source.
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
+	if err == nil && host != "" {
 		return host
 	}
-	return r.RemoteAddr
+	if r.RemoteAddr != "" {
+		return r.RemoteAddr
+	}
+	return "unknown"
 }
 func (s *Server) parentScope(r *http.Request) (scope, error) {
 	c, err := r.Cookie("tasks_parent")
@@ -424,7 +427,7 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 	code := pairingCode()
 	pid := uuid.New()
 	exp := time.Now().UTC().Add(5 * time.Minute)
-	_, e := s.DB.Exec(r.Context(), `INSERT INTO pairing_codes(id,tenant_id,student_id,code_hash,expires_at,failed_attempts) VALUES($1,$2,$3,$4,$5,0)`, pid, sc.Tenant, id, hash(code), exp)
+	_, e := s.DB.Exec(r.Context(), `INSERT INTO pairing_codes(id,tenant_id,student_id,code_hash,expires_at) VALUES($1,$2,$3,$4,$5)`, pid, sc.Tenant, id, hash(code), exp)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -437,40 +440,41 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 	payload := map[string]any{"v": 1, "api": "/api", "origin": origin, "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
 	jsonOK(w, map[string]any{"pairingId": pid, "code": code, "expiresAt": exp, "qrPayload": string(mustJSON(payload))})
 }
-func (s *Server) recordPairingGuess(ctx context.Context, clientKey, code string) {
-	normalized := strings.ToUpper(strings.TrimSpace(code))
-	if normalized == "" {
-		normalized = "empty"
-	}
-	_, _ = s.DB.Exec(ctx, `INSERT INTO pairing_guess_attempts(client_key,code_hash,attempted_at) VALUES($1,$2,now())`, clientKey, hash(normalized))
-}
-
-func (s *Server) pairingGuessLimited(ctx context.Context, clientKey string) bool {
-	var n int
-	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM pairing_guess_attempts WHERE client_key=$1 AND attempted_at>now()-interval '5 minutes'`, clientKey).Scan(&n); err != nil {
-		return true
-	}
-	return n >= pairingGuessLimit
-}
-
 func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey string) (uuid.UUID, string, string, error) {
-	if s.pairingGuessLimited(ctx, clientKey) {
-		return uuid.Nil, "", "", errPairingThrottled
-	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, "", "", err
 	}
 	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, clientKey); err != nil {
+		return uuid.Nil, "", "", err
+	}
+	var attempts int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM pairing_guess_attempts WHERE client_key=$1 AND attempted_at>now()-interval '5 minutes'`, clientKey).Scan(&attempts); err != nil {
+		return uuid.Nil, "", "", err
+	}
+	if attempts >= pairingGuessLimit {
+		return uuid.Nil, "", "", errPairingThrottled
+	}
 	var sid, pairingID uuid.UUID
 	var tenant string
-	var failed int
 	normalized := strings.ToUpper(strings.TrimSpace(code))
-	err = tx.QueryRow(ctx, `UPDATE pairing_codes SET claimed_at=now() WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at>now() AND failed_attempts<$2 RETURNING id,tenant_id,student_id,failed_attempts`, hash(normalized), pairingGuessLimit).Scan(&pairingID, &tenant, &sid, &failed)
-	if err != nil {
-		s.recordPairingGuess(ctx, clientKey, normalized)
-		_, _ = s.DB.Exec(ctx, `UPDATE pairing_codes SET failed_attempts=failed_attempts+1 WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL`, hash(normalized))
-		return uuid.Nil, "", "", err
+	claimErr := tx.QueryRow(ctx, `UPDATE pairing_codes SET claimed_at=now() WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at>now() RETURNING id,tenant_id,student_id`, hash(normalized)).Scan(&pairingID, &tenant, &sid)
+	if claimErr != nil {
+		if _, recErr := tx.Exec(ctx, `INSERT INTO pairing_guess_attempts(client_key,code_hash,attempted_at) VALUES($1,$2,now())`, clientKey, hash(normalized)); recErr != nil {
+			return uuid.Nil, "", "", recErr
+		}
+		var recorded int
+		if countErr := tx.QueryRow(ctx, `SELECT count(*) FROM pairing_guess_attempts WHERE client_key=$1 AND attempted_at>now()-interval '5 minutes'`, clientKey).Scan(&recorded); countErr != nil {
+			return uuid.Nil, "", "", countErr
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			return uuid.Nil, "", "", commitErr
+		}
+		if recorded >= pairingGuessLimit {
+			return uuid.Nil, "", "", errPairingThrottled
+		}
+		return uuid.Nil, "", "", claimErr
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id,metadata) VALUES($1,$2,'student.pairing_claimed',$3,$4)`, tenant, "student:"+sid.String(), pairingID, `{"kind":"`+kind+`"}`); err != nil {
 		return uuid.Nil, "", "", err

@@ -8,6 +8,8 @@
 set -Eeuo pipefail
 
 ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
+REPO_ROOT=$(git -C "$ROOT" rev-parse --show-toplevel)
+HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 DEV="$ROOT/scripts/dev"
 COMPOSE_FILE="$ROOT/compose.yaml"
 PROJECT_SLUG="primer-tasks"
@@ -41,8 +43,8 @@ compose_for() {
   elif [[ "$instance" == "$INSTANCE_B" && -n "$ROOT_B" ]]; then
     project_dir=$ROOT_B
   fi
-  docker compose -p "${PROJECT_SLUG}-${instance}" -f "$project_dir/compose.yaml" \
-    --project-directory "$project_dir" "$@"
+  docker compose -p "${PROJECT_SLUG}-${instance}" -f "$project_dir/primer-tasks/compose.yaml" \
+    --project-directory "$project_dir/primer-tasks" "$@"
 }
 
 fail() {
@@ -64,8 +66,8 @@ cleanup() {
 
   # Restoration precedes teardown so a watcher can observe the original bytes.
   if [[ -n "$BACKEND_BACKUP" && -n "$ROOT_A" ]]; then
-    cp -- "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go"
-    if cmp -s "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go"; then
+    cp -- "$BACKEND_BACKUP" "$ROOT_A/primer-tasks/internal/api/openapi.go"
+    if cmp -s "$BACKEND_BACKUP" "$ROOT_A/primer-tasks/internal/api/openapi.go"; then
       BACKEND_RESTORED=1
     else
       echo "prove-dev: FAIL backend source was not restored exactly" >&2
@@ -73,8 +75,8 @@ cleanup() {
     fi
   fi
   if [[ -n "$FRONTEND_BACKUP" && -n "$ROOT_B" ]]; then
-    cp -- "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx"
-    if cmp -s "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx"; then
+    cp -- "$FRONTEND_BACKUP" "$ROOT_B/primer-tasks/web/src/App.tsx"
+    if cmp -s "$FRONTEND_BACKUP" "$ROOT_B/primer-tasks/web/src/App.tsx"; then
       FRONTEND_RESTORED=1
     else
       echo "prove-dev: FAIL frontend source was not restored exactly" >&2
@@ -87,14 +89,20 @@ cleanup() {
     [[ "$CREATED_B" == 1 ]] && compose_for "$INSTANCE_B" logs --no-color --tail=80 api web >&2 || true
   fi
 
-  if [[ "$CREATED_A" == 1 ]]; then
-    CONFIRM="${PROJECT_A}-destroy" STACKLANE_INSTANCE="$INSTANCE_A" "$DEV" destroy >/dev/null 2>&1 || status=1
+  if [[ "$CREATED_A" == 1 && -n "$ROOT_A" ]]; then
+    CONFIRM="${PROJECT_A}-destroy" STACKLANE_INSTANCE="$INSTANCE_A" "$ROOT_A/primer-tasks/scripts/dev" destroy >/dev/null 2>&1 || true
   fi
-  if [[ "$CREATED_B" == 1 ]]; then
-    CONFIRM="${PROJECT_B}-destroy" STACKLANE_INSTANCE="$INSTANCE_B" "$DEV" destroy >/dev/null 2>&1 || status=1
+  if [[ "$CREATED_B" == 1 && -n "$ROOT_B" ]]; then
+    CONFIRM="${PROJECT_B}-destroy" STACKLANE_INSTANCE="$INSTANCE_B" "$ROOT_B/primer-tasks/scripts/dev" destroy >/dev/null 2>&1 || true
   fi
   if [[ -n "$CHROME_DIR" ]]; then
     rm -rf -- "$CHROME_DIR"
+  fi
+  if [[ -n "$ROOT_A" ]]; then
+    git -C "$REPO_ROOT" worktree remove --force "$ROOT_A" >/dev/null 2>&1 || rm -rf -- "$ROOT_A"
+  fi
+  if [[ -n "$ROOT_B" ]]; then
+    git -C "$REPO_ROOT" worktree remove --force "$ROOT_B" >/dev/null 2>&1 || rm -rf -- "$ROOT_B"
   fi
   if [[ -n "$TMPDIR_PROOF" ]]; then
     rm -rf -- "$TMPDIR_PROOF"
@@ -127,15 +135,17 @@ assert_absent "$PROJECT_B"
 
 TMPDIR_PROOF=$(mktemp -d)
 chmod 700 "$TMPDIR_PROOF"
-ROOT_A="$TMPDIR_PROOF/src-a"
-ROOT_B="$TMPDIR_PROOF/src-b"
-mkdir -p "$ROOT_A" "$ROOT_B"
-rsync -a --exclude node_modules --exclude tmp --exclude build --exclude dist --exclude android "$ROOT/" "$ROOT_A/"
-rsync -a --exclude node_modules --exclude tmp --exclude build --exclude dist --exclude android "$ROOT/" "$ROOT_B/"
+ROOT_A=$(mktemp -d "${REPO_ROOT}/.worktrees/tasks-p1-proof-a.XXXXXX")
+ROOT_B=$(mktemp -d "${REPO_ROOT}/.worktrees/tasks-p1-proof-b.XXXXXX")
+rmdir "$ROOT_A" "$ROOT_B"
+git -C "$REPO_ROOT" worktree add --detach "$ROOT_A" "$HEAD_SHA" >/dev/null
+git -C "$REPO_ROOT" worktree add --detach "$ROOT_B" "$HEAD_SHA" >/dev/null
+[[ "$(git -C "$ROOT_A" rev-parse --show-toplevel)" == "$ROOT_A" ]] || fail "worktree A is not a registered git root"
+[[ "$(git -C "$ROOT_B" rev-parse --show-toplevel)" == "$ROOT_B" ]] || fail "worktree B is not a registered git root"
 BACKEND_BACKUP="$TMPDIR_PROOF/openapi.go"
 FRONTEND_BACKUP="$TMPDIR_PROOF/App.tsx"
-cp -- "$ROOT_A/internal/api/openapi.go" "$BACKEND_BACKUP"
-cp -- "$ROOT_B/web/src/App.tsx" "$FRONTEND_BACKUP"
+cp -- "$ROOT_A/primer-tasks/internal/api/openapi.go" "$BACKEND_BACKUP"
+cp -- "$ROOT_B/primer-tasks/web/src/App.tsx" "$FRONTEND_BACKUP"
 chmod 600 "$BACKEND_BACKUP" "$FRONTEND_BACKUP"
 
 # Use the product lifecycle for both instances; explicitly overriding the
@@ -145,7 +155,7 @@ start_instance() {
   local project="${PROJECT_SLUG}-${instance}"
   local project_dir=$ROOT
   if [[ "$instance" == "$INSTANCE_A" ]]; then project_dir=$ROOT_A; else project_dir=$ROOT_B; fi
-  if STACKLANE_INSTANCE="$instance" "$project_dir/scripts/dev" up; then
+  if STACKLANE_INSTANCE="$instance" "$project_dir/primer-tasks/scripts/dev" up; then
     return 0
   fi
   # `docker compose up` can create a dependency before a later service fails;
@@ -207,9 +217,9 @@ for instance in "$INSTANCE_A" "$INSTANCE_B"; do
   [[ -n "$api_container" && -n "$web_container" ]] || fail "missing public containers for $instance"
   for container in "$api_container" "$web_container"; do
     source_mount=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/src"}}{{.Source}}{{end}}{{end}}' "$container")
-    expected_root=$ROOT_A
-    [[ "$instance" == "$INSTANCE_B" ]] && expected_root=$ROOT_B
-    [[ "$(realpath "$source_mount")" == "$(realpath "$expected_root")" ]] || fail "source mount for $instance is not its isolated root"
+    expected_root=$ROOT_A/primer-tasks
+    [[ "$instance" == "$INSTANCE_B" ]] && expected_root=$ROOT_B/primer-tasks
+    [[ "$(realpath "$source_mount")" == "$(realpath "$expected_root")" ]] || fail "source mount for $instance is not its isolated primer-tasks root"
     label_instance=$(docker inspect -f '{{index .Config.Labels "stacklane.instance"}}' "$container")
     label_project=$(docker inspect -f '{{index .Config.Labels "stacklane.project"}}' "$container")
     label_endpoint=$(docker inspect -f '{{index .Config.Labels "stacklane.endpoint"}}' "$container")
@@ -237,7 +247,7 @@ base_before_mutation=$(curl -fsS "http://127.0.0.1:${API_A_PORT}/health")
 # health endpoint can answer as soon as the binary starts, before fsnotify has
 # completed its baseline scan; mutating in that window can be silently missed.
 sleep 3
-python3 - "$ROOT_A/internal/api/openapi.go" "$BACKEND_NONCE" <<'PY'
+python3 - "$ROOT_A/primer-tasks/internal/api/openapi.go" "$BACKEND_NONCE" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
@@ -260,8 +270,9 @@ for _ in $(seq 1 90); do
     # otherwise the restore event can be lost and the proof reports a false
     # failure while leaving the watcher on the nonce build.
     sleep 2
-    cp -- "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go"
-    cmp -s "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go" || fail "backend restore checksum mismatch"
+    cp -- "$BACKEND_BACKUP" "$ROOT_A/primer-tasks/internal/api/openapi.go"
+    cmp -s "$BACKEND_BACKUP" "$ROOT_A/primer-tasks/internal/api/openapi.go" || fail "backend restore checksum mismatch"
+    [[ -z "$(git -C "$ROOT_A" status --porcelain)" ]] || fail "worktree A dirty after restore"
     BACKEND_RESTORED=1
     break
   fi
@@ -307,7 +318,7 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 [[ -f "$HMR_READY" ]] || fail "HMR browser probe did not establish baseline"
-python3 - "$ROOT_B/web/src/App.tsx" "$FRONTEND_NONCE" <<'PY'
+python3 - "$ROOT_B/primer-tasks/web/src/App.tsx" "$FRONTEND_NONCE" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
@@ -326,8 +337,9 @@ for _ in $(seq 1 90); do
 done
 wait "$HMR_PID" || { cat "$TMPDIR_PROOF/hmr.log" >&2; fail "Vite HMR proof failed"; }
 cat "$TMPDIR_PROOF/hmr.log"
-cp -- "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx"
-cmp -s "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx" || fail "frontend restore checksum mismatch"
+cp -- "$FRONTEND_BACKUP" "$ROOT_B/primer-tasks/web/src/App.tsx"
+cmp -s "$FRONTEND_BACKUP" "$ROOT_B/primer-tasks/web/src/App.tsx" || fail "frontend restore checksum mismatch"
+[[ -z "$(git -C "$ROOT_B" status --porcelain)" ]] || fail "worktree B dirty after restore"
 FRONTEND_RESTORED=1
 
 # Stop only A and prove B remains healthy. Both projects and their volumes are

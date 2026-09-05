@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -139,16 +141,20 @@ func TestSealReportsRandomSourceFailure(t *testing.T) {
 	}
 }
 
-func TestPairingClientKeyPrefersForwardedFor(t *testing.T) {
+func TestPairingClientKeyIgnoresForwardedFor(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/student/pair", nil)
 	req.RemoteAddr = "192.0.2.9:1234"
 	req.Header.Set("X-Forwarded-For", "203.0.113.8, 10.0.0.1")
-	if got := pairingClientKey(req); got != "203.0.113.8" {
-		t.Fatalf("forwarded client key = %q", got)
-	}
-	req.Header.Del("X-Forwarded-For")
 	if got := pairingClientKey(req); got != "192.0.2.9" {
-		t.Fatalf("remote client key = %q", got)
+		t.Fatalf("client key = %q, want RemoteAddr host", got)
+	}
+	req.RemoteAddr = "2001:db8::1"
+	if got := pairingClientKey(req); got != "2001:db8::1" {
+		t.Fatalf("unsplit client key = %q", got)
+	}
+	req.RemoteAddr = ""
+	if got := pairingClientKey(req); got != "unknown" {
+		t.Fatalf("empty client key = %q", got)
 	}
 }
 
@@ -161,6 +167,17 @@ func TestRequestOriginPrefersForwardedProto(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "https")
 	if got := requestOrigin(req, "web.example.test"); got != "https://web.example.test" {
 		t.Fatalf("forwarded origin = %q", got)
+	}
+}
+
+func TestEnvOrFallsBack(t *testing.T) {
+	t.Setenv("TASKS_HOST_STACK_TEST_KEY", "")
+	if got := envOr("TASKS_HOST_STACK_TEST_KEY", "fallback"); got != "fallback" {
+		t.Fatalf("envOr empty = %q", got)
+	}
+	t.Setenv("TASKS_HOST_STACK_TEST_KEY", "set")
+	if got := envOr("TASKS_HOST_STACK_TEST_KEY", "fallback"); got != "set" {
+		t.Fatalf("envOr set = %q", got)
 	}
 }
 
@@ -286,6 +303,156 @@ func TestOIDCVerifierUsesDiscoveryJWKSAndRejectsBadAlgKidAndSignature(t *testing
 	noID := NewWithAuth(nil, "production", AuthConfig{Mode: "oidc", IssuerURL: emptyToken.URL, PublicIssuerURL: emptyToken.URL, ClientID: "tasks"})
 	if _, err := noID.exchange(context.Background(), "code", "verifier", "https://tasks.example/auth/callback", "tasks"); err == nil {
 		t.Fatal("token response without id_token accepted")
+	}
+}
+
+func TestOIDCJWKSCacheHitExpiryUnknownKidAndTimeout(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kid := "kid-cache"
+	x := base64.RawURLEncoding.EncodeToString(priv.X.FillBytes(make([]byte, 32)))
+	y := base64.RawURLEncoding.EncodeToString(priv.Y.FillBytes(make([]byte, 32)))
+	var fetches atomic.Int32
+	var issuer *httptest.Server
+	issuer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetches.Add(1)
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": issuer.URL, "jwks_uri": issuer.URL + "/jwks"})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+				"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": kid, "x": x, "y": y,
+			}}})
+		}
+	}))
+	defer issuer.Close()
+	s := NewWithAuth(nil, "production", AuthConfig{Mode: "oidc", IssuerURL: issuer.URL, PublicIssuerURL: issuer.URL, ClientID: "tasks"})
+	makeToken := func() string {
+		header, _ := json.Marshal(map[string]string{"alg": "ES256", "kid": kid, "typ": "JWT"})
+		h := base64.RawURLEncoding.EncodeToString(header)
+		payload, _ := json.Marshal(map[string]any{"iss": issuer.URL, "sub": "parent-a", "aud": "tasks", "exp": time.Now().Add(time.Minute).Unix()})
+		p := base64.RawURLEncoding.EncodeToString(payload)
+		unsigned := h + "." + p
+		sum := sha256.Sum256([]byte(unsigned))
+		r, ss, err := ecdsa.Sign(rand.Reader, priv, sum[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		sig := append(r.FillBytes(make([]byte, 32)), ss.FillBytes(make([]byte, 32))...)
+		return unsigned + "." + base64.RawURLEncoding.EncodeToString(sig)
+	}
+	token := makeToken()
+	var wg sync.WaitGroup
+	errors := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := s.verifyIDToken(token)
+			errors <- err
+		}()
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("concurrent first-use: %v", err)
+		}
+	}
+	first := fetches.Load()
+	if first == 0 {
+		t.Fatal("expected discovery/JWKS fetch")
+	}
+	if _, err := s.verifyIDToken(token); err != nil {
+		t.Fatal(err)
+	}
+	if fetches.Load() != first {
+		t.Fatalf("cache hit refetched JWKS: %d then %d", first, fetches.Load())
+	}
+	badKidHeader, _ := json.Marshal(map[string]string{"alg": "ES256", "kid": "missing", "typ": "JWT"})
+	parts := strings.Split(token, ".")
+	parts[0] = base64.RawURLEncoding.EncodeToString(badKidHeader)
+	if _, err := s.verifyIDToken(strings.Join(parts, ".")); err == nil {
+		t.Fatal("unknown kid accepted from cache")
+	}
+	s.jwks.expires = time.Now().Add(-time.Second)
+	if _, err := s.verifyIDToken(token); err != nil {
+		t.Fatal(err)
+	}
+	if fetches.Load() <= first {
+		t.Fatal("expired cache did not refetch")
+	}
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": "https://identity.example"})
+	}))
+	defer slow.Close()
+	timeoutClient := &http.Client{Timeout: 20 * time.Millisecond}
+	cancelServer := NewWithAuth(nil, "production", AuthConfig{Mode: "oidc", IssuerURL: slow.URL, PublicIssuerURL: slow.URL, ClientID: "tasks"})
+	cancelServer.httpClient = timeoutClient
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	if _, err := cancelServer.fetchOIDCKeys(ctx); err == nil {
+		t.Fatal("expected timeout/cancellation")
+	}
+}
+
+func TestOpenAPIHelpersEmitContract(t *testing.T) {
+	yaml := OpenAPI()
+	if !strings.Contains(yaml, "Primer Tasks") || !strings.Contains(yaml, "/student/pair") {
+		t.Fatal("OpenAPI YAML missing pairing contract")
+	}
+	js := OpenAPIJSON()
+	if !strings.Contains(js, "student-pair") {
+		t.Fatal("OpenAPI JSON missing student-pair")
+	}
+}
+
+func TestConstructorsInitializeJWKSCacheAndHTTPClient(t *testing.T) {
+	s := New(nil, "test")
+	if s.jwks == nil || s.httpClient == nil {
+		t.Fatal("New left JWKS cache or HTTP client unset")
+	}
+	custom := NewWithAuth(nil, "production", AuthConfig{Mode: "oidc", IssuerURL: "https://identity.example", ClientID: "tasks"})
+	if custom.jwks == nil || custom.httpClient == nil || custom.Auth.Mode != "oidc" {
+		t.Fatal("NewWithAuth left verifier state unset")
+	}
+}
+
+func TestDecodeRejectsInvalidJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader("{not json"))
+	var in struct {
+		Code string `json:"code"`
+	}
+	if decode(rec, req, &in) {
+		t.Fatal("invalid JSON accepted")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("decode status = %d", rec.Code)
+	}
+}
+
+func TestHTTPDoUsesSharedClientWhenUnset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	s := NewWithAuth(nil, "test", AuthConfig{Mode: "test"})
+	s.httpClient = nil
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.httpDo(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("httpDo = %d", res.StatusCode)
 	}
 }
 

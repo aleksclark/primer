@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Default host Make / non-Compose Tasks stack.
 #
-# Starts real PostgreSQL (testcontainer-style docker run, not product Compose),
-# the Tasks API, the test issuer, and Vite. Browser-visible issuer/callback
-# URLs are the loopback web origin + /issuer proxy.
+# Starts real PostgreSQL (docker run, not product Compose), the Tasks API, the
+# test issuer, and Vite. Each service is launched in its own session so `down`
+# never signals the caller (including `make tasks-e2e` / `setsid`).
 set -Eeuo pipefail
 
 ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
@@ -24,32 +24,45 @@ PY
 pg_name="${NAME_PREFIX}-pg"
 issuer_pg_name="${NAME_PREFIX}-issuer-pg"
 
-stop_pidfile() {
+owned_leader() {
+  local pid=$1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  local pgid sid
+  pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  sid=$(ps -o sid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [[ "$pgid" == "$pid" && "$sid" == "$pid" ]]
+}
+
+stop_leader() {
   local file=$1
-  if [[ -f "$file" ]]; then
-    local pid
-    pid=$(cat "$file" || true)
-    if [[ -n "${pid:-}" ]]; then
-      local pgid
-      pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' || true)
-      if [[ -n "$pgid" ]]; then
-        kill -TERM -"$pgid" 2>/dev/null || true
-        sleep 0.5
-        kill -KILL -"$pgid" 2>/dev/null || true
-      else
-        kill -TERM "$pid" 2>/dev/null || true
-        sleep 0.2
-        kill -KILL "$pid" 2>/dev/null || true
-      fi
-    fi
-    rm -f "$file"
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid=$(tr -d '[:space:]' <"$file" || true)
+  rm -f "$file"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  if owned_leader "$pid"; then
+    kill -TERM -"$pid" 2>/dev/null || true
+    local i
+    for i in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || return 0
+      sleep 0.1
+    done
+    kill -KILL -"$pid" 2>/dev/null || true
+    for i in $(seq 1 10); do
+      kill -0 "$pid" 2>/dev/null || return 0
+      sleep 0.1
+    done
+  else
+    # Stale or foreign pidfile: never signal the caller's process group.
+    return 0
   fi
 }
 
 down() {
-  stop_pidfile "$STATE_DIR/api.pid"
-  stop_pidfile "$STATE_DIR/issuer.pid"
-  stop_pidfile "$STATE_DIR/web.pid"
+  stop_leader "$STATE_DIR/api.pid"
+  stop_leader "$STATE_DIR/issuer.pid"
+  stop_leader "$STATE_DIR/web.pid"
   docker rm -f "$pg_name" "$issuer_pg_name" >/dev/null 2>&1 || true
   rm -f "$STATE_DIR/endpoints.env"
 }
@@ -70,6 +83,20 @@ wait_http() {
   echo "host-stack: issuer.log" >&2
   tail -20 "$STATE_DIR/issuer.log" >&2 || true
   return 1
+}
+
+start_session() {
+  local pidfile=$1
+  local logfile=$2
+  shift 2
+  setsid "$@" >"$logfile" 2>&1 &
+  local pid=$!
+  if ! owned_leader "$pid"; then
+    echo "host-stack: FAIL $pidfile is not a session/process-group leader" >&2
+    kill -TERM -"$pid" 2>/dev/null || true
+    return 1
+  fi
+  printf '%s\n' "$pid" >"$pidfile"
 }
 
 up() {
@@ -111,23 +138,13 @@ up() {
   export DEV_ISSUER_PROXY_TARGET="http://127.0.0.1:${issuer_port}"
   export DEV_SERVER_HOST=127.0.0.1
   export DEV_SERVER_PORT=$web_port
-  (
-    cd "$ROOT"
-    exec go run ./cmd/tasks-test-issuer
-  ) >"$STATE_DIR/issuer.log" 2>&1 & echo $! >"$STATE_DIR/issuer.pid"
-  (
-    cd "$ROOT"
-    exec go run ./cmd/tasks-server
-  ) >"$STATE_DIR/api.log" 2>&1 & echo $! >"$STATE_DIR/api.pid"
-  (
-    cd "$ROOT/web"
-    npm ci --no-audit --no-fund >/dev/null
-    npm --prefix "$ROOT/clients/typescript" ci --no-audit --no-fund >/dev/null
-    if [[ ! -f "$ROOT/clients/typescript/generated/schema.d.ts" ]]; then
-      npm run generate:client >/dev/null
-    fi
-    exec npm run dev -- --host 127.0.0.1 --port "$web_port" --strictPort
-  ) >"$STATE_DIR/web.log" 2>&1 & echo $! >"$STATE_DIR/web.pid"
+  start_session "$STATE_DIR/issuer.pid" "$STATE_DIR/issuer.log" bash -c "cd \"$ROOT\" && exec go run ./cmd/tasks-test-issuer"
+  local api_cmd='exec go run ./cmd/tasks-server'
+  if command -v air >/dev/null 2>&1; then
+    api_cmd='exec air -c .air.host.toml'
+  fi
+  start_session "$STATE_DIR/api.pid" "$STATE_DIR/api.log" bash -c "cd \"$ROOT\" && $api_cmd"
+  start_session "$STATE_DIR/web.pid" "$STATE_DIR/web.log" bash -c "cd \"$ROOT/web\" && npm ci --no-audit --no-fund >/dev/null && npm --prefix \"$ROOT/clients/typescript\" ci --no-audit --no-fund >/dev/null && if [[ ! -f \"$ROOT/clients/typescript/generated/schema.d.ts\" ]]; then npm run generate:client >/dev/null; fi && exec npm run dev -- --host 127.0.0.1 --port \"$web_port\" --strictPort"
   wait_http "http://127.0.0.1:${issuer_port}/health"
   wait_http "http://127.0.0.1:${api_port}/health"
   wait_http "http://127.0.0.1:${web_port}/"
