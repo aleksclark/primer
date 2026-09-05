@@ -1,8 +1,0 @@
-      A: android:label(0x01010001)="Primer Tasks" (Raw: "Primer Tasks")
-      A: android:debuggable(0x0101000f)=(type 0x12)0xffffffff
-      A: android:allowBackup(0x01010280)=(type 0x12)0x0
-      A: android:extractNativeLibs(0x010104ea)=(type 0x12)0x0
-      A: android:fullBackupContent(0x010104eb)=(type 0x12)0x0
-      A: android:networkSecurityConfig(0x01010527)=@0x7f0e0000
-      A: android:appComponentFactory(0x0101057a)="androidx.core.app.CoreComponentFactory" (Raw: "androidx.core.app.CoreComponentFactory")
-      E: activity (line=29)

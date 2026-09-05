@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PRIMER_TASKS_BASE_URL;
-if (!baseURL) throw new Error("PRIMER_TASKS_BASE_URL must point at the real Stacklane web origin");
+if (!baseURL) throw new Error("PRIMER_TASKS_BASE_URL must point at the real Tasks web origin");
 
 export default defineConfig({
   testDir: "./e2e",
@@ -14,7 +14,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    launchOptions: { executablePath: process.env.CHROME_EXECUTABLE ?? "/home/aleks/.local/bin/google-chrome" },
+    launchOptions: process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : undefined,
   },
   reporter: [["list"], ["json", { outputFile: "test-artifacts/playwright-phase1.json" }]],
 });

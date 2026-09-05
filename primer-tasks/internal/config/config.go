@@ -43,6 +43,9 @@ func (c Config) Validate() error {
 	if c.Env == "production" && len(c.SessionSecret) < 32 {
 		return fmt.Errorf("TASKS_SESSION_SECRET must contain at least 32 bytes in production")
 	}
+	if c.AuthMode == "oidc" && (u.Scheme != "https" && c.Env == "production") {
+		return fmt.Errorf("production OIDC issuer must use HTTPS")
+	}
 	return nil
 }
 func value(k, f string) string {

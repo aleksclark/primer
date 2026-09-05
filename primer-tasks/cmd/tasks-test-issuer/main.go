@@ -60,7 +60,6 @@ func authorize(pool *pgxpool.Pool) http.HandlerFunc {
 		sub := q.Get("login_hint")
 		if sub == "" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			base := "/issuer/oauth/authorize?"
 			qA := url.Values{}
 			for k, values := range q {
 				for _, value := range values {
@@ -75,7 +74,7 @@ func authorize(pool *pgxpool.Pool) http.HandlerFunc {
 				}
 			}
 			qB.Set("login_hint", "parent-b")
-			_, _ = fmt.Fprintf(w, "<!doctype html><title>Test Identity</title><h1>Choose test parent</h1><a href=\"%s%s\">Parent A</a><a href=\"%s%s\">Parent B</a>", base, qA.Encode(), base, qB.Encode())
+			_, _ = fmt.Fprintf(w, "<!doctype html><title>Test Identity</title><h1>Choose test parent</h1><a href=\"?%s\">Parent A</a><a href=\"?%s\">Parent B</a>", qA.Encode(), qB.Encode())
 			return
 		}
 		code := random(32)

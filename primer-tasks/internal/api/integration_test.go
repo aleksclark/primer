@@ -208,6 +208,14 @@ func TestPostgresPairingReplayTenantAndArchiveBoundaries(t *testing.T) {
 		t.Fatalf("issue pairing = %d: %s", pairRec.Code, pairRec.Body.String())
 	}
 	code, _ := pairingResponse(t, pairRec)
+	if len(code) != 32 {
+		t.Fatalf("pairing code length = %d, want 32 hex chars", len(code))
+	}
+	for _, r := range code {
+		if (r < '0' || r > '9') && (r < 'A' || r > 'F') {
+			t.Fatalf("pairing code is not uppercase hex: %q", code)
+		}
+	}
 	claim := requestJSON(t, h, http.MethodPost, "/student/pair", "", `{"code":"`+code+`"}`)
 	if claim.Code != http.StatusOK {
 		t.Fatalf("browser pair = %d: %s", claim.Code, claim.Body.String())
@@ -399,9 +407,19 @@ func TestPostgresAuthorizationStateAndCallbackReplay(t *testing.T) {
 	h := s.Routes()
 
 	login := httptest.NewRecorder()
-	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a&return_to=https://evil.example", nil))
-	if login.Code != http.StatusFound || !strings.Contains(login.Header().Get("Location"), "/oauth/authorize") {
+	loginRequest := httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a&return_to=https://evil.example", nil)
+	loginRequest.Host = "127.0.0.1:39077"
+	h.ServeHTTP(login, loginRequest)
+	if login.Code != http.StatusFound || !strings.HasPrefix(login.Header().Get("Location"), "http://127.0.0.1:39077/issuer/oauth/authorize?") {
 		t.Fatalf("login = %d %s", login.Code, login.Header().Get("Location"))
+	}
+	fqdn := httptest.NewRecorder()
+	fqdnReq := httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a", nil)
+	fqdnReq.Header.Set("X-Forwarded-Host", "web.household.primer-tasks.test")
+	fqdnReq.Header.Set("X-Forwarded-Proto", "https")
+	h.ServeHTTP(fqdn, fqdnReq)
+	if fqdn.Code != http.StatusFound || !strings.HasPrefix(fqdn.Header().Get("Location"), "https://web.household.primer-tasks.test/issuer/oauth/authorize?") {
+		t.Fatalf("stacklane login = %d %s", fqdn.Code, fqdn.Header().Get("Location"))
 	}
 	stateCookie := login.Result().Cookies()[0]
 	state := stateCookie.Value
@@ -433,5 +451,95 @@ func TestPostgresAuthorizationStateAndCallbackReplay(t *testing.T) {
 	}
 	if denied := requestJSON(t, h, http.MethodGet, "/auth/callback?error=access_denied", "", ""); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("provider denial = %d, want 401", denied.Code)
+	}
+}
+
+func TestPostgresStudentSessionCannotSatisfyParentGuard(t *testing.T) {
+	pool := integrationPool(t)
+	alice, _ := seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("student-as-parent secret"), IssuerSecret: []byte("student-as-parent issuer")})
+	h := s.Routes()
+	pairRec := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	code, _ := pairingResponse(t, pairRec)
+	claim := requestJSON(t, h, http.MethodPost, "/student/pair", "", `{"code":"`+code+`"}`)
+	if claim.Code != http.StatusOK {
+		t.Fatalf("browser pair = %d: %s", claim.Code, claim.Body.String())
+	}
+	studentHandle := ""
+	for _, c := range claim.Result().Cookies() {
+		if c.Name == "tasks_student" {
+			studentHandle = c.Value
+		}
+	}
+	if studentHandle == "" {
+		t.Fatal("student pairing did not issue a BFF cookie")
+	}
+	var kind string
+	if err := pool.QueryRow(context.Background(), `SELECT session_kind FROM bff_sessions WHERE handle_hash=$1`, hash(studentHandle)).Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "student" {
+		t.Fatalf("redeemed session_kind = %q, want student", kind)
+	}
+	for _, tc := range []struct {
+		method, path, body string
+	}{
+		{http.MethodGet, "/auth/session", ""},
+		{http.MethodGet, "/students", ""},
+		{http.MethodGet, "/students/" + alice, ""},
+		{http.MethodPost, "/students", `{"displayName":"Should Not Exist"}`},
+		{http.MethodPatch, "/students/" + alice, `{"displayName":"Hijacked"}`},
+		{http.MethodPost, "/students/" + alice + "/pairing", ""},
+		{http.MethodDelete, "/students/" + alice, ""},
+	} {
+		rec := requestJSON(t, h, tc.method, tc.path, studentHandle, tc.body)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s with student handle as tasks_parent = %d, want 401", tc.method, tc.path, rec.Code)
+		}
+	}
+	var mutated int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM students WHERE display_name IN ('Should Not Exist','Hijacked')`).Scan(&mutated); err != nil {
+		t.Fatal(err)
+	}
+	if mutated != 0 {
+		t.Fatalf("student-as-parent mutated %d student rows", mutated)
+	}
+}
+
+func TestPostgresPairingGuessThrottleAndEntropy(t *testing.T) {
+	pool := integrationPool(t)
+	alice, _ := seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("guess-secret"), IssuerSecret: []byte("guess-issuer")})
+	h := s.Routes()
+	pairRec := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	code, _ := pairingResponse(t, pairRec)
+	if len(code) != 32 {
+		t.Fatalf("pairing entropy length = %d", len(code))
+	}
+	for i := 0; i < pairingGuessLimit; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "203.0.113.10:54321"
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusGone {
+			t.Fatalf("failed guess %d = %d, want 410", i, rec.Code)
+		}
+	}
+	limited := httptest.NewRecorder()
+	limitReq := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"`+code+`"}`))
+	limitReq.Header.Set("Content-Type", "application/json")
+	limitReq.RemoteAddr = "203.0.113.10:54321"
+	h.ServeHTTP(limited, limitReq)
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("throttled guess = %d, want 429", limited.Code)
+	}
+	other := httptest.NewRecorder()
+	otherReq := httptest.NewRequest(http.MethodPost, "/student/pair", strings.NewReader(`{"code":"`+code+`"}`))
+	otherReq.Header.Set("Content-Type", "application/json")
+	otherReq.RemoteAddr = "198.51.100.20:12345"
+	h.ServeHTTP(other, otherReq)
+	if other.Code != http.StatusOK {
+		t.Fatalf("unrelated client claim = %d: %s", other.Code, other.Body.String())
 	}
 }

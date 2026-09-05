@@ -1,6 +1,0 @@
-    flags=0x0
-    versionName=1.0
-    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ]
-      android.permission.INTERNET
-      android.permission.INTERNET: granted=true
-        android.permission.CAMERA: granted=true, flags=[ USER_SET|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]

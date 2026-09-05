@@ -1,1 +1,0 @@
-1278099 /opt/android-sdk/emulator/qemu/linux-x86_64/qemu-system-x86_64 -avd pixel -wipe-data -no-snapshot -no-boot-anim -gpu software -camera-back virtualscene -grpc 8554 -port 5556

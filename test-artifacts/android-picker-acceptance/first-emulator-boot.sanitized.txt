@@ -1,4 +1,0 @@
-serial=emulator-5556
-avd=pixel
-fresh_wipe=yes
-no_virtualscene_or_webcam_pose_attempt=yes

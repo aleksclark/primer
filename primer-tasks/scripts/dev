@@ -52,7 +52,7 @@ resolve_base_domain() {
   if command -v stacklane >/dev/null 2>&1; then
     local detected
     detected=$(timeout 3s stacklane status -o json 2>/dev/null \
-      | python3 -c 'import json,sys; 
+      | python3 -c 'import json,sys;
 try:
     value=json.load(sys.stdin).get("base_domain", "")
     print(value if isinstance(value, str) else "")

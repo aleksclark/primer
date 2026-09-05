@@ -1,3 +1,0 @@
-uses-permission: name='android.permission.CAMERA'
-uses-permission: name='android.permission.INTERNET'
-uses-permission: name='com.aleksclark.primertasks.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'

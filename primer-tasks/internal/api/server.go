@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,7 @@ type Server struct {
 	Env          string
 	SecureCookie bool
 	Auth         AuthConfig
+	jwks         *jwksCache
 }
 type scope struct{ Tenant, Subject string }
 
@@ -122,13 +124,45 @@ func randomString(n int) string {
 	_, _ = rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
+// pairingCode returns a 128-bit opaque secret as 32 uppercase hex characters.
+func pairingCode() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return strings.ToUpper(hex.EncodeToString(b))
+}
+
+func requestOrigin(r *http.Request, host string) string {
+	scheme := "http"
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + host
+}
+
+const pairingGuessLimit = 5
+
+func pairingClientKey(r *http.Request) string {
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
+		return forwarded
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
 func (s *Server) parentScope(r *http.Request) (scope, error) {
 	c, err := r.Cookie("tasks_parent")
 	if err != nil {
 		return scope{}, err
 	}
 	var out scope
-	err = s.DB.QueryRow(r.Context(), `SELECT tenant_id,subject_ref FROM bff_sessions WHERE handle_hash=$1 AND expires_at>now() AND revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
+	err = s.DB.QueryRow(r.Context(), `SELECT tenant_id,subject_ref FROM bff_sessions WHERE handle_hash=$1 AND session_kind='parent' AND expires_at>now() AND revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
 	return out, err
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -141,12 +175,27 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if returnTo == "" || !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") {
 		returnTo = "/parent/students"
 	}
+	redirectURI, publicIssuer := s.Auth.RedirectURL, s.Auth.PublicIssuerURL
+	if s.Env != "production" {
+		host := r.Header.Get("X-Forwarded-Host")
+		if host == "" {
+			host = r.Host
+		}
+		// The test issuer is private to Compose/host DNS. Browser authorization
+		// always goes through the web origin's /issuer proxy so ephemeral
+		// loopback and Stacklane FQDNs share one public path.
+		if s.Auth.Mode == "test" || strings.HasPrefix(host, "127.") || strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "[::1]") {
+			browserBase := requestOrigin(r, host)
+			redirectURI = browserBase + "/auth/callback"
+			publicIssuer = browserBase + "/issuer"
+		}
+	}
 	ciphertext, err := s.seal(verifier)
 	if err != nil {
 		problem(w, 500, "internal", "unable to create authorization state")
 		return
 	}
-	_, err = s.DB.Exec(r.Context(), `INSERT INTO auth_states(state_hash,verifier_ciphertext,redirect_uri,return_path,client_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`, hash(state), ciphertext, s.Auth.RedirectURL, returnTo, s.Auth.ClientID)
+	_, err = s.DB.Exec(r.Context(), `INSERT INTO auth_states(state_hash,verifier_ciphertext,redirect_uri,return_path,client_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`, hash(state), ciphertext, redirectURI, returnTo, s.Auth.ClientID)
 	if err != nil {
 		problem(w, 500, "internal", "unable to persist authorization state")
 		return
@@ -154,11 +203,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// The state cookie is only a browser binding. The verifier and expiry live in
 	// Postgres, so a process restart cannot turn an authorization into a login.
 	http.SetCookie(w, &http.Cookie{Name: "tasks_oauth_state", Value: state, Path: "/auth", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 600})
-	q := url.Values{"response_type": {"code"}, "client_id": {s.Auth.ClientID}, "redirect_uri": {s.Auth.RedirectURL}, "scope": {"openid profile"}, "state": {state}, "code_challenge": {pkceChallenge(verifier)}, "code_challenge_method": {"S256"}}
+	q := url.Values{"response_type": {"code"}, "client_id": {s.Auth.ClientID}, "redirect_uri": {redirectURI}, "scope": {"openid profile"}, "state": {state}, "code_challenge": {pkceChallenge(verifier)}, "code_challenge_method": {"S256"}}
 	if p := r.URL.Query().Get("principal"); s.Auth.Mode == "test" && p != "" {
 		q.Set("login_hint", p)
 	}
-	http.Redirect(w, r, s.Auth.PublicIssuerURL+"/oauth/authorize?"+q.Encode(), http.StatusFound)
+	http.Redirect(w, r, strings.TrimRight(publicIssuer, "/")+"/oauth/authorize?"+q.Encode(), http.StatusFound)
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
@@ -372,10 +421,10 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 		problem(w, 404, "not_found", "student not found")
 		return
 	}
-	code := strings.ToUpper(hex.EncodeToString([]byte(randomString(12)))[:10])
+	code := pairingCode()
 	pid := uuid.New()
 	exp := time.Now().UTC().Add(5 * time.Minute)
-	_, e := s.DB.Exec(r.Context(), `INSERT INTO pairing_codes(id,tenant_id,student_id,code_hash,expires_at) VALUES($1,$2,$3,$4,$5)`, pid, sc.Tenant, id, hash(code), exp)
+	_, e := s.DB.Exec(r.Context(), `INSERT INTO pairing_codes(id,tenant_id,student_id,code_hash,expires_at,failed_attempts) VALUES($1,$2,$3,$4,$5,0)`, pid, sc.Tenant, id, hash(code), exp)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -388,7 +437,26 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 	payload := map[string]any{"v": 1, "api": "/api", "origin": origin, "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
 	jsonOK(w, map[string]any{"pairingId": pid, "code": code, "expiresAt": exp, "qrPayload": string(mustJSON(payload))})
 }
-func (s *Server) claimCredential(ctx context.Context, code, kind string) (uuid.UUID, string, string, error) {
+func (s *Server) recordPairingGuess(ctx context.Context, clientKey, code string) {
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	if normalized == "" {
+		normalized = "empty"
+	}
+	_, _ = s.DB.Exec(ctx, `INSERT INTO pairing_guess_attempts(client_key,code_hash,attempted_at) VALUES($1,$2,now())`, clientKey, hash(normalized))
+}
+
+func (s *Server) pairingGuessLimited(ctx context.Context, clientKey string) bool {
+	var n int
+	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM pairing_guess_attempts WHERE client_key=$1 AND attempted_at>now()-interval '5 minutes'`, clientKey).Scan(&n); err != nil {
+		return true
+	}
+	return n >= pairingGuessLimit
+}
+
+func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey string) (uuid.UUID, string, string, error) {
+	if s.pairingGuessLimited(ctx, clientKey) {
+		return uuid.Nil, "", "", errPairingThrottled
+	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, "", "", err
@@ -396,7 +464,12 @@ func (s *Server) claimCredential(ctx context.Context, code, kind string) (uuid.U
 	defer tx.Rollback(ctx)
 	var sid, pairingID uuid.UUID
 	var tenant string
-	if err = tx.QueryRow(ctx, `UPDATE pairing_codes SET claimed_at=now() WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at>now() RETURNING id,tenant_id,student_id`, hash(strings.ToUpper(strings.TrimSpace(code)))).Scan(&pairingID, &tenant, &sid); err != nil {
+	var failed int
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	err = tx.QueryRow(ctx, `UPDATE pairing_codes SET claimed_at=now() WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL AND expires_at>now() AND failed_attempts<$2 RETURNING id,tenant_id,student_id,failed_attempts`, hash(normalized), pairingGuessLimit).Scan(&pairingID, &tenant, &sid, &failed)
+	if err != nil {
+		s.recordPairingGuess(ctx, clientKey, normalized)
+		_, _ = s.DB.Exec(ctx, `UPDATE pairing_codes SET failed_attempts=failed_attempts+1 WHERE code_hash=$1 AND claimed_at IS NULL AND revoked_at IS NULL`, hash(normalized))
 		return uuid.Nil, "", "", err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id,metadata) VALUES($1,$2,'student.pairing_claimed',$3,$4)`, tenant, "student:"+sid.String(), pairingID, `{"kind":"`+kind+`"}`); err != nil {
@@ -431,6 +504,16 @@ func (s *Server) claimCredential(ctx context.Context, code, kind string) (uuid.U
 	}
 	return sid, tenant, raw, nil
 }
+var errPairingThrottled = errors.New("pairing attempts exceeded")
+
+func pairingClaimError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errPairingThrottled) {
+		problem(w, 429, "throttled", "too many pairing attempts")
+		return
+	}
+	problem(w, 410, "expired", "pairing code is used, expired, or revoked")
+}
+
 func (s *Server) pairBrowser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Code string `json:"code"`
@@ -438,9 +521,9 @@ func (s *Server) pairBrowser(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	sid, _, raw, e := s.claimCredential(r.Context(), in.Code, "browser")
+	sid, _, raw, e := s.claimCredential(r.Context(), in.Code, "browser", pairingClientKey(r))
 	if e != nil {
-		problem(w, 410, "expired", "pairing code is used, expired, or revoked")
+		pairingClaimError(w, e)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "tasks_student", Value: raw, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 7776000})
@@ -477,9 +560,9 @@ func (s *Server) devicePair(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	sid, _, tok, e := s.claimCredential(r.Context(), in.Code, "device")
+	sid, _, tok, e := s.claimCredential(r.Context(), in.Code, "device", pairingClientKey(r))
 	if e != nil {
-		problem(w, 410, "expired", "pairing code is used, expired, or revoked")
+		pairingClaimError(w, e)
 		return
 	}
 	jsonOK(w, map[string]string{"token": tok, "studentId": sid.String()})

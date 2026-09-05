@@ -1,2 +1,0 @@
-first_avd=pixel (Pixel 6)
-second_avd=pixel-picker-acceptance-second (fresh writable Pixel 6 clone)

@@ -8,8 +8,8 @@ async function signIn(page: Page, parent: "A" | "B") {
     const parentChoice = page.getByRole("link", { name: new RegExp(`Parent ${parent}`) });
     if (await parentChoice.isVisible().catch(() => false)) await parentChoice.click();
   }
-  await expect(page).toHaveURL(/\/parent\/students$/);
-  await expect(page.getByRole("heading", { name: "Students" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Students", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/parent\/students/);
 }
 
 async function createStudent(page: Page, name: string) {
@@ -62,6 +62,8 @@ test("parent and student pairing lifecycle stays real, tenant-scoped, and revoca
     await signIn(parentBPage, "B");
     const studentB = `Playwright Phase 1 B ${suffix}`;
     await createStudent(parentBPage, studentB);
+    await parentBPage.goto("/parent/students");
+    await expect(parentBPage.getByRole("heading", { name: "Students", exact: true })).toBeVisible();
     await parentBPage.goto(studentURL);
     await expect(parentBPage.getByText("Unable to load", { exact: true })).toBeVisible();
 

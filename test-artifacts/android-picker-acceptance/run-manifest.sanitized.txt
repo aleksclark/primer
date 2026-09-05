@@ -1,3 +1,0 @@
-utc=2026-08-19T06:20:17Z
-rerun_base=b7f83f5e8a0fec746c5bb112c65136a4902737d
-upstream_virtualscene_blocker=test-artifacts/android-foundation-remediation/gateb-systematic-20260819T234500Z/report.md

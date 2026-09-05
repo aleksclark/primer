@@ -30,7 +30,8 @@ IDENTITY_COVER_MIN := 80
 	tasks-client tasks-web tasks-typecheck tasks-lint \
 	tasks-check tasks-up tasks-dev tasks-status tasks-endpoints tasks-logs tasks-down \
 	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients \
-	tasks-android tasks-e2e tasks-browser-test tasks-proof
+	tasks-android tasks-e2e tasks-browser-test tasks-proof \
+	tasks-host-up tasks-host-down tasks-host-proof
 
 all: build openapi openapi-tv client tv-client
 
@@ -541,6 +542,15 @@ tasks-android:
 
 tasks-e2e:
 	$(MAKE) -C primer-tasks e2e
+
+tasks-host-up:
+	$(MAKE) -C primer-tasks host-up
+
+tasks-host-down:
+	$(MAKE) -C primer-tasks host-down
+
+tasks-host-proof:
+	$(MAKE) -C primer-tasks host-proof
 
 # Browser automation is intentionally gated on independent exploratory PASS;
 # this forwarding target does not author or promote Playwright prematurely.

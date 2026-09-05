@@ -18,6 +18,8 @@ PROJECT_A="${PROJECT_SLUG}-${INSTANCE_A}"
 PROJECT_B="${PROJECT_SLUG}-${INSTANCE_B}"
 BASE_DOMAIN="${STACKLANE_BASE_DOMAIN:-test}"
 TMPDIR_PROOF=""
+ROOT_A=""
+ROOT_B=""
 BACKEND_BACKUP=""
 FRONTEND_BACKUP=""
 BACKEND_RESTORED=0
@@ -33,8 +35,14 @@ EXIT_STATUS=0
 compose_for() {
   local instance=$1
   shift
-  docker compose -p "${PROJECT_SLUG}-${instance}" -f "$COMPOSE_FILE" \
-    --project-directory "$ROOT" "$@"
+  local project_dir=$ROOT
+  if [[ "$instance" == "$INSTANCE_A" && -n "$ROOT_A" ]]; then
+    project_dir=$ROOT_A
+  elif [[ "$instance" == "$INSTANCE_B" && -n "$ROOT_B" ]]; then
+    project_dir=$ROOT_B
+  fi
+  docker compose -p "${PROJECT_SLUG}-${instance}" -f "$project_dir/compose.yaml" \
+    --project-directory "$project_dir" "$@"
 }
 
 fail() {
@@ -55,18 +63,18 @@ cleanup() {
   fi
 
   # Restoration precedes teardown so a watcher can observe the original bytes.
-  if [[ -n "$BACKEND_BACKUP" ]]; then
-    cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go"
-    if cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go"; then
+  if [[ -n "$BACKEND_BACKUP" && -n "$ROOT_A" ]]; then
+    cp -- "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go"
+    if cmp -s "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go"; then
       BACKEND_RESTORED=1
     else
       echo "prove-dev: FAIL backend source was not restored exactly" >&2
       status=1
     fi
   fi
-  if [[ -n "$FRONTEND_BACKUP" ]]; then
-    cp -- "$FRONTEND_BACKUP" "$ROOT/web/src/App.tsx"
-    if cmp -s "$FRONTEND_BACKUP" "$ROOT/web/src/App.tsx"; then
+  if [[ -n "$FRONTEND_BACKUP" && -n "$ROOT_B" ]]; then
+    cp -- "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx"
+    if cmp -s "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx"; then
       FRONTEND_RESTORED=1
     else
       echo "prove-dev: FAIL frontend source was not restored exactly" >&2
@@ -119,10 +127,15 @@ assert_absent "$PROJECT_B"
 
 TMPDIR_PROOF=$(mktemp -d)
 chmod 700 "$TMPDIR_PROOF"
+ROOT_A="$TMPDIR_PROOF/src-a"
+ROOT_B="$TMPDIR_PROOF/src-b"
+mkdir -p "$ROOT_A" "$ROOT_B"
+rsync -a --exclude node_modules --exclude tmp --exclude build --exclude dist --exclude android "$ROOT/" "$ROOT_A/"
+rsync -a --exclude node_modules --exclude tmp --exclude build --exclude dist --exclude android "$ROOT/" "$ROOT_B/"
 BACKEND_BACKUP="$TMPDIR_PROOF/openapi.go"
 FRONTEND_BACKUP="$TMPDIR_PROOF/App.tsx"
-cp -- "$ROOT/internal/api/openapi.go" "$BACKEND_BACKUP"
-cp -- "$ROOT/web/src/App.tsx" "$FRONTEND_BACKUP"
+cp -- "$ROOT_A/internal/api/openapi.go" "$BACKEND_BACKUP"
+cp -- "$ROOT_B/web/src/App.tsx" "$FRONTEND_BACKUP"
 chmod 600 "$BACKEND_BACKUP" "$FRONTEND_BACKUP"
 
 # Use the product lifecycle for both instances; explicitly overriding the
@@ -130,7 +143,9 @@ chmod 600 "$BACKEND_BACKUP" "$FRONTEND_BACKUP"
 start_instance() {
   local instance=$1
   local project="${PROJECT_SLUG}-${instance}"
-  if STACKLANE_INSTANCE="$instance" "$DEV" up; then
+  local project_dir=$ROOT
+  if [[ "$instance" == "$INSTANCE_A" ]]; then project_dir=$ROOT_A; else project_dir=$ROOT_B; fi
+  if STACKLANE_INSTANCE="$instance" "$project_dir/scripts/dev" up; then
     return 0
   fi
   # `docker compose up` can create a dependency before a later service fails;
@@ -192,7 +207,9 @@ for instance in "$INSTANCE_A" "$INSTANCE_B"; do
   [[ -n "$api_container" && -n "$web_container" ]] || fail "missing public containers for $instance"
   for container in "$api_container" "$web_container"; do
     source_mount=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/src"}}{{.Source}}{{end}}{{end}}' "$container")
-    [[ "$(realpath "$source_mount")" == "$ROOT" ]] || fail "source mount for $instance is not the current worktree"
+    expected_root=$ROOT_A
+    [[ "$instance" == "$INSTANCE_B" ]] && expected_root=$ROOT_B
+    [[ "$(realpath "$source_mount")" == "$(realpath "$expected_root")" ]] || fail "source mount for $instance is not its isolated root"
     label_instance=$(docker inspect -f '{{index .Config.Labels "stacklane.instance"}}' "$container")
     label_project=$(docker inspect -f '{{index .Config.Labels "stacklane.project"}}' "$container")
     label_endpoint=$(docker inspect -f '{{index .Config.Labels "stacklane.endpoint"}}' "$container")
@@ -220,7 +237,7 @@ base_before_mutation=$(curl -fsS "http://127.0.0.1:${API_A_PORT}/health")
 # health endpoint can answer as soon as the binary starts, before fsnotify has
 # completed its baseline scan; mutating in that window can be silently missed.
 sleep 3
-python3 - "$ROOT/internal/api/openapi.go" "$BACKEND_NONCE" <<'PY'
+python3 - "$ROOT_A/internal/api/openapi.go" "$BACKEND_NONCE" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
@@ -243,8 +260,8 @@ for _ in $(seq 1 90); do
     # otherwise the restore event can be lost and the proof reports a false
     # failure while leaving the watcher on the nonce build.
     sleep 2
-    cp -- "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go"
-    cmp -s "$BACKEND_BACKUP" "$ROOT/internal/api/openapi.go" || fail "backend restore checksum mismatch"
+    cp -- "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go"
+    cmp -s "$BACKEND_BACKUP" "$ROOT_A/internal/api/openapi.go" || fail "backend restore checksum mismatch"
     BACKEND_RESTORED=1
     break
   fi
@@ -290,7 +307,7 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 [[ -f "$HMR_READY" ]] || fail "HMR browser probe did not establish baseline"
-python3 - "$ROOT/web/src/App.tsx" "$FRONTEND_NONCE" <<'PY'
+python3 - "$ROOT_B/web/src/App.tsx" "$FRONTEND_NONCE" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
@@ -309,8 +326,8 @@ for _ in $(seq 1 90); do
 done
 wait "$HMR_PID" || { cat "$TMPDIR_PROOF/hmr.log" >&2; fail "Vite HMR proof failed"; }
 cat "$TMPDIR_PROOF/hmr.log"
-cp -- "$FRONTEND_BACKUP" "$ROOT/web/src/App.tsx"
-cmp -s "$FRONTEND_BACKUP" "$ROOT/web/src/App.tsx" || fail "frontend restore checksum mismatch"
+cp -- "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx"
+cmp -s "$FRONTEND_BACKUP" "$ROOT_B/web/src/App.tsx" || fail "frontend restore checksum mismatch"
 FRONTEND_RESTORED=1
 
 # Stop only A and prove B remains healthy. Both projects and their volumes are

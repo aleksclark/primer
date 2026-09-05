@@ -34,15 +34,25 @@ export default defineConfig({
         target: proxyTarget,
         changeOrigin: true,
         secure: false,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            if (req.headers.host) proxyReq.setHeader("X-Forwarded-Host", req.headers.host);
+          });
+        },
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
       "/auth": {
         target: proxyTarget,
         changeOrigin: true,
         secure: false,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            if (req.headers.host) proxyReq.setHeader("X-Forwarded-Host", req.headers.host);
+          });
+        },
       },
       "/issuer": {
-        target: "http://test-issuer:8091",
+        target: process.env.DEV_ISSUER_PROXY_TARGET ?? "http://test-issuer:8091",
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/issuer/, ""),

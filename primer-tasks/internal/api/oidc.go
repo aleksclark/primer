@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,9 +13,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,19 +87,60 @@ func (s *Server) exchange(ctx context.Context, code, verifier, redirectURI, clie
 }
 
 func (s *Server) verifyIDToken(raw string) (identityClaims, error) {
+	return s.verifyIDTokenContext(context.Background(), raw)
+}
+
+func (s *Server) verifyIDTokenContext(ctx context.Context, raw string) (identityClaims, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
 		return identityClaims{}, fmt.Errorf("malformed id token")
 	}
+	headerRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return identityClaims{}, fmt.Errorf("malformed id token header")
+	}
+	var header struct {
+		Alg string `json:"alg"`
+		Kid string `json:"kid"`
+		Typ string `json:"typ"`
+	}
+	if err = json.Unmarshal(headerRaw, &header); err != nil || header.Alg == "" {
+		return identityClaims{}, fmt.Errorf("malformed id token header")
+	}
 	unsigned := parts[0] + "." + parts[1]
-	if s.Auth.Mode == "test" {
+	switch s.Auth.Mode {
+	case "test":
+		if header.Alg != "HS256" {
+			return identityClaims{}, fmt.Errorf("unsupported id token algorithm")
+		}
 		mac := hmac.New(sha256.New, s.Auth.IssuerSecret)
 		mac.Write([]byte(unsigned))
 		want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 		if !hmac.Equal([]byte(want), []byte(parts[2])) {
 			return identityClaims{}, fmt.Errorf("invalid id token signature")
 		}
-	} else {
+	case "oidc":
+		if header.Alg != "ES256" {
+			return identityClaims{}, fmt.Errorf("unsupported id token algorithm")
+		}
+		if header.Kid == "" {
+			return identityClaims{}, fmt.Errorf("id token missing kid")
+		}
+		sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+		if err != nil || len(sig) != 64 {
+			return identityClaims{}, fmt.Errorf("invalid id token signature")
+		}
+		key, err := s.jwksKey(ctx, header.Kid)
+		if err != nil {
+			return identityClaims{}, err
+		}
+		hash := sha256.Sum256([]byte(unsigned))
+		r := new(big.Int).SetBytes(sig[:32])
+		sigS := new(big.Int).SetBytes(sig[32:])
+		if !ecdsa.Verify(key, hash[:], r, sigS) {
+			return identityClaims{}, fmt.Errorf("invalid id token signature")
+		}
+	default:
 		return identityClaims{}, fmt.Errorf("OIDC signature verifier is not configured")
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
@@ -108,7 +153,11 @@ func (s *Server) verifyIDToken(raw string) (identityClaims, error) {
 		Sub string `json:"sub"`
 		Exp int64  `json:"exp"`
 	}
-	if err = json.Unmarshal(payload, &c); err != nil || c.Sub == "" || c.Iss != s.Auth.PublicIssuerURL || c.Exp <= time.Now().Unix() {
+	expectedIssuer := s.Auth.PublicIssuerURL
+	if expectedIssuer == "" {
+		expectedIssuer = s.Auth.IssuerURL
+	}
+	if err = json.Unmarshal(payload, &c); err != nil || c.Sub == "" || c.Iss != expectedIssuer || c.Exp <= time.Now().Unix() {
 		return identityClaims{}, fmt.Errorf("invalid id token claims")
 	}
 	validAud := false
@@ -126,6 +175,127 @@ func (s *Server) verifyIDToken(raw string) (identityClaims, error) {
 		return identityClaims{}, fmt.Errorf("invalid id token audience")
 	}
 	return identityClaims{Subject: c.Sub}, nil
+}
+
+type jwksCache struct {
+	mu      sync.Mutex
+	expires time.Time
+	keys    map[string]*ecdsa.PublicKey
+}
+
+var oidcHTTPClient = &http.Client{Timeout: 5 * time.Second}
+
+func (s *Server) jwksKey(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
+	if s.jwks == nil {
+		s.jwks = &jwksCache{}
+	}
+	s.jwks.mu.Lock()
+	defer s.jwks.mu.Unlock()
+	if time.Now().Before(s.jwks.expires) {
+		if key, ok := s.jwks.keys[kid]; ok {
+			return key, nil
+		}
+	}
+	keys, err := s.fetchOIDCKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.jwks.keys = keys
+	s.jwks.expires = time.Now().Add(5 * time.Minute)
+	key, ok := keys[kid]
+	if !ok {
+		return nil, fmt.Errorf("unknown signing kid")
+	}
+	return key, nil
+}
+
+func (s *Server) fetchOIDCKeys(ctx context.Context) (map[string]*ecdsa.PublicKey, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.Auth.IssuerURL, "/")+"/.well-known/openid-configuration", nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := oidcHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("openid discovery returned %s", res.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	if err != nil {
+		return nil, err
+	}
+	var meta struct {
+		Issuer  string `json:"issuer"`
+		JWKSURI string `json:"jwks_uri"`
+	}
+	if err = json.Unmarshal(body, &meta); err != nil || meta.JWKSURI == "" {
+		return nil, fmt.Errorf("openid discovery missing jwks_uri")
+	}
+	expectedIssuer := s.Auth.PublicIssuerURL
+	if expectedIssuer == "" {
+		expectedIssuer = s.Auth.IssuerURL
+	}
+	if meta.Issuer != "" && meta.Issuer != expectedIssuer && meta.Issuer != s.Auth.IssuerURL {
+		return nil, fmt.Errorf("openid discovery issuer mismatch")
+	}
+	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, meta.JWKSURI, nil)
+	if err != nil {
+		return nil, err
+	}
+	jwksRes, err := oidcHTTPClient.Do(jwksReq)
+	if err != nil {
+		return nil, err
+	}
+	defer jwksRes.Body.Close()
+	if jwksRes.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("jwks returned %s", jwksRes.Status)
+	}
+	jwksBody, err := io.ReadAll(io.LimitReader(jwksRes.Body, 64<<10))
+	if err != nil {
+		return nil, err
+	}
+	var set struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Crv string `json:"crv"`
+			Use string `json:"use"`
+			Alg string `json:"alg"`
+			Kid string `json:"kid"`
+			X   string `json:"x"`
+			Y   string `json:"y"`
+		} `json:"keys"`
+	}
+	if err = json.Unmarshal(jwksBody, &set); err != nil {
+		return nil, err
+	}
+	out := map[string]*ecdsa.PublicKey{}
+	for _, k := range set.Keys {
+		if k.Kty != "EC" || k.Crv != "P-256" || k.Alg != "ES256" || k.Kid == "" {
+			continue
+		}
+		if k.Use != "" && k.Use != "sig" {
+			continue
+		}
+		x, err := base64.RawURLEncoding.DecodeString(k.X)
+		if err != nil {
+			continue
+		}
+		y, err := base64.RawURLEncoding.DecodeString(k.Y)
+		if err != nil {
+			continue
+		}
+		pub := &ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).SetBytes(x), Y: new(big.Int).SetBytes(y)}
+		if !pub.Curve.IsOnCurve(pub.X, pub.Y) {
+			continue
+		}
+		out[k.Kid] = pub
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("jwks contained no usable ES256 keys")
+	}
+	return out, nil
 }
 
 // cryptoRandRead is a variable-shaped wrapper to keep the state codec easy to

@@ -275,7 +275,7 @@ func (s *Server) humaAPI() huma.API {
 		body, headers, err := legacyJSON[Pairing](ctx, s.requireParent(s.issuePairing), nil)
 		return &PairingOutput{ResponseHeaders: headers, Body: body}, err
 	})
-	register(api, huma.Operation{OperationID: "student-pair", Method: http.MethodPost, Path: "/student/pair", Errors: []int{400, 410}, SkipValidateBody: true}, func(ctx context.Context, in *PairCodeInput) (*StudentPairOutput, error) {
+	register(api, huma.Operation{OperationID: "student-pair", Method: http.MethodPost, Path: "/student/pair", Errors: []int{400, 410, 429}, SkipValidateBody: true}, func(ctx context.Context, in *PairCodeInput) (*StudentPairOutput, error) {
 		body, headers, err := legacyJSON[StudentPair](ctx, http.HandlerFunc(s.pairBrowser), in.Body)
 		return &StudentPairOutput{ResponseHeaders: headers, Body: body}, err
 	})
@@ -287,7 +287,7 @@ func (s *Server) humaAPI() huma.API {
 		body, headers, err := legacyJSON[Checklist](ctx, s.requireStudent(s.checklist), nil)
 		return &ChecklistOutput{ResponseHeaders: headers, Body: body}, err
 	})
-	register(api, huma.Operation{OperationID: "device-pair", Method: http.MethodPost, Path: "/device/pair", Errors: []int{400, 410}, SkipValidateBody: true}, func(ctx context.Context, in *PairCodeInput) (*DevicePairOutput, error) {
+	register(api, huma.Operation{OperationID: "device-pair", Method: http.MethodPost, Path: "/device/pair", Errors: []int{400, 410, 429}, SkipValidateBody: true}, func(ctx context.Context, in *PairCodeInput) (*DevicePairOutput, error) {
 		body, headers, err := legacyJSON[DevicePair](ctx, http.HandlerFunc(s.devicePair), in.Body)
 		return &DevicePairOutput{ResponseHeaders: headers, Body: body}, err
 	})

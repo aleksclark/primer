@@ -5,7 +5,7 @@ DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi clients tasks-client tasks-typecheck tasks-lint \
-	web tasks-web browser-test android e2e
+	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof
 
 check:
 	$(DEV) check
@@ -70,6 +70,19 @@ browser-test:
 android:
 	cd android && ./gradlew assembleDebug
 
-# Keep the historical E2E entry point honest: it is the gated browser
-# boundary until exploratory PASS authorizes a real runner.
-e2e: browser-test
+host-up:
+	./scripts/host-stack up
+
+host-down:
+	./scripts/host-stack down
+
+host-e2e: host-up
+	set -a; . tmp/host-stack/endpoints.env; set +a; \
+	PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 npm --prefix web run browser:promoted; \
+	status=$$?; $(MAKE) host-down; exit $$status
+
+host-proof:
+	./scripts/prove-host.sh
+
+# Default E2E is the host/non-Compose public browser path.
+e2e: host-e2e

@@ -1,3 +1,0 @@
-/dev/shm/android-picker-final-qr-1.png PNG 200x200 200x200+0+0 8-bit sRGB 4042B 0.000u 0:00.000
-qr1_decode=SUCCESS_PAYLOAD_REDACTED
-qr1_sha256=2d8dfc2bb259b5288d16f1d2bf44ebedf32f2f32581d31ef6500a0d998cbf9e0
