@@ -94,3 +94,12 @@ document authority for six implementation PRs and the later Android continuation
 - [ ] PR is merged through protected-branch flow.
 - [ ] Local main `master` matches fetched `origin/master` after backup recheck.
 - [ ] Working trees remain clean and all old commits remain remotely reachable.
+
+## Execution status (2026-09-05, this worktree)
+
+Local transplant only. No PR, merge, push, or local-`master` reset has happened, so this phase is **not** complete.
+
+- Checked out the 13 files from `4b8924b8` onto `initiative/00-wip-integration`. Did not merge local `master` and did not replay `fa9c6770`.
+- `git diff --quiet 4b8924b8 HEAD -- agent_docs/plans/primer-tasks agent_docs/plans/primer-tasks-android` and the same comparison against `impl/tasks-p6-external` both pass after transplant.
+- Relative Markdown links and required phase sections resolve in `primer-tasks/`, `primer-tasks-android/`, and `wip-integration/`.
+- `git diff origin/master --` the five `fa9c6770` paths is empty. Remaining Phase 02 gates (feature PR, GitHub checks, protected merge, local `master` reset) are blocked until a later editor is authorized for remote operations.

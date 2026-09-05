@@ -90,10 +90,50 @@ history.
 
 ## Completion Gate
 
-- [ ] Both immutable backup refs resolve to the exact recorded SHAs on GitHub.
-- [ ] Every local branch and registered worktree has a disposition.
-- [ ] `fa9c6770` and `4b8924b8` have distinct patch-equivalence evidence.
-- [ ] All non-equivalent leaves remain recoverable.
-- [ ] `deploy/.env` is ignored, untracked, mode 0600, and never inspected.
-- [ ] No branch/worktree cleanup or master rewrite occurred prematurely.
-- [ ] Inventory commands and `git status --short --branch` are recorded.
+- [x] Both immutable backup refs resolve to the exact recorded SHAs on GitHub.
+- [x] Every local branch and registered worktree has a disposition.
+- [x] `fa9c6770` and `4b8924b8` have distinct patch-equivalence evidence.
+- [x] All non-equivalent leaves remain recoverable.
+- [x] `deploy/.env` is ignored, untracked, mode 0600, and never inspected.
+- [x] No branch/worktree cleanup or master rewrite occurred prematurely.
+- [x] Inventory commands and `git status --short --branch` are recorded.
+
+## Execution status (2026-09-05, this worktree)
+
+Independently re-verified without pruning, deleting, renaming, or unregistering anything. No history rewrite. Secret-file values were never read, hashed, counted, grepped, expanded, or printed.
+
+| Check | Result |
+|---|---|
+| `git fetch --no-prune` `origin/master` | still `b7a2027c24fbf63be0c4473f15dfcc5911803079` |
+| `git ls-remote` `backup/local-master-pre-integration-20260905` | `4b8924b800a9090cc1d89d0d434144400b53008b` |
+| `git ls-remote` `backup/tasks-p6-external-pre-integration-20260905` | `d6e89d4abad814c94f89fe857417059ef391eb6c` |
+| `git cherry -v origin/master master` | `- fa9c6770` (patch-id equal to merged `630f2fce`); `+ 4b8924b8` unique |
+| `git rev-list --left-right --count origin/master...master` | `12 2` |
+| `stat -c '%a %U:%G %n'` on main-checkout `deploy/.env` | mode `600`; `git ls-files` empty; `git check-ignore -v` matches `.gitignore` `.env` |
+
+### Branch / worktree dispositions (no archival)
+
+| Ref / worktree | Tip | Disposition |
+|---|---|---|
+| local `master` @ `/home/aleks/work/projects/primer` | `4b8924b8` | preserve; transplant only unique plan commit |
+| `impl/tasks-p6-external` | `d6e89d4a` | active donor |
+| `impl/tasks-p6-db-concurrency` | `325541b2` | Tasks leaf; diverges at `e196dd2c`; `git cherry` `-` vs donor |
+| `impl/tasks-p6-fixture-security` | `fff6c1c5` | Tasks leaf; diverges at `e196dd2c`; both unique commits `git cherry` `-` vs donor |
+| `impl/tasks-p6-web-clients` | `b5c9f87d` | Tasks leaf; diverges at `e196dd2c`; `git cherry` `-` vs donor |
+| `impl/tasks-p6-protocol-worker` | `7b0231c3` | Tasks leaf; diverges at `e196dd2c`; `06c962c0` is `-`, hardening `7b0231c3` is `+` vs donor. Keep recoverable until Phase 12 proves semantic supersession |
+| `agents-phase1-runtime` | `1b967b91` | possible coverage/runtime donor only; not a merge candidate |
+| `agents-phase1-foundation` | `09c0d7a5` | possible coverage-test donor only; different test layout; never merge wholesale |
+| `impl/S11-materialization` | `486e647d` | Studio; `git cherry` `-` vs `origin/master` (PR #64) |
+| `impl/S12-workflow` | `976a254c` | Studio ancestor of `origin/master` (behind 8) |
+| `impl/s12-workflow` | `3b5993dd` | Studio ancestor of `origin/master` (behind 1) |
+| `impl/s14-outbox-webhooks` | `f2b3121d` | Studio ancestor of `origin/master` (behind 6) |
+| worktree `.worktrees/impl-S11-materialization` | clean `impl/S12-workflow` @ `976a254c` | registered stale clean worktree; archive only in Phase 12 |
+| `/tmp/primer-tasks-readonly` | detached `d6e89d4a` | read-only donor checkout; leave registered |
+| `initiative/00-wip-integration` | this branch | active integration editor |
+| `initiative/01-authstack`, `04-studio-completion` | `b7a2027c` | intentionally retained successor worktrees |
+| `initiative/02-ultracore`, `03-forgejo-migration` | unique planning tips | intentionally retained successor worktrees |
+| `chore/go-1-26-6-clean` (`a0ae7d5c`) / `chore/go-1-26-6` | unique vs master | PR #66 reassessment later; not a merge candidate now |
+| `primer-standalone-task-verification-plan` | unique `ec36e559` | preserve; not an integration donor |
+| remaining historical product branches | ancestors of `origin/master` | merged/ancestor; archive only in Phase 12 |
+
+`git status --short --branch` in this worktree was clean on `initiative/00-wip-integration` before the Phase 02 transplant. Main checkout: `master...origin/master [ahead 2, behind 12]`, clean. Stale S12 worktree: clean and behind 8.

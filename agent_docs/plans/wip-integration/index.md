@@ -18,6 +18,11 @@ merged only after its required checks are green, and is re-based/re-tested if
 Evidence was collected on 2026-09-05 after fetching GitHub heads and PR refs.
 The authoritative baseline is `origin/master` at
 `b7a2027c24fbf63be0c4473f15dfcc5911803079` (PR #69).
+Phase 01 was independently re-verified in this worktree (exact backup object IDs,
+`git cherry` `- fa9c6770` / `+ 4b8924b8`, branch/worktree dispositions, ignored
+`deploy/.env` mode 0600). Phase 02 has a local plan transplant only; it is not
+complete until a feature PR merges and local `master` is reset to fetched
+`origin/master`.
 
 ### Refs and WIP
 
