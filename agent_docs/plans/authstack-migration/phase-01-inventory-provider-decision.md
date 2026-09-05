@@ -1,10 +1,10 @@
-# Phase 1: Integrated inventory and provider decision
+# Phase 1: Integrated inventory and Clerk decision freeze
 
 ## Goal
 
-Establish the only safe baseline for the migration: the exact protected-master tip containing the integrated Primer Tasks implementation and baseline repairs, a complete human/service/device trust-boundary inventory, and an explicit Clerk-or-ZITADEL decision. This phase changes no production authentication behavior. It freezes canonical identity, tenant ownership, account-linking, browser-session, provider-provisioning, and rollback decisions so later phases do not improvise security policy.
+Establish the only safe baseline for the migration: the exact protected-master tip containing the integrated Primer Tasks implementation and baseline repairs, a complete human/service/device trust-boundary inventory, and a verified Clerk-specific contract. This phase changes no production authentication behavior. It freezes canonical Clerk identity, Organizations tenancy, account linking, browser/BFF sessions, M2M service tokens, provider provisioning, dual-run, configuration, and rollback so later phases do not improvise security policy.
 
-Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70 merged as `cac90a151459a2fc60d506839424155f7f87ef80`, but that merge contains plans only: `primer-tasks/` is absent and WIP phases 3–13 remain open. Provider-neutral research and this plan may land now; Phase 1 acceptance and all production auth implementation require the later exact Tasks-integrated handoff tip.
+The user selected Clerk on 2026-09-05. Authstack's Clerk guide was read completely together with the skill, Go integration guide, and verification guide; the ZITADEL guide remains intentionally unread. Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70 merged as `cac90a151459a2fc60d506839424155f7f87ef80`, but that merge contains plans only: `primer-tasks/` is absent and WIP phases 3–13 remain open. Clerk planning may land now; Phase 1 acceptance and production auth implementation require the later exact Tasks-integrated handoff tip.
 
 ## BDD Success Criteria
 
@@ -24,18 +24,18 @@ Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70
 - **And** every outbound authenticated call records whether it currently forwards, reuses, pre-mints, or independently obtains credentials
 - **And** unknown boundaries block Phase 2 rather than being omitted.
 
-#### Scenario: Provider is chosen explicitly
+#### Scenario: Clerk decision is applied exactly
 
-- **Given** authstack supports Clerk and ZITADEL and current Primer uses Stytch
-- **When** the provider decision gate is completed
-- **Then** exactly one provider is selected with a canonical issuer URL and subject semantics
-- **And** provider-side applications/organizations/projects, redirect URIs, browser origins, resource audiences, M2M clients, key rotation, outage posture, and secret custody are listed
-- **And** exactly the selected provider guide is read
-- **And** the unselected guide is not used to create a dual-provider abstraction.
+- **Given** the user selected Clerk and the authstack Clerk guide is authoritative
+- **When** the Clerk decision gate is reviewed
+- **Then** one Clerk application with Organizations, an exact issuer/JWKS source, exact browser origins/authorized parties, per-product session audiences/templates, and caller-specific M2M machines/audiences are listed
+- **And** human canonical subject is Clerk session JWT `sub`, service canonical subject is verified `machine_id`, and both are paired with the exact issuer
+- **And** only JWT session/M2M credentials are accepted; opaque Clerk credentials and OAuth client credentials remain out of scope
+- **And** the unread ZITADEL guide is not used to create a dual-provider abstraction.
 
 #### Scenario: Account linking never relies on email
 
-- **Given** an existing Primer Identity account or product-local educator/member and a selected-provider identity
+- **Given** an existing Primer Identity account or product-local educator/member and a Clerk identity
 - **When** migration proposes a canonical link
 - **Then** the link is based on explicit administrator/user proof and exact old/new issuer+subject values
 - **And** same-email identities remain distinct unless an explicit audited link is approved
@@ -43,7 +43,7 @@ Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70
 
 #### Scenario: Tenant ownership remains local
 
-- **Given** provider organization/tenant claims and existing LMS educator, Studio workspace, Tasks tenant, or TV admin state
+- **Given** a verified active Clerk Organization and existing LMS educator, Studio workspace, Tasks tenant, or TV admin state
 - **When** the ownership model is frozen
 - **Then** provider tenant claims are verified context, not automatic product membership
 - **And** each product remains authoritative for local roles and resource membership
@@ -51,7 +51,7 @@ Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70
 
 #### Scenario: Rollback is operable before cutover
 
-- **Given** no provider-specific production traffic has been cut over
+- **Given** no Clerk production traffic has been cut over
 - **When** operators execute the documented rollback rehearsal
 - **Then** existing Primer Identity/Stytch and product-local session behavior remains available
 - **And** additive mapping data can be ignored without deletion
@@ -64,11 +64,12 @@ Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70
 3. Produce a checked policy matrix keyed by stable route group or gRPC full method—not informal URL comments. Include public probes, human-only, service-only, mixed-but-explicit, and device-only boundaries. Identify routes currently left inert when config is absent.
 4. Inventory persisted identity fields and constraints: LMS `educators.identity_subject` and parent sessions; Studio membership `subject_ref`; Tasks parent/tenant/auth-state/session records; TV human admin membership gap; Primer Agents owner subject references; Primer Identity accounts/external identities/grants/sessions.
 5. Choose whether products retain stable local person/member IDs behind an additive canonical link table (preferred for rollback) or migrate ownership columns directly. If direct migration is proposed, specify reversible migrations and foreign-key ordering. Canonical external identity remains issuer+subject either way.
-6. Create the provider decision record in this phase file or a linked execution artifact. Compare only facts needed to decide: hosted vs self-managed responsibility, browser session/BFF fit, organization/tenant claim behavior, M2M flow, account export/import, key rotation, local development, outage/backup obligations, and operational cost. Do not read both provider implementation guides as a substitute for selection.
-7. After the user or authoritative integrated architecture selects the provider, read exactly one of authstack `docs/agent_skill/clerk.md` or `docs/agent_skill/zitadel.md` completely and update the policy/config checklist with its exact credential kinds and setup.
-8. Define rollout flags as per-boundary states (`legacy`, `shadow`, `dual`, `authstack`, and optionally `rollback`) rather than one global switch. Flags may select composition wiring; they must not weaken validation or create test-only authentication.
-9. Define telemetry that contains policy name, outcome, credential kind, issuer identifier, and request ID without raw tokens, refresh tokens, secrets, provider payloads, email, or unnecessary claims.
-10. Commit the complete plan and decision/inventory before delegating production implementation. The L2 sequence begins only after this commit and predecessor completion.
+6. Apply the frozen Clerk decisions from `index.md`: exact `CLERK_ISSUER`; configured JWKS URL/public-key path; human `sub`; service `machine_id`; active Organization as verified `TenantID`; product-local tenant/membership authority; session-only human boundaries; JWT M2M-only service boundaries; exact `azp`; per-product audiences/session templates; opaque credential/RemoteVerifier exclusion; and resource-server operation without Clerk secret keys.
+7. Qualify the application-owned BFF/session-establishment design against a Clerk development instance. Frontend session JWTs are memory-only and submitted once if Clerk SDK mechanics require it; BFF state is durable/encrypted and browser cookies opaque/HttpOnly/Secure/host-scoped. Document exact organization-switch/session-refresh/logout mechanics before code cutover.
+8. Inventory each Clerk Machine→target audience and the application-owned `auth.TokenSource`/secret-manager rotation path. Do not use `oauth.NewClientCredentialsTokenSource`: Clerk OAuth client credentials are unsupported by authstack's Clerk adapter. Do not enable opaque M2M/API keys or `RemoteVerifier`.
+9. Define rollout flags as per-boundary states (`legacy`, `shadow`, `dual`, `clerk`, and `rollback`) rather than one global switch. Shadow cannot grant; dual grants only when legacy and Clerk map to the same approved local actor/membership. Flags may select composition wiring; they must not weaken validation or create test-only authentication.
+10. Define telemetry that contains policy name, outcome, credential kind, issuer identifier, and request ID without raw tokens, refresh tokens, secrets, Clerk response bodies, email, or unnecessary claims.
+11. Commit the complete plan and Clerk decision/inventory before delegating production implementation. The L2 sequence begins only after this commit, the Tasks-integrated handoff, and refreshed inventory.
 
 ## End-to-End Test Plan
 
@@ -78,7 +79,7 @@ Wave-00 orchestrator `b6ce6b31-ea58-4f00-935d-d71704fc7e16` completed and PR #70
 - Exercise the existing rollback path with credential-free/local fixtures: old parent login/session, Primer Identity JWT validation fixture, Studio test issuer/BFF fixture, and service shared-secret fixture must remain operational because this phase has no cutover.
 - Validate database inventories against disposable PostgreSQL instances using existing migration/testcontainer harnesses. Query only schema/fixture identities generated by tests; never inspect production/local secrets.
 
-Permitted fakes in this phase are existing cryptographic test issuers and HTTP provider fixtures used to document current behavior. They do not prove a live selected provider or production readiness.
+Permitted fakes in this phase are existing cryptographic test issuers and Clerk JWT/JWKS fixtures used to document current behavior. They do not prove a live Clerk application, Organization switch, or M2M flow.
 
 ## Anti-Cheating Audit
 
@@ -87,7 +88,7 @@ Permitted fakes in this phase are existing cryptographic test issuers and HTTP p
 - Inspect all `Authorization`, `X-Service-Token`, `X-Admin-Key`, cookie, token-source, and gRPC metadata writes for forwarding/reuse.
 - Verify Tasks Android/browser pairing and LMS/TV pairing stores are classified as device-local, not mislabeled as provider sessions.
 - Reject email, display name, provider role, or organization name as canonical-link keys.
-- Confirm provider ambiguity is not resolved by silently choosing whichever adapter is easier to test.
+- Confirm no ZITADEL/generic second-provider code is introduced and no Clerk guide requirement is silently replaced by easier generic OIDC behavior.
 - Confirm no secret values, environment contents, tokens, provider responses, or local credential files appear in plan artifacts or command logs.
 - Check rollback retains databases, keys, client registrations, grants, and code required for the legacy path.
 
@@ -96,8 +97,9 @@ Permitted fakes in this phase are existing cryptographic test issuers and HTTP p
 - [x] Initial `paseo wait` succeeded and plans-only PR #70 merge `cac90a15` is recorded and ancestral.
 - [ ] The later WIP Phase 13 handoff containing integrated `primer-tasks/` and baseline repairs is recorded and ancestral.
 - [ ] The index inventory is refreshed against integrated Tasks and every trust boundary has an owner and policy classification.
-- [ ] Clerk or ZITADEL is selected explicitly; exactly one provider guide has been read and cited.
-- [ ] Canonical-ID/linking, tenant ownership, browser sessions, provider setup, data migration, observability, and rollback are frozen.
+- [x] Clerk is selected explicitly; the Clerk guide has been read completely and the ZITADEL guide remains unread.
+- [x] Clerk canonical user/machine IDs, Organizations tenancy, browser/BFF sessions, JWT M2M, linking, dual-run, configuration, JWKS rotation, and rollback decisions are frozen in `index.md`.
+- [ ] Those frozen decisions are qualified against a real Clerk development application after Tasks integration.
 - [ ] Baseline public-boundary and real-Postgres tests pass or failures are recorded as blockers.
 - [ ] Device systems are explicitly excluded from authstack.
 - [ ] The full phased plan passes link/section/traceability validation and is committed before implementation delegation.

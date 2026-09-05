@@ -24,7 +24,7 @@ Device tests begin in Phase 2 and run throughout cutovers; this dedicated phase 
 - **Then** TV stores the local token hash/binding and device routes work
 - **And** code replay/concurrent second claim fails
 - **And** pairing-code rotation or revocation invalidates the old token and client returns to pairing
-- **And** no selected-provider identity is created for the device.
+- **And** no Clerk user, Organization membership, or Machine identity is created for the device.
 
 #### Scenario: Tasks student pairing lifecycle is unchanged
 
@@ -44,7 +44,7 @@ Device tests begin in Phase 2 and run throughout cutovers; this dedicated phase 
 
 #### Scenario: Authstack identities cannot bypass pairing
 
-- **Given** valid selected-provider human sessions/OAuth tokens and M2M tokens for all Primer audiences
+- **Given** valid Clerk human session JWTs and Clerk M2M JWTs for all Primer audiences
 - **When** they are presented directly to LMS `/student/*`, TV catalog/playback/device, and Tasks student/device/WebSocket routes
 - **Then** every route requiring a local device credential rejects them
 - **And** human authorization to issue/revoke a pairing code does not itself grant device access
@@ -65,7 +65,7 @@ Device tests begin in Phase 2 and run throughout cutovers; this dedicated phase 
 4. Preserve TV pairing code/token hash/revoked/paired fields and Android unauthorized→clear pairing→re-pair behavior. Remove only admin shared-key behavior, not TV device bearer parsing.
 5. Preserve Tasks pairing/auth migrations, browser/Android student sessions, encrypted token store, WebSocket bearer handling, archive/revoke semantics, and tenant/student composite constraints.
 6. Add a reusable compatibility matrix test per service that mints/creates credentials through real public pairing and authstack flows, then presents them to representative route classes. Never use string literals alone as proof of local binding.
-7. Ensure OpenAPI/security docs distinguish selected-provider browser/M2M schemes from opaque local device schemes. Generated clients must not reuse a generic global bearer provider across admin and device clients.
+7. Ensure OpenAPI/security docs distinguish Clerk session/M2M JWT schemes from opaque local device schemes. Generated clients must not reuse a generic global bearer provider across admin and device clients.
 8. Add logging/redaction tests around pairing failures, unauthorized requests, Android logs, broker IPC, and WebSocket errors. Credentials/QR material must not appear in logs or URLs.
 9. Benchmark or race-test concurrent code claim/revoke paths where existing guarantees depend on transactional one-winner semantics.
 

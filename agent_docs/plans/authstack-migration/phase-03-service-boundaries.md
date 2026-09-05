@@ -41,13 +41,13 @@ Service migration precedes human cutover so background work and downstream calls
 - **And** missing method policy returns `Internal`
 - **And** no unregistered read/ack method bypasses authorization.
 
-#### Scenario: Credential acquisition is cached by audience and safely retried
+#### Scenario: Clerk machine tokens are isolated and safely rotated
 
 - **Given** a service makes repeated calls to one destination and then another
-- **When** authstack obtains client-credentials tokens
-- **Then** valid tokens are reused only for the same audience
-- **And** expiry refreshes them without forwarding old inbound credentials
-- **And** provider outage yields bounded unavailable/retry behavior without logging secrets or dropping durable work.
+- **When** its application-owned `auth.TokenSource` loads Clerk-issued JWT M2M credentials
+- **Then** each JWT contains verified `machine_id` and only the intended target audience
+- **And** tokens are never cached/reused across audiences and overlap rotation replaces them without forwarding inbound credentials
+- **And** missing/expired/rotation/provider-delivery failure yields bounded unavailable/retry behavior without logging secrets or dropping durable work.
 
 #### Scenario: Legacy service path can roll back during the window
 
@@ -60,8 +60,8 @@ Service migration precedes human cutover so background work and downstream calls
 ## Implementation Instructions
 
 1. Complete the exact caller→target inventory, including TV→LMS, content-ingest→TV, LMS→Primer Agents, Studio→Primer Agents if active, LMS→Studio gRPC/HTTP if active, MCP service clients, and any Tasks integrations added by wave 00. Do not migrate third-party API keys (Bedrock, Jellyfin, Radarr/Sonarr, yt-dlp) as though they were Primer service identity.
-2. Provision one selected-provider M2M client or workload identity per caller with one or explicitly bounded audiences/scopes. Record provider object names and secret-manager references, never values. Avoid sharing one “Primer service” credential.
-3. Construct `oauth.NewClientCredentialsTokenSource` at caller composition roots. Use `authhttp.TokenTransport` and `authgrpc.UnaryClientInterceptor` with explicit audiences. Replace existing authorization; never copy inbound HTTP headers or gRPC metadata.
+2. Provision one Clerk Machine identity per Primer caller and one target audience per issued JWT M2M credential/template. Require verified `machine_id`; record Clerk object names and secret-manager/workload references, never values. Avoid sharing one “Primer service” machine or token across audiences.
+3. Construct an application-owned `auth.TokenSource` at caller composition roots that reads/refreshes the exact target-specific Clerk M2M JWT through the normal secret/workload delivery mechanism and supports overlap rotation. Clerk OAuth client credentials are unsupported, so do not use `oauth.NewClientCredentialsTokenSource`. Install `authhttp.TokenTransport` and authstack gRPC client interceptors with explicit audiences so they replace existing authorization; never copy inbound HTTP headers or gRPC metadata.
 4. Replace LMS `FailClosedSharedSecretGuard` on instruction ingest with authstack M2M authentication plus permission authorization. Keep idempotency and entertainment rejection independent of authentication.
 5. Split TV's mixed `requireAdmin` behavior into human-admin and machine-admin route policies. Add local TV human membership separately; migrate content-ingest and other machine callers off `X-Admin-Key`. Do not expose pairing-code issuance to broad service permission by accident.
 6. Replace `server/internal/remoteagent.EnvTokenSource` and generated-client raw bearer injection with an authstack token transport/source. Retain the invariant that LMS product authorization occurs before an Agents call and preserve no-duplicate-after-acceptance behavior.
@@ -74,15 +74,15 @@ Service migration precedes human cutover so background work and downstream calls
 ## End-to-End Test Plan
 
 - Use real service processes and real PostgreSQL stores to run TV reporter→LMS instruction ingest. Complete/retry the same viewing and assert one instruction log and one TV reporting ledger entry. Repeat with wrong audience, human token, TV device token, and missing permission.
-- Run content-ingest plan/apply against the TV test process with a selected-provider M2M fixture. Assert allowed catalog operation succeeds and browser-admin/device-only operations deny.
+- Run content-ingest plan/apply against the TV test process with a Clerk JWT M2M fixture containing `machine_id`. Assert allowed catalog operation succeeds and browser-admin/device-only operations deny.
 - Run LMS→Primer Agents through the generated client and real authstack outbound transport. Seed an inbound parent/device authorization header and capture the downstream request in a controlled TLS test target; assert it contains the service token for `primer-agents`, not inbound material.
 - Start Studio gRPC and call every full method with missing, malformed, valid-permitted, valid-forbidden, wrong-audience, and human credentials. Include stream interceptors if any streams exist. Assert canonical gRPC codes and missing-policy failure.
 - Exercise provider/token-endpoint outage with durable TV reporting or job rows: work remains queued/retryable, retries are bounded, and recovery sends exactly once/idempotently.
-- Run concurrent calls to two audiences and verify token-source requests/caches do not cross audiences.
+- Run concurrent calls to two audiences and verify Clerk machine-token sources/secret references do not cross audiences; rotate one target token and prove the other is unchanged.
 - Run legacy rollback for one boundary while another remains authstack, proving flags are independent.
 - Execute focused service tests, `make test`, `make tv-test`, `make studio-test`, Primer Agents tests, `make tasks-test`, race tests around token cache/reporter/jobs, generated client checks, and coverage gates.
 
-A local selected-provider token endpoint or authstack provider fixture may test deterministic acquisition/replacement. At least one real development-provider M2M flow is required before Phase 3 completion.
+A local Clerk JWT/JWKS fixture may test deterministic verification/replacement. At least one real Clerk development M2M issuance, target call, expiry/rotation, and wrong-audience flow is required before Phase 3 completion.
 
 ## Anti-Cheating Audit
 
