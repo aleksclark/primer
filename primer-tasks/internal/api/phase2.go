@@ -340,9 +340,63 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var tenant, rev string
-	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE id=$1 AND student_id=$2 AND status IN ('pending','in_progress') RETURNING tenant_id,revision_id`, oid, id).Scan(&tenant, &rev); e != nil {
+	var current string
+	if e = tx.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE id=$1 AND student_id=$2 FOR UPDATE`, oid, id).Scan(&current); e != nil {
 		problem(w, 404, "not_found", "occurrence unavailable")
+		return
+	}
+	if current == string(domain.OccurrenceInProgress) {
+		if e = tx.Commit(r.Context()); e != nil {
+			problem(w, 500, "internal", e.Error())
+			return
+		}
+		jsonOK(w, map[string]string{"id": oid, "status": current})
+		return
+	}
+	if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceInProgress) {
+		problem(w, 409, "conflict", "occurrence cannot be started")
+		return
+	}
+	var n int
+	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='in_progress' WHERE id=$1 AND student_id=$2 AND status=$3 RETURNING 1`, oid, id, current).Scan(&n); e != nil {
+		problem(w, 409, "conflict", "occurrence changed concurrently")
+		return
+	}
+	if e = tx.Commit(r.Context()); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	jsonOK(w, map[string]string{"id": oid, "status": "in_progress"})
+}
+
+func (s *Server) submitOccurrence2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	oid := chi.URLParam(r, "id")
+	tx, e := s.DB.Begin(r.Context())
+	if e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var tenant, rev, current string
+	if e = tx.QueryRow(r.Context(), `SELECT tenant_id,revision_id,status FROM task_occurrences WHERE id=$1 AND student_id=$2 FOR UPDATE`, oid, id).Scan(&tenant, &rev, &current); e != nil {
+		problem(w, 404, "not_found", "occurrence unavailable")
+		return
+	}
+	if current == string(domain.OccurrenceAwaitingVerification) {
+		if e = tx.Commit(r.Context()); e != nil {
+			problem(w, 500, "internal", e.Error())
+			return
+		}
+		jsonOK(w, map[string]string{"id": oid, "status": current})
+		return
+	}
+	if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceAwaitingVerification) {
+		problem(w, 409, "conflict", "occurrence cannot be submitted")
+		return
+	}
+	var n int
+	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE id=$1 AND student_id=$2 AND status=$3 RETURNING 1`, oid, id, current).Scan(&n); e != nil {
+		problem(w, 409, "conflict", "occurrence changed concurrently")
 		return
 	}
 	var req string
@@ -350,8 +404,12 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 		problem(w, 409, "blocked", "verification requirement unavailable")
 		return
 	}
-	_, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1) ON CONFLICT DO NOTHING`, uuid.New(), tenant, oid, req)
-	if e != nil {
+	var next int
+	if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, tenant, oid).Scan(&next); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, uuid.New(), tenant, oid, req, next); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
@@ -361,6 +419,7 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 	}
 	jsonOK(w, map[string]string{"id": oid, "status": "awaiting_verification"})
 }
+
 func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	oid := chi.URLParam(r, "id")
 	var in DecisionInput2
@@ -373,9 +432,33 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var tenant, attempt string
-	if e = tx.QueryRow(r.Context(), `SELECT tenant_id,id FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1 FOR UPDATE`, sc.Tenant, oid).Scan(&tenant, &attempt); e != nil {
-		problem(w, 409, "blocked", "student must start the occurrence first")
+	var current string
+	if e = tx.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, sc.Tenant, oid).Scan(&current); e != nil {
+		problem(w, 404, "not_found", "occurrence not found")
+		return
+	}
+	var attempt, attemptStatus string
+	e = tx.QueryRow(r.Context(), `SELECT id,status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1 FOR UPDATE`, sc.Tenant, oid).Scan(&attempt, &attemptStatus)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if !errors.Is(e, pgx.ErrNoRows) && attemptStatus != "open" {
+		var decisionID string
+		var accepted bool
+		if lookup := tx.QueryRow(r.Context(), `SELECT id,accepted FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2`, sc.Tenant, attempt).Scan(&decisionID, &accepted); lookup != nil {
+			problem(w, 409, "conflict", "occurrence is not awaiting a parent decision")
+			return
+		}
+		if e = tx.Commit(r.Context()); e != nil {
+			problem(w, 500, "internal", e.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": current})
+		return
+	}
+	if current != string(domain.DecisionExpectedStatus()) || errors.Is(e, pgx.ErrNoRows) || attemptStatus != "open" {
+		problem(w, 409, "conflict", "occurrence is not awaiting a parent decision")
 		return
 	}
 	var decisionID string
@@ -388,19 +471,22 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	status := "pending"
+	next := domain.OccurrencePending
+	attemptNext := "rejected"
 	if accepted {
-		status = "completed"
+		next = domain.OccurrenceCompleted
+		attemptNext = "accepted"
 	}
-	attemptStatus := "rejected"
-	if accepted {
-		attemptStatus = "accepted"
-	}
-	if _, e = tx.Exec(r.Context(), `UPDATE verification_attempts SET status=$1 WHERE tenant_id=$2 AND id=$3`, attemptStatus, sc.Tenant, attempt); e != nil {
-		problem(w, 500, "internal", e.Error())
+	if !domain.CanTransition(domain.OccurrenceStatus(current), next) {
+		problem(w, 409, "conflict", "occurrence cannot accept this decision")
 		return
 	}
-	if _, e = tx.Exec(r.Context(), `UPDATE task_occurrences SET status=$1 WHERE tenant_id=$2 AND id=$3 AND status<>'canceled'`, status, sc.Tenant, oid); e != nil {
+	var n int
+	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status=$1 WHERE tenant_id=$2 AND id=$3 AND status=$4 RETURNING 1`, string(next), sc.Tenant, oid, current).Scan(&n); e != nil {
+		problem(w, 409, "conflict", "occurrence changed concurrently")
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE verification_attempts SET status=$1 WHERE tenant_id=$2 AND id=$3 AND status='open'`, attemptNext, sc.Tenant, attempt); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
@@ -408,52 +494,87 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": status})
+	jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": string(next)})
 }
 func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	oid := chi.URLParam(r, "id")
-	var occurrenceStatus string
-	if e := s.DB.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2`, sc.Tenant, oid).Scan(&occurrenceStatus); e != nil {
-		problem(w, 404, "not_found", "occurrence not found")
-		return
-	}
-	if occurrenceStatus != "pending" {
-		problem(w, 409, "conflict", "retry requires a pending occurrence")
-		return
-	}
-	var latestStatus string
-	if e := s.DB.QueryRow(r.Context(), `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1`, sc.Tenant, oid).Scan(&latestStatus); e != nil || latestStatus != "rejected" {
-		problem(w, 409, "conflict", "retry requires a rejected attempt")
-		return
-	}
-	var n int
-	e := s.DB.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n)
+	tx, e := s.DB.Begin(r.Context())
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	var req string
-	if e = s.DB.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY vr.ordinal LIMIT 1`, sc.Tenant, oid).Scan(&req); e != nil {
+	defer tx.Rollback(r.Context())
+	var occurrenceStatus string
+	if e = tx.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, sc.Tenant, oid).Scan(&occurrenceStatus); e != nil {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
 	}
-	_, e = s.DB.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, uuid.New(), sc.Tenant, oid, req, n)
-	if e != nil {
+	if occurrenceStatus != string(domain.OccurrencePending) {
+		problem(w, 409, "conflict", "retry requires a pending occurrence")
+		return
+	}
+	var latestStatus string
+	if e = tx.QueryRow(r.Context(), `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1 FOR UPDATE`, sc.Tenant, oid).Scan(&latestStatus); e != nil || latestStatus != "rejected" {
+		problem(w, 409, "conflict", "retry requires a rejected attempt")
+		return
+	}
+	var n int
+	if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	var req string
+	if e = tx.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY vr.ordinal LIMIT 1`, sc.Tenant, oid).Scan(&req); e != nil {
+		problem(w, 404, "not_found", "occurrence not found")
+		return
+	}
+	if _, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, uuid.New(), sc.Tenant, oid, req, n); e != nil {
 		problem(w, 409, "conflict", "retry is not permitted")
 		return
 	}
-	_, _ = s.DB.Exec(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2 AND status='pending'`, sc.Tenant, oid)
+	var updated int
+	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2 AND status='pending' RETURNING 1`, sc.Tenant, oid).Scan(&updated); e != nil {
+		problem(w, 409, "conflict", "occurrence changed concurrently")
+		return
+	}
+	if e = tx.Commit(r.Context()); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
 	jsonOK(w, map[string]any{"occurrenceId": oid, "attemptNumber": n, "status": "awaiting_verification"})
 }
 func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc scope, status string) {
 	oid := chi.URLParam(r, "id")
-	var n int
-	e := s.DB.QueryRow(r.Context(), `UPDATE task_occurrences SET status=$1 WHERE tenant_id=$2 AND id=$3 AND status NOT IN ('completed','canceled') RETURNING 1`, status, sc.Tenant, oid).Scan(&n)
-	if errors.Is(e, pgx.ErrNoRows) {
+	tx, e := s.DB.Begin(r.Context())
+	if e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var current string
+	if e = tx.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, sc.Tenant, oid).Scan(&current); e != nil {
+		if errors.Is(e, pgx.ErrNoRows) {
+			problem(w, 404, "not_found", "occurrence not found")
+			return
+		}
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if current == status || !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceStatus(status)) {
 		problem(w, 409, "conflict", "occurrence is terminal or unavailable")
 		return
 	}
+	var n int
+	e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status=$1 WHERE tenant_id=$2 AND id=$3 AND status=$4 RETURNING 1`, status, sc.Tenant, oid, current).Scan(&n)
+	if errors.Is(e, pgx.ErrNoRows) {
+		problem(w, 409, "conflict", "occurrence changed concurrently")
+		return
+	}
 	if e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if e = tx.Commit(r.Context()); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
@@ -488,6 +609,9 @@ func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.
 func (s *Server) studentStart2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	s.startOccurrence2(w, r, id)
 }
+func (s *Server) studentSubmit2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	s.submitOccurrence2(w, r, id)
+}
 func (s *Server) studentListWrapper(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	s.studentOccurrences2(w, r, id)
 }
@@ -499,6 +623,9 @@ func (s *Server) deviceDetailWrapper(w http.ResponseWriter, r *http.Request, id 
 }
 func (s *Server) deviceStartWrapper(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	s.startOccurrence2(w, r, id)
+}
+func (s *Server) deviceSubmitWrapper(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	s.submitOccurrence2(w, r, id)
 }
 
 // reviseTask2 appends a revision; it never mutates the published revision.

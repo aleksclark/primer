@@ -106,36 +106,85 @@ func weekday(v string) (time.Weekday, error) {
 	}
 	return 0, fmt.Errorf("invalid weekday")
 }
+
 func (s Spec) Occurrences(horizon time.Time) []time.Time {
-	loc, _ := time.LoadLocation(s.Timezone)
-	cur := s.Start.In(loc)
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return nil
+	}
+	start := s.Start.In(loc)
+	year, month, day := start.Date()
+	hour, minute, second := start.Clock()
+	nano := start.Nanosecond()
 	out := []time.Time{}
 	n := 0
-	for !cur.After(horizon.In(loc)) {
-		if s.Count > 0 && n >= s.Count {
-			break
+	for offset := 0; offset < 4000; offset++ {
+		instants := civilInstants(loc, year, month, day, hour, minute, second, nano, offset)
+		if len(instants) == 0 {
+			continue
 		}
-		if s.Until != nil && cur.After(*s.Until) {
-			break
-		}
-		include := s.Frequency == "ONCE" || s.Frequency == "DAILY" || contains(s.ByWeekday, cur.Weekday())
-		if include {
+		for _, cur := range instants {
+			if cur.After(horizon.In(loc)) {
+				return out
+			}
+			if s.Count > 0 && n >= s.Count {
+				return out
+			}
+			if s.Until != nil && cur.After(*s.Until) {
+				return out
+			}
+			if !includeOccurrence(s, loc, offset, cur) {
+				continue
+			}
 			out = append(out, cur)
 			n++
 			if s.Frequency == "ONCE" {
-				break
+				return out
 			}
-		}
-		cur = cur.AddDate(0, 0, 1)
-		if s.Frequency == "WEEKLY" && cur.Weekday() == s.Start.Weekday() {
-			cur = cur.AddDate(0, 0, 7*(s.Interval-1))
-		}
-		if s.Frequency == "DAILY" && s.Interval > 1 {
-			cur = cur.AddDate(0, 0, s.Interval-1)
 		}
 	}
 	return out
 }
+
+func includeOccurrence(s Spec, loc *time.Location, offset int, cur time.Time) bool {
+	local := cur.In(loc)
+	include := s.Frequency == "ONCE" || s.Frequency == "DAILY" || contains(s.ByWeekday, local.Weekday())
+	if s.Frequency == "DAILY" && s.Interval > 1 && offset%s.Interval != 0 {
+		return false
+	}
+	if s.Frequency == "WEEKLY" && s.Interval > 1 {
+		start := s.Start.In(loc)
+		days := int(local.Sub(time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, loc)).Hours() / 24)
+		if days < 0 || (days/7)%s.Interval != 0 {
+			return false
+		}
+	}
+	return include
+}
+
+// civilInstants maps a civil local wall time onto one or more instants.
+// DST policy for named IANA zones:
+//   - gap (spring-forward): skip the missing wall time; do not invent 02:30.
+//   - fold (fall-back): emit both instants that share the repeated wall time.
+func civilInstants(loc *time.Location, year int, month time.Month, day, hour, minute, second, nano, offsetDays int) []time.Time {
+	noon := time.Date(year, month, day, 12, 0, 0, 0, loc).AddDate(0, 0, offsetDays)
+	y, m, d := noon.Date()
+	first := time.Date(y, m, d, hour, minute, second, nano, loc)
+	if first.Hour() != hour || first.Minute() != minute {
+		return nil
+	}
+	out := []time.Time{first}
+	later := first.Add(time.Hour)
+	if later.In(loc).Hour() == hour && later.In(loc).Minute() == minute && !later.Equal(first) {
+		out = append(out, later)
+	}
+	earlier := first.Add(-time.Hour)
+	if earlier.In(loc).Hour() == hour && earlier.In(loc).Minute() == minute && !earlier.Equal(first) {
+		out = []time.Time{earlier, first}
+	}
+	return out
+}
+
 func contains(xs []time.Weekday, x time.Weekday) bool {
 	for _, v := range xs {
 		if v == x {

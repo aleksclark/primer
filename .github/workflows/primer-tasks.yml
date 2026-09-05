@@ -1,0 +1,88 @@
+name: primer-tasks
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "primer-tasks/**"
+      - "Makefile"
+      - "go.work"
+      - "go.work.sum"
+      - ".github/workflows/primer-tasks.yml"
+  pull_request:
+    paths:
+      - "primer-tasks/**"
+      - "Makefile"
+      - "go.work"
+      - "go.work.sum"
+      - ".github/workflows/primer-tasks.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tasks:
+    name: tasks-module
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: primer-tasks/go.mod
+          cache-dependency-path: primer-tasks/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: gofmt
+        working-directory: primer-tasks
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt required for:" && echo "$unformatted" && exit 1
+          fi
+
+      - name: go vet
+        working-directory: primer-tasks
+        run: go vet ./...
+
+      - name: build
+        run: make tasks-build
+
+      - name: tests
+        run: make tasks-test
+
+      - name: coverage gate
+        run: make tasks-cover
+
+      - name: generated clients
+        run: make tasks-clients
+
+      - name: web lint typecheck build
+        run: |
+          make tasks-lint
+          make tasks-typecheck
+          make tasks-web
+
+      - name: Android JVM tests and debug APK
+        run: make tasks-android
+
+      - name: Playwright browsers
+        working-directory: primer-tasks/web
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: live host-stack Playwright
+        run: make tasks-e2e

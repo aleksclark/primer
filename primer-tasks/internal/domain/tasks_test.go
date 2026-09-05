@@ -18,9 +18,33 @@ func TestValidateRevisionAndTransitions(t *testing.T) {
 	for _, tc := range []struct {
 		a, b OccurrenceStatus
 		ok   bool
-	}{{OccurrencePending, OccurrencePending, true}, {OccurrencePending, OccurrenceInProgress, true}, {OccurrencePending, OccurrenceCanceled, true}, {OccurrencePending, OccurrenceCompleted, false}, {OccurrenceInProgress, OccurrenceAwaitingVerification, true}, {OccurrenceInProgress, OccurrenceCanceled, true}, {OccurrenceInProgress, OccurrenceCompleted, false}, {OccurrenceAwaitingVerification, OccurrenceCompleted, true}, {OccurrenceAwaitingVerification, OccurrencePending, true}, {OccurrenceAwaitingVerification, OccurrenceCanceled, true}, {OccurrenceCompleted, OccurrencePending, false}, {OccurrenceExcused, OccurrenceCompleted, false}, {OccurrenceCanceled, OccurrenceCanceled, true}} {
+	}{
+		{OccurrencePending, OccurrencePending, true},
+		{OccurrencePending, OccurrenceInProgress, true},
+		{OccurrencePending, OccurrenceCanceled, true},
+		{OccurrencePending, OccurrenceExcused, true},
+		{OccurrencePending, OccurrenceCompleted, false},
+		{OccurrencePending, OccurrenceAwaitingVerification, false},
+		{OccurrenceInProgress, OccurrenceAwaitingVerification, true},
+		{OccurrenceInProgress, OccurrenceCanceled, true},
+		{OccurrenceInProgress, OccurrenceExcused, true},
+		{OccurrenceInProgress, OccurrenceCompleted, false},
+		{OccurrenceAwaitingVerification, OccurrenceCompleted, true},
+		{OccurrenceAwaitingVerification, OccurrencePending, true},
+		{OccurrenceAwaitingVerification, OccurrenceCanceled, true},
+		{OccurrenceAwaitingVerification, OccurrenceExcused, true},
+		{OccurrenceCompleted, OccurrencePending, false},
+		{OccurrenceExcused, OccurrenceCompleted, false},
+		{OccurrenceCanceled, OccurrenceCanceled, true},
+	} {
 		if got := CanTransition(tc.a, tc.b); got != tc.ok {
 			t.Errorf("%s to %s=%v", tc.a, tc.b, got)
 		}
+	}
+	if DecisionExpectedStatus() != OccurrenceAwaitingVerification {
+		t.Fatal("parent decisions must consume awaiting_verification")
+	}
+	if !IsTerminal(OccurrenceExcused) || !IsTerminal(OccurrenceCompleted) || IsTerminal(OccurrenceInProgress) {
+		t.Fatal("terminal classification is wrong")
 	}
 }

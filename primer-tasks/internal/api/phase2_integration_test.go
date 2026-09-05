@@ -78,8 +78,17 @@ func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
 	if rec = requestBearer(t, h, http.MethodGet, "/device/occurrences/"+occ.ID, dv.Token); rec.Code != 200 {
 		t.Fatalf("device detail=%d %s", rec.Code, rec.Body.String())
 	}
-	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/start", dv.Token); rec.Code != 200 {
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/start", dv.Token); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"status":"in_progress"`) {
 		t.Fatalf("student start=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec = requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/decision", "parent-a", `{"accepted":true,"reason":"too early"}`); rec.Code != 409 {
+		t.Fatalf("approve before submit=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/submit", dv.Token); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"status":"awaiting_verification"`) {
+		t.Fatalf("student submit=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/submit", dv.Token); rec.Code != 200 {
+		t.Fatalf("submit replay=%d %s", rec.Code, rec.Body.String())
 	}
 	if rec = requestBearer(t, h, http.MethodGet, "/device/occurrences/"+bob, dv.Token); rec.Code != 404 {
 		t.Fatalf("foreign device detail=%d", rec.Code)
@@ -87,7 +96,7 @@ func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
 	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+bob+"/start", dv.Token); rec.Code != 404 {
 		t.Fatalf("foreign device start=%d", rec.Code)
 	}
-	if rec = requestJSON(t, h, http.MethodPost, "/occurrences/"+bob+"/decision", "parent-a", `{"accepted":true,"reason":"no"}`); rec.Code != 409 {
+	if rec = requestJSON(t, h, http.MethodPost, "/occurrences/"+bob+"/decision", "parent-a", `{"accepted":true,"reason":"no"}`); rec.Code != 404 {
 		t.Fatalf("foreign decision=%d", rec.Code)
 	}
 	if rec = requestJSON(t, h, http.MethodPost, "/tasks/"+bob+"/revisions", "parent-a", `{"title":"x","instructions":"x","requirements":[{"id":"r","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`); rec.Code != 404 {
@@ -108,8 +117,11 @@ func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
 	if rec = requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/decision", "parent-a", `{"accepted":true,"reason":"replay"}`); rec.Code != 200 {
 		t.Fatalf("decision replay=%d %s", rec.Code, rec.Body.String())
 	}
-	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/start", dv.Token); rec.Code != 404 {
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/start", dv.Token); rec.Code != 409 {
 		t.Fatalf("completed device start=%d", rec.Code)
+	}
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/submit", dv.Token); rec.Code != 409 {
+		t.Fatalf("completed device submit=%d", rec.Code)
 	}
 	if rec = requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/skip", "parent-a", ""); rec.Code != 409 {
 		t.Fatalf("completed skip=%d", rec.Code)
@@ -260,6 +272,9 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if got := studentRequest(http.MethodPost, "/student/occurrences/"+bob+"/start"); got.Code != 404 {
 		t.Fatalf("foreign browser start=%d", got.Code)
 	}
+	if got := studentRequest(http.MethodPost, "/student/occurrences/"+bob+"/submit"); got.Code != 404 {
+		t.Fatalf("foreign browser submit=%d", got.Code)
+	}
 	if got := studentRequest(http.MethodGet, "/student/today"); got.Code != 200 {
 		t.Fatalf("student today=%d %s", got.Code, got.Body.String())
 	}
@@ -271,14 +286,31 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if got := studentRequest(http.MethodPost, "/student/occurrences/"+occ.ID+"/start"); got.Code != 200 {
 		t.Fatalf("student start=%d %s", got.Code, got.Body.String())
 	}
+	if got := studentRequest(http.MethodPost, "/student/occurrences/"+occ.ID+"/start"); got.Code != 200 {
+		t.Fatalf("student start replay=%d %s", got.Code, got.Body.String())
+	}
+	if got := studentRequest(http.MethodPost, "/student/occurrences/"+occ.ID+"/submit"); got.Code != 200 {
+		t.Fatalf("student submit=%d %s", got.Code, got.Body.String())
+	}
+	if got := studentRequest(http.MethodPost, "/student/occurrences/"+occ.ID+"/submit"); got.Code != 200 {
+		t.Fatalf("student submit replay=%d %s", got.Code, got.Body.String())
+	}
 	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/skip", "parent-a", ""); got.Code != 200 {
 		t.Fatalf("skip=%d %s", got.Code, got.Body.String())
+	}
+	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/decision", "parent-a", `{"accepted":true,"reason":"stale"}`); got.Code != 409 {
+		t.Fatalf("approve after skip=%d %s", got.Code, got.Body.String())
 	}
 	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/retry", "parent-a", ""); got.Code != 409 {
 		t.Fatalf("retry after skip=%d %s", got.Code, got.Body.String())
 	}
-	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/cancel", "parent-a", ""); got.Code != 200 {
-		t.Fatalf("cancel=%d %s", got.Code, got.Body.String())
+	if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+occ.ID+"/cancel", "parent-a", ""); got.Code != 409 {
+		t.Fatalf("cancel after skip=%d %s", got.Code, got.Body.String())
+	}
+	if futureOccurrence != nil {
+		if got := requestJSON(t, h, http.MethodPost, "/occurrences/"+futureOccurrence.ID+"/cancel", "parent-a", ""); got.Code != 200 {
+			t.Fatalf("cancel pending=%d %s", got.Code, got.Body.String())
+		}
 	}
 	if got := requestJSON(t, h, http.MethodPost, "/tasks/"+task.TemplateID+"/retire", "parent-a", ""); got.Code != 204 {
 		t.Fatalf("task retire=%d %s", got.Code, got.Body.String())
@@ -339,8 +371,10 @@ func TestPhase2RejectsInvalidSchedulesAndCrossTenantMutations(t *testing.T) {
 	}{
 		{http.MethodGet, "/occurrences/" + fake, 404},
 		{http.MethodPost, "/occurrences/" + fake + "/retry", 404},
-		{http.MethodPost, "/occurrences/" + fake + "/skip", 409},
+		{http.MethodPost, "/occurrences/" + fake + "/skip", 404},
 		{http.MethodPost, "/student/occurrences/" + fake + "/start", 401},
+		{http.MethodPost, "/student/occurrences/" + fake + "/submit", 401},
+		{http.MethodPost, "/device/occurrences/" + fake + "/submit", 401},
 	} {
 		got := requestJSON(t, h, tc.method, tc.path, "parent-a", "")
 		if got.Code != tc.want {

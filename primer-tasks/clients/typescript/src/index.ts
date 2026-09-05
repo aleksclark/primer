@@ -188,6 +188,9 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async startStudentOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/student/occurrences/{id}/start", { ...options, params: { path: { id } } }));
     },
+    async submitStudentOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/student/occurrences/{id}/submit", { ...options, params: { path: { id } } }));
+    },
     async deviceToday(options: RequestOptions = {}) {
       return unwrap(transport.GET("/device/today", { ...options }));
     },
@@ -199,6 +202,9 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     },
     async startDeviceOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/device/occurrences/{id}/start", { ...options, params: { path: { id } } }));
+    },
+    async submitDeviceOccurrence(id: string, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/device/occurrences/{id}/submit", { ...options, params: { path: { id } } }));
     },
   };
 }

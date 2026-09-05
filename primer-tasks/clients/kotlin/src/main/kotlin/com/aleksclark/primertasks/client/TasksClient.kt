@@ -52,6 +52,10 @@ class TasksClient(
         getText(PrimerTasksOperations.DEVICE_OCCURRENCE_START.replace("{id}", id), token)
     }
 
+    suspend fun submitStudentOccurrence(token: String, id: String): String = withContext(Dispatchers.IO) {
+        getText(PrimerTasksOperations.DEVICE_OCCURRENCE_SUBMIT.replace("{id}", id), token)
+    }
+
     fun authHeader(token: String) = "Bearer $token"
 
     private fun <T> post(path: String, body: PairCode, serializer: kotlinx.serialization.KSerializer<T>): T {

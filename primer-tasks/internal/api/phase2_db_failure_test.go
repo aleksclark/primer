@@ -68,6 +68,9 @@ func TestPhase2HandlersSurfaceDatabaseFailures(t *testing.T) {
 	run("start", func(w http.ResponseWriter, r *http.Request, sc scope) {
 		s.startOccurrence2(w, r, uuidMust(tenantA))
 	})
+	run("submit", func(w http.ResponseWriter, r *http.Request, sc scope) {
+		s.submitOccurrence2(w, r, uuidMust(tenantA))
+	})
 	run("decision", s.decideOccurrence2)
 	run("retry", s.retryOccurrence2)
 	run("status", func(w http.ResponseWriter, r *http.Request, sc scope) {

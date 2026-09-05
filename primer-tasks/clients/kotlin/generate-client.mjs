@@ -67,12 +67,14 @@ object PrimerTasksOperations {
     const val DEVICE_UPCOMING = "${endpoint("device-upcoming")}"
     const val DEVICE_OCCURRENCE = "${endpoint("device-occurrence")}"
     const val DEVICE_OCCURRENCE_START = "${endpoint("device-occurrence-start")}"
+    const val DEVICE_OCCURRENCE_SUBMIT = "${endpoint("device-occurrence-submit")}"
     const val STUDENT_PROFILE = "${endpoint("student-profile")}"
     const val STUDENT_CHECKLIST = "${endpoint("student-checklist")}"
     const val STUDENT_TODAY = "${endpoint("student-today")}"
     const val STUDENT_UPCOMING = "${endpoint("student-upcoming")}"
     const val STUDENT_OCCURRENCE = "${endpoint("student-occurrence")}"
     const val STUDENT_OCCURRENCE_START = "${endpoint("student-occurrence-start")}"
+    const val STUDENT_OCCURRENCE_SUBMIT = "${endpoint("student-occurrence-submit")}"
 }
 
 ${model("PairCode")}

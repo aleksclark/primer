@@ -243,6 +243,14 @@ private fun PrimerTasksApp(context: android.content.Context, deepLink: Uri? = nu
                             } catch (error: Exception) { message = if (error is TasksHttpException && error.statusCode == 403) "This task is not available to this student." else "Unable to start this task." }
                         }
                     },
+                    onSubmit = {
+                        scope.launch {
+                            try {
+                                TasksClient(metadata!!.origin).submitStudentOccurrence(token!!, selectedOccurrence!!.id)
+                                selectedOccurrence = TasksClient(metadata!!.origin).studentOccurrence(token!!, selectedOccurrence!!.id)
+                            } catch (error: Exception) { message = if (error is TasksHttpException && error.statusCode == 403) "This task is not available to this student." else "Unable to submit this task." }
+                        }
+                    },
                 )
                 metadata != null && token != null -> ChecklistScreen(metadata!!.displayName, checklist, occurrences, upcoming, message, onOpen = { selectedOccurrence = it })
                 scanning -> PairingScanner(onQr = ::pair, onCancel = { scanning = false })
@@ -430,13 +438,14 @@ private fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun OccurrenceDetailScreen(occurrence: OccurrenceResponse, onBack: () -> Unit, onRefresh: () -> Unit, onStart: () -> Unit) {
+private fun OccurrenceDetailScreen(occurrence: OccurrenceResponse, onBack: () -> Unit, onRefresh: () -> Unit, onStart: () -> Unit, onSubmit: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("TASK DETAIL", style = MaterialTheme.typography.labelLarge)
         Text(occurrence.title, style = MaterialTheme.typography.headlineMedium)
         Text(occurrence.instructions)
         Text("Status: ${occurrence.status}", style = MaterialTheme.typography.titleMedium)
         if (occurrence.status == "pending") Button(onClick = onStart) { Text("Start task") }
+        if (occurrence.status == "in_progress") Button(onClick = onSubmit) { Text("Submit for parent approval") }
         Button(onClick = onRefresh) { Text("Refresh from server") }
         OutlinedButton(onClick = onBack) { Text("Back to today") }
     }

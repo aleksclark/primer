@@ -76,12 +76,19 @@ func CanTransition(from, to OccurrenceStatus) bool {
 	}
 	switch from {
 	case OccurrencePending:
-		return to == OccurrenceInProgress || to == OccurrenceCanceled
+		return to == OccurrenceInProgress || to == OccurrenceExcused || to == OccurrenceCanceled
 	case OccurrenceInProgress:
-		return to == OccurrenceAwaitingVerification || to == OccurrenceCanceled
+		return to == OccurrenceAwaitingVerification || to == OccurrenceExcused || to == OccurrenceCanceled
 	case OccurrenceAwaitingVerification:
-		return to == OccurrenceCompleted || to == OccurrencePending || to == OccurrenceCanceled
+		return to == OccurrenceCompleted || to == OccurrencePending || to == OccurrenceExcused || to == OccurrenceCanceled
 	default:
 		return false
 	}
+}
+
+// DecisionExpectedStatus is the occurrence status a parent decision may consume.
+func DecisionExpectedStatus() OccurrenceStatus { return OccurrenceAwaitingVerification }
+
+func IsTerminal(status OccurrenceStatus) bool {
+	return status == OccurrenceCompleted || status == OccurrenceExcused || status == OccurrenceCanceled
 }

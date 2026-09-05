@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 
 async function signIn(page: Page, parent: "A" | "B") {
   await page.goto("/parent/students");
@@ -103,6 +103,8 @@ test("public task schedule, student verification, collections, and tenant bounda
     await taskLink.click();
     await expect(studentPage.getByRole("heading", { name: taskTitle })).toBeVisible();
     await studentPage.getByRole("button", { name: /^Start task$/ }).click();
+    await expect(studentPage.getByText(/in_progress/i)).toBeVisible();
+    await studentPage.getByRole("button", { name: /^Submit for parent approval$/ }).click();
     await expect(studentPage.getByText(/awaiting_verification/i)).toBeVisible();
 
     await parentPage.goto("/parent/occurrences?status=awaiting_verification");

@@ -448,9 +448,15 @@ func TestOpenAPIHelpersEmitContract(t *testing.T) {
 	if !strings.Contains(yaml, "Primer Tasks") || !strings.Contains(yaml, "/student/pair") {
 		t.Fatal("OpenAPI YAML missing pairing contract")
 	}
+	if !strings.Contains(yaml, "/student/occurrences/{id}/submit") || !strings.Contains(yaml, "/device/occurrences/{id}/submit") {
+		t.Fatal("OpenAPI YAML missing submit contract")
+	}
 	js := OpenAPIJSON()
 	if !strings.Contains(js, "student-pair") {
 		t.Fatal("OpenAPI JSON missing student-pair")
+	}
+	if !strings.Contains(js, "student-occurrence-submit") || !strings.Contains(js, "device-occurrence-submit") {
+		t.Fatal("OpenAPI JSON missing submit operation")
 	}
 }
 

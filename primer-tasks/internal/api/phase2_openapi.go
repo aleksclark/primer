@@ -140,6 +140,10 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[map[string]any](ctx, s.requireStudent(s.studentStart2), nil)
 		return &GenericJSONOutput2{h, b}, e
 	})
+	register(api, huma.Operation{OperationID: "student-occurrence-submit", Method: http.MethodPost, Path: "/student/occurrences/{id}/submit", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*GenericJSONOutput2, error) {
+		b, h, e := legacyJSON[map[string]any](ctx, s.requireStudent(s.studentSubmit2), nil)
+		return &GenericJSONOutput2{h, b}, e
+	})
 	register(api, huma.Operation{OperationID: "device-today", Method: http.MethodGet, Path: "/device/today", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*OccurrencePageOutput2, error) {
 		b, h, e := legacyJSON[OccurrencePage2](ctx, s.requireDevice(s.deviceListWrapper), nil)
 		return &OccurrencePageOutput2{h, b}, e
@@ -154,6 +158,10 @@ func (s *Server) registerPhase2(api huma.API) {
 	})
 	register(api, huma.Operation{OperationID: "device-occurrence-start", Method: http.MethodPost, Path: "/device/occurrences/{id}/start", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*GenericJSONOutput2, error) {
 		b, h, e := legacyJSON[map[string]any](ctx, s.requireDevice(s.deviceStartWrapper), nil)
+		return &GenericJSONOutput2{h, b}, e
+	})
+	register(api, huma.Operation{OperationID: "device-occurrence-submit", Method: http.MethodPost, Path: "/device/occurrences/{id}/submit", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*GenericJSONOutput2, error) {
+		b, h, e := legacyJSON[map[string]any](ctx, s.requireDevice(s.deviceSubmitWrapper), nil)
 		return &GenericJSONOutput2{h, b}, e
 	})
 }

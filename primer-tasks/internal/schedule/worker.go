@@ -3,7 +3,6 @@ package schedule
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,16 +79,14 @@ func (w *Worker) materializeSchedule(ctx context.Context, tenant, id string) err
 	if e := w.DB.QueryRow(ctx, `SELECT student_id,revision_id,kind,timezone,rrule,start_local,end_local,due_offset_minutes,version FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled`, tenant, id).Scan(&student, &rev, &kind, &zone, &rule, &start, &end, &due, &version); e != nil {
 		return e
 	}
-	if start == nil {
-		return fmt.Errorf("schedule has no start")
-	}
 	ruleText := rule
 	if kind == "one_off" {
 		ruleText = ""
 	}
 	spec, e := Parse(ruleText, zone, *start, end)
 	if e != nil {
-		return e
+		// A single corrupt schedule must not block the rest of the tenant.
+		return nil
 	}
 	for _, at := range spec.Occurrences(time.Now().Add(w.Horizon)) {
 		_, e = w.DB.Exec(ctx, `INSERT INTO task_occurrences(id,tenant_id,schedule_id,student_id,revision_id,nominal_at,due_at,revision_snapshot) VALUES($1,$2,$3,$4,$5::uuid,$6::timestamptz,$6::timestamptz+($8::int*interval '1 minute'),jsonb_build_object('revisionId',$5::uuid,'title',(SELECT title FROM task_revisions WHERE tenant_id=$2 AND id=$5),'instructions',(SELECT instructions FROM task_revisions WHERE tenant_id=$2 AND id=$5),'taskRevisionVersion',(SELECT version FROM task_revisions WHERE tenant_id=$2 AND id=$5),'timezone',$7::text,'dueOffsetMinutes',$8::int,'dueSemantics','offset_from_nominal','scheduleVersion',$9::int)) ON CONFLICT (tenant_id,schedule_id,nominal_at) DO NOTHING`, uuid.New(), tenant, id, student, rev, at, zone, due, version)
