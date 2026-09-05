@@ -106,13 +106,15 @@ func TestPhase2ConcurrentWorkersDoNotDuplicateOccurrences(t *testing.T) {
 	if rec := requestJSON(t, h, http.MethodPost, "/schedules", "parent-a", `{"studentId":"`+alice+`","templateId":"`+task.TemplateID+`","revisionId":"`+task.ID+`","kind":"one_off","timezone":"UTC","startAt":"`+start+`","dueOffsetMinutes":0}`); rec.Code != 201 {
 		t.Fatalf("schedule=%d %s", rec.Code, rec.Body.String())
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	errors := make(chan error, 4)
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errors <- schedule.NewWorker(pool).Materialize(context.Background())
+			errors <- schedule.NewWorker(pool).Materialize(ctx)
 		}()
 	}
 	wg.Wait()

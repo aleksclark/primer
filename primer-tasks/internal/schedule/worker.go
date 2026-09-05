@@ -45,24 +45,37 @@ func (w *Worker) Materialize(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	defer rows.Close()
+	type item struct{ tenant, id string }
+	var schedules []item
 	for rows.Next() {
-		var tenant, id string
-		if e = rows.Scan(&tenant, &id); e != nil {
+		var next item
+		if e = rows.Scan(&next.tenant, &next.id); e != nil {
+			rows.Close()
 			return e
 		}
-		if ok, e := w.claim(ctx, tenant); e != nil {
+		schedules = append(schedules, next)
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return e
+	}
+	for _, next := range schedules {
+		ok, e := w.claim(ctx, next.tenant)
+		if e != nil {
 			if errors.Is(e, pgx.ErrNoRows) {
 				continue
 			}
 			return e
-		} else if ok {
-			if e = w.materializeSchedule(ctx, tenant, id); e != nil {
-				return e
-			}
+		}
+		if !ok {
+			continue
+		}
+		if e = w.materializeSchedule(ctx, next.tenant, next.id); e != nil {
+			return e
 		}
 	}
-	return rows.Err()
+	return nil
 }
 func (w *Worker) claim(ctx context.Context, tenant string) (bool, error) {
 	var ok bool
