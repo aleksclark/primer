@@ -1,0 +1,4 @@
+$ emulator @pixel -wipe-data -no-snapshot -no-audio -no-boot-anim -port 5554
+emulator_pid=1829921
+$ adb -s emulator-5554 install -r primer-tasks/android/app/build/outputs/apk/debug/app-debug.apk
+$ adb -s emulator-5554 shell monkey -p com.aleksclark.primertasks 1

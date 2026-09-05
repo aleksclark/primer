@@ -1,0 +1,43 @@
+Number of normal camera devices: 1
+Number of public camera devices visible to API1: 1
+    Device 0 maps to "1"
+Active Camera Clients:
+[
+(Camera ID: 1, Cost: 100, PID: 2215, Score: 0, State: 2User Id: 0, Client Package Name: com.aleksclark.primertasks, Conflicting Client Devices: {})
+]
+Allowed user IDs: 0
+
+== Camera service events log (most recent at top): ==
+  08-19 01:22:47 : CONNECT device 1 client for package com.aleksclark.primertasks (PID 2215)
+  08-19 01:22:27 : USER_SWITCH previous allowed user IDs: <None>, current allowed user IDs: 0
+  08-19 01:22:18 : ADD device 1, reason: (Device added)
+
+== Camera device 1 dynamic info: ==
+  08-19 01:22:51 : Device 1 is open. Client instance dump:
+    Client priority score: 0 state: 2
+    Client PID: 2215
+    Client package: com.aleksclark.primertasks
+  CameraDeviceClient[1] (0x717f0a310000) dump:
+    Current client UID 10209
+    State:
+      Request ID counter: 1
+      No input stream configured.
+      Current output stream/surface IDs:
+        Stream 0 Surface 0
+        Stream 1 Surface 0
+    Latest received frame:
+      Dumping camera metadata array: 77 / 77 entries, 400 / 400 bytes of extra data.
+--
+    Operation mode: NORMAL (0)
+      No input stream.
+    Stream[0]: Output
+      Consumer name: SurfaceView[com.aleksclark.primertasks/com.aleksclark.primertasks.MainActivity]#2(BLAST Consumer)2
+      State: 4
+      Dims: 1024 x 768, format 0x23, dataspace 0x0
+      Max size: 0
+      Combined usage: 0x60930, max HAL buffers: 8
+      Dynamic Range Profile: 0x1
+      Color Space: -1
+      Stream use case: 0
+      Timestamp base: 0
+      Frames produced: 109, last timestamp: 40593777293 ns

@@ -1,0 +1,7 @@
+Starting: Intent { cmp=com.aleksclark.primertasks/.MainActivity }
+Status: ok
+LaunchState: COLD
+Activity: com.aleksclark.primertasks/.MainActivity
+TotalTime: 889
+WaitTime: 891
+Complete

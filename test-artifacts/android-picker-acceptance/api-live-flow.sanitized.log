@@ -1,0 +1,35 @@
+api-1  |
+api-1  |   __    _   ___
+api-1  |  / /\  | | | |_)
+api-1  | /_/--\ |_| |_| \_ v1.61.7, built with Go go1.25.13
+api-1  |
+api-1  | watching .
+api-1  | !exclude android
+api-1  | watching build
+api-1  | !exclude clients
+api-1  | watching cmd
+api-1  | watching cmd/openapi-gen
+api-1  | watching cmd/tasks-migrate
+api-1  | watching cmd/tasks-server
+api-1  | watching cmd/tasks-test-issuer
+api-1  | watching internal
+api-1  | watching internal/api
+api-1  | watching internal/app
+api-1  | watching internal/auth
+api-1  | watching internal/bff
+api-1  | watching internal/config
+api-1  | watching internal/db
+api-1  | watching internal/db/migrations
+api-1  | watching internal/domain
+api-1  | watching internal/issuer
+api-1  | watching internal/logging
+api-1  | watching internal/repo
+api-1  | watching internal/testutil
+api-1  | watching internal/testutil/factory
+api-1  | watching scripts
+api-1  | watching scripts/__pycache__
+api-1  | !exclude test-artifacts
+api-1  | !exclude web
+api-1  | building...
+api-1  | running...
+api-1  | 2026/08/19 06:20:42 INFO tasks server listening addr=0.0.0.0:8080

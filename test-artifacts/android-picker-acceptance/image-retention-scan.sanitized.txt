@@ -1,0 +1,4 @@
+SAFE_NONDECODABLE_IMAGE=first-paired.png
+SAFE_NONDECODABLE_IMAGE=first-after-archive-revoked.png
+SAFE_NONDECODABLE_IMAGE=second-replay-denial.png
+SAFE_NONDECODABLE_IMAGE=first-repaired.png

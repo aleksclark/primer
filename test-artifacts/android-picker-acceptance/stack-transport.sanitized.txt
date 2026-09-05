@@ -1,0 +1,3 @@
+Stacklane_instance=android-picker-acceptance-final
+public_android_origin=http://10.0.2.2:39081 via real Vite /api proxy
+transport_health=PASS

@@ -1,0 +1,180 @@
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 32252
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+W/gle.android.gms( 1462): ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/Camera2/Camera2.apk' with 1 weak references
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 32758
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 33263
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 33768
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{d0e1b94 com.google.android.youtube/10167} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{3e1063d com.google.android.googlequicksearchbox/10144} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{6e46e32 com.google.android.apps.messaging/10136} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{5825783 com.google.android.apps.safetyhub/10129} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{17b5d00 com.android.camera2/10156} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{5dcc939 com.google.android.as/10137} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{5588c31 com.google.android.devicelockcontroller/10188} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{5a94248 com.google.android.apps.maps/10152} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{f673b7e com.google.android.rkpdapp/10184} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{488e8df com.google.android.partnersetup/10131} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{b9492c com.google.android.settings.intelligence/10140} BLOCKED
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{737bff5 com.google.android.cellbroadcastreceiver/10190} BLOCKED
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 34278
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+W/ogle.android.as( 1576): ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/Camera2/Camera2.apk' with 1 weak references
+W/.apps.wellbeing( 1451): ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/Camera2/Camera2.apk' with 1 weak references
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 34783
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+I/AppsFilter(  595): interaction: PackageSetting{a5fe7 com.aleksclark.primertasks/10209} -> PackageSetting{d2e5a19 com.google.android.settings.intelligence/10140} BLOCKED
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 35289
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): Retry init. Start time 30660 current time 35797
+W/CameraX ( 2215): androidx.camera.core.impl.CameraValidator$CameraIdListIncorrectException: Expected camera missing from device.
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:142)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraX ( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+W/CameraX ( 2215): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+W/CameraX ( 2215): 	at java.lang.Thread.run(Thread.java:1012)
+W/CameraX ( 2215): Caused by: java.lang.IllegalArgumentException: No available camera can be found
+W/CameraX ( 2215): 	at androidx.camera.core.CameraSelector.select(CameraSelector.java:107)
+W/CameraX ( 2215): 	at androidx.camera.core.impl.CameraValidator.validateCameras(CameraValidator.java:123)
+W/CameraX ( 2215): 	... 5 more
+W/s.nexuslauncher( 1300): ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/Camera2/Camera2.apk' with 1 weak references
+I/Camera2CameraInfo( 2215): Device Level: INFO_SUPPORTED_HARDWARE_LEVEL_3
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX.lambda$initAndRetryRecursively$2$androidx-camera-core-CameraX(CameraX.java:393)
+W/CameraValidator( 2215): 	at androidx.camera.core.CameraX$$ExternalSyntheticLambda2.run(D8$$SyntheticClass:0)
+E/CameraX ( 2215): The device might underreport the amount of the cameras. Finish the initialize task since we are already reaching the maximum number of retries.
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Use case androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367 ACTIVE
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Use case androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732 ACTIVE
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Use cases [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] now ATTACHED
+D/Camera2CameraControlImp( 2215): setActive: isActive = true
+D/UseCaseAttachState( 2215): All use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+D/UseCaseAttachState( 2215): Active and attached use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Resetting Capture Session
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Skipping Capture Session state check due to current camera state: INITIALIZED and previous session status: false
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Releasing session in state INITIALIZED
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Attempting to force open the camera.
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Opening camera.
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Transitioning camera internal state: INITIALIZED --> OPENING
+D/UseCaseAttachState( 2215): All use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+I/CameraService(  497): CameraService::connect call (PID 2215 "com.aleksclark.primertasks", camera ID 1) and Camera API version 2
+I/Camera2ClientBase(  497): Camera 1: Opened. Client: com.aleksclark.primertasks (PID 2215, UID 10209)
+I/CameraService(  497): makeClient: Camera2 API, rotationOverride 1
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Use case androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367 ACTIVE
+D/UseCaseAttachState( 2215): Active and attached use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Use case androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732 ACTIVE
+D/UseCaseAttachState( 2215): Active and attached use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} CameraDevice.onOpened()
+D/Camera2CameraImpl( 2215): {Camera@614da7a[id=1]} Transitioning camera internal state: OPENING --> OPENED
+D/UseCaseAttachState( 2215): All use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+D/UseCaseAttachState( 2215): Active and attached use case: [androidx.camera.core.Preview-c93a6724-a454-4bba-869a-92f96718c089146501367, androidx.camera.core.ImageAnalysis-0f96a92a-78eb-4f39-a0be-28cb0db97986229093732] for camera: 1
+D/Camera2CaptureRequestBuilder( 2215): template type = 1
+D/Camera2CaptureRequestBuilder( 2215): createCaptureRequest
+D/nativeloader( 2215): Load /data/app/~~Rl8RmXb31zq5jdCBTjrh_A==/com.aleksclark.primertasks-jzFPcOQcjfKJ8ZTtW2mx4g==/base.apk!/lib/x86_64/libimage_processing_util_jni.so using ns clns-7 from class loader (caller=/data/app/~~Rl8RmXb31zq5jdCBTjrh_A==/com.aleksclark.primertasks-jzFPcOQcjfKJ8ZTtW2mx4g==/base.apk): ok
+I/ark.primertasks( 2215): Background concurrent mark compact GC freed 3061KB AllocSpace bytes, 1(20KB) LOS objects, 49% free, 8412KB/16MB, paused 5.099ms,4.983ms total 444.795ms
+I/ark.primertasks( 2215): Background concurrent mark compact GC freed 11MB AllocSpace bytes, 15(3192KB) LOS objects, 49% free, 8012KB/15MB, paused 90us,7.722ms total 27.543ms
+I/ark.primertasks( 2215): Background concurrent mark compact GC freed 8992KB AllocSpace bytes, 0(0B) LOS objects, 49% free, 10MB/20MB, paused 41us,5.756ms total 56.344ms
+I/ark.primertasks( 2215): Background concurrent mark compact GC freed 7136KB AllocSpace bytes, 15(3192KB) LOS objects, 49% free, 8524KB/16MB, paused 78us,5.261ms total 24.851ms
+I/AccessibilityNodeInfoDumper( 4193): Skipping invisible child: android.view.accessibility.AccessibilityNodeInfo@b05b; boundsInParent: Rect(0, 0 - 954, 1989); boundsInScreen: Rect(63, 190 - 1017, 2179); boundsInWindow: Rect(63, 190 - 1017, 2179); packageName: com.aleksclark.primertasks; className: android.view.View; text: null; error: null; maxTextLength: -1; stateDescription: null; contentDescription: null; tooltipText: null; containerTitle: null; viewIdResName: null; uniqueId: null; checkable: false; checked: false; focusable: false; focused: false; selected: false; clickable: false; longClickable: false; contextClickable: false; enabled: true; password: false; scrollable: false; granularScrollingSupported: false; importantForAccessibility: false; visible: false; actions: [AccessibilityAction: ACTION_SELECT - null, AccessibilityAction: ACTION_CLEAR_SELECTION - null, AccessibilityAction: ACTION_ACCESSIBILITY_FOCUS - null, AccessibilityAction: ACTION_SHOW_ON_SCREEN - null]; isTextSelectable: false
+I/ark.primertasks( 2215): Background concurrent mark compact GC freed 9248KB AllocSpace bytes, 15(3192KB) LOS objects, 49% free, 8832KB/17MB, paused 83us,7.488ms total 30.901ms
+W/.apps.wellbeing( 1451): ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/Camera2/Camera2.apk' with 1 weak references
+I/ark.primertasks( 2215): Background concurrent mark compact GC freed 10048KB AllocSpace bytes, 15(3192KB) LOS objects, 49% free, 13MB/26MB, paused 9.888ms,10.109ms total 112.280ms
