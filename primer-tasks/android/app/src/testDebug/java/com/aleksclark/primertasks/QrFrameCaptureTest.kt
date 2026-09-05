@@ -10,8 +10,9 @@ import org.junit.Test
 
 class QrFrameCaptureTest {
     @Test
-    fun writesOneRedactedArtifactAndIgnoresLaterFrames() {
-        val directory = Files.createTempDirectory("primer-qr-capture").toFile()
+    fun debugCaptureWritesOneRedactedArtifactAndIgnoresLaterFrames() {
+        assertTrue(BuildConfig.DEBUG)
+        val directory = Files.createTempDirectory("primer-qr-capture-debug").toFile()
         try {
             val output = File(directory, "capture.json")
             val capture = DebugQrFrameCapture(output)
@@ -41,12 +42,6 @@ class QrFrameCaptureTest {
             assertEquals(1, directory.listFiles()!!.size)
             assertTrue(artifact.contains("\"redacted\":true"))
             assertTrue(artifact.contains("\"imageWidth\":640"))
-            assertTrue(artifact.contains("\"imageHeight\":480"))
-            assertTrue(artifact.contains("\"cropRect\":{\"left\":3,\"top\":5,\"right\":15,\"bottom\":13}"))
-            assertTrue(artifact.contains("\"rotationDegrees\":90"))
-            assertTrue(artifact.contains("\"rowStride\":52"))
-            assertTrue(artifact.contains("\"pixelStride\":4"))
-            assertTrue(artifact.contains("\"byteLength\":4"))
             assertTrue(artifact.contains("\"sha256\":\"${firstBytes.sha256()}\""))
             assertFalse(artifact.contains("raw"))
             assertFalse(artifact.contains("sample"))

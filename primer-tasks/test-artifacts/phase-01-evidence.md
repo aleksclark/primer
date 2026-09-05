@@ -1,81 +1,70 @@
-# Primer Tasks Phase 1 — authoritative final evidence
+# Primer Tasks Phase 1 — integrated evidence (not donor history)
 
-Branch: `impl/tasks-p1-foundation`
-Final reviewed tip: `23b5685` (`review(tasks): approve Phase 1 adaptation`)
-Status: **PASS — ready for Phase 2 dispatch**
-Review report: [`test-artifacts/phase1-final-review/report.md`](../../test-artifacts/phase1-final-review/report.md)
+This file is the product-local note for the **integrated P1 slice on
+`integration/tasks-p1-foundation`**. It is **not** the donor-lineage
+acceptance report from `impl/tasks-p1-foundation` / tip `23b5685`.
+Those donor commits and their untracked exploratory artifacts are not
+present in this worktree and must not be treated as evidence for the
+current PR head.
 
-## Gate decision
+## What this document is
 
-Phase 1 is complete at the reviewed tip. The final implementation, browser and
-Android public-boundary acceptance, promoted automation, contract generation,
-coverage, Stacklane proofs, and anti-cheat review all pass. No Phase 2 source or
-workflow was started by this phase review.
+A status index for reviewers of the integrated exact head. Live proof is
+the public-boundary tests and Make targets in this checkout. Historical
+donor screenshots, emulator logs, and review reports are not copied here.
 
-## Final acceptance and evidence
+## Exact-head evidence that *is* claimed
 
-- **Android picker acceptance:** Dedicated Terra acceptance commit
-  `6e4f2b6` reports PASS in
-  [`test-artifacts/android-picker-acceptance/report.md`](../../test-artifacts/android-picker-acceptance/report.md).
-  It used a fresh real Parent A UI QR, opened the primary CameraX scanner first,
-  then selected the exact rendered QR image through the real Android system
-  Photo Picker/SAF. The image reached the bundled decoder,
-  `PairingQrParser`, the shared `pair()` path, generated bearer client routes,
-  and the real API. Bound name, empty checklist, force-stop/reboot
-  persistence, second-emulator replay denial, archive/revocation, replacement
-  re-pair, and paired storage/logcat/backup checks all passed.
-- **Huma contract:** `b7f83f5` aligned the Android bearer client with the
-  server-owned `/device/profile` and `/device/checklist` contract, added the
-  bearer checklist route, and added integration coverage separating device
-  bearer credentials from browser student cookies. Offline OpenAPI emission and
-  Kotlin/TypeScript generation passed with generated outputs untracked.
-- **Coverage and builds:** Go tests, race, vet, build, Android JVM tests,
-  Android build, web lint/typecheck/build, and the 85% coverage gate passed.
-  Measured product coverage was **85.5%**.
-- **Browser promotion:** The real exploratory browser PASS preceded promotion.
-  The promoted Playwright flow passed (**1 test**), covering real PKCE login,
-  HttpOnly/SameSite cookie attributes, student CRUD, two-tenant URL isolation,
-  browser pairing/refresh, replay denial, and archive revocation.
-- **Android promotion:** The promoted connected picker test passed (**2 tests**)
-  on a fresh Android 15 Pixel AVD and verified the primary CameraX action,
-  accessible secondary import action, real system Photo Picker foreground
-  package/privacy semantics, and return to the app.
-- **Stacklane proof:** `make tasks-proof` and the lifecycle checks passed for
-  labels, loopback-ephemeral ports, isolated instances, source mounts, named
-  state, Go reload without container restart, Vite HMR without navigation, and
-  cleanup.
-- **Final review:** Fresh anti-cheat review commit `23b5685` explicitly
-  approved the adaptation and found no auth, tenancy, pairing, client,
-  generated-output, or Compose substitution.
+Run these from the repository root / `primer-tasks/` on the reviewed SHA.
+Do not substitute older donor SHAs.
 
-## Transparent Android emulator exception
+| Gate | Command | Claim |
+|---|---|---|
+| Tasks Go tests | `make tasks-test` | Required for this PR |
+| Tasks coverage ≥85% | `make tasks-cover` | Required; floor not lowered |
+| Generated clients | `make tasks-clients` | Required; generated output stays untracked |
+| Web lint/typecheck/build | `make tasks-web` | Required |
+| Opt-in Compose check | `make tasks-check` | Additive Compose/Stacklane vector only |
+| Android JVM tests + debug APK | `cd primer-tasks/android && ./gradlew test assembleDebug --no-daemon` | Required JVM/unit + debug assemble. Release unit tests must pass because they assert the capture hook is **inert** and writes no artifact. |
 
-CameraX remains the primary production pairing path and its CameraX/decoder
-integration remains tested. The emulator acceptance used Photo Picker/SAF only
-because the recorded Android Emulator 36.4.10 VirtualScene service accepts
-poster bytes but does not propagate `Poster.image` into camera-visible scene
-geometry. The retained systematic evidence is:
+GitHub checks that actually run on this repository for the PR (`agents-module`,
+`server-remoteagent-adapter`, `foundation-check`) are bound only to the exact
+pushed head. They are not a substitute for the Tasks gates above.
 
-[`test-artifacts/android-foundation-remediation/gateb-systematic-20260819T234500Z/report.md`](../../test-artifacts/android-foundation-remediation/gateb-systematic-20260819T234500Z/report.md)
+## What is **not** claimed on this integrated head
 
-That evidence records the real 60-pose search, accepted poster metadata, active
-CameraX output, and no QR in rendered frames. No further VirtualScene/webcam
-pose attempts are authorized. The physical-camera/live-scene limitation remains
-visible; the fallback is not a production camera bypass and does not permit
-manual code entry, payload recreation, direct API seeding, or internal test
-seams.
+The following were donor-lineage or exploratory claims. They are **not**
+reproduced in this worktree and are **not** evidence for the current SHA:
 
-## Historical evidence
+- Connected Android emulator / `connectedDebugAndroidTest` on a Pixel AVD.
+- Physical-camera CameraX live-scene pairing.
+- Photo Picker/SAF exploratory acceptance reports.
+- Promoted Playwright browser PASS on this exact head (the suite exists; this
+  note does not assert a fresh exploratory+promoted run).
+- `make tasks-proof` / two-worktree host isolation on this exact head.
+- Linked reports that do not exist in this tree:
+  - `test-artifacts/phase1-final-review/report.md`
+  - `test-artifacts/android-picker-acceptance/report.md`
+  - `test-artifacts/android-foundation-remediation/gateb-systematic-20260819T234500Z/report.md`
 
-Earlier remediation runs were genuinely blocked and are not erased by this
-final PASS. The prior blocked checkpoint remains available in git history at
-`67be853` (`primer-tasks/test-artifacts/phase-01-evidence.md`), while the
-retained VirtualScene report above preserves the specific upstream blocker and
-its evidence path. Those historical blockers must not be read as the status of
-the reviewed tip `23b5685`.
+If a reviewer needs the original donor exploratory material, it remains on
+the immutable P1 endpoint `62795d53` and the pre-integration backup
+`backup/tasks-p6-external-pre-integration-20260905`. That is history, not
+this PR's exact-head evidence.
 
-## Final cleanliness
+## Android capture redaction (integrated)
 
-The reviewed branch has no pending tracked or untracked changes. Generated
-contracts, clients, build products, and test-run outputs remain untracked or
-ignored. Phase 2 was not started.
+Release builds must not emit a QR-frame diagnostic artifact. Debug builds may
+write **one** redacted metadata/digest file and never persist RGBA bytes.
+Shared JVM tests cover the redacted JSON packing; variant-specific tests
+assert debug writes once and release remains inert.
+
+## Pairing / token boundary
+
+This note does not record pairing codes, session cookies, device tokens, or
+QR payloads. Credential issuance must fail closed when CSPRNG entropy is
+unavailable, without consuming authorization state or pairing codes.
+
+## Phase 2
+
+Not started.

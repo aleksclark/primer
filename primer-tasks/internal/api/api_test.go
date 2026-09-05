@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -131,13 +132,56 @@ func TestOpenRejectsInvalidCiphertextAndLoginRequiresIdentity(t *testing.T) {
 	}
 }
 
-func TestSealReportsRandomSourceFailure(t *testing.T) {
+func failCryptoRand(t *testing.T) {
+	t.Helper()
 	original := cryptoRandRead
 	cryptoRandRead = func([]byte) (int, error) { return 0, fmt.Errorf("entropy unavailable") }
 	t.Cleanup(func() { cryptoRandRead = original })
+}
+
+func TestSealReportsRandomSourceFailure(t *testing.T) {
+	failCryptoRand(t)
 	s := NewWithAuth(nil, "test", AuthConfig{SessionSecret: []byte("state-secret")})
 	if _, err := s.seal("verifier"); err == nil {
 		t.Fatal("expected random source failure")
+	}
+}
+
+func TestRandomStringAndPairingCodeFailClosedOnEntropyLoss(t *testing.T) {
+	failCryptoRand(t)
+	if got, err := randomString(32); err == nil || !errors.Is(err, errEntropyUnavailable) || got != "" {
+		t.Fatalf("randomString = %q, %v", got, err)
+	}
+	if got, err := pairingCode(); err == nil || !errors.Is(err, errEntropyUnavailable) || got != "" {
+		t.Fatalf("pairingCode = %q, %v", got, err)
+	}
+}
+
+func TestRandomStringFailsClosedOnShortRead(t *testing.T) {
+	original := cryptoRandRead
+	cryptoRandRead = func(dst []byte) (int, error) {
+		if len(dst) == 0 {
+			return 0, nil
+		}
+		dst[0] = 1
+		return 1, nil
+	}
+	t.Cleanup(func() { cryptoRandRead = original })
+	if got, err := randomString(32); err == nil || !errors.Is(err, errEntropyUnavailable) || got != "" {
+		t.Fatalf("short randomString = %q, %v", got, err)
+	}
+}
+
+func TestLoginFailsClosedWhenEntropyUnavailable(t *testing.T) {
+	failCryptoRand(t)
+	s := NewWithAuth(nil, "test", AuthConfig{Mode: "test", IssuerURL: "http://issuer.test", ClientID: "tasks", SessionSecret: []byte("state-secret")})
+	rec := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("login without entropy = %d, want 503", rec.Code)
+	}
+	if strings.Contains(strings.ToLower(rec.Body.String()), "cookie") {
+		t.Fatalf("entropy failure leaked session material: %s", rec.Body.String())
 	}
 }
 
@@ -459,7 +503,10 @@ func TestHTTPDoUsesSharedClientWhenUnset(t *testing.T) {
 func TestPairingCodeHas128Bits(t *testing.T) {
 	seen := map[string]struct{}{}
 	for i := 0; i < 32; i++ {
-		code := pairingCode()
+		code, err := pairingCode()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(code) != 32 {
 			t.Fatalf("pairingCode length = %d", len(code))
 		}

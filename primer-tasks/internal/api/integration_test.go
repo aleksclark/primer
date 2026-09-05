@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -545,6 +546,155 @@ func TestPostgresPairingGuessThrottleAndEntropy(t *testing.T) {
 	}
 	if status := guess("198.51.100.20:12345", `{"code":"`+code+`"}`); status != http.StatusOK {
 		t.Fatalf("unrelated client claim = %d", status)
+	}
+}
+
+func withFailedEntropy(t *testing.T) {
+	t.Helper()
+	original := cryptoRandRead
+	cryptoRandRead = func([]byte) (int, error) { return 0, fmt.Errorf("entropy unavailable") }
+	t.Cleanup(func() { cryptoRandRead = original })
+}
+
+func restoreEntropy() {
+	cryptoRandRead = func(dst []byte) (int, error) { return rand.Read(dst) }
+}
+
+func cookieValue(rec *httptest.ResponseRecorder, name string) string {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == name {
+			return c.Value
+		}
+	}
+	return ""
+}
+
+func TestPostgresLoginAndCallbackFailClosedOnEntropyLoss(t *testing.T) {
+	pool := integrationPool(t)
+	_, _ = seedIntegration(t, pool)
+	const secret = "callback issuer secret"
+	var issuer *httptest.Server
+	issuer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseForm(); err != nil || r.Form.Get("code") != "good-code" || r.Form.Get("code_verifier") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id_token":%q}`, signedIntegrationToken(secret, issuer.URL, "tasks", "parent-a", time.Now().Add(time.Minute).Unix()))
+	}))
+	defer issuer.Close()
+	s := NewWithAuth(pool, "test", AuthConfig{Mode: "test", IssuerURL: issuer.URL, PublicIssuerURL: issuer.URL, ClientID: "tasks", RedirectURL: "https://tasks.test/auth/callback", SessionSecret: []byte("callback state secret"), IssuerSecret: []byte(secret)})
+	h := s.Routes()
+
+	withFailedEntropy(t)
+	login := httptest.NewRecorder()
+	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a", nil))
+	if login.Code != http.StatusServiceUnavailable {
+		t.Fatalf("login without entropy = %d, want 503", login.Code)
+	}
+	var authStates int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM auth_states`).Scan(&authStates); err != nil {
+		t.Fatal(err)
+	}
+	if authStates != 0 {
+		t.Fatalf("login entropy failure persisted %d auth_states", authStates)
+	}
+
+	// Restore entropy long enough to persist a real authorization, then fail closed at session issuance.
+	restoreEntropy()
+	loginOK := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodGet, "/auth/login?principal=parent-a", nil)
+	loginReq.Host = "127.0.0.1:39077"
+	h.ServeHTTP(loginOK, loginReq)
+	if loginOK.Code != http.StatusFound {
+		t.Fatalf("login with entropy = %d, want 302", loginOK.Code)
+	}
+	stateCookie := loginOK.Result().Cookies()[0]
+	withFailedEntropy(t)
+	callback := httptest.NewRequest(http.MethodGet, "/auth/callback?code=good-code&state="+stateCookie.Value, nil)
+	callback.AddCookie(stateCookie)
+	callbackRec := httptest.NewRecorder()
+	h.ServeHTTP(callbackRec, callback)
+	if callbackRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("callback without entropy = %d, want 503", callbackRec.Code)
+	}
+	if cookieValue(callbackRec, "tasks_parent") != "" {
+		t.Fatal("callback entropy failure issued a parent cookie")
+	}
+	var consumed, sessions int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM auth_states WHERE consumed_at IS NOT NULL`).Scan(&consumed); err != nil {
+		t.Fatal(err)
+	}
+	if consumed != 0 {
+		t.Fatalf("callback entropy failure consumed %d auth_states", consumed)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM bff_sessions WHERE session_kind='parent' AND handle_hash<>$1 AND handle_hash<>$2`, hash("parent-a"), hash("parent-b")).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 0 {
+		t.Fatalf("callback entropy failure persisted %d parent sessions", sessions)
+	}
+}
+
+func TestPostgresPairingAndClaimFailClosedOnEntropyLoss(t *testing.T) {
+	pool := integrationPool(t)
+	alice, _ := seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("entropy pairing secret"), IssuerSecret: []byte("entropy pairing issuer")})
+	h := s.Routes()
+
+	withFailedEntropy(t)
+	if rec := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", ""); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("issue pairing without entropy = %d, want 503", rec.Code)
+	}
+	var issued int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pairing_codes`).Scan(&issued); err != nil {
+		t.Fatal(err)
+	}
+	if issued != 0 {
+		t.Fatalf("pairing entropy failure persisted %d pairing_codes", issued)
+	}
+
+	restoreEntropy()
+	pairRec := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	if pairRec.Code != http.StatusOK {
+		t.Fatalf("issue pairing with entropy = %d: %s", pairRec.Code, pairRec.Body.String())
+	}
+	code, pairingID := pairingResponse(t, pairRec)
+	withFailedEntropy(t)
+	claim := requestJSON(t, h, http.MethodPost, "/student/pair", "", `{"code":"`+code+`"}`)
+	if claim.Code != http.StatusServiceUnavailable {
+		t.Fatalf("browser claim without entropy = %d, want 503", claim.Code)
+	}
+	if cookieValue(claim, "tasks_student") != "" {
+		t.Fatal("browser claim entropy failure issued a student cookie")
+	}
+	device := requestJSON(t, h, http.MethodPost, "/device/pair", "", `{"code":"`+code+`"}`)
+	if device.Code != http.StatusServiceUnavailable {
+		t.Fatalf("device claim without entropy = %d, want 503", device.Code)
+	}
+	if strings.Contains(device.Body.String(), "token") {
+		t.Fatalf("device claim entropy failure leaked a token: %s", device.Body.String())
+	}
+	var claimedAt *time.Time
+	if err := pool.QueryRow(context.Background(), `SELECT claimed_at FROM pairing_codes WHERE id=$1`, pairingID).Scan(&claimedAt); err != nil {
+		t.Fatal(err)
+	}
+	if claimedAt != nil {
+		t.Fatalf("entropy failure consumed pairing code at %v", claimedAt)
+	}
+	var sessions, devices int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM student_sessions`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM student_devices`).Scan(&devices); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 0 || devices != 0 {
+		t.Fatalf("entropy failure persisted sessions=%d devices=%d", sessions, devices)
 	}
 }
 

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -120,19 +119,32 @@ func pkceChallenge(verifier string) string {
 	x := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(x[:])
 }
-func randomString(n int) string {
+
+var errEntropyUnavailable = errors.New("entropy unavailable")
+
+func randomString(n int) (string, error) {
 	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
+	if err := readEntropy(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // pairingCode returns a 128-bit opaque secret as 32 uppercase hex characters.
-func pairingCode() string {
+func pairingCode() (string, error) {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
+	if err := readEntropy(b); err != nil {
+		return "", err
 	}
-	return strings.ToUpper(hex.EncodeToString(b))
+	return strings.ToUpper(hex.EncodeToString(b)), nil
+}
+
+func readEntropy(dst []byte) error {
+	n, err := randRead(dst)
+	if err != nil || n != len(dst) {
+		return errEntropyUnavailable
+	}
+	return nil
 }
 
 func requestOrigin(r *http.Request, host string) string {
@@ -173,7 +185,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "identity_unconfigured", "identity provider is not configured")
 		return
 	}
-	state, verifier := randomString(32), randomString(48)
+	state, err := randomString(32)
+	if err != nil {
+		problem(w, 503, "entropy_unavailable", "unable to create authorization state")
+		return
+	}
+	verifier, err := randomString(48)
+	if err != nil {
+		problem(w, 503, "entropy_unavailable", "unable to create authorization state")
+		return
+	}
 	returnTo := r.URL.Query().Get("return_to")
 	if returnTo == "" || !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") {
 		returnTo = "/parent/students"
@@ -229,10 +250,21 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, "invalid_request", "authorization code is required")
 		return
 	}
+	raw, err := randomString(32)
+	if err != nil {
+		problem(w, 503, "entropy_unavailable", "unable to create session")
+		return
+	}
 	ctx := r.Context()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		problem(w, 500, "internal", "unable to begin login")
+		return
+	}
+	defer tx.Rollback(ctx)
 	var ciphertext []byte
 	var redirectURI, returnTo, clientID string
-	if err = s.DB.QueryRow(ctx, `UPDATE auth_states SET consumed_at=now() WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now() RETURNING verifier_ciphertext,redirect_uri,return_path,client_id`, hash(state)).Scan(&ciphertext, &redirectURI, &returnTo, &clientID); err != nil {
+	if err = tx.QueryRow(ctx, `UPDATE auth_states SET consumed_at=now() WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now() RETURNING verifier_ciphertext,redirect_uri,return_path,client_id`, hash(state)).Scan(&ciphertext, &redirectURI, &returnTo, &clientID); err != nil {
 		problem(w, 400, "invalid_state", "authorization state is expired or already used")
 		return
 	}
@@ -247,13 +279,16 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var tenant string
-	if err = s.DB.QueryRow(ctx, `SELECT tenant_id FROM parent_memberships WHERE subject_ref=$1 ORDER BY tenant_id LIMIT 1`, claims.Subject).Scan(&tenant); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT tenant_id FROM parent_memberships WHERE subject_ref=$1 ORDER BY tenant_id LIMIT 1`, claims.Subject).Scan(&tenant); err != nil {
 		problem(w, 403, "denied", "principal is not provisioned")
 		return
 	}
-	raw := randomString(32)
-	if _, err = s.DB.Exec(ctx, `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES($1,$2,$3,'parent',now()+interval '8 hours')`, hash(raw), tenant, claims.Subject); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES($1,$2,$3,'parent',now()+interval '8 hours')`, hash(raw), tenant, claims.Subject); err != nil {
 		problem(w, 500, "internal", "unable to create session")
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		problem(w, 500, "internal", "unable to commit session")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "tasks_parent", Value: raw, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 28800})
@@ -424,10 +459,14 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 		problem(w, 404, "not_found", "student not found")
 		return
 	}
-	code := pairingCode()
+	code, e := pairingCode()
+	if e != nil {
+		problem(w, 503, "entropy_unavailable", "unable to issue pairing code")
+		return
+	}
 	pid := uuid.New()
 	exp := time.Now().UTC().Add(5 * time.Minute)
-	_, e := s.DB.Exec(r.Context(), `INSERT INTO pairing_codes(id,tenant_id,student_id,code_hash,expires_at) VALUES($1,$2,$3,$4,$5)`, pid, sc.Tenant, id, hash(code), exp)
+	_, e = s.DB.Exec(r.Context(), `INSERT INTO pairing_codes(id,tenant_id,student_id,code_hash,expires_at) VALUES($1,$2,$3,$4,$5)`, pid, sc.Tenant, id, hash(code), exp)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -441,6 +480,14 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 	jsonOK(w, map[string]any{"pairingId": pid, "code": code, "expiresAt": exp, "qrPayload": string(mustJSON(payload))})
 }
 func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey string) (uuid.UUID, string, string, error) {
+	rawLen := 48
+	if kind == "browser" {
+		rawLen = 32
+	}
+	raw, err := randomString(rawLen)
+	if err != nil {
+		return uuid.Nil, "", "", err
+	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, "", "", err
@@ -480,7 +527,6 @@ func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey stri
 		return uuid.Nil, "", "", err
 	}
 	if kind == "browser" {
-		raw := randomString(32)
 		if _, err = tx.Exec(ctx, `INSERT INTO bff_sessions(handle_hash,tenant_id,subject_ref,session_kind,expires_at) VALUES($1,$2,$3,'student',now()+interval '90 days')`, hash(raw), tenant, "student:"+sid.String()); err != nil {
 			return uuid.Nil, "", "", err
 		}
@@ -495,7 +541,6 @@ func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey stri
 		}
 		return sid, tenant, raw, nil
 	}
-	raw := randomString(48)
 	deviceID := uuid.New()
 	if _, err = tx.Exec(ctx, `INSERT INTO student_devices(id,tenant_id,student_id,token_hash) VALUES($1,$2,$3,$4)`, deviceID, tenant, sid, hash(raw)); err != nil {
 		return uuid.Nil, "", "", err
@@ -508,11 +553,16 @@ func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey stri
 	}
 	return sid, tenant, raw, nil
 }
+
 var errPairingThrottled = errors.New("pairing attempts exceeded")
 
 func pairingClaimError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errPairingThrottled) {
 		problem(w, 429, "throttled", "too many pairing attempts")
+		return
+	}
+	if errors.Is(err, errEntropyUnavailable) {
+		problem(w, 503, "entropy_unavailable", "unable to issue credential")
 		return
 	}
 	problem(w, 410, "expired", "pairing code is used, expired, or revoked")
