@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { TasksApiError, tasksClient, type Occurrence, type Schedule, type Student } from "@primer-tasks/client";
 import "./index.css";
+import { appBase, useParentIdentity } from "./identity";
 
 type Theme = "dark" | "light";
 
@@ -68,14 +69,16 @@ function ThemeButton({ theme, toggle }: { theme: Theme; toggle: () => void }) {
 
 function Brand() {
   return <NavLink className="brand" to="/parent/students" aria-label="Primer Tasks home">
-    <img className="brand-dark" src="/brand/logo-mark.svg" alt="" />
-    <img className="brand-light" src="/brand/logo-mark-light.svg" alt="" />
+    <img className="brand-dark" src={`${appBase}brand/logo-mark.svg`} alt="" />
+    <img className="brand-light" src={`${appBase}brand/logo-mark-light.svg`} alt="" />
     <span className="brand-wordmark">Primer<strong>Tasks</strong></span>
     <span className="system-label hmr-proof-marker" data-hmr-proof-marker="true">{HMR_PROOF_MARKER}</span>
   </NavLink>;
 }
 
 function ParentShell({ children }: { children: ReactNode }) {
+  const identity = useParentIdentity();
+  const [logoutError, setLogoutError] = useState<unknown>(null);
   const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
   return <div className={`app-shell ${open ? "mobile-nav-open" : ""}`}>
@@ -95,22 +98,24 @@ function ParentShell({ children }: { children: ReactNode }) {
           <NavLink className="nav-link" to="/student/pair">Pair a browser</NavLink>
         </div>
       </div>
-      <div className="nav-footer"><p className="system-label">System C · Primer Tasks</p><ThemeButton theme={theme} toggle={toggle} /><button className="button quiet" type="button" onClick={() => void tasksClient.logout().finally(() => window.location.assign("/parent/students"))}>Sign out</button></div>
+      <div className="nav-footer"><p className="system-label">System C · Primer Tasks</p><ThemeButton theme={theme} toggle={toggle} /><button className="button quiet" type="button" onClick={() => void identity.signOut().catch(setLogoutError)}>Sign out</button></div>
     </aside>
-    <main className="main"><div className="content">{children}</div></main>
+    <main className="main"><div className="content">{logoutError ? <ErrorNotice error={logoutError} /> : null}{children}</div></main>
   </div>;
 }
 
 function ParentAuthGate() {
+  const identity = useParentIdentity();
   const [status, setStatus] = useState<RequestState>("loading");
   const { theme, toggle } = useTheme();
   useEffect(() => {
     let mounted = true;
+    setStatus("loading");
     tasksClient.parentSession().then(() => mounted && setStatus("ready")).catch((error) => mounted && setStatus(apiState(error)));
     return () => { mounted = false; };
-  }, []);
+  }, [identity.ready, identity.signedIn]);
   if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
-  if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} />;
+  if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} denied={status === "denied"} />;
   return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
 }
 
@@ -118,12 +123,16 @@ function AuthFrame({ children }: { children: ReactNode }) {
   return <div className="auth-frame"><div className="auth-brand"><Brand /></div><main className="main"><div className="content">{children}</div></main></div>;
 }
 
-function LoginPage({ theme, toggle }: { theme: Theme; toggle: () => void }) {
+function LoginPage({ theme, toggle, denied }: { theme: Theme; toggle: () => void; denied: boolean }) {
+  const identity = useParentIdentity();
+  const [error, setError] = useState<unknown>(null);
   return <AuthFrame><section className="pair-card" style={{ maxWidth: 560, margin: "12vh auto 0" }}>
-    <div className="page-header"><div><p className="eyebrow">Parent access</p><h1>Sign in to Primer Tasks</h1><p>Your household workspace is protected by the Tasks identity service.</p></div><ThemeButton theme={theme} toggle={toggle} /></div>
+    <div className="page-header"><div><p className="eyebrow">Parent access</p><h1>Sign in to Primer Tasks</h1><p>Sign in, then Tasks checks your local household membership.</p></div><ThemeButton theme={theme} toggle={toggle} /></div>
     <div style={{ display: "grid", gap: 16, marginTop: 24 }}>
-      <p style={{ margin: 0, color: "var(--muted)" }}>Continue to the secure authorization flow. Your browser receives only a host-only session cookie; provider tokens never enter this app.</p>
-      <button className="button" type="button" onClick={() => tasksClient.beginParentLogin("/parent/students")}>Continue with parent sign-in</button>
+      <p style={{ margin: 0, color: "var(--muted)" }}>{denied ? "Your sign-in is valid but no active household membership or Tasks session is available. Ask the household operator to check your access." : identity.clerk ? "Continue with Clerk. Short-lived parent credentials are obtained in memory; your household permissions remain managed by Tasks." : "Continue to the development authorization flow."}</p>
+      <button className="button" type="button" onClick={identity.signIn}>Continue with parent sign-in</button>
+      {identity.signedIn && <button className="button quiet" type="button" onClick={() => void identity.signOut().catch(setError)}>Sign out</button>}
+      {error ? <ErrorNotice error={error} /> : null}
     </div>
   </section></AuthFrame>;
 }

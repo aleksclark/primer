@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -200,6 +201,10 @@ func init() {
 type humaContextKey struct{}
 
 func register[I, O any](api huma.API, op huma.Operation, handler func(context.Context, *I) (*O, error)) {
+	if op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") {
+		op.Security = []map[string][]string{{"parentSession": {}}}
+		op.Errors = append(op.Errors, 401, 403, 503)
+	}
 	huma.Register(api, op, handler)
 	// Huma adds 422 for every operation with a body. The legacy public API
 	// reports malformed/empty JSON as 400; Problem handles runtime errors and
@@ -229,6 +234,7 @@ func (s *Server) humaAPI() huma.API {
 	config.DocsPath = ""
 	config.SchemasPath = ""
 	config.OpenAPIPath = "/openapi"
+	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{"parentSession": {Type: "http", Scheme: "bearer", BearerFormat: "JWT", Description: "Clerk session JWT; local household membership is required. Student credentials are separate."}}
 	api := humachi.New(r, config)
 	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
 		next(huma.WithValue(ctx, humaContextKey{}, ctx))

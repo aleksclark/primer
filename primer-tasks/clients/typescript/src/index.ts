@@ -28,6 +28,8 @@ export type OccurrencePage = components["schemas"]["OccurrencePage2"];
 export interface TasksClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
+  /** Clerk obtains fresh short-lived tokens in memory, only for parent routes. */
+  getParentToken?: () => Promise<string | null>;
 }
 
 export interface RequestOptions {
@@ -51,8 +53,8 @@ export class TasksApiError extends Error {
  *
  * The generated schema is intentionally a build output. Consumers import only
  * this façade; no page knows about openapi-fetch, URLs, or wire error shapes.
- * Parent and student browser sessions are host-only cookies, so credentials
- * are included and no bearer token is persisted in browser storage.
+ * Student sessions remain host-only cookies. Parent Clerk tokens are obtained
+ * on demand and never persisted by this client.
  */
 export function createTasksClient(options: TasksClientOptions = {}) {
   const baseUrl = options.baseUrl ?? "/api";
@@ -60,6 +62,15 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     baseUrl,
     credentials: "include",
     fetch: options.fetch,
+  });
+  transport.use({
+    async onRequest({ request, schemaPath }) {
+      if (options.getParentToken && !schemaPath.startsWith("/student/") && !schemaPath.startsWith("/device/") && schemaPath !== "/health") {
+        const token = await options.getParentToken();
+        if (token) request.headers.set("Authorization", `Bearer ${token}`);
+      }
+      return request;
+    },
   });
 
   async function unwrap<T>(resultPromise: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
@@ -90,7 +101,7 @@ export function createTasksClient(options: TasksClientOptions = {}) {
       // Keep the browser on the same-origin BFF namespace. Vite (and the
       // production reverse proxy) forwards /api/auth to the Tasks API's
       // internal /auth routes without exposing a cross-origin URL.
-      const target = new URL("/api/auth/login", window.location.origin);
+      const target = new URL(`${baseUrl}/auth/login`, window.location.origin);
       target.searchParams.set("return_to", returnTo);
       window.location.assign(target.toString());
     },
@@ -210,4 +221,9 @@ export function createTasksClient(options: TasksClientOptions = {}) {
 }
 
 export type TasksClient = ReturnType<typeof createTasksClient>;
-export const tasksClient = createTasksClient();
+export let tasksClient = createTasksClient();
+
+/** Configure once at the application composition boundary, before rendering. */
+export function configureTasksClient(options: TasksClientOptions) {
+  tasksClient = createTasksClient(options);
+}

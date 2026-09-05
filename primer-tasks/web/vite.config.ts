@@ -16,7 +16,17 @@ const hmr = hmrHost
     }
   : undefined;
 
+const base = process.env.VITE_TASKS_BASE_PATH ?? "/";
+if (base !== "/" && base !== "/tasks/") throw new Error("VITE_TASKS_BASE_PATH must be / or /tasks/");
+if (base === "/tasks/" && !process.env.VITE_CLERK_PUBLISHABLE_KEY) {
+  throw new Error("VITE_CLERK_PUBLISHABLE_KEY is required for the release bundle");
+}
+if (base === "/tasks/" && process.env.VITE_TASKS_API_BASE !== "/tasks/api") {
+  throw new Error("VITE_TASKS_API_BASE must be /tasks/api for the release bundle");
+}
+
 export default defineConfig({
+  base,
   plugins: [react()],
   resolve: {
     alias: {
