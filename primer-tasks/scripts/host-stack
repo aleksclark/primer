@@ -144,7 +144,7 @@ up() {
     api_cmd='exec air -c .air.host.toml'
   fi
   start_session "$STATE_DIR/api.pid" "$STATE_DIR/api.log" bash -c "cd \"$ROOT\" && $api_cmd"
-  start_session "$STATE_DIR/web.pid" "$STATE_DIR/web.log" bash -c "cd \"$ROOT/web\" && npm ci --no-audit --no-fund >/dev/null && npm --prefix \"$ROOT/clients/typescript\" ci --no-audit --no-fund >/dev/null && if [[ ! -f \"$ROOT/clients/typescript/generated/schema.d.ts\" ]]; then npm run generate:client >/dev/null; fi && exec npm run dev -- --host 127.0.0.1 --port \"$web_port\" --strictPort"
+  start_session "$STATE_DIR/web.pid" "$STATE_DIR/web.log" bash -c "cd \"$ROOT\" && mkdir -p build && go run ./cmd/openapi-gen -out build/openapi.yaml >/dev/null && cd web && npm ci --no-audit --no-fund >/dev/null && npm --prefix \"$ROOT/clients/typescript\" ci --no-audit --no-fund >/dev/null && npm run generate:client >/dev/null && exec npm run dev -- --host 127.0.0.1 --port \"$web_port\" --strictPort"
   wait_http "http://127.0.0.1:${issuer_port}/health"
   wait_http "http://127.0.0.1:${api_port}/health"
   wait_http "http://127.0.0.1:${web_port}/"
