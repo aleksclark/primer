@@ -6,6 +6,7 @@ ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
 REPO_ROOT=$(git -C "$ROOT" rev-parse --show-toplevel)
 HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 PROBE_TAG="host-$(date +%s)-$$"
+mkdir -p "${REPO_ROOT}/.worktrees"
 A=$(mktemp -d "${REPO_ROOT}/.worktrees/tasks-p1-host-a.XXXXXX")
 B=$(mktemp -d "${REPO_ROOT}/.worktrees/tasks-p1-host-b.XXXXXX")
 rmdir "$A" "$B"

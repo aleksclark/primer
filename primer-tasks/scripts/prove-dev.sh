@@ -135,6 +135,7 @@ assert_absent "$PROJECT_B"
 
 TMPDIR_PROOF=$(mktemp -d)
 chmod 700 "$TMPDIR_PROOF"
+mkdir -p "${REPO_ROOT}/.worktrees"
 ROOT_A=$(mktemp -d "${REPO_ROOT}/.worktrees/tasks-p1-proof-a.XXXXXX")
 ROOT_B=$(mktemp -d "${REPO_ROOT}/.worktrees/tasks-p1-proof-b.XXXXXX")
 rmdir "$ROOT_A" "$ROOT_B"
