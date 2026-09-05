@@ -18,10 +18,11 @@ mkdir -p tmp/tasks-image
 docker buildx build \
   --file Dockerfile.tasks \
   --platform linux/amd64 \
+  --no-cache-filter web \
   --build-arg "SOURCE_REVISION=${revision}" \
   --build-arg VITE_TASKS_BASE_PATH=/tasks/ \
   --build-arg VITE_TASKS_API_BASE=/tasks/api \
-  --build-arg VITE_CLERK_PUBLISHABLE_KEY \
+  --secret id=VITE_CLERK_PUBLISHABLE_KEY,env=VITE_CLERK_PUBLISHABLE_KEY \
   --metadata-file tmp/tasks-image/build-metadata.json \
   --tag "$image" \
   --load .

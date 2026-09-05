@@ -40,6 +40,10 @@ assert 'USER 65532:65532' in image
 assert 'COPY --from=web /src/primer-tasks/web/dist/ /app/web/' in image
 assert 'COPY --from=source /usr/share/zoneinfo/' in image
 assert 'test -n "$VITE_CLERK_PUBLISHABLE_KEY"' in image
+assert 'type=secret,id=VITE_CLERK_PUBLISHABLE_KEY,env=VITE_CLERK_PUBLISHABLE_KEY,required=true' in image
+assert 'ARG VITE_CLERK_PUBLISHABLE_KEY' not in image
+assert 'no-cache-filters: web' in workflow
+assert '--no-cache-filter web' in (root / 'scripts/build-tasks-image.sh').read_text()
 assert 'ENV GOWORK=off GOPRIVATE=git.fleet.clark.team/aleksclark/authstack' in image
 assert "cmd/tasks-test-issuer" not in image + ignore
 assert "**/.env" in ignore and "**/.env.*" in ignore

@@ -39,7 +39,7 @@ vendor tree or test issuer are included.
 
 | Build input | Contract |
 |---|---|
-| `VITE_CLERK_PUBLISHABLE_KEY` | Required approved public browser key; repository Actions **variable** of this name for CI, environment input for local builds |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Required approved public browser key; repository Actions **secret** of this name for CI log masking, environment input for local builds; transmitted using a BuildKit secret mount |
 | `VITE_TASKS_BASE_PATH` | `/tasks/` |
 | `VITE_TASKS_API_BASE` | `/tasks/api` |
 | `SOURCE_REVISION` | Full Git commit SHA, recorded as OCI revision label |
@@ -49,6 +49,10 @@ test issuer, invented key or login-disabled release. The previously discovered
 Authstack profile is a test instance and is not implicitly approved for Tasks.
 Never read/copy `CLERK_SECRET_KEY`: neither build nor runtime needs it. Supply only
 the approved public fields without echoing environment/profile values to logs.
+The publishable key belongs in the real browser bundle but is kept out of build
+command-line arguments and max-mode provenance by the BuildKit secret mount.
+Both build entrypoints disable caching of the `web` stage because secret content
+is not a BuildKit cache key; key rotation must never reuse a stale browser bundle.
 
 After the combined commit is clean and approved public key is injected:
 

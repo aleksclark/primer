@@ -29,10 +29,12 @@ COPY design-system/generated/ /src/design-system/generated/
 COPY --from=spec /openapi.yaml ./build/openapi.yaml
 ARG VITE_TASKS_BASE_PATH=/tasks/
 ARG VITE_TASKS_API_BASE=/tasks/api
-# This is a public browser identifier, not a Clerk secret key. There is no
-# fallback/test key: an approved Clerk profile is required for a release build.
-ARG VITE_CLERK_PUBLISHABLE_KEY
-RUN test -n "$VITE_CLERK_PUBLISHABLE_KEY" && npm --prefix web run build
+# This is a public browser identifier, not a Clerk secret key. Transport it as
+# a BuildKit secret so command lines and max-mode provenance stay value-free.
+# The real public key is necessarily present in the resulting browser bundle.
+# No fallback/test key: an approved Clerk profile is required for a release.
+RUN --mount=type=secret,id=VITE_CLERK_PUBLISHABLE_KEY,env=VITE_CLERK_PUBLISHABLE_KEY,required=true \
+    test -n "$VITE_CLERK_PUBLISHABLE_KEY" && npm --prefix web run build
 
 FROM source AS build
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \

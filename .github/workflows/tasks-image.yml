@@ -42,13 +42,14 @@ jobs:
         run: python3 deploy/nomad/tests/tasks-contract.py
 
       # Public browser key, supplied only after the Clerk profile is approved for
-      # the public Tasks origin. No Clerk secret key is consumed by this workflow.
+      # the public Tasks origin. Store as an Actions secret for log masking only;
+      # the actual Clerk secret key is never consumed by this workflow.
       - name: Require approved Clerk build input
         env:
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           if [ -z "$VITE_CLERK_PUBLISHABLE_KEY" ]; then
-            echo 'Missing approved repository variable NAME: VITE_CLERK_PUBLISHABLE_KEY' >&2
+            echo 'Missing approved repository secret NAME: VITE_CLERK_PUBLISHABLE_KEY' >&2
             exit 1
           fi
 
@@ -65,6 +66,8 @@ jobs:
       - name: Build production Tasks image
         id: build
         uses: docker/build-push-action@v6
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         with:
           context: .
           file: Dockerfile.tasks
@@ -75,7 +78,11 @@ jobs:
             SOURCE_REVISION=${{ github.sha }}
             VITE_TASKS_BASE_PATH=/tasks/
             VITE_TASKS_API_BASE=/tasks/api
-            VITE_CLERK_PUBLISHABLE_KEY=${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+          secret-envs: |
+            VITE_CLERK_PUBLISHABLE_KEY=VITE_CLERK_PUBLISHABLE_KEY
+          # BuildKit secrets are not cache keys: always rebuild the browser stage
+          # so a newly approved/rotated public key cannot reuse a stale bundle.
+          no-cache-filters: web
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=primer-tasks
