@@ -30,9 +30,10 @@ Identity wiring. Protected checks/merge remain L1-coordinated; no direct deploy.
 - Build `./cmd/tasks-server`, `./cmd/tasks-migrate`, `./cmd/tasks-bootstrap` from
   `primer-tasks`. Go **1.26.6** is required by published Authstack
   **af1841573db40fda84a29d33abe8f7507a11e068** (the only production verifier).
-  Its old vanity host returns mismatching go-import metadata: `go.mod` uses a
-  transport-only replacement to the same commit at `git.fleet.clark.team`, not
-  a fork/vendor/local verifier. `GOPRIVATE=git.fleet.clark.team/aleksclark/authstack`.
+  Its vanity metadata points at split DNS: `go.mod` uses the public VCS-qualified
+  `git.clark.team/aleksclark/authstack.git` transport at that exact commit, not
+  a fork/vendor/local verifier. Fresh public proxy/checksum downloads work
+  without private DNS, Git credentials, or `GOPRIVATE`.
 - `GET /health` is unauthenticated process health (`/tasks/api/health` publicly).
   Production startup neither migrates nor seeds. Before startup run
   `/app/tasks-migrate` (no args; `TASKS_DATABASE_URL` only). Legacy test/dev
