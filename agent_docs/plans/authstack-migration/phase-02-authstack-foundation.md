@@ -1,10 +1,10 @@
-# Phase 2: Provider-neutral authstack foundation
+# Phase 2: Clerk authstack foundation
 
 ## Goal
 
-Add authstack to the relevant Go modules and establish provider-neutral authentication/authorization contracts, explicit policy registries, canonical identity mappings, and compatibility harnesses at application composition roots. No public route cuts over in this phase; legacy remains authoritative while authstack runs only in shadow/compatibility modes that cannot grant access.
+Add authstack to the relevant Go modules and establish Clerk adapter construction at composition roots, provider-neutral authentication/authorization contracts below that seam, explicit policy registries, canonical identity mappings, and compatibility harnesses. No public route cuts over in this phase; legacy remains authoritative while Clerk/authstack runs only in shadow/compatibility modes that cannot grant access.
 
-This phase makes later service and human migrations mechanical: handlers and domain services consume normalized `auth.Principal` and `auth.Authorizer`, while selected-provider construction and temporary legacy adapters remain at startup boundaries.
+This phase makes later service and human migrations mechanical: handlers and domain services consume normalized `auth.Principal` and `auth.Authorizer`, while Clerk construction/JWKS refresh and temporary legacy adapters remain at startup boundaries.
 
 ## BDD Success Criteria
 
@@ -26,7 +26,7 @@ This phase makes later service and human migrations mechanical: handlers and dom
 
 #### Scenario: Principal is normalized at the boundary
 
-- **Given** a valid selected-provider test token or a conforming authstack test authenticator
+- **Given** a valid Clerk session/M2M test JWT or a conforming authstack test authenticator
 - **When** the request passes authentication
 - **Then** handlers/domain services receive `auth.Principal` from context
 - **And** they do not parse JWTs, provider claims, headers, or cookies
@@ -58,7 +58,7 @@ This phase makes later service and human migrations mechanical: handlers and dom
 ## Implementation Instructions
 
 1. Add `git.clark.team/aleksclark/authstack` through each module's normal Go dependency workflow. Pin a reviewed commit/version compatible with repository Go versions; do not add a local `replace` in committed production modules.
-2. At each composition root, construct exactly one selected-provider authenticator from validated config, plus authstack RBAC or a product authorizer adapter. Keep provider imports out of handlers/domain/repositories. Fail production startup on incomplete issuer/audience/party/tenant configuration.
+2. At each composition root, load the exact configured Clerk JWKS/public key and construct `clerk.NewAuthenticator`, plus authstack RBAC or a product authorizer adapter. Add bounded unknown-`kid`/scheduled JWKS refresh at that composition seam. Keep `authstack/clerk` imports out of handlers/domain/repositories. Fail production startup on incomplete issuer/JWKS/audience/party/tenant configuration; resource servers receive no Clerk secret key.
 3. Define immutable named HTTP policies and gRPC full-method registries from the Phase 1 matrix. Use `authhttp.AuthenticateWithPolicy`; use policy-aware unary and stream gRPC interceptors. Add authorization middleware/interceptors after authentication. Avoid broad middleware on public and device-only routers.
 4. Introduce narrow adapters where Huma/MCP/framework contexts need translation, but store only `auth.Principal` in standard request context. Remove custom claim bags and duplicate principal types from new paths; compatibility translation may live only at composition/API seams.
 5. Add an additive mapping schema in each product that needs stable local IDs. Suggested fields: local actor/member ID, canonical issuer, canonical subject, optional verified tenant ID, legacy issuer/subject reference, link state, link method, timestamps, and audit actor. Add exact unique/FK constraints and idempotent backfill jobs. Do not store provider access/refresh tokens there.
@@ -70,7 +70,7 @@ This phase makes later service and human migrations mechanical: handlers and dom
 
 ## End-to-End Test Plan
 
-- Start each Go service with a real HTTP listener, selected-provider-compatible cryptographic fixture, authstack wiring in shadow mode, and its real PostgreSQL testcontainer where membership/mapping is involved.
+- Start each Go service with a real HTTP listener, Clerk session/M2M JWT plus JWKS fixture, authstack wiring in shadow mode, and its real PostgreSQL testcontainer where membership/mapping is involved.
 - For each named policy, call one public boundary with missing, malformed, invalid signature, wrong issuer, wrong audience, wrong authorized party, expired, future `nbf`, disallowed credential kind, and missing tenant. Assert sanitized status and `WWW-Authenticate` where applicable.
 - Call HTTP and gRPC variants with the same canonical principal and assert equivalent issuer/subject/kind/tenant semantics without adding a test-only endpoint that simply dumps claims.
 - Insert two tenants and memberships in real Postgres; prove cross-tenant read/update/delete fail and inspect fixture rows to confirm canonical issuer/subject/tenant were derived from the verified principal.
@@ -83,7 +83,7 @@ Cryptographic provider fixtures and test authenticators are allowed for determin
 
 ## Anti-Cheating Audit
 
-- Search handlers/domain packages for selected-provider imports, JWT parsing, raw headers/cookies, or custom principal structs.
+- Search handlers/domain packages for `authstack/clerk` imports, JWT parsing, raw headers/cookies, or custom principal structs.
 - Confirm policy registries are immutable and no empty `AcceptedCredentials` policy is “fixed” by accepting all kinds.
 - Verify middleware ordering in actual routers and both unary/stream gRPC chains.
 - Check shadow mode cannot set a principal used for access after legacy denial.

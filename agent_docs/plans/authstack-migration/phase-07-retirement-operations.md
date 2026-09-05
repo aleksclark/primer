@@ -21,7 +21,7 @@ This is the only destructive phase. It must leave no stale second authority whil
 - **Given** protected master after retirement
 - **When** all Primer services build, start, and authenticate users/services
 - **Then** no runtime route, config, deploy job, client, module import, JWKS URL, broker callback, webhook, signing-key job, or secret references Primer Identity/Stytch
-- **And** selected-provider authstack flows remain green
+- **And** Clerk authstack flows remain green
 - **And** old Identity endpoints are unreachable/retired according to operations policy.
 
 #### Scenario: Superseded service and JWT paths fail
@@ -44,7 +44,7 @@ This is the only destructive phase. It must leave no stale second authority whil
 
 - **Given** an empty supported environment and a backup/restore test environment
 - **When** operators deploy/migrate from protected master and restore required product state
-- **Then** selected-provider setup/config validation, canonical mappings, local memberships, M2M identities, and device records support real smoke tests
+- **Then** Clerk application/Organizations/JWKS/session-template/M2M configuration, canonical mappings, local memberships, and device records support real smoke tests
 - **And** removed Identity migrations/services are not required for startup
 - **And** rollback now means forward-fix/restore under the documented post-retirement policy, not re-enabling deleted code.
 
@@ -65,7 +65,7 @@ This is the only destructive phase. It must leave no stale second authority whil
 6. Preserve additive canonical link/local actor records required for stable foreign keys, audit, and rollback provenance. If dropping legacy columns/tables, use forward-only migrations with preconditions and counts; do not cascade-delete product data or device bindings.
 7. Preserve `authutil`/hash/token utilities and schema fields still used by LMS, TV, or Tasks device credentials; split packages before deleting legacy parent-session pieces when responsibilities overlap.
 8. Regenerate LMS/TV/Studio/Tasks/Agents OpenAPI and generated clients; remove obsolete security schemes/config docs. Update web bundles, Go workspace/sums, container files, compose/Stacklane/Nomad manifests, CI, Make targets, example config, architecture diagrams, and runbooks.
-9. Add negative legacy-credential tests as permanent regression coverage. Keep selected-provider key rotation/outage, M2M audience isolation, tenant isolation, logout/revocation, and device matrix in CI at appropriate deterministic/live tiers.
+9. Add negative legacy-credential tests as permanent regression coverage. Keep Clerk JWKS rotation/outage, M2M machine/audience isolation, Organization/tenant isolation, logout/revocation, and device matrix in CI at appropriate deterministic/live tiers.
 10. Run a clean fresh-deploy/migrate smoke test and a restore drill. Shut down/archive Identity infrastructure only after successful replacement smoke; revoke/delete provider-side Stytch applications/secrets through approved operations without printing values.
 11. Open protected-master PRs in independently reversible cleanup slices. Do not force-push. Final integration occurs only after CI and independent Terra security/browser review are green.
 12. Publish the wave-02 handoff artifact with exact master commit and remaining boundaries.
@@ -73,12 +73,12 @@ This is the only destructive phase. It must leave no stale second authority whil
 ## End-to-End Test Plan
 
 - Before deletion, run the full Phase 3–6 suite and capture redacted evidence plus counts needed to approve retirement.
-- On a clean checkout/fresh databases, generate clients, build containers/binaries, apply all active migrations, provision/configure selected-provider development resources through approved tooling, and start LMS, TV, Studio, Tasks, Agents, and required workers without Primer Identity.
+- On a clean checkout/fresh databases, generate clients, build containers/binaries, apply all active migrations, provision/configure the Clerk development application, Organizations, session templates, origins, JWKS, and Machines through approved tooling, and start LMS, TV, Studio, Tasks, Agents, and required workers without Primer Identity.
 - Use managed headless browser to log in/out and exercise tenant/membership actions on LMS, TV admin, Tasks parent, and Studio. Use real development provider; verify no network request targets Primer Identity/Stytch hosts.
 - Execute real M2M TV→LMS, ingest→TV, LMS/Studio→Agents, Studio gRPC/MCP, and any integrated Tasks service calls; assert audience/permission isolation and durable retry behavior.
 - Present representative old Primer Identity JWTs, old shared headers, old parent opaque sessions, old Studio alias, and wrong-provider/test-issuer credentials; assert denial.
 - Keep devices paired across the cleanup deployment/restart and repeat LMS workstation, TV Android, and Tasks student browser/Android operations plus revoke/rotate/re-pair.
-- Run selected-provider signing-key rotation/unknown-key refresh, provider outage/recovery, logout/revocation, M2M expiry/refresh, tenant switch/cross-tenant mutation denial, and log redaction.
+- Run Clerk signing-key rotation/unknown-`kid` JWKS refresh, provider outage/recovery, logout/revocation, M2M expiry/overlap rotation, Organization switch/cross-tenant mutation denial, and log redaction.
 - Restore product databases from disposable backups and repeat canonical membership and device smoke tests. Primer Identity restore is tested only if retained by the approved archive policy, not required by active runtime.
 - Run all root/module tests, race and coverage gates, browser/Android suites, lint/typecheck, generated drift, build/container/compose/deploy validation, secret scanners, and architecture/link checks.
 
@@ -92,7 +92,7 @@ No mock-only, loopback-only, or in-memory-only evidence can approve production r
 - Check schema cleanup preconditions/counts and foreign keys; ensure canonical/local memberships and device rows are not cascade-deleted.
 - Confirm device utility packages were split/preserved where legacy human and device tokens once shared code.
 - Inspect browser bundles/storage/network for old bearer/admin-key/Identity paths.
-- Verify selected-provider live proof and M2M flows use production composition, not test-only authenticators or context injection.
+- Verify live Clerk proof and M2M flows use production composition, not test-only authenticators or context injection.
 - Inspect logs, CI artifacts, backups, migration reports, screenshots, and handoff docs for tokens, secrets, emails, provider bodies, or private keys.
 - Confirm protected-master history and PR checks are green; no force push, direct unreviewed master update, skipped test, lowered coverage, or test-only production branch.
 - Validate the wave-02 handoff commit exists on protected master and all stated policies are asserted by tests.
@@ -102,7 +102,7 @@ No mock-only, loopback-only, or in-memory-only evidence can approve production r
 - [ ] Explicit retirement approval and observation/rollback-window evidence are recorded.
 - [ ] Primer Identity/Stytch runtime/deploy/provider resources and all superseded product auth paths are removed or archived per policy.
 - [ ] Old JWT/shared-secret/legacy session/test issuer credentials permanently fail on human/service routes.
-- [ ] Selected-provider human and M2M flows, canonical mappings, local authorization, tenant isolation, rotation/outage/revocation, and redaction pass live and deterministic tests.
+- [ ] Clerk human session and JWT M2M flows, canonical mappings, local authorization, Organization/tenant isolation, JWKS/M2M rotation, outage/revocation, and redaction pass live and deterministic tests.
 - [ ] Pre-existing devices survive cleanup and the full pairing/revoke/rotate/re-pair/cross-credential matrix remains green.
 - [ ] Fresh deploy/migrate and backup/restore drills pass without Identity runtime.
 - [ ] OpenAPI/clients, workspace/dependencies, web bundles, config, CI, containers, Compose/Stacklane/Nomad, architecture, and runbooks are reconciled.

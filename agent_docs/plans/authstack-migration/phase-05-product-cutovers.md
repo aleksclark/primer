@@ -10,7 +10,7 @@ Service M2M is already migrated and dual-run human behavior already proved; this
 
 #### Scenario: LMS human cutover preserves educator authorization
 
-- **Given** a canonically linked selected-provider user with local LMS `parent` or `admin` role
+- **Given** a canonically linked Clerk user with an active Organization and local LMS `parent` or `admin` role
 - **When** LMS human authority changes to authstack
 - **Then** browser/API actions succeed under the same local educator identity and household rules
 - **And** an authenticated provider user without a local allowed role receives 403
@@ -65,7 +65,7 @@ Perform cutovers as separate protected-master PR/release gates in this order unl
 
 1. **LMS:** make authstack human/BFF policy authoritative for parent/admin routes; map canonical identity to local educator; remove the SPA's bearer paste/localStorage production path; keep explicit break-glass policy separate and audited if required. Update Huma security schemes and generated `web` client.
 2. **TV admin:** require local human admin membership; mount distinct human and machine policy groups; remove browser/shared-key path; retain device guard/router unchanged. Update TV OpenAPI/client and content-ingest callers already migrated in Phase 3.
-3. **Primer Tasks parent:** make selected-provider BFF authoritative for parent routes and verified tenant; keep `tasks-test-issuer` only under test wiring; preserve student pair endpoints, opaque credentials, WebSockets, Android encrypted store, revocation, and archive semantics.
+3. **Primer Tasks parent:** make the Clerk-backed product BFF authoritative for parent routes and verified active Organization/local tenant; keep `tasks-test-issuer` only under test wiring; preserve student pair endpoints, opaque credentials, WebSockets, Android encrypted store, revocation, and archive semantics.
 4. **Curriculum Studio:** replace handwritten `authn.Validator`/custom contexts across REST, BFF, MCP, and gRPC with authstack contracts. Adapt local membership repos and tool policy behind `auth.Authorizer`. Ensure unary and stream full-method registries cover all RPCs. Remove migration alias only after callers prove M2M bearer.
 5. **Primer Agents/downstream:** replace custom authn principal and scope middleware with authstack principal/authorizer. Keep run/session owner identity and profile admission. Update LMS/Studio generated client composition to token transports, not raw bearer constructors.
 6. For each product, move rollout state `dual`→`authstack`, monitor redacted parity/denial/provider-outage metrics for the agreed window, run browser and backend evidence, then mark cutover accepted before starting the next.
@@ -77,10 +77,10 @@ Perform cutovers as separate protected-master PR/release gates in this order unl
 
 For each cutover, run all of the following before advancing:
 
-- **Browser flow:** managed headless browser performs selected-provider login, callback, authenticated page/data load, permitted and denied action, refresh/session continuity, tenant switch where supported, logout, and post-logout denial. Inspect storage/cookie attributes without exposing values.
+- **Browser flow:** managed headless browser performs Clerk login, active Organization selection, product BFF session establishment, authenticated page/data load, permitted and denied action, refresh/session continuity, Organization switch, logout, and post-logout denial. Inspect storage/cookie attributes without exposing values.
 - **Backend policy:** missing/malformed/wrong issuer/audience/party/kind/tenant, expired/`nbf`, no local membership, forbidden role/permission, provider unavailable, and unexpected authorization errors through public HTTP/MCP/gRPC boundaries.
 - **Persistence:** real PostgreSQL proves canonical link/local actor/membership/tenant ownership and cross-tenant/cross-owner denial for reads and mutations.
-- **Rollback:** flip only the current product to rollback, repeat its legacy smoke test, then restore authstack and repeat the selected-provider smoke test.
+- **Rollback:** flip only the current product to rollback, repeat its legacy smoke test, then restore authstack and repeat the Clerk smoke test.
 - **LMS:** create/read/modify representative parent resources and manage a workstation pairing code; verify educator audit identity and device remains local.
 - **TV:** admin catalog/schedule/device management as human; content-ingest machine operation; paired Android catalog/playback; full cross-credential matrix.
 - **Tasks:** parent author/publish/schedule/issue pairing; paired browser and Android student checklist/dialogue/artifact path; archive/revoke/re-pair; cross-tenant denial.
@@ -88,7 +88,7 @@ For each cutover, run all of the following before advancing:
 - **Agents:** generated client creates/reads/cancels run/session under one principal; another principal denied; idempotency reconnect and SSE/replay still work.
 - Run product commands and global gates: `make test`, `make tv-test`, `make studio-test`, Primer Agents tests, `make tasks-test`, browser suites, OpenAPI/client drift checks, race/coverage/build/container checks, and deploy manifest validation.
 
-Real selected-provider browser evidence is mandatory for each human product. Backend deterministic fixtures remain necessary for exhaustive negative cases.
+Real Clerk development browser evidence is mandatory for each human product. Backend deterministic Clerk JWT/JWKS fixtures remain necessary for exhaustive negative cases.
 
 ## Anti-Cheating Audit
 

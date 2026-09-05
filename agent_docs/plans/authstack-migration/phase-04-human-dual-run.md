@@ -1,8 +1,8 @@
-# Phase 4: Human dual-run and session migration
+# Phase 4: Clerk human dual-run and session migration
 
 ## Goal
 
-Introduce the selected provider for human/admin authentication while existing Primer Identity/Stytch and product-local sessions remain available as a measured rollback path. Build explicit canonical links, durable BFF/session custody, tenant-context transitions, and live browser proof before any product makes authstack authoritative.
+Introduce Clerk for human/admin authentication while existing Primer Identity/Stytch and product-local sessions remain available as a measured rollback path. Build explicit `(CLERK_ISSUER, Clerk user sub)` links, durable product BFF/session custody, Clerk Organization transitions, and live browser proof before any product makes authstack authoritative.
 
 This phase proves equivalence and migration safety across products; Phase 5 performs separate cutovers.
 
@@ -10,7 +10,7 @@ This phase proves equivalence and migration safety across products; Phase 5 perf
 
 #### Scenario: Existing user links to one canonical provider identity
 
-- **Given** an existing legacy account/local membership and a signed-in selected-provider user
+- **Given** an existing legacy account/local membership and a signed-in Clerk user with an active Organization
 - **When** the user completes the approved linking/provisioning flow
 - **Then** an audited additive link stores exact old and new issuer+subject values
 - **And** the existing local person/member ID and product data remain stable
@@ -26,9 +26,9 @@ This phase proves equivalence and migration safety across products; Phase 5 perf
 
 #### Scenario: Browser session remains server-side
 
-- **Given** a user completes selected-provider login through an LMS, TV, Tasks, or Studio BFF
-- **When** the callback succeeds
-- **Then** provider/access/refresh material remains in server-side session custody
+- **Given** a user completes Clerk login and product BFF session establishment for LMS, TV, Tasks, or Studio
+- **When** the BFF validates the Clerk session JWT with exact issuer, `azp`, audience, lifetime, and active Organization
+- **Then** Clerk session material remains in encrypted durable server-side session custody
 - **And** the browser receives only an opaque `HttpOnly`, `Secure`, appropriately `SameSite` host-scoped cookie
 - **And** state, nonce, PKCE where applicable, exact redirect/host/origin, and CSRF checks are enforced
 - **And** browser local/session storage contains no bearer token or admin key.
@@ -44,7 +44,7 @@ This phase proves equivalence and migration safety across products; Phase 5 perf
 #### Scenario: Logout and revocation terminate the right sessions
 
 - **Given** active legacy and authstack sessions during dual run
-- **When** the user logs out or the selected provider revokes the session
+- **When** the user logs out or Clerk revokes/expires the session
 - **Then** the relevant BFF session is deleted/invalidated and cookie cleared
 - **And** stale requests deny within the documented bound
 - **And** unrelated users/tenants and product-local device tokens remain unaffected.
@@ -59,22 +59,22 @@ This phase proves equivalence and migration safety across products; Phase 5 perf
 
 ## Implementation Instructions
 
-1. Use only the selected authstack provider adapter and guide. Construct provider clients/verifiers at each BFF/API composition root; expose only `auth.Authenticator`/`auth.Principal` downstream.
-2. Define provider-side browser applications, exact callbacks/origins/authorized parties, tenant/organization behavior, and session lifetimes per product. Separate production and development registrations; no wildcard redirects/origins.
-3. Implement or adapt durable BFF session stores for LMS, TV, Tasks, and Studio. Store provider material encrypted or as provider-managed session references according to the selected guide; cookies hold opaque session IDs only. Remove browser `localStorage` bearer/admin-key use from the new path.
+1. Use only `authstack/clerk`. Construct Clerk authenticators/JWKS refresh at each BFF/API composition root; expose only `auth.Authenticator`/`auth.Principal` downstream. Do not add generic OIDC/ZITADEL fallback.
+2. Provision one Clerk application with Organizations enabled, exact production/development origins and `azp`, and per-product session-token audience/templates for LMS, TV, Tasks, and Studio. Require an active Organization for every human product session; no wildcard redirects/origins.
+3. Implement or adapt durable BFF session stores for LMS, TV, Tasks, and Studio. A Clerk session JWT may be submitted once from frontend memory when required to establish the product session; it is validated by authstack then kept only in encrypted/durable server-side custody. Cookies hold opaque session IDs only. Remove browser `localStorage`/sessionStorage/IndexedDB bearer and admin-key use from the new path. Authstack supplies no Clerk BFF, so qualification must prove the application-owned establishment/refresh design.
 4. Preserve legacy account/local IDs and attach canonical links. Build a migration command/report that reads product/Identity data through explicit service/database boundaries—not cross-database joins in production. Report unresolved/colliding links without sensitive claims.
 5. For LMS, keep educator/password/opaque sessions only as legacy rollback during dual run; authstack login maps to local educator and enforces local role. Do not grant access solely from provider organization/role.
 6. For TV, add explicit product-local human admin membership before accepting provider sessions. “Any valid JWT is admin” must not survive cutover.
 7. For Studio, preserve workspace memberships and human-only publish confirmation. Replace or adapt the existing BFF, ensuring its store is durable in production and authstack is the API auth boundary.
 8. For Tasks, migrate only parent/BFF identity and tenant context. `tasks-test-issuer` remains test-only and must be rejected by production config. Student browser/Android pairing credentials remain local and unchanged.
-9. Implement dual-run evaluation at login/callback/session validation and protected requests. Define authoritative result and mismatch classes. Never call the legacy provider with selected-provider raw credentials or vice versa.
+9. Implement dual-run evaluation at login/session establishment/session validation and protected requests. In `shadow`, Clerk cannot grant; in `dual`, both paths must map to the same approved local actor and membership or deny/quarantine. Never call Primer Identity/Stytch with Clerk credentials or Clerk with legacy credentials.
 10. Implement logout, session expiry/rotation, provider revocation/outage behavior, and rollback. Retain Primer Identity/Stytch registrations, grants, keys, and BFF compatibility until Phase 7.
 11. Add browser-safe `/auth/me` projections containing only needed local display/membership/session state; do not expose tokens or raw provider claims.
 12. Add metrics and audits for login start/callback/session/tenant switch/logout/link outcomes using request IDs and canonical actor references, with redaction tests.
 
 ## End-to-End Test Plan
 
-- Use the real development selected provider and managed headless browser for each product. Exercise login start, provider sign-in, callback, authenticated navigation/API load, refresh/session continuity, CSRF-protected mutation, logout, and post-logout denial.
+- Use a real Clerk development application and managed headless browser for each product. Exercise Clerk sign-in, active Organization selection, product BFF session establishment, authenticated navigation/API load, refresh/session continuity, CSRF-protected mutation, logout, and post-logout denial.
 - For a user with two provider tenants and local memberships, switch A→B and verify UI/API reload plus cross-tenant read/update/delete denial. Also test provider tenant B without local membership.
 - Inspect browser storage/cookies through the browser tooling: no bearer/admin key in localStorage/sessionStorage/URL; session cookie has expected host/path/HttpOnly/Secure/SameSite attributes. Do not print cookie values.
 - Seed explicit same-email distinct users and a link collision in disposable databases. Run migration twice; assert no auto-link, access denial, quarantine record, and idempotent explicit resolution.
@@ -91,7 +91,7 @@ Credential-free provider fixtures cover adversarial callback branches; they cann
 - Inspect browser bundle/source maps/storage to ensure tokens/admin keys are not merely hidden from UI.
 - Verify cookies contain opaque references, not serialized provider/access/refresh tokens, and production BFF stores are durable—not default in-memory stores.
 - Search callback/session handlers for unverified claims, email links, provider-role membership grants, wildcard redirects/origins, or Host-derived callbacks.
-- Confirm selected-provider construction stays at composition roots and raw provider sessions do not enter product handlers/domain.
+- Confirm Clerk construction/JWKS refresh stays at composition roots and raw Clerk session material does not enter product handlers/domain.
 - Verify dual-run mismatch handling cannot choose “allow if either succeeds” without explicit safe mapping and authorization.
 - Check tenant switch invalidates server/client caches and repository queries remain tenant-scoped.
 - Inspect logout/revocation for global device-token invalidation or accidental cross-user session deletion.
@@ -101,7 +101,7 @@ Credential-free provider fixtures cover adversarial callback branches; they cann
 
 ## Completion Gate
 
-- [ ] Selected provider is live in development with exact product registrations and no wildcard callbacks/origins.
+- [ ] Clerk is live in development with Organizations, exact origins/parties, per-product session audiences/templates, and no wildcard callbacks/origins.
 - [ ] Additive canonical links/backfills are explicit, idempotent, collision-safe, and email-independent.
 - [ ] Durable BFF sessions, cookie attributes, state/nonce/PKCE, CSRF, logout, expiry, revocation, and outage behavior pass.
 - [ ] Tenant switch/isolation and no-local-membership denial pass through browser and backend boundaries.
