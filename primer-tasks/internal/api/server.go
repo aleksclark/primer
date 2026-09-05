@@ -28,6 +28,7 @@ type Server struct {
 	Auth         AuthConfig
 	jwks         *jwksCache
 	httpClient   *http.Client
+	StartedAt    time.Time
 }
 type scope struct{ Tenant, Subject string }
 
@@ -78,7 +79,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC()}
 }
 func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
 

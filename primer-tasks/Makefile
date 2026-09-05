@@ -5,7 +5,8 @@ DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi clients tasks-client tasks-typecheck tasks-lint \
-	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof
+	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof \
+	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
 
 check:
 	$(DEV) check
@@ -67,8 +68,14 @@ tasks-web: web
 browser-test:
 	npm --prefix web run browser:test
 
-android:
-	cd android && ./gradlew assembleDebug
+android: clients
+	cd android && ./gradlew test assembleDebug
+
+tasks-test: test
+tasks-cover: cover
+tasks-clients: clients
+tasks-android: android
+tasks-e2e: e2e
 
 host-up:
 	./scripts/host-stack up

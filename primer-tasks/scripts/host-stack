@@ -134,6 +134,8 @@ up() {
   export TASKS_OIDC_REDIRECT_URL="http://127.0.0.1:${web_port}/auth/callback"
   export TASKS_TEST_ISSUER_URL="http://127.0.0.1:${web_port}/issuer"
   export TASKS_SESSION_SECRET="primer-tasks-host-session-secret-change-me"
+  export TASKS_MODEL_PROVIDER="${TASKS_MODEL_PROVIDER:-disabled}"
+  export TASKS_SCHEDULE_HORIZON_DAYS="${TASKS_SCHEDULE_HORIZON_DAYS:-365}"
   export DEV_API_PROXY_TARGET="http://127.0.0.1:${api_port}"
   export DEV_ISSUER_PROXY_TARGET="http://127.0.0.1:${issuer_port}"
   export DEV_SERVER_HOST=127.0.0.1

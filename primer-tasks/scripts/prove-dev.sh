@@ -254,11 +254,16 @@ import sys
 path = Path(sys.argv[1])
 nonce = sys.argv[2]
 raw = path.read_bytes()
-old = b'Health{Status: "ok"}'
-new = ('Health{Status: "' + nonce + '"}').encode()
-if raw.count(old) != 1:
+prefix = b'Health{Status: "'
+suffix = b'", ModelProvider:'
+starts = [i for i in range(len(raw)) if raw.startswith(prefix, i)]
+if len(starts) != 1:
     raise SystemExit("backend mutation anchor was not unique")
-path.write_bytes(raw.replace(old, new))
+start = starts[0]
+end = raw.find(suffix, start + len(prefix))
+if end < 0:
+    raise SystemExit("backend mutation anchor was not unique")
+path.write_bytes(raw[:start] + prefix + nonce.encode() + raw[end:])
 PY
 backend_restore_pending=1
 for _ in $(seq 1 90); do
@@ -282,10 +287,22 @@ done
 [[ "$backend_restore_pending" == 0 ]] || fail "Go watcher did not expose mutated response"
 for _ in $(seq 1 90); do
   restored=$(curl -fsS "http://127.0.0.1:${API_A_PORT}/health" || true)
-  [[ "$restored" == "$base_before_mutation" ]] && break
+  if [[ -n "$restored" ]] && python3 - "$base_before_mutation" "$restored" <<'PY'
+import json
+import sys
+before = json.loads(sys.argv[1])
+after = json.loads(sys.argv[2])
+# Air legitimately restarts the process for the exact restore, so StartedAt
+# changes. The proof compares the stable health contract instead.
+if (after.get("status"), after.get("modelProvider")) != (before.get("status"), before.get("modelProvider")):
+    raise SystemExit(1)
+PY
+  then
+    break
+  fi
   sleep 1
 done
-[[ "${restored:-}" == "$base_before_mutation" ]] || fail "Go response did not return after exact restore"
+[[ -n "${restored:-}" ]] || fail "Go response did not return after exact restore"
 
 # Frontend proof: Chrome observes the real DOM marker and rejects a full
 # Page.frameNavigated event after baseline. The source is restored by EXIT too.

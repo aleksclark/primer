@@ -8,6 +8,7 @@
 /test-artifacts/*
 !/test-artifacts/.gitkeep
 !/test-artifacts/phase-01-evidence.md
+!/test-artifacts/phase-02-evidence.md
 
 # Local development overrides and generated watcher output.
 .env

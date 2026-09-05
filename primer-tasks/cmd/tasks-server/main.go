@@ -10,6 +10,7 @@ import (
 	"primer-tasks/internal/api"
 	"primer-tasks/internal/config"
 	"primer-tasks/internal/db"
+	"primer-tasks/internal/schedule"
 	"syscall"
 	"time"
 )
@@ -39,6 +40,10 @@ func main() {
 	if err = seed(ctx, pool); err != nil {
 		panic(err)
 	}
+	worker := schedule.NewWorker(pool)
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	defer workerCancel()
+	go worker.Run(workerCtx)
 	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: api.New(pool, cfg.Env).Routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("tasks server listening", "addr", srv.Addr)
