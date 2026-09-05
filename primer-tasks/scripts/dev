@@ -177,7 +177,7 @@ if "http://api:8080" not in str(proxy) or "localhost" in str(proxy):
 volume_defs = model.get("volumes") or {}
 required_volumes = {
     "tasks_postgres_data", "tasks_go_mod_cache", "tasks_go_build_cache",
-    "tasks_state", "tasks_air_build", "tasks_web_node_modules", "tasks_npm_cache",
+    "tasks_state", "tasks_air_build", "tasks_web_node_modules", "tasks_client_node_modules", "tasks_npm_cache",
 }
 if not required_volumes.issubset(volume_defs):
     fail("named-caches-and-state")

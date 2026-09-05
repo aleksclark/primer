@@ -147,7 +147,7 @@ services:
       context: ./web
       dockerfile: Dockerfile.dev
     working_dir: /src/web
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    command: ["sh", "-c", "npm --prefix /src/clients/typescript ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"]
     environment:
       DEV_API_PROXY_TARGET: http://api:8080
       DEV_SERVER_HOST: "0.0.0.0"
@@ -165,6 +165,7 @@ services:
       - .:/src
       - ../design-system:/design-system:ro
       - tasks_web_node_modules:/src/web/node_modules
+      - tasks_client_node_modules:/src/clients/typescript/node_modules
       - tasks_npm_cache:/root/.npm
     ports:
       - "127.0.0.1::5173"
@@ -194,4 +195,5 @@ volumes:
   tasks_state:
   tasks_air_build:
   tasks_web_node_modules:
+  tasks_client_node_modules:
   tasks_npm_cache:
