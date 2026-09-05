@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Default host Make / non-Compose Tasks stack.
+#
+# Starts real PostgreSQL (docker run, not product Compose), the Tasks API, the
+# test issuer, and Vite. Each service is launched in its own session so `down`
+# never signals the caller (including `make tasks-e2e` / `setsid`).
+set -Eeuo pipefail
+
+ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
+ACTION=${1:-up}
+NAME_PREFIX=${TASKS_HOST_NAME:-primer-tasks-host-$(basename "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || echo tasks)")}
+STATE_DIR=${TASKS_HOST_STATE_DIR:-"$ROOT/tmp/host-stack"}
+mkdir -p "$STATE_DIR"
+
+free_port() {
+  python3 - <<'PY'
+import socket
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+}
+
+pg_name="${NAME_PREFIX}-pg"
+issuer_pg_name="${NAME_PREFIX}-issuer-pg"
+
+owned_leader() {
+  local pid=$1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  local pgid sid
+  pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  sid=$(ps -o sid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [[ "$pgid" == "$pid" && "$sid" == "$pid" ]]
+}
+
+stop_leader() {
+  local file=$1
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid=$(tr -d '[:space:]' <"$file" || true)
+  rm -f "$file"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  if owned_leader "$pid"; then
+    kill -TERM -"$pid" 2>/dev/null || true
+    local i
+    for i in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || return 0
+      sleep 0.1
+    done
+    kill -KILL -"$pid" 2>/dev/null || true
+    for i in $(seq 1 10); do
+      kill -0 "$pid" 2>/dev/null || return 0
+      sleep 0.1
+    done
+  else
+    # Stale or foreign pidfile: never signal the caller's process group.
+    return 0
+  fi
+}
+
+down() {
+  stop_leader "$STATE_DIR/api.pid"
+  stop_leader "$STATE_DIR/issuer.pid"
+  stop_leader "$STATE_DIR/web.pid"
+  docker rm -f "$pg_name" "$issuer_pg_name" >/dev/null 2>&1 || true
+  rm -f "$STATE_DIR/endpoints.env"
+}
+
+wait_http() {
+  local url=$1
+  for _ in $(seq 1 90); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "host-stack: FAIL $url never became ready" >&2
+  echo "host-stack: web.log" >&2
+  tail -50 "$STATE_DIR/web.log" >&2 || true
+  echo "host-stack: api.log" >&2
+  tail -30 "$STATE_DIR/api.log" >&2 || true
+  echo "host-stack: issuer.log" >&2
+  tail -20 "$STATE_DIR/issuer.log" >&2 || true
+  return 1
+}
+
+start_session() {
+  local pidfile=$1
+  local logfile=$2
+  shift 2
+  setsid "$@" >"$logfile" 2>&1 &
+  local pid=$!
+  if ! owned_leader "$pid"; then
+    echo "host-stack: FAIL $pidfile is not a session/process-group leader" >&2
+    kill -TERM -"$pid" 2>/dev/null || true
+    return 1
+  fi
+  printf '%s\n' "$pid" >"$pidfile"
+}
+
+up() {
+  down
+  local web_port api_port issuer_port
+  web_port=$(free_port)
+  api_port=$(free_port)
+  issuer_port=$(free_port)
+  docker run -d --name "$pg_name" --health-cmd='pg_isready -U tasks -d primer_tasks' --health-interval=2s \
+    -e POSTGRES_DB=primer_tasks -e POSTGRES_USER=tasks -e POSTGRES_HOST_AUTH_METHOD=trust \
+    -p "127.0.0.1::5432" postgres:17-alpine >/dev/null
+  docker run -d --name "$issuer_pg_name" --health-cmd='pg_isready -U tasks_issuer -d primer_tasks_issuer' --health-interval=2s \
+    -e POSTGRES_DB=primer_tasks_issuer -e POSTGRES_USER=tasks_issuer -e POSTGRES_HOST_AUTH_METHOD=trust \
+    -p "127.0.0.1::5432" postgres:17-alpine >/dev/null
+  for name in "$pg_name" "$issuer_pg_name"; do
+    for _ in $(seq 1 40); do
+      [[ "$(docker inspect -f '{{.State.Health.Status}}' "$name" 2>/dev/null || true)" == "healthy" ]] && break
+      sleep 1
+    done
+  done
+  local pg_port issuer_pg_port
+  pg_port=$(docker port "$pg_name" 5432 | head -n1 | sed -E 's/.*://')
+  issuer_pg_port=$(docker port "$issuer_pg_name" 5432 | head -n1 | sed -E 's/.*://')
+  export TASKS_ENV=development
+  export TASKS_AUTH_MODE=test
+  export TASKS_HOST=127.0.0.1
+  export TASKS_PORT=$api_port
+  export TASKS_DATABASE_URL="postgres://tasks@127.0.0.1:${pg_port}/primer_tasks?sslmode=disable"
+  export TASKS_TEST_ISSUER_DATABASE_URL="postgres://tasks_issuer@127.0.0.1:${issuer_pg_port}/primer_tasks_issuer?sslmode=disable"
+  export TASKS_TEST_ISSUER_HOST=127.0.0.1
+  export TASKS_TEST_ISSUER_PORT=$issuer_port
+  export TASKS_ISSUER_URL="http://127.0.0.1:${issuer_port}"
+  export TASKS_PUBLIC_ISSUER_URL="http://127.0.0.1:${web_port}/issuer"
+  export TASKS_PUBLIC_ORIGIN="http://127.0.0.1:${web_port}"
+  export TASKS_OIDC_REDIRECT_URL="http://127.0.0.1:${web_port}/auth/callback"
+  export TASKS_TEST_ISSUER_URL="http://127.0.0.1:${web_port}/issuer"
+  export TASKS_SESSION_SECRET="primer-tasks-host-session-secret-change-me"
+  export DEV_API_PROXY_TARGET="http://127.0.0.1:${api_port}"
+  export DEV_ISSUER_PROXY_TARGET="http://127.0.0.1:${issuer_port}"
+  export DEV_SERVER_HOST=127.0.0.1
+  export DEV_SERVER_PORT=$web_port
+  start_session "$STATE_DIR/issuer.pid" "$STATE_DIR/issuer.log" bash -c "cd \"$ROOT\" && exec go run ./cmd/tasks-test-issuer"
+  local api_cmd='exec go run ./cmd/tasks-server'
+  if command -v air >/dev/null 2>&1; then
+    api_cmd='exec air -c .air.host.toml'
+  fi
+  start_session "$STATE_DIR/api.pid" "$STATE_DIR/api.log" bash -c "cd \"$ROOT\" && $api_cmd"
+  start_session "$STATE_DIR/web.pid" "$STATE_DIR/web.log" bash -c "cd \"$ROOT\" && mkdir -p build && go run ./cmd/openapi-gen -out build/openapi.yaml >/dev/null && cd web && npm ci --no-audit --no-fund >/dev/null && npm --prefix \"$ROOT/clients/typescript\" ci --no-audit --no-fund >/dev/null && npm run generate:client >/dev/null && exec npm run dev -- --host 127.0.0.1 --port \"$web_port\" --strictPort"
+  wait_http "http://127.0.0.1:${issuer_port}/health"
+  wait_http "http://127.0.0.1:${api_port}/health"
+  wait_http "http://127.0.0.1:${web_port}/"
+  cat >"$STATE_DIR/endpoints.env" <<EOF
+PRIMER_TASKS_BASE_URL=http://127.0.0.1:${web_port}/
+PRIMER_TASKS_API_URL=http://127.0.0.1:${api_port}/
+PRIMER_TASKS_ISSUER_URL=http://127.0.0.1:${issuer_port}/
+EOF
+  echo "host-stack: web http://127.0.0.1:${web_port}/"
+  echo "host-stack: api http://127.0.0.1:${api_port}/"
+  echo "host-stack: issuer http://127.0.0.1:${issuer_port}/"
+}
+
+case "$ACTION" in
+  up) up ;;
+  down) down ;;
+  endpoints)
+    if [[ -f "$STATE_DIR/endpoints.env" ]]; then
+      cat "$STATE_DIR/endpoints.env"
+    else
+      echo "host-stack: not running" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "usage: $0 {up|down|endpoints}" >&2
+    exit 2
+    ;;
+esac

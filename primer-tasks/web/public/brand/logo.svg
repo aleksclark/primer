@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="342" height="100" viewBox="0 0 342 100" role="img" aria-labelledby="title">
+  <title id="title">Primer LMS</title>
+  <g fill="#FFFFFF">
+    <rect x="10" y="14" width="13" height="76"/>
+    <rect x="33" y="72" width="53" height="11"/>
+    <rect x="33" y="50" width="41" height="11"/>
+    <rect x="33" y="28" width="29" height="11"/>
+  </g>
+  <rect x="70" y="28" width="11" height="11" fill="#5B8CFF"/>
+  <text x="110" y="65" fill="#FFFFFF" font-family="Instrument Sans, Helvetica, Arial, sans-serif" font-size="44" font-weight="500" letter-spacing="-1">Primer<tspan font-weight="700">LMS</tspan></text>
+</svg>

@@ -1,0 +1,20 @@
+root = "."
+tmp_dir = "tmp/air-build"
+
+[build]
+  bin = "tmp/air-build/tasks-server"
+  cmd = "go build -trimpath -o tmp/air-build/tasks-server ./cmd/tasks-server"
+  delay = 1000
+  exclude_dir = [".git", "web", "android", "clients", "test-artifacts", "tmp"]
+  exclude_file = [".*\\.test\\.go"]
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = true
+  follow_symlink = false
+  include_ext = ["go", "sql", "yaml", "yml"]
+  kill_delay = "500ms"
+  log = "tmp/air-build/build-errors.log"
+  send_interrupt = true
+  stop_on_error = true
+
+[misc]
+  clean_on_exit = true

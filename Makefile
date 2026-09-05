@@ -26,7 +26,12 @@ IDENTITY_COVER_MIN := 80
 	studio-build studio-test studio-cover studio-openapi studio-client studio-web \
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
-	identity-e2e identity-live-stytch dev-db-identity migrate-identity
+	identity-e2e identity-live-stytch dev-db-identity migrate-identity \
+	tasks-client tasks-web tasks-typecheck tasks-lint \
+	tasks-check tasks-up tasks-dev tasks-status tasks-endpoints tasks-logs tasks-down \
+	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients \
+	tasks-android tasks-e2e tasks-browser-test tasks-proof \
+	tasks-host-up tasks-host-down tasks-host-proof
 
 all: build openapi openapi-tv client tv-client
 
@@ -472,3 +477,83 @@ migrate-identity:
 		exit 2; \
 	fi
 	@cd primer-identity && go run ./cmd/identity-migrate up
+
+# =============================================================================
+# Primer Tasks standalone product (Phase 1).
+# Host Make targets (tasks-test/cover/clients/web/android/e2e) are the default
+# non-Docker path and do not invoke Compose. Opt-in Stacklane/Compose lifecycle
+# commands (tasks-check/up/dev/status/endpoints/logs/down/destroy/proof) forward
+# to primer-tasks/scripts/dev with an explicit project/file vector.
+# =============================================================================
+
+## Generate the TypeScript client from the Tasks server-owned OpenAPI contract.
+tasks-client:
+	$(MAKE) -C primer-tasks tasks-client
+
+tasks-typecheck:
+	$(MAKE) -C primer-tasks tasks-typecheck
+
+tasks-lint:
+	$(MAKE) -C primer-tasks tasks-lint
+
+tasks-web:
+	$(MAKE) -C primer-tasks tasks-web
+
+tasks-check:
+	./primer-tasks/scripts/dev check
+
+tasks-up:
+	./primer-tasks/scripts/dev up
+
+tasks-dev:
+	./primer-tasks/scripts/dev dev
+
+tasks-status:
+	./primer-tasks/scripts/dev status
+
+tasks-endpoints:
+	./primer-tasks/scripts/dev endpoints
+
+tasks-logs:
+	./primer-tasks/scripts/dev logs
+
+tasks-down:
+	./primer-tasks/scripts/dev down
+
+tasks-destroy:
+	./primer-tasks/scripts/dev destroy
+
+tasks-build:
+	$(MAKE) -C primer-tasks build
+
+tasks-test:
+	$(MAKE) -C primer-tasks test
+
+tasks-cover:
+	PRIMER_TASKS_COVERAGE_GATE=1 ./scripts/enforce-module-cover.sh primer-tasks $(COVER_MIN) tasks
+
+tasks-clients:
+	$(MAKE) -C primer-tasks clients
+
+tasks-android:
+	$(MAKE) -C primer-tasks android
+
+tasks-e2e:
+	$(MAKE) -C primer-tasks e2e
+
+tasks-host-up:
+	$(MAKE) -C primer-tasks host-up
+
+tasks-host-down:
+	$(MAKE) -C primer-tasks host-down
+
+tasks-host-proof:
+	$(MAKE) -C primer-tasks host-proof
+
+# Browser automation is intentionally gated on independent exploratory PASS;
+# this forwarding target does not author or promote Playwright prematurely.
+tasks-browser-test:
+	$(MAKE) -C primer-tasks browser-test
+
+tasks-proof:
+	$(MAKE) -C primer-tasks proof
