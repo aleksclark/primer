@@ -5,8 +5,9 @@
 Land the donor Phase 1 snapshot (`62795d53`) as the first reviewable Primer
 Tasks implementation: standalone service/database, tenant-scoped parent and
 student pairing, generated clients, web shell, Android pairing baseline, and
-Stacklane-local development proof. This establishes the service boundary needed
-by every later Tasks phase.
+default host Make/non-Docker development proof. An opt-in Stacklane-compatible
+Compose vector is additive only and must still be tested because P1 introduces
+it. This establishes the service boundary needed by every later Tasks phase.
 
 ## BDD Success Criteria
 
@@ -37,12 +38,15 @@ by every later Tasks phase.
 
 ### Scenario: The local stack is isolated and reloadable
 
-- **Given** two independent worktree stacks
-- **When** each starts through `primer-tasks/scripts/dev` and one source file is
-  changed
+- **Given** two independent worktree stacks on the default host Make/non-Docker path
+- **When** each starts independently and one source file is changed
 - **Then** health/endpoints resolve to the correct stack and only that stack
   reloads
 - **And** stop/cleanup does not affect the other stack.
+- **Given** P1 also introduces the additive opt-in Compose/Stacklane vector
+- **When** each worktree starts that vector through `primer-tasks/scripts/dev`
+- **Then** Compose isolation/hot-reload proofs pass without making Compose the
+  default host command.
 
 ## Implementation Instructions
 
@@ -64,11 +68,14 @@ by every later Tasks phase.
 
 ## End-to-End Test Plan
 
-- Start real services with `primer-tasks/scripts/dev check` and
-  `primer-tasks/scripts/dev up`; use its real PostgreSQL/identity fixture and
-  production router wiring.
+- Start real services through the default host Make/non-Docker path; use real
+  PostgreSQL/identity fixture and production router wiring.
 - Run `make tasks-test tasks-cover tasks-clients tasks-web tasks-android` and
   `make tasks-e2e` from the repository root after root targets are integrated.
+  Those targets remain the default and must not require Compose.
+- Because P1 introduces the opt-in Compose vector, also run
+  `primer-tasks/scripts/dev check` and `primer-tasks/scripts/dev up` as an
+  additive proof.
 - Run the promoted Playwright flow against the live stack for parent login,
   student creation, QR issuance, pairing, replay denial, revocation, and
   cross-tenant denial. A reviewer performs separate managed-headless exploratory

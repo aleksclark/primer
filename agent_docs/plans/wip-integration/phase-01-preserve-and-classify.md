@@ -128,7 +128,6 @@ Independently re-verified without pruning, deleting, renaming, or unregistering 
 | `impl/s12-workflow` | `3b5993dd` | Studio ancestor of `origin/master` (behind 1) |
 | `impl/s14-outbox-webhooks` | `f2b3121d` | Studio ancestor of `origin/master` (behind 6) |
 | worktree `.worktrees/impl-S11-materialization` | clean `impl/S12-workflow` @ `976a254c` | registered stale clean worktree; archive only in Phase 12 |
-| `/tmp/primer-tasks-readonly` | detached `d6e89d4a` | read-only donor checkout; leave registered |
 | `initiative/00-wip-integration` | this branch | active integration editor |
 | `initiative/01-authstack`, `04-studio-completion` | `b7a2027c` | intentionally retained successor worktrees |
 | `initiative/02-ultracore`, `03-forgejo-migration` | unique planning tips | intentionally retained successor worktrees |

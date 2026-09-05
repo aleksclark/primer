@@ -3,15 +3,17 @@
 ## Outcome
 
 Complete the native student client independently from the standalone Tasks
-web/server delivery sequence. The existing paired app and checklist foundation
-remain usable while the server and SPA proceed through dialogue, media, external
-verification, and release phases. Native work consumes stable public contracts
-after each corresponding web/server phase and never blocks those phases.
+web/server delivery sequence. Pairing and checklist baselines exist only on the
+preserved donor `impl/tasks-p6-external` (P1 `62795d53`, P2 `8274d217`); they
+are not on `origin/master` until WIP-integration Phases 03–04 land. Later native
+work consumes stable public contracts after each corresponding web/server phase
+and never blocks those phases.
 
 The completed native loop is:
 
 ```text
-existing paired student → checklist → dialogue/media/external verification
+donor-only paired student (P1/P2 on impl/tasks-p6-external, not origin/master)
+  → checklist → dialogue/media/external verification
   → durable server decision → restart/reconnect/revocation-safe native UX
 ```
 
@@ -19,9 +21,9 @@ existing paired student → checklist → dialogue/media/external verification
 
 | Area | State | Evidence |
 |---|---|---|
-| Pairing/auth | Complete baseline: one-student binding, Keystore-encrypted bearer, QR camera primary plus documented system-picker fallback | Primer Tasks Phase 1 reviewed evidence |
-| Checklist/manual approval | Complete baseline: Today/Upcoming/detail/start and parent-approval state refresh | Primer Tasks Phase 2 reviewed evidence |
-| Dialogue native client | Partial implementation exists in the Phase 4 worktree, but native exploratory/promotion was intentionally halted before acceptance | `primer-tasks/android/`, `clients/kotlin/` on the active Phase 4 lineage |
+| Pairing/auth | Donor-only complete baseline at P1 `62795d53` on `impl/tasks-p6-external`: one-student binding, Keystore-encrypted bearer, QR camera primary plus documented system-picker fallback. Not on `origin/master`. | Primer Tasks Phase 1 reviewed evidence on the donor |
+| Checklist/manual approval | Donor-only complete baseline at P2 `8274d217` on `impl/tasks-p6-external`: Today/Upcoming/detail/start and parent-approval state refresh. Not on `origin/master`. | Primer Tasks Phase 2 reviewed evidence on the donor |
+| Dialogue native client | Partial implementation exists on the donor Phase 4 lineage, but native exploratory/promotion was intentionally halted before acceptance. Not integrated. | `primer-tasks/android/`, `clients/kotlin/` on donor Phase 4 |
 | Media capture/upload | Missing | Extracted from former main Phase 5 |
 | External verifier progress | Missing | Extracted from former main Phase 6 |
 | Release/device replacement matrix | Missing | Extracted from former main Phase 7 |
@@ -36,7 +38,9 @@ from those phases.
 
 - Native dialogue verification, media capture/file submission, asynchronous
   rubric progress, external-verifier progress, and release hardening.
-- Existing per-device bearer authentication and single-student binding.
+- Donor-only per-device bearer authentication and single-student binding from
+  P1/P2 on `impl/tasks-p6-external`; not present on `origin/master` until those
+  snapshots land.
 - Generated Kotlin clients and one owned WebSocket/binary transport façade.
 - CameraX, video capture, audio recording, system file/photo picker, WorkManager
   or equivalent bounded background upload, cache cleanup, and lifecycle recovery.
@@ -76,8 +80,11 @@ from those phases.
    and clean temporary media.
 9. **System C:** Consume generated native tokens; dark primary/light parity,
    square/ruled hierarchy, visible focus/accessibility semantics, no bubbles.
-10. **Testing order:** Dedicated emulator exploration on real Stacklane/API first;
-    fix and rerun to PASS; only then write/run connected or black-box automation.
+10. **Testing order:** Dedicated emulator exploration against the real Tasks API
+    on the default host Make/non-Docker path first; fix and rerun to PASS; only
+    then write/run connected or black-box automation. When a phase changes the
+    opt-in Compose/Stacklane vector, also exercise the app against that additive
+    stack.
 
 ## Phase overview
 

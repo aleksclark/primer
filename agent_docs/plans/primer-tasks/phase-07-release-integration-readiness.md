@@ -7,8 +7,9 @@ integration-ready product without embedding it into Primer yet. Add tenant-admin
 parent invitations (all parents still have the single `admin` role),
 comprehensive audit/retention, backup/restore drills, observability and limits,
 and authenticated service/event seams that a later Primer adapter can consume.
-Re-prove Stacklane isolation/hot reload and run the complete browser acceptance
-matrix.
+Re-prove the default host Make/non-Docker path and, because this phase changes
+the opt-in Compose/Stacklane vector, re-prove that additive isolation/hot-reload
+matrix. Run the complete browser acceptance matrix against the default host path.
 
 The phase ends with a standalone release candidate and explicit future
 integration contract, not a cross-database shortcut or premature LMS sync.
@@ -101,12 +102,17 @@ separate continuation plan.
   bounded actionable state without secrets/student media/chat bodies
 - **And** readiness fails only for documented critical dependencies.
 
-#### Scenario: Full Stacklane and browser matrix remains green
+#### Scenario: Default host path and opt-in Compose matrix remain green
 
-- **Given** two release-candidate worktree instances
-- **When** full browser suites, hot-reload probes, and stop-one isolation run
+- **Given** two release-candidate worktree instances on the default host
+  Make/non-Docker path
+- **When** full browser suites and stop-one isolation run
 - **Then** each instance remains isolated and all phase 1–6 browser flows pass
 - **And** clean contract/client generation leaves the worktree clean.
+- **Given** this phase also changes the additive opt-in Compose/Stacklane vector
+- **When** Compose check, hot-reload probes, two-instance, and stop-one isolation run
+- **Then** each opt-in instance remains isolated without becoming the default
+  host command.
 
 ## Implementation Instructions
 
@@ -148,8 +154,10 @@ separate continuation plan.
 12. Run contract compatibility/generated-client policy gates. Publish normalized
     contract/digest as CI/release artifacts rather than tracked schema/generated
     source; compare against immutable release baseline.
-13. Re-run Stacklane check, backend mutate/restore, frontend no-reload HMR,
-    two-instance isolation, stop-one, and cleanup with unique probes.
+13. Re-run default host Make gates. Because this phase changes the opt-in
+    Compose vector, also re-run Stacklane check, backend mutate/restore,
+    frontend no-reload HMR, two-instance isolation, stop-one, and cleanup with
+    unique probes. Do not make Compose the default host path.
 14. Complete accessibility/responsive review across parent/student SPA surfaces
     and full browser regression for pairing, checklist, dialogue, media,
     external waiting, revoke/re-pair, process restart, and completion recovery.
@@ -173,8 +181,10 @@ separate continuation plan.
 - Seed representative data/media, back up, destroy only a unique probe stack with
   exact confirmation, restore into a different instance, run consistency scan,
   resume workers, and compare domain facts/digests.
-- Run two Stacklane instances, health/user smoke, mutate/restore Go and React
-  sources, stop one, and verify the other plus DB/object store remains intact.
+- Run two default host-path instances, health/user smoke, and stop-one isolation.
+  Because this phase changes the opt-in Compose vector, also run two Stacklane
+  instances, mutate/restore Go and React sources, stop one, and verify the other
+  plus DB/object store remains intact.
 
 ### Promoted automation
 
@@ -189,10 +199,11 @@ separate continuation plan.
 Commands:
 
 ```bash
-primer-tasks/scripts/dev check
 make tasks-all tasks-test tasks-cover tasks-lint tasks-clients tasks-web
 make tasks-e2e tasks-external-e2e tasks-integration-e2e tasks-backup-restore-e2e
 cd primer-tasks && go test -race ./... -count=1
+# additive opt-in Compose/Stacklane vector changed by this phase:
+primer-tasks/scripts/dev check
 ```
 
 ## Anti-Cheating Audit
@@ -225,7 +236,9 @@ cd primer-tasks && go test -race ./... -count=1
 - [ ] Full Playwright suite is green against the release stack.
 - [ ] Invitation/revocation and two-tenant/two-parent isolation pass everywhere.
 - [ ] Audit/retention, backup/restore, session replacement, and consumer outage drills pass.
-- [ ] Stacklane check/hot-reload/two-instance/stop-one proofs pass.
+- [ ] Default host Make gates pass. Because this phase changes the opt-in
+      Compose vector, Stacklane check/hot-reload/two-instance/stop-one proofs
+      also pass.
 - [ ] Service integration seam is authenticated, generated, replay-safe, and DB-decoupled; production Identity blockers are labeled honestly.
 - [ ] Full race/coverage/vet/lint/build/client compatibility/security/diff gates pass.
 - [ ] Final anti-cheating audit finds no fake evidence, fail-open auth, secret/media leak, tracked generated output, or Primer DB coupling.

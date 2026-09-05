@@ -83,7 +83,7 @@ cleanup, diagnostics, generated-client compatibility, and release packaging.
 ## End-to-End Test Plan
 
 - Fresh release APK pair and full manual/dialogue/media/external task cycle against
-  the real release Stacklane stack.
+  the real release Tasks stack on the default host Make/non-Docker path.
 - Force-stop/reboot during each active verification type; network loss and Tasks/
   worker/object/verifier restart at declared safe points; verify durable recovery.
 - Revoke and replace device; replay old QR/bearer; load existing completion and

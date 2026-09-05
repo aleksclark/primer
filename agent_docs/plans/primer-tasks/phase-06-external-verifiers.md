@@ -8,10 +8,12 @@ configured external verifier, the server delivers a signed idempotent request,
 and the verifier returns progress and an accept/reject result through a scoped
 callback. The same generic attempt/decision policy updates the checklist.
 
-A real verifier fixture runs as another Compose service for E2E. It is external
-to the Tasks process and database; no in-process fake is accepted as boundary
-proof. Native-client progress handling is owned by a separate continuation
-plan.
+A real verifier fixture runs as a separate process for E2E. Default host-path
+proof starts that process without Compose. Because this phase also adds the
+fixture to the opt-in Compose vector, prove that additive service as well. The
+fixture is external to the Tasks process and database; no in-process fake is
+accepted as boundary proof. Native-client progress handling is owned by a
+separate continuation plan.
 
 ## BDD Success Criteria
 
@@ -100,10 +102,12 @@ plan.
 7. Prevent SSRF: parents never supply endpoint URLs/headers; admin endpoints are
    HTTPS/allowlist/resolution/redirect/egress validated and credentials never
    follow redirects.
-8. Add a separate `external-verifier-fixture` Compose service that validates
-   production signatures/idempotency, supports barrier/failure modes, owns its
-   fixture ledger, calls the public callback, and never shares/imports Tasks DB
-   or internal packages.
+8. Add a separate-process `external-verifier-fixture` that validates production
+   signatures/idempotency, supports barrier/failure modes, owns its fixture
+   ledger, calls the public callback, and never shares/imports Tasks DB or
+   internal packages. Default host/E2E starts that process without Compose.
+   Because this phase also adds it to the opt-in Compose vector, include an
+   additive Compose service with the same isolation rules.
 9. Add parent advanced configuration, verifier health/capability, delivery
    inspector, retry/cancel/fallback, and audit surfaces. Add student web waiting/
    progress/retry/rejected/completed states with System C safe progress.

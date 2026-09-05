@@ -15,8 +15,12 @@ document authority for six implementation PRs and the later Android continuation
 - **Given** `4b8924b8` follows patch-equivalent `fa9c6770` on local `master`
 - **When** the plan feature branch is compared with current `origin/master`
 - **Then** it adds the WIP-integration plan and the 13 files under
-  `agent_docs/plans/primer-tasks{,-android}/`
+  `agent_docs/plans/primer-tasks{,-android}/` transplanted from `4b8924b8` and
+  then minimally adapted for `AGENTS.md` (host Make default; opt-in Compose) and
+  donor-only Android P1/P2 status
 - **And** it does not reintroduce any code/config diff from `fa9c6770`.
+- **And** the unmodified original 13 files remain reachable on
+  `backup/local-master-pre-integration-20260905` (`4b8924b8`).
 
 ### Scenario: The planning PR is navigable and internally consistent
 
@@ -51,9 +55,12 @@ document authority for six implementation PRs and the later Android continuation
 - Include this `agent_docs/plans/wip-integration/` package in the planning PR.
   Keep plan/status claims evidence-backed; do not mark implementation phases
   complete merely because the donor has archived screenshots.
-- Validate markdown links and required sections mechanically. Compare the final
-  Tasks planning paths against `4b8924b8` and the donor tip; they should be
-  tree-equal.
+- Validate markdown links and required sections mechanically. The 13 files were
+  transplanted from `4b8924b8` then minimally adapted, so they are **not**
+  byte-identical to `4b8924b8` or `impl/tasks-p6-external`. Prove the remaining
+  path-scoped delta is only those documented AGENTS.md / donor-status edits, and
+  keep the unmodified original on
+  `backup/local-master-pre-integration-20260905`.
 - Open a feature PR, wait for all applicable checks, review the exact head, and
   merge through GitHub only when green.
 - Only after merge and backup verification, confirm the main checkout is clean
@@ -68,8 +75,12 @@ document authority for six implementation PRs and the later Android continuation
   no duplicate live-LLM code.
 - Resolve every relative Markdown link in both new plan directories and assert
   exactly one index plus one zero-padded file per enumerated phase.
-- `git diff --quiet 4b8924b8 HEAD -- agent_docs/plans/primer-tasks
-  agent_docs/plans/primer-tasks-android` must pass after transplant.
+- After the documented adaptation, `git diff --quiet 4b8924b8 HEAD --
+  agent_docs/plans/primer-tasks agent_docs/plans/primer-tasks-android` is
+  expected to fail. Review `git diff 4b8924b8 HEAD --` those paths and assert
+  the remaining delta is only host-Make/opt-in-Compose wording plus donor-only
+  Android P1/P2 status. The unmodified original remains on
+  `backup/local-master-pre-integration-20260905`.
 - Verify the PR through `gh pr view`/`gh pr checks` at the exact head. After
   merge, fetch and assert the merge is reachable from `origin/master`.
 - In the main worktree, assert `git status --short --branch` is clean and
@@ -97,9 +108,9 @@ document authority for six implementation PRs and the later Android continuation
 
 ## Execution status (2026-09-05, this worktree)
 
-Local transplant only. No PR, merge, push, or local-`master` reset has happened, so this phase is **not** complete.
+Local transplant plus documented plan adaptation. No PR, merge, push, or local-`master` reset has happened, so this phase is **not** complete. Remote PR/merge remains reserved to the L1 orchestrator and is simply not done yet.
 
-- Checked out the 13 files from `4b8924b8` onto `initiative/00-wip-integration`. Did not merge local `master` and did not replay `fa9c6770`.
-- `git diff --quiet 4b8924b8 HEAD -- agent_docs/plans/primer-tasks agent_docs/plans/primer-tasks-android` and the same comparison against `impl/tasks-p6-external` both pass after transplant.
+- Checked out the 13 files from `4b8924b8` onto `initiative/00-wip-integration`, then minimally adapted them for `AGENTS.md` (host Make default; opt-in Compose/Stacklane additive only) and donor-only Android P1/P2 status. Did not merge local `master` and did not replay `fa9c6770`.
+- The plan trees are intentionally no longer byte-identical to `4b8924b8` / `d6e89d4a`. Path-scoped `git diff 4b8924b8 HEAD -- agent_docs/plans/primer-tasks agent_docs/plans/primer-tasks-android` is the documented-delta check; the unmodified original remains on `backup/local-master-pre-integration-20260905`.
 - Relative Markdown links and required phase sections resolve in `primer-tasks/`, `primer-tasks-android/`, and `wip-integration/`.
-- `git diff origin/master --` the five `fa9c6770` paths is empty. Remaining Phase 02 gates (feature PR, GitHub checks, protected merge, local `master` reset) are blocked until a later editor is authorized for remote operations.
+- `git diff origin/master --` the five `fa9c6770` paths is empty.

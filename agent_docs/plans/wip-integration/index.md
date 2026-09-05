@@ -20,9 +20,13 @@ The authoritative baseline is `origin/master` at
 `b7a2027c24fbf63be0c4473f15dfcc5911803079` (PR #69).
 Phase 01 was independently re-verified in this worktree (exact backup object IDs,
 `git cherry` `- fa9c6770` / `+ 4b8924b8`, branch/worktree dispositions, ignored
-`deploy/.env` mode 0600). Phase 02 has a local plan transplant only; it is not
-complete until a feature PR merges and local `master` is reset to fetched
-`origin/master`.
+`deploy/.env` mode 0600). Phase 02 transplanted the 13 Tasks plan files from
+`4b8924b8` then minimally adapted them for `AGENTS.md` and donor-only Android
+status; they are not byte-identical to `4b8924b8`/`d6e89d4a`. The unmodified
+original remains on `backup/local-master-pre-integration-20260905`. Phase 02 is
+not complete until a feature PR merges and local `master` is reset to fetched
+`origin/master`. Remote PR/merge is reserved to the L1 orchestrator and is not
+done yet.
 
 ### Refs and WIP
 
@@ -110,8 +114,10 @@ automatically. This is conflict-shape evidence, not semantic validation.
    - P4 `89583ced`
    - P5 `e196dd2c`
    - P6 `d6e89d4a`
-6. Final Primer Tasks planning files come from `4b8924b8` and are excluded from
-   intermediate donor snapshots. The remote backup preserves original history.
+6. Final Primer Tasks planning files come from `4b8924b8`, then receive only the
+   documented AGENTS.md / donor-status adaptations on this branch. Intermediate
+   donor snapshots still exclude those plans. The unmodified original remains on
+   `backup/local-master-pre-integration-20260905`.
 7. Generated Studio clients remain untracked by policy. Official generation
    must be deterministic and must leave tracked files unchanged.
 8. Coverage floors remain LMS 85%, Studio 85%, Identity 80%, Agents 85%, and

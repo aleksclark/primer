@@ -143,7 +143,7 @@ student-facing agent can affect verification.
 
 ### Browser exploratory acceptance
 
-- Against real Compose/Postgres and scripted Fantasy provider, ask the parent
+- Against the default host Make/non-Docker Tasks path, real Postgres, and scripted Fantasy provider, ask the parent
   agent to list students, create/publish/schedule a task, clarify ambiguity, and
   preview/confirm a destructive change. Verify effects in ordinary pages and DB
   through public reads.
