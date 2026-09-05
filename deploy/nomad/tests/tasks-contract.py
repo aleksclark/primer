@@ -46,7 +46,8 @@ assert 'type=secret,id=VITE_CLERK_PUBLISHABLE_KEY,env=VITE_CLERK_PUBLISHABLE_KEY
 assert 'ARG VITE_CLERK_PUBLISHABLE_KEY' not in image
 assert 'no-cache-filters: web' in workflow
 assert '--no-cache-filter web' in (root / 'scripts/build-tasks-image.sh').read_text()
-assert 'ENV GOWORK=off GOPRIVATE=git.fleet.clark.team/aleksclark/authstack' in image
+assert 'ENV GOWORK=off CGO_ENABLED=0' in image
+assert 'GOPRIVATE=' not in image, 'public VCS-qualified module uses public proxy/checksum verification'
 assert "cmd/tasks-test-issuer" not in image + ignore
 assert "**/.env" in ignore and "**/.env.*" in ignore
 assert "COPY . " not in image, "production sources must stay allowlisted"

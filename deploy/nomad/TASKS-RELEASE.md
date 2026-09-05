@@ -32,10 +32,13 @@ these packaging files.
 Requirements: Docker Buildx, approved public Clerk profile for
 `https://api.primerlms.com`, and the frozen combined application/packaging commit.
 Go is pinned to **1.26.6** because the approved Authstack module requires it.
-`GOWORK=off` prevents unrelated local modules from entering the build;
-`GOPRIVATE=git.fleet.clark.team/aleksclark/authstack` uses the application-owned,
-same-version public-HTTPS transport replacement. No private build credentials,
-vendor tree or test issuer are included.
+`GOWORK=off` prevents unrelated local modules from entering the build. The
+application-owned, same-version replacement uses the VCS-qualified public HTTPS
+path `git.clark.team/aleksclark/authstack.git` at the approved `af1841573db4`
+commit. This bypasses incorrect vanity metadata that otherwise sends public CI
+to private fleet DNS. Public Go proxy/checksum verification is retained; no
+`GOPRIVATE`, special DNS, host networking, private build credentials, vendor tree
+or test issuer is needed.
 
 | Build input | Contract |
 |---|---|
