@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -17,7 +18,9 @@ import (
 // signatures below. Persistence and the browser-facing implementation remain
 // behind that boundary.
 type Health struct {
-	Status string `json:"status"`
+	Status        string    `json:"status"`
+	ModelProvider string    `json:"modelProvider"`
+	StartedAt     time.Time `json:"startedAt" format:"date-time"`
 }
 
 type Session struct {
@@ -232,7 +235,9 @@ func (s *Server) humaAPI() huma.API {
 	})
 
 	register(api, huma.Operation{OperationID: "health", Method: http.MethodGet, Path: "/health"}, func(ctx context.Context, _ *struct{}) (*HealthOutput, error) {
-		body, headers, err := legacyJSON[Health](ctx, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { jsonOK(w, Health{Status: "ok"}) }), nil)
+		body, headers, err := legacyJSON[Health](ctx, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			jsonOK(w, Health{Status: "ok", ModelProvider: envOr("TASKS_MODEL_PROVIDER", "disabled"), StartedAt: s.StartedAt})
+		}), nil)
 		return &HealthOutput{ResponseHeaders: headers, Body: body}, err
 	})
 	register(api, huma.Operation{OperationID: "auth-login", Method: http.MethodGet, Path: "/auth/login", DefaultStatus: http.StatusFound, Errors: []int{500, 503}}, func(ctx context.Context, _ *AuthLoginInput) (*RedirectOutput, error) {
@@ -300,6 +305,7 @@ func (s *Server) humaAPI() huma.API {
 		return &ChecklistOutput{ResponseHeaders: headers, Body: body}, err
 	})
 
+	s.registerPhase2(api)
 	return api
 }
 

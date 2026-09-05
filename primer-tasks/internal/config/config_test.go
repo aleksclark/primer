@@ -89,6 +89,17 @@ func TestLoadUsesSafeDefaultsAndDerivedRedirect(t *testing.T) {
 	}
 }
 
+func TestValidationAcceptsModelDisabled(t *testing.T) {
+	c := Config{Env: "test", DatabaseURL: "postgres://tasks@localhost/primer_tasks", AuthMode: "test", IssuerURL: "http://issuer.test", ClientID: "tasks", RedirectURL: "http://tasks.test/callback", ModelProvider: "disabled"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.ModelProvider = "bedrock"
+	if err := c.Validate(); err == nil {
+		t.Fatal("model provider was accepted in Phase 2")
+	}
+}
+
 func TestValidateRejectsProductionTestAuthAndRequiresAbsoluteIssuer(t *testing.T) {
 	c := validConfig()
 	c.AuthMode = "test"

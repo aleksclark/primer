@@ -103,6 +103,8 @@ services:
       # the server verifies ID tokens via discovery/JWKS (ES256) and exits
       # before listening when production is misconfigured.
       TASKS_AUTH_MODE: ${TASKS_AUTH_MODE-test}
+      TASKS_MODEL_PROVIDER: ${TASKS_MODEL_PROVIDER-disabled}
+      TASKS_SCHEDULE_HORIZON_DAYS: ${TASKS_SCHEDULE_HORIZON_DAYS-365}
       # Back-channel token exchange uses Compose DNS. Browser authorization
       # is rewritten to the request host's /issuer proxy at login time.
       TASKS_ISSUER_URL: ${TASKS_ISSUER_URL-http://test-issuer:8091}

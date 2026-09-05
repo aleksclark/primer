@@ -2,6 +2,8 @@ package com.aleksclark.primertasks.client
 
 import com.aleksclark.primertasks.generated.ChecklistItem as GeneratedChecklistItem
 import com.aleksclark.primertasks.generated.ChecklistResponse as GeneratedChecklistResponse
+import com.aleksclark.primertasks.generated.OccurrencePageResponse as GeneratedOccurrencePageResponse
+import com.aleksclark.primertasks.generated.Occurrence2 as GeneratedOccurrenceResponse
 import com.aleksclark.primertasks.generated.DevicePairResponse as GeneratedDevicePairResponse
 import com.aleksclark.primertasks.generated.PairCode
 import com.aleksclark.primertasks.generated.PrimerTasksOperations
@@ -34,6 +36,26 @@ class TasksClient(
         get(PrimerTasksOperations.DEVICE_CHECKLIST, token, ChecklistResponse.serializer())
     }
 
+    suspend fun studentToday(token: String): OccurrencePageResponse = withContext(Dispatchers.IO) {
+        get(PrimerTasksOperations.DEVICE_TODAY, token, OccurrencePageResponse.serializer())
+    }
+
+    suspend fun studentUpcoming(token: String): OccurrencePageResponse = withContext(Dispatchers.IO) {
+        get(PrimerTasksOperations.DEVICE_UPCOMING, token, OccurrencePageResponse.serializer())
+    }
+
+    suspend fun studentOccurrence(token: String, id: String): OccurrenceResponse = withContext(Dispatchers.IO) {
+        get(PrimerTasksOperations.DEVICE_OCCURRENCE.replace("{id}", id), token, OccurrenceResponse.serializer())
+    }
+
+    suspend fun startStudentOccurrence(token: String, id: String): String = withContext(Dispatchers.IO) {
+        getText(PrimerTasksOperations.DEVICE_OCCURRENCE_START.replace("{id}", id), token)
+    }
+
+    suspend fun submitStudentOccurrence(token: String, id: String): String = withContext(Dispatchers.IO) {
+        getText(PrimerTasksOperations.DEVICE_OCCURRENCE_SUBMIT.replace("{id}", id), token)
+    }
+
     fun authHeader(token: String) = "Bearer $token"
 
     private fun <T> post(path: String, body: PairCode, serializer: kotlinx.serialization.KSerializer<T>): T {
@@ -47,6 +69,14 @@ class TasksClient(
     private fun <T> get(path: String, token: String, serializer: kotlinx.serialization.KSerializer<T>): T {
         val request = Request.Builder().url(apiBaseUrl + path).header("Authorization", authHeader(token)).get().build()
         return execute(request, serializer)
+    }
+
+    private fun getText(path: String, token: String): String {
+        val request = Request.Builder().url(apiBaseUrl + path).header("Authorization", authHeader(token)).post("".toRequestBody(JSON)).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw TasksHttpException(response.code)
+            return response.body?.string() ?: ""
+        }
     }
 
     private fun <T> execute(request: Request, serializer: kotlinx.serialization.KSerializer<T>): T {
@@ -65,6 +95,8 @@ class TasksClient(
 typealias DevicePairResponse = GeneratedDevicePairResponse
 typealias StudentProfile = GeneratedStudentProfile
 typealias ChecklistResponse = GeneratedChecklistResponse
+typealias OccurrenceResponse = GeneratedOccurrenceResponse
+typealias OccurrencePageResponse = GeneratedOccurrencePageResponse
 typealias ChecklistItem = GeneratedChecklistItem
 
 class TasksHttpException(val statusCode: Int, message: String = "request failed") : Exception(message)

@@ -36,6 +36,18 @@ class TasksClientRouteTest {
     }
 
     @Test
+    fun bearerSubmitUsesDeviceOwnedRoute() = runBlocking {
+        server.enqueue(MockResponse().setBody("{\"id\":\"occ-1\",\"status\":\"awaiting_verification\"}"))
+
+        TasksClient(server.url("/").toString()).submitStudentOccurrence("device-token", "occ-1")
+
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertEquals("/api/device/occurrences/occ-1/submit", request?.path)
+        assertEquals("Bearer device-token", request?.getHeader("Authorization"))
+        assertEquals("POST", request?.method)
+    }
+
+    @Test
     fun bearerChecklistUsesDeviceOwnedRoute() = runBlocking {
         server.enqueue(MockResponse().setBody("{\"items\":[]}"))
 

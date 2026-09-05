@@ -1,6 +1,9 @@
 # Generated contracts and local build output.
 /web/node_modules/
 /web/dist/
+/web/test-results/
+/web/test-artifacts/
+/web/playwright-report/
 /clients/typescript/node_modules/
 /openapi.yaml
 /build/
@@ -8,6 +11,7 @@
 /test-artifacts/*
 !/test-artifacts/.gitkeep
 !/test-artifacts/phase-01-evidence.md
+!/test-artifacts/phase-02-evidence.md
 
 # Local development overrides and generated watcher output.
 .env
