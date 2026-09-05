@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"git.clark.team/aleksclark/authstack/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,13 +23,16 @@ import (
 )
 
 type Server struct {
-	DB           *pgxpool.Pool
-	Env          string
-	SecureCookie bool
-	Auth         AuthConfig
-	jwks         *jwksCache
-	httpClient   *http.Client
-	StartedAt    time.Time
+	DB                  *pgxpool.Pool
+	Env                 string
+	SecureCookie        bool
+	Auth                AuthConfig
+	jwks                *jwksCache
+	httpClient          *http.Client
+	StartedAt           time.Time
+	ParentAuthenticator auth.Authenticator
+	ParentPolicy        auth.AuthenticationPolicy
+	BasePath            string
 }
 type scope struct{ Tenant, Subject string }
 
@@ -81,7 +85,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	}
 	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC()}
 }
-func (s *Server) Routes() http.Handler { return s.humaAPI().Adapter() }
+func (s *Server) Routes() http.Handler { return s.parentBoundary(s.humaAPI().Adapter()) }
 
 type parentHandler func(http.ResponseWriter, *http.Request, scope)
 
@@ -89,7 +93,7 @@ func (s *Server) requireParent(next parentHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sc, err := s.parentScope(r)
 		if err != nil {
-			problem(w, 401, "unauthorized", "parent session required")
+			s.parentError(w, err)
 			return
 		}
 		next(w, r, sc)
@@ -173,15 +177,22 @@ func pairingClientKey(r *http.Request) string {
 	return "unknown"
 }
 func (s *Server) parentScope(r *http.Request) (scope, error) {
+	if s.Auth.Mode == "clerk" {
+		return s.clerkScope(r)
+	}
 	c, err := r.Cookie("tasks_parent")
 	if err != nil {
 		return scope{}, err
 	}
 	var out scope
-	err = s.DB.QueryRow(r.Context(), `SELECT tenant_id,subject_ref FROM bff_sessions WHERE handle_hash=$1 AND session_kind='parent' AND expires_at>now() AND revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
+	err = s.DB.QueryRow(r.Context(), `SELECT s.tenant_id,s.subject_ref FROM bff_sessions s JOIN parent_memberships m ON m.tenant_id=s.tenant_id AND m.subject_ref=s.subject_ref WHERE s.handle_hash=$1 AND s.session_kind='parent' AND s.expires_at>now() AND s.revoked_at IS NULL AND m.revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
 	return out, err
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.Auth.Mode == "clerk" {
+		http.Redirect(w, r, s.BasePath+"/parent/students", http.StatusFound)
+		return
+	}
 	if s.Auth.IssuerURL == "" || s.Auth.ClientID == "" {
 		problem(w, 503, "identity_unconfigured", "identity provider is not configured")
 		return
@@ -236,6 +247,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
+	if s.Auth.Mode == "clerk" {
+		problem(w, 410, "retired", "use Clerk sign-in")
+		return
+	}
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
 		problem(w, 401, "identity_denied", providerError)
 		return
@@ -303,12 +318,16 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) parentSession(w http.ResponseWriter, r *http.Request) {
 	sc, err := s.parentScope(r)
 	if err != nil {
-		problem(w, 401, "unauthorized", "parent session required")
+		s.parentError(w, err)
 		return
 	}
 	jsonOK(w, map[string]string{"subjectRef": sc.Subject, "tenantId": sc.Tenant})
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if s.Auth.Mode == "clerk" {
+		s.clerkLogout(w, r)
+		return
+	}
 	if c, e := r.Cookie("tasks_parent"); e == nil {
 		_, _ = s.DB.Exec(r.Context(), `UPDATE bff_sessions SET revoked_at=now() WHERE handle_hash=$1`, hash(c.Value))
 	}
@@ -477,7 +496,7 @@ func (s *Server) issuePairing(w http.ResponseWriter, r *http.Request, sc scope) 
 	if origin == "" {
 		origin = s.Auth.PublicOrigin
 	}
-	payload := map[string]any{"v": 1, "api": "/api", "origin": origin, "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
+	payload := map[string]any{"v": 1, "api": s.BasePath + "/api", "origin": origin, "pairingId": pid.String(), "code": code, "exp": exp.Format(time.RFC3339)}
 	jsonOK(w, map[string]any{"pairingId": pid, "code": code, "expiresAt": exp, "qrPayload": string(mustJSON(payload))})
 }
 func (s *Server) claimCredential(ctx context.Context, code, kind, clientKey string) (uuid.UUID, string, string, error) {

@@ -16,6 +16,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/react": "^6.15.1",
     "@primer-tasks/client": "file:../clients/typescript",
     "@vitejs/plugin-react": "^6.0.3",
     "qrcode.react": "^4.2.0",

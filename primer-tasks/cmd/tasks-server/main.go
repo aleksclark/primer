@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"git.clark.team/aleksclark/authstack/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"primer-tasks/internal/api"
 	"primer-tasks/internal/config"
 	"primer-tasks/internal/db"
+	"primer-tasks/internal/parentauth"
 	"primer-tasks/internal/schedule"
 	"syscall"
 	"time"
@@ -34,17 +36,36 @@ func main() {
 		panic(err)
 	}
 	defer pool.Close()
-	if err = db.Migrate(ctx, pool); err != nil {
-		panic(err)
+	if cfg.Env != "production" {
+		if err = db.Migrate(ctx, pool); err != nil {
+			panic(err)
+		}
+		if cfg.AuthMode != "clerk" {
+			if err = seed(ctx, pool); err != nil {
+				panic(err)
+			}
+		}
 	}
-	if err = seed(ctx, pool); err != nil {
-		panic(err)
+	app := api.New(pool, cfg.Env)
+	app.BasePath = cfg.BasePath
+	if cfg.AuthMode == "clerk" {
+		app.ParentAuthenticator, err = parentauth.New(ctx, cfg.ClerkIssuer, cfg.ClerkJWKSURL)
+		if err != nil {
+			slog.Error("Clerk initialization failed", "error", err)
+			os.Exit(2)
+		}
+		// Household authority is the local ledger, not Clerk organizations. A
+		// standard Clerk session has no aud; bind exact issuer + browser azp.
+		app.ParentPolicy = auth.AuthenticationPolicy{AcceptedCredentials: []auth.CredentialKind{auth.CredentialSession}, AuthorizedParties: []string{cfg.PublicOrigin}}
+		if cfg.ClerkAudience != "" {
+			app.ParentPolicy.Audiences = []string{cfg.ClerkAudience}
+		}
 	}
 	worker := schedule.NewWorker(pool)
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
 	go worker.Run(workerCtx)
-	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: api.New(pool, cfg.Env).Routes(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: envOr("TASKS_HOST", "127.0.0.1") + ":" + envOr("TASKS_PORT", "8080"), Handler: api.Mount(app.Routes(), cfg.BasePath, cfg.WebDir), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		slog.Info("tasks server listening", "addr", srv.Addr)
 		if e := srv.ListenAndServe(); e != nil && e != http.ErrServerClosed {
