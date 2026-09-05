@@ -85,4 +85,6 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: live host-stack Playwright
-        run: make tasks-e2e
+        run: |
+          set +m
+          make tasks-e2e

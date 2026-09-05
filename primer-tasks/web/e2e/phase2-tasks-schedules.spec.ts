@@ -2,13 +2,15 @@ import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 
 async function signIn(page: Page, parent: "A" | "B") {
   await page.goto("/parent/students");
+  const students = page.getByRole("heading", { name: "Students", exact: true });
   const signIn = page.getByRole("button", { name: /continue with parent sign-in/i });
-  if (await signIn.isVisible().catch(() => false)) {
+  await expect(students.or(signIn)).toBeVisible();
+  if (await signIn.isVisible()) {
     await signIn.click();
     await page.getByRole("link", { name: new RegExp(`Parent ${parent}`) }).click();
   }
   await expect(page).toHaveURL(/\/parent\/students$/);
-  await expect(page.getByRole("heading", { name: "Students" })).toBeVisible();
+  await expect(students).toBeVisible();
 }
 
 async function createStudent(page: Page, name: string) {

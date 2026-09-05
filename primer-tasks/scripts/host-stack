@@ -5,6 +5,7 @@
 # test issuer, and Vite. Each service is launched in its own session so `down`
 # never signals the caller (including `make tasks-e2e` / `setsid`).
 set -Eeuo pipefail
+set +m
 
 ROOT=$(export CDPATH=; cd -- "$(dirname -- "$0")/.." && pwd)
 ACTION=${1:-up}
@@ -89,14 +90,24 @@ start_session() {
   local pidfile=$1
   local logfile=$2
   shift 2
-  setsid "$@" >"$logfile" 2>&1 &
-  local pid=$!
-  if ! owned_leader "$pid"; then
-    echo "host-stack: FAIL $pidfile is not a session/process-group leader" >&2
+  rm -f "$pidfile"
+  # `setsid -f` always forks, so this still works when the caller is already a
+  # process-group leader (make jobserver, monitor mode, GitHub Actions).
+  # The service writes its own PID after it becomes the session leader.
+  setsid -f bash -c 'printf "%s\n" "$$" >"$1"; exec >"$2" 2>&1; shift 2; exec "$@"' bash "$pidfile" "$logfile" "$@"
+  local i pid
+  for i in $(seq 1 50); do
+    pid=$(tr -d '[:space:]' <"$pidfile" 2>/dev/null || true)
+    if owned_leader "$pid"; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "host-stack: FAIL $pidfile is not a session/process-group leader" >&2
+  if [[ "${pid:-}" =~ ^[0-9]+$ ]]; then
     kill -TERM -"$pid" 2>/dev/null || true
-    return 1
   fi
-  printf '%s\n' "$pid" >"$pidfile"
+  return 1
 }
 
 up() {
