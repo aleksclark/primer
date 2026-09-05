@@ -75,4 +75,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace git.clark.team/aleksclark/authstack => git.fleet.clark.team/aleksclark/authstack v0.0.0-20260904220839-af1841573db4
+// VCS-qualified public transport bypasses vanity metadata pointing at split DNS.
+replace git.clark.team/aleksclark/authstack => git.clark.team/aleksclark/authstack.git v0.0.0-20260904220839-af1841573db4
