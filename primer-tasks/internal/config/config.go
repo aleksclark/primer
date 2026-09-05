@@ -9,10 +9,16 @@ import (
 
 type Config struct {
 	Env, DatabaseURL, AuthMode, IssuerURL, ClientID, RedirectURL, PublicOrigin, SessionSecret, TestPrincipal, ModelProvider string
+	ClerkIssuer, ClerkJWKSURL, ClerkAudience, BasePath, WebDir                                                              string
 }
 
 func Load() (Config, error) {
 	c := Config{Env: value("TASKS_ENV", "development"), DatabaseURL: os.Getenv("TASKS_DATABASE_URL"), AuthMode: value("TASKS_AUTH_MODE", "test"), IssuerURL: strings.TrimRight(value("TASKS_ISSUER_URL", "http://test-issuer:8091"), "/"), ClientID: value("TASKS_OIDC_CLIENT_ID", "primer-tasks-web"), PublicOrigin: value("TASKS_PUBLIC_ORIGIN", "http://127.0.0.1:8080"), SessionSecret: os.Getenv("TASKS_SESSION_SECRET"), TestPrincipal: value("TASKS_TEST_PRINCIPAL", "parent-a"), ModelProvider: value("TASKS_MODEL_PROVIDER", "disabled")}
+	c.ClerkIssuer = os.Getenv("TASKS_CLERK_ISSUER")
+	c.ClerkJWKSURL = os.Getenv("TASKS_CLERK_JWKS_URL")
+	c.ClerkAudience = os.Getenv("TASKS_CLERK_AUDIENCE")
+	c.BasePath = strings.TrimRight(os.Getenv("TASKS_BASE_PATH"), "/")
+	c.WebDir = os.Getenv("TASKS_WEB_DIR")
 	c.RedirectURL = value("TASKS_OIDC_REDIRECT_URL", c.PublicOrigin+"/auth/callback")
 	return c, c.Validate()
 }
@@ -23,18 +29,34 @@ func (c Config) Validate() error {
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("TASKS_DATABASE_URL is required")
 	}
-	if c.AuthMode != "test" && c.AuthMode != "oidc" {
-		return fmt.Errorf("TASKS_AUTH_MODE must be test or oidc")
+	if c.AuthMode != "test" && c.AuthMode != "oidc" && c.AuthMode != "clerk" {
+		return fmt.Errorf("TASKS_AUTH_MODE must be test, oidc, or clerk")
+	}
+	if c.Env == "production" && c.AuthMode != "clerk" {
+		return fmt.Errorf("production requires TASKS_AUTH_MODE=clerk")
+	}
+	if c.BasePath != "" && c.BasePath != "/tasks" {
+		return fmt.Errorf("TASKS_BASE_PATH must be empty or /tasks")
 	}
 	if c.ModelProvider != "" && c.ModelProvider != "disabled" {
 		return fmt.Errorf("TASKS_MODEL_PROVIDER must be disabled in Phase 2")
 	}
-	if c.Env == "production" && c.AuthMode == "test" {
-		return fmt.Errorf("test authentication is forbidden in production")
+	if c.AuthMode == "clerk" {
+		for name, raw := range map[string]string{"TASKS_CLERK_ISSUER": c.ClerkIssuer, "TASKS_CLERK_JWKS_URL": c.ClerkJWKSURL, "TASKS_PUBLIC_ORIGIN": c.PublicOrigin} {
+			u, err := url.Parse(raw)
+			if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && (c.Env == "production" || u.Scheme != "http")) {
+				return fmt.Errorf("%s must be an explicit absolute HTTPS URL in production", name)
+			}
+			if name == "TASKS_PUBLIC_ORIGIN" && u.Path != "" {
+				return fmt.Errorf("TASKS_PUBLIC_ORIGIN must be an exact origin without path or trailing slash")
+			}
+			if c.Env == "production" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" || strings.Contains(u.Hostname(), "test-issuer")) {
+				return fmt.Errorf("%s cannot use a development issuer or origin", name)
+			}
+		}
+		return nil // Clerk does not use Identity, a client secret, or a BFF parent session key.
 	}
-	if c.Env == "production" && (strings.Contains(strings.ToLower(c.IssuerURL), "test-issuer") || strings.Contains(strings.ToLower(c.IssuerURL), "localhost") || strings.Contains(strings.ToLower(c.IssuerURL), "127.0.0.1")) {
-		return fmt.Errorf("production cannot use a development or test issuer")
-	}
+	// Legacy authorization-code settings are development/test compatibility only.
 	if c.IssuerURL == "" {
 		return fmt.Errorf("TASKS_ISSUER_URL is required")
 	}
@@ -44,12 +66,6 @@ func (c Config) Validate() error {
 	}
 	if c.ClientID == "" || c.RedirectURL == "" {
 		return fmt.Errorf("OIDC client id and redirect URL are required")
-	}
-	if c.Env == "production" && len(c.SessionSecret) < 32 {
-		return fmt.Errorf("TASKS_SESSION_SECRET must contain at least 32 bytes in production")
-	}
-	if c.AuthMode == "oidc" && (u.Scheme != "https" && c.Env == "production") {
-		return fmt.Errorf("production OIDC issuer must use HTTPS")
 	}
 	return nil
 }

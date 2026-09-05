@@ -89,8 +89,8 @@ func testMigrateAgainstURL(t *testing.T, dsn string) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
-	if applied != 4 {
-		t.Fatalf("applied migrations = %d, want 4", applied)
+	if applied != 5 {
+		t.Fatalf("applied migrations = %d, want 5", applied)
 	}
 	var tables int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('tenants','students','auth_states','student_sessions')`).Scan(&tables); err != nil {
@@ -99,6 +99,7 @@ func testMigrateAgainstURL(t *testing.T, dsn string) {
 	if tables != 4 {
 		t.Fatalf("Tasks schema table count = %d, want 4", tables)
 	}
+	testBootstrapParent(t, pool)
 }
 
 func TestMigrationTableAndOwnershipConstraintsAreProductLocal(t *testing.T) {
