@@ -82,7 +82,11 @@ provenance before locking it.
 | SPA | `/app/web`, served by `/app/tasks-server`; `/tasks` redirects 308 to `/tasks/` |
 | Router | `Host(api.primerlms.com) && (Path(/tasks) || PathPrefix(/tasks/))`, explicit priority 200 |
 
-The tunnel preserves `Host: api.primerlms.com`. Forward paths unchanged. Do not
+The tunnel preserves `Host: api.primerlms.com` but connects to the origin using
+TLS SNI `primer.fleet.clark.team`. The Tasks router uses `tls=true` and the existing
+fleet certificate store on `websecure`; it does not request an
+`api.primerlms.com` origin certificate or require new-zone ACME authority. Keep
+tunnel certificate verification enabled. Forward paths unchanged. Do not
 add strip-prefix middleware, capture `/tasks-other`, or modify existing LMS
 host/catch-all or `/api/v1` routers. Do not create a separate UI service or use the
 optional `app.primerlms.com` route. No WebSocket upgrade requirement exists for

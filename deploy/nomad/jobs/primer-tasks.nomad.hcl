@@ -65,7 +65,10 @@ job "primer-tasks" {
         "traefik.http.routers.primer-tasks.rule=Host(`api.primerlms.com`) && (Path(`/tasks`) || PathPrefix(`/tasks/`))",
         "traefik.http.routers.primer-tasks.priority=200",
         "traefik.http.routers.primer-tasks.entrypoints=websecure",
-        "traefik.http.routers.primer-tasks.tls.certresolver=letsencrypt",
+        # Cloudflared sends TLS SNI primer.fleet.clark.team while preserving
+        # HTTP Host api.primerlms.com. Reuse the existing fleet certificate;
+        # do not request a new api.primerlms.com origin certificate.
+        "traefik.http.routers.primer-tasks.tls=true",
       ]
 
       check {

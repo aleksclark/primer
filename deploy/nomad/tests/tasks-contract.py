@@ -21,9 +21,11 @@ for text in (
     'path     = "/health"',
     'Host(`api.primerlms.com`) && (Path(`/tasks`) || PathPrefix(`/tasks/`))',
     'traefik.http.routers.primer-tasks.priority=200',
+    'traefik.http.routers.primer-tasks.tls=true',
     'TASKS_AUTH_MODE     = "clerk"',
 ):
     assert text in job, f"missing Tasks runtime contract: {text}"
+assert 'tls.certresolver=' not in job, 'reuse existing fleet TLS certificate; no new-zone ACME'
 assert job.count('readonly_rootfs = true') == 2
 assert job.count('image           = var.image_primer_tasks') == 2
 assert job.count('user         = "65532:65532"') + job.count('user   = "65532:65532"') == 2
