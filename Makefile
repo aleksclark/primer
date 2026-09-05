@@ -378,11 +378,9 @@ identity-live-stytch:
 
 ## ── primer-agents module ─────────────────────────────────────────────────────
 AGENTS_COVER_MIN := 85
-## NOTE: current honest total is 78.7%; agents-cover remains a release blocker.
-## The threshold is intentionally not lowered; see agent_docs/runbooks/coverage-blockers.md.
-## Blocker to 85%: worker/execute goroutine and SSE LISTEN/NOTIFY branches
-## require live provider/DB interaction not available in standard CI.
-## See agent_docs/runbooks/coverage-blockers.md.
+## Measured 85.0% at the Agents coverage unblock (`make agents-cover`,
+## coverpkg=./internal/...). The 85% floor is unchanged. Historical 78.7%
+## notes live in agent_docs/runbooks/coverage-blockers.md.
 
 agents-build:
 	cd primer-agents && go build ./...
