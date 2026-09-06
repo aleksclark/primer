@@ -294,31 +294,33 @@ var ErrDialogueLease = errors.New("dialogue lease unavailable")
 
 // DialogueEvent is the actual Go wire/persistence boundary. The student socket
 // and later offline client emission use this type, not a copied client DTO.
+const DialogueProtocolVersion = 1
+
 type DialogueEvent struct {
-	Protocol         int       `json:"protocol"`
-	Kind             string    `json:"kind"`
-	Sequence         int64     `json:"sequence"`
-	Cursor           int64     `json:"cursor"`
-	Time             time.Time `json:"time"`
-	OccurrenceID     string    `json:"occurrenceId,omitempty"`
-	AttemptID        string    `json:"attemptId,omitempty"`
-	RequirementID    string    `json:"requirementId,omitempty"`
-	PolicyVersion    string    `json:"policyVersion,omitempty"`
-	SnapshotDigest   string    `json:"snapshotDigest,omitempty"`
-	Version          int64     `json:"version,omitempty"`
-	QuestionID       string    `json:"questionId,omitempty"`
-	MessageID        string    `json:"messageId,omitempty"`
-	ClientMessageID  string    `json:"clientMessageId,omitempty"`
-	Text             string    `json:"text,omitempty"`
-	Phase            string    `json:"phase,omitempty"`
-	Status           string    `json:"status,omitempty"`
-	OccurrenceStatus string    `json:"occurrenceStatus,omitempty"`
-	AcceptedCount    int       `json:"acceptedCount"`
-	RequiredCount    int       `json:"requiredCount"`
-	DecisionID       string    `json:"decisionId,omitempty"`
-	DecisionSource   string    `json:"decisionSource,omitempty"`
-	Code             string    `json:"code,omitempty"`
-	Retryable        bool      `json:"retryable,omitempty"`
+	Protocol         int       `json:"protocol" wire:"*!"`
+	Kind             string    `json:"kind" wire:"*!"`
+	Sequence         int64     `json:"sequence" wire:"*!" wireMin:"0"`
+	Cursor           int64     `json:"cursor" wire:"*!" wireMin:"0"`
+	Time             time.Time `json:"time" wire:"*!" wireFormat:"date-time"`
+	OccurrenceID     string    `json:"occurrenceId,omitempty" wire:"scope!" wireFormat:"uuid"`
+	AttemptID        string    `json:"attemptId,omitempty" wire:"scope!" wireFormat:"uuid"`
+	RequirementID    string    `json:"requirementId,omitempty" wire:"scope!" wireFormat:"uuid"`
+	PolicyVersion    string    `json:"policyVersion,omitempty" wire:"scope!" wireEnum:"*=dialogue.v1"`
+	SnapshotDigest   string    `json:"snapshotDigest,omitempty" wire:"scope!" wireFormat:"sha256"`
+	Version          int64     `json:"version,omitempty" wire:"scope!" wireMin:"1"`
+	QuestionID       string    `json:"questionId,omitempty" wire:"state,question!,message_ack!,answer_evaluation!" wireFormat:"uuid"`
+	MessageID        string    `json:"messageId,omitempty" wire:"message_ack!,answer_evaluation!" wireFormat:"uuid"`
+	ClientMessageID  string    `json:"clientMessageId,omitempty" wire:"message_ack!" wireMinLength:"1" wireMaxLength:"128"`
+	Text             string    `json:"text,omitempty" wire:"state,question!,message_ack!,answer_evaluation!" wireMinLength:"1" wireMaxBytes:"12000" wireNonBlank:"true"`
+	Phase            string    `json:"phase,omitempty" wire:"state,progress!" wireEnum:"state=failed|thinking|evaluating;progress=thinking|evaluating"`
+	Status           string    `json:"status,omitempty" wire:"state!,answer_evaluation!,complete!,override!,terminal_error!" wireEnum:"state=open|accepted|rejected|exhausted;answer_evaluation=accepted|rejected;complete=accepted;override=accepted|rejected;terminal_error=exhausted"`
+	OccurrenceStatus string    `json:"occurrenceStatus,omitempty" wire:"state!,complete!,override!,terminal_error!" wireEnum:"state=pending|in_progress|awaiting_verification|completed|excused|canceled;complete=completed;override=pending|awaiting_verification|completed;terminal_error=pending"`
+	AcceptedCount    int       `json:"acceptedCount" wire:"*!" wireMin:"0" wireMax:"3" wireEnum:"hello=0;error=0"`
+	RequiredCount    int       `json:"requiredCount" wire:"*!" wireEnum:"scope=3;hello=0;error=0"`
+	DecisionID       string    `json:"decisionId,omitempty" wire:"complete!,override!,terminal_error!" wireFormat:"uuid"`
+	DecisionSource   string    `json:"decisionSource,omitempty" wire:"state,complete!,override!,terminal_error!" wireEnum:"state=verification_engine|parent_override;complete=verification_engine|parent_override;override=parent_override;terminal_error=verification_engine"`
+	Code             string    `json:"code,omitempty" wire:"state,error!,terminal_error!" wireEnum:"state=provider_unavailable;error=unavailable|revoked|not_found|conflict|invalid_request|exhausted;terminal_error=exhausted|provider_exhausted|deadline_exhausted|lease_exhausted|job_budget_exhausted"`
+	Retryable        bool      `json:"retryable,omitempty" wire:"state,error"`
 }
 
 func ResolveStudentAuthority(ctx context.Context, db tasksdb.Database, handleHash []byte) (a StudentAuthority, err error) {
@@ -465,7 +467,7 @@ func DialogueStateEvent(s DialogueState) (DialogueEvent, error) {
 	if err != nil {
 		return DialogueEvent{}, err
 	}
-	e := DialogueEvent{Protocol: 1, Kind: "state", Time: time.Now().UTC(), OccurrenceID: s.Context.OccurrenceID, AttemptID: s.Context.AttemptID, RequirementID: s.Context.RequirementID, PolicyVersion: s.Context.PolicyVersion, SnapshotDigest: s.Context.SnapshotDigest, Version: s.Version, Status: s.TerminalStatus, OccurrenceStatus: s.OccurrenceStatus, AcceptedCount: ready.AcceptedCount, RequiredCount: ready.RequiredCount}
+	e := DialogueEvent{Protocol: DialogueProtocolVersion, Kind: "state", Time: time.Now().UTC(), OccurrenceID: s.Context.OccurrenceID, AttemptID: s.Context.AttemptID, RequirementID: s.Context.RequirementID, PolicyVersion: s.Context.PolicyVersion, SnapshotDigest: s.Context.SnapshotDigest, Version: s.Version, Status: s.TerminalStatus, OccurrenceStatus: s.OccurrenceStatus, AcceptedCount: ready.AcceptedCount, RequiredCount: ready.RequiredCount}
 	if len(s.Questions) > 0 {
 		q := s.Questions[len(s.Questions)-1]
 		e.QuestionID, e.Text = q.ID, q.Prompt
@@ -476,7 +478,7 @@ func DialogueStateEvent(s DialogueState) (DialogueEvent, error) {
 func appendDialogueEvent(ctx context.Context, tx pgx.Tx, s DialogueState, key string, event DialogueEvent) error {
 	// Every caller holds this attempt/occurrence lock. Stable event keys make
 	// replay of a committed stage idempotent, not another terminal event.
-	event.Protocol, event.Time, event.OccurrenceID, event.AttemptID = 1, time.Now().UTC(), s.Context.OccurrenceID, s.Context.AttemptID
+	event.Protocol, event.Time, event.OccurrenceID, event.AttemptID = DialogueProtocolVersion, time.Now().UTC(), s.Context.OccurrenceID, s.Context.AttemptID
 	event.RequirementID, event.PolicyVersion, event.SnapshotDigest, event.Version = s.Context.RequirementID, s.Context.PolicyVersion, s.Context.SnapshotDigest, s.Version
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(max(sequence),0)+1 FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2`, s.Context.TenantID, s.Context.AttemptID).Scan(&event.Sequence); err != nil {
 		return err

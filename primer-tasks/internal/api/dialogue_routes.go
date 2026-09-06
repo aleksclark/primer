@@ -162,11 +162,17 @@ func (s *Server) readStudentDialogueState(ctx context.Context, a verification.St
 		return event, err
 	}
 	var failed, retryable bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2 AND status='failed'),EXISTS(SELECT 1 FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2 AND status='failed' AND attempts<max_attempts AND deadline>clock_timestamp() AND session_id=$3)`, a.TenantID, attempt, a.SessionID).Scan(&failed, &retryable); err != nil {
+	var activeStage string
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2 AND status='failed'),EXISTS(SELECT 1 FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2 AND status='failed' AND attempts<max_attempts AND deadline>clock_timestamp() AND session_id=$3),COALESCE((SELECT stage FROM verification_jobs WHERE tenant_id=$1 AND attempt_id=$2 AND status IN ('queued','running') LIMIT 1),'')`, a.TenantID, attempt, a.SessionID).Scan(&failed, &retryable, &activeStage); err != nil {
 		return event, err
 	}
 	if failed && !state.Terminal {
 		event.Phase, event.Code, event.Retryable = "failed", "provider_unavailable", retryable
+	} else if !state.Terminal && activeStage != "" {
+		event.Phase = "thinking"
+		if activeStage == "evaluation" {
+			event.Phase = "evaluating"
+		}
 	}
 	if err = tx.QueryRow(ctx, `SELECT CASE WHEN EXISTS(SELECT 1 FROM verification_overrides WHERE tenant_id=$1 AND attempt_id=$2) THEN 'parent_override' WHEN EXISTS(SELECT 1 FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2) THEN 'verification_engine' ELSE '' END`, a.TenantID, attempt).Scan(&event.DecisionSource); err != nil {
 		return event, err

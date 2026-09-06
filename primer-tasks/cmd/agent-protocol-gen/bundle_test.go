@@ -21,7 +21,15 @@ func TestBundleUsesActualContractsAndIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := map[string]string{"openapi.yaml": api.OpenAPI() + "\n", "agent-protocol.schema.json": string(schema) + "\n", "agent-protocol.ts": api.AgentSocketTypeScript()}
+	student, err := api.StudentSocketSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := api.DialogueConfigSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]string{"openapi.yaml": api.OpenAPI() + "\n", "openapi.json": api.OpenAPIJSON() + "\n", "agent-protocol.schema.json": string(schema) + "\n", "agent-protocol.ts": api.AgentSocketTypeScript(), "student-dialogue.schema.json": string(student) + "\n", "student-dialogue.ts": api.StudentSocketTypeScript(), "dialogue-config.schema.json": string(config) + "\n", "dialogue-config.ts": api.DialogueConfigTypeScript()}
 	data, err := os.ReadFile(filepath.Join(first, "manifest.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +38,7 @@ func TestBundleUsesActualContractsAndIsDeterministic(t *testing.T) {
 	if err = json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Format != bundleFormat || len(manifest.Files) != len(expected) {
+	if manifest.Format != bundleFormat || manifest.Normalization != contractNormalization || len(manifest.ContractDigest) != 64 || len(manifest.Files) != len(expected) {
 		t.Fatal("incomplete bundle manifest")
 	}
 	for name, want := range expected {
@@ -42,7 +50,19 @@ func TestBundleUsesActualContractsAndIsDeterministic(t *testing.T) {
 			t.Fatalf("bundle drift from actual source: %s", name)
 		}
 	}
-	for _, name := range []string{"openapi.yaml", "agent-protocol.schema.json", "agent-protocol.ts", "manifest.json", "manifest.sha256"} {
+	files := map[string][]byte{}
+	for name, data := range expected {
+		files[name] = []byte(data)
+	}
+	normalized, err := normalizedContracts(files)
+	if err != nil || digest(normalized) != manifest.ContractDigest {
+		t.Fatal("normalized contract digest is not reproducible")
+	}
+	names := []string{"manifest.json", "manifest.sha256"}
+	for name := range expected {
+		names = append(names, name)
+	}
+	for _, name := range names {
 		a, err := os.ReadFile(filepath.Join(first, name))
 		if err != nil {
 			t.Fatal(err)
@@ -60,10 +80,10 @@ func TestBundleUsesActualContractsAndIsDeterministic(t *testing.T) {
 		t.Fatal("manifest integrity marker missing")
 	}
 	// Interrupted emission cannot leave a previous success marker usable.
-	if err = os.Remove(filepath.Join(first, "agent-protocol.ts")); err != nil {
+	if err = os.Remove(filepath.Join(first, "student-dialogue.ts")); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.Mkdir(filepath.Join(first, "agent-protocol.ts"), 0755); err != nil {
+	if err = os.Mkdir(filepath.Join(first, "student-dialogue.ts"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if emitBundle(first) == nil {

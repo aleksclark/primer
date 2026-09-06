@@ -1,6 +1,14 @@
 import createClient from "openapi-fetch";
 import type { paths, components } from "../generated/schema";
 import { createAgentClient } from "./agent-client";
+import { createDialogueClient, studentCSRFToken } from "./dialogue-client.ts";
+import { parseStudentDialogueEvent } from "./student-dialogue-protocol.ts";
+export { createDialogueClient, reduceDialogueEvent } from "./dialogue-client.ts";
+export type { DialogueClient, DialogueClientOptions, DialogueClientSnapshot, DialogueConnectionState } from "./dialogue-client.ts";
+export { STUDENT_DIALOGUE_PROTOCOL_VERSION, parseStudentDialogueEvent, isStudentDialogueCommand } from "./student-dialogue-protocol.ts";
+export type { StudentDialogueCommand, StudentDialogueEvent, StudentDialogueStateEvent, StudentDialogueQuestionEvent } from "./student-dialogue-protocol.ts";
+export { DIALOGUE_CONFIG_SCHEMA, parseDialogueConfig, dialogueRequirement } from "./dialogue.ts";
+export type { DialogueConfig, DialogueInspect, DialogueOverrideRequest, DialogueOverrideReceipt } from "./dialogue.ts";
 export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client";
 export type { AgentClient, AgentClientError, AgentClientOptions, AgentClientSnapshot, AgentConnectionState } from "./agent-client";
 export { AGENT_PROTOCOL_VERSION, parseAgentEvent, safeAgentToolLabel, safeAgentErrorMessage } from "./agent-protocol";
@@ -25,6 +33,10 @@ type ScheduleListQuery = Query<"/schedules", "get">;
 type ScheduleInputBody = JsonBody<"/schedules", "post">;
 type TaskInputBody = JsonBody<"/tasks", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
+type DialogueStartBody = JsonBody<"/student/occurrences/{id}/dialogue", "post">;
+type DialogueOverrideBody = JsonBody<"/occurrences/{id}/override", "post">;
+export type DialogueInspectQuery = Query<"/occurrences/{id}/inspect", "get">;
+export type OccurrenceRetryQuery = Query<"/occurrences/{id}/retry", "post">;
 export type Task = components["schemas"]["TaskRevision"];
 export type TaskPage = components["schemas"]["TaskPage2"];
 export type Schedule = components["schemas"]["Schedule2"];
@@ -40,6 +52,16 @@ export interface TasksClientOptions {
 
 export interface RequestOptions {
   signal?: AbortSignal;
+}
+
+// Huma REST responses carry the generated contract's optional $schema link;
+// the student WS envelope does not. Remove ONLY that documented REST metadata,
+// then apply the same generated student-state guard. Unknown data still fails.
+function studentStateFromREST(raw: components["schemas"]["DialogueEvent"]) {
+  const { $schema, ...event } = raw;
+  if ($schema !== undefined && typeof $schema !== "string") return null;
+  const parsed = parseStudentDialogueEvent(event);
+  return parsed?.kind === "state" ? parsed : null;
 }
 
 export class TasksApiError extends Error {
@@ -71,6 +93,7 @@ export function createTasksClient(options: TasksClientOptions = {}) {
   });
   transport.use({
     async onRequest({ request, schemaPath }) {
+      if (schemaPath === "/student/occurrences/{id}/dialogue" && request.method === "POST") request.headers.set("X-CSRF-Token", studentCSRFToken());
       if (options.getParentToken && !schemaPath.startsWith("/student/") && !schemaPath.startsWith("/device/") && schemaPath !== "/health") {
         const token = await options.getParentToken();
         if (token) request.headers.set("Authorization", `Bearer ${token}`);
@@ -197,9 +220,29 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async decideOccurrence(id: string, body: DecisionInputBody, options: RequestOptions = {}) {
       return unwrap(transport.POST("/occurrences/{id}/decision", { ...options, params: { path: { id } }, body }));
     },
-    async retryOccurrence(id: string, options: RequestOptions = {}) {
-      return unwrap(transport.POST("/occurrences/{id}/retry", { ...options, params: { path: { id } } }));
+    async retryOccurrence(id: string, options: RequestOptions = {}, query: OccurrenceRetryQuery = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/retry", { ...options, params: { path: { id }, query } }));
     },
+    async inspectOccurrence(id: string, query: DialogueInspectQuery = {}, options: RequestOptions = {}) {
+      return unwrap(transport.GET("/occurrences/{id}/inspect", { ...options, params: { path: { id }, query } }));
+    },
+    async overrideOccurrence(id: string, body: DialogueOverrideBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/occurrences/{id}/override", { ...options, params: { path: { id } }, body }));
+    },
+    async startStudentDialogue(id: string, body: DialogueStartBody = {}, options: RequestOptions = {}) {
+      const raw = await unwrap(transport.POST("/student/occurrences/{id}/dialogue", { ...options, params: { path: { id } }, body }));
+      const state = studentStateFromREST(raw);
+      if (!state || state.occurrenceId !== id) throw new TasksApiError(502, "Invalid student dialogue state.", "invalid_response");
+      return state;
+    },
+    async studentDialogue(id: string, requirementId?: string, options: RequestOptions = {}) {
+      const raw = await unwrap(transport.GET("/student/occurrences/{id}/dialogue", { ...options, params: { path: { id }, query: { requirementId } } }));
+      const state = studentStateFromREST(raw);
+      if (!state || state.occurrenceId !== id) throw new TasksApiError(502, "Invalid student dialogue state.", "invalid_response");
+      return state;
+    },
+    createStudentDialogueClient(occurrenceId: string, attemptId: string) { return createDialogueClient({ occurrenceId, attemptId, baseUrl }); },
+
     async skipOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/occurrences/{id}/skip", { ...options, params: { path: { id } } }));
     },

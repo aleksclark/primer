@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,17 +16,19 @@ try {
   if (!preEmitted) {
     // Default local generation is ALWAYS fresh, even when old output exists.
     // A missing Go tool is an error, never an implicit pre-emitted fallback.
+    await rm(path.join(bundlePath, "manifest.sha256"), { force: true });
     execFileSync("go", ["run", "./cmd/agent-protocol-gen", "-bundle", bundlePath], { cwd: tasksRoot, stdio: "inherit" });
   }
-  const bundle = await readContractBundle(bundlePath);
-  const schema = astToString(await openapiTS(bundle["openapi.yaml"].toString("utf8"), { silent: true }));
+  const bundle = await readContractBundle(bundlePath, process.env.TASKS_CLIENT_EXPECTED_CONTRACT_DIGEST);
+  const schema = astToString(await openapiTS(JSON.parse(bundle["openapi.json"].toString("utf8")), { silent: true }));
   // Validate the entire bundle and REST generation before replacing outputs.
   await mkdir(path.dirname(output), { recursive: true });
   await mkdir(path.join(tasksRoot, "build"), { recursive: true });
   await writeFile(output, schema);
   await writeFile(path.join(here, "generated/agent-protocol.ts"), bundle["agent-protocol.ts"]);
-  await writeFile(path.join(tasksRoot, "build/openapi.yaml"), bundle["openapi.yaml"]);
-  await writeFile(path.join(tasksRoot, "build/agent-protocol.schema.json"), bundle["agent-protocol.schema.json"]);
+  await writeFile(path.join(here, "generated/student-dialogue.ts"), bundle["student-dialogue.ts"]);
+  await writeFile(path.join(here, "generated/dialogue-config.ts"), bundle["dialogue-config.ts"]);
+  for (const name of ["openapi.yaml", "openapi.json", "agent-protocol.schema.json", "student-dialogue.schema.json", "dialogue-config.schema.json"]) await writeFile(path.join(tasksRoot, "build", name), bundle[name]);
   console.log(`generated ${path.relative(process.cwd(), output)} from ${preEmitted ? "verified pre-emitted" : "fresh Go-emitted"} contracts`);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

@@ -330,7 +330,7 @@ func (s *Server) humaAPI() huma.API {
 	s.registerDialogueRoutes(api)
 	// WebSockets use the same production router and actual Go wire boundaries.
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
-	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))
+	r.Handle(studentSocketPath, http.HandlerFunc(s.studentWS))
 	return api
 }
 

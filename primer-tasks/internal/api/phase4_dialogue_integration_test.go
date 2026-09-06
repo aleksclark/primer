@@ -343,7 +343,7 @@ func (h *publicDialogueHarness) waitWithin(conn *websocket.Conn, bound time.Dura
 }
 func (h *publicDialogueHarness) question(conn *websocket.Conn, count int) wireStudentEvent {
 	return h.wait(conn, func(e wireStudentEvent) bool {
-		return (e.Kind == "question" || e.Kind == "state") && e.QuestionID != "" && e.AcceptedCount == count && e.Phase != "failed"
+		return (e.Kind == "question" || e.Kind == "state") && e.QuestionID != "" && e.AcceptedCount == count && e.Phase == ""
 	})
 }
 func (h *publicDialogueHarness) answer(conn *websocket.Conn, state wireStudentEvent, key, text string) {

@@ -1,11 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"sync"
 	"time"
 
@@ -14,21 +12,26 @@ import (
 	"primer-tasks/internal/verification"
 )
 
-const studentProtocolVersion = 1
+const studentProtocolVersion = verification.DialogueProtocolVersion
+const studentSocketPath = "/student/ws"
+const studentSocketProtocol = "primer-tasks.student.v1"
 const studentWriteTimeout = 2 * time.Second
+const studentReadLimit = 16 * 1024
+const studentReplayPageSize = 32
+const studentAckWindow = 64
 
 type studentCommand struct {
-	Protocol        int    `json:"protocol"`
-	Kind            string `json:"kind"`
-	OccurrenceID    string `json:"occurrenceId,omitempty"`
-	AttemptID       string `json:"attemptId,omitempty"`
-	QuestionID      string `json:"questionId,omitempty"`
-	PolicyVersion   string `json:"policyVersion,omitempty"`
-	SnapshotDigest  string `json:"snapshotDigest,omitempty"`
-	ClientMessageID string `json:"clientMessageId,omitempty"`
-	Text            string `json:"text,omitempty"`
-	ExpectedVersion int64  `json:"expectedVersion,omitempty"`
-	Cursor          int64  `json:"cursor,omitempty"`
+	Protocol        int    `json:"protocol" wire:"*!"`
+	Kind            string `json:"kind" wire:"*!"`
+	OccurrenceID    string `json:"occurrenceId,omitempty" wire:"subscribe!,user_message!,retry!" wireFormat:"uuid"`
+	AttemptID       string `json:"attemptId,omitempty" wire:"subscribe!,user_message!,retry!" wireFormat:"uuid"`
+	QuestionID      string `json:"questionId,omitempty" wire:"user_message!" wireFormat:"uuid"`
+	PolicyVersion   string `json:"policyVersion,omitempty" wire:"user_message!" wireEnum:"*=dialogue.v1"`
+	SnapshotDigest  string `json:"snapshotDigest,omitempty" wire:"user_message!" wireFormat:"sha256"`
+	ClientMessageID string `json:"clientMessageId,omitempty" wire:"user_message!" wireMinLength:"1" wireMaxLength:"128"`
+	Text            string `json:"text,omitempty" wire:"user_message!" wireMinLength:"1" wireMaxBytes:"12000" wireNonBlank:"true"`
+	ExpectedVersion int64  `json:"expectedVersion,omitempty" wire:"user_message!,retry!" wireMin:"1"`
+	Cursor          int64  `json:"cursor,omitempty" wire:"subscribe,ack" wireMin:"0"`
 }
 type wireStudentEvent = verification.DialogueEvent
 
@@ -42,38 +45,14 @@ type studentSubscriber struct {
 }
 
 func decodeStudentCommand(data []byte) (c studentCommand, err error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&c); err != nil {
+	if err = validateStudentContractJSON(studentCommandContract, data); err != nil {
 		return c, err
 	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return c, errors.New("invalid command envelope")
-	}
-	if c.Protocol != studentProtocolVersion || c.Cursor < 0 {
-		return c, errors.New("unsupported command envelope")
-	}
-	switch c.Kind {
-	case "subscribe":
-		if c.OccurrenceID == "" || c.AttemptID == "" {
-			return c, errors.New("subscription binding required")
-		}
-	case "user_message":
-		if c.OccurrenceID == "" || c.AttemptID == "" || c.QuestionID == "" || c.ExpectedVersion < 1 || c.ClientMessageID == "" || len(c.ClientMessageID) > 128 || c.Text == "" || len(c.Text) > 12000 || c.PolicyVersion == "" || len(c.SnapshotDigest) != 64 {
-			return c, errors.New("answer binding required")
-		}
-	case "retry":
-		if c.OccurrenceID == "" || c.AttemptID == "" || c.ExpectedVersion < 1 {
-			return c, errors.New("retry binding required")
-		}
-	case "ack", "unsubscribe":
-	default:
-		return c, errors.New("unknown student command")
-	}
-	return c, nil
+	return c, json.Unmarshal(data, &c)
 }
+
 func studentError(err error) wireStudentEvent {
-	e := wireStudentEvent{Protocol: 1, Kind: "error", Time: time.Now().UTC(), Code: "unavailable", Retryable: true}
+	e := wireStudentEvent{Protocol: studentProtocolVersion, Kind: "error", Time: time.Now().UTC(), Code: "unavailable", Retryable: true}
 	switch {
 	case errors.Is(err, verification.ErrDialogueRevoked):
 		e.Code, e.Retryable = "revoked", false
@@ -89,18 +68,18 @@ func studentError(err error) wireStudentEvent {
 	return e
 }
 func validateStudentEvent(e wireStudentEvent) error {
-	if e.Protocol != 1 || e.Sequence < 0 || e.Cursor < 0 || e.Time.IsZero() {
-		return errors.New("invalid student event")
+	data, err := json.Marshal(e)
+	if err != nil {
+		return err
 	}
-	switch e.Kind {
-	case "hello", "state", "message_ack", "question", "progress", "answer_evaluation", "complete", "error", "override":
-	default:
-		return errors.New("unknown student event")
+	return validateStudentContractJSON(studentEventContract, data)
+}
+func decodeStudentEvent(data []byte) (e wireStudentEvent, err error) {
+	if err = validateStudentContractJSON(studentEventContract, data); err != nil {
+		return e, err
 	}
-	if len(e.Text) > 12000 || e.AcceptedCount < 0 || e.AcceptedCount > 3 {
-		return errors.New("invalid student event bounds")
-	}
-	return nil
+	err = json.Unmarshal(data, &e)
+	return e, err
 }
 
 func (s *Server) writeStudentFrame(ctx context.Context, conn *websocket.Conn, a verification.StudentAuthority, event wireStudentEvent) error {
@@ -194,7 +173,7 @@ func (s *Server) tailStudentSocket(ctx context.Context, conn *websocket.Conn, a 
 			}
 			sub.lastState = signature
 		}
-		capacity := int64(64) - (sub.cursor - sub.acked)
+		capacity := int64(studentAckWindow) - (sub.cursor - sub.acked)
 		if capacity <= 0 {
 			expired := time.Since(sub.lastAck) > studentWriteTimeout
 			sub.mu.Unlock()
@@ -205,7 +184,7 @@ func (s *Server) tailStudentSocket(ctx context.Context, conn *websocket.Conn, a 
 			continue
 		}
 		check, done = context.WithTimeout(ctx, 3*time.Second)
-		rows, err := s.DB.Query(check, `SELECT sequence,payload FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2 AND sequence>$3 ORDER BY sequence LIMIT $4`, a.TenantID, sub.attempt, sub.cursor, min(int64(32), capacity))
+		rows, err := s.DB.Query(check, `SELECT sequence,payload FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2 AND sequence>$3 ORDER BY sequence LIMIT $4`, a.TenantID, sub.attempt, sub.cursor, min(int64(studentReplayPageSize), capacity))
 		var events []wireStudentEvent
 		if err == nil {
 			for rows.Next() {
@@ -215,7 +194,7 @@ func (s *Server) tailStudentSocket(ctx context.Context, conn *websocket.Conn, a 
 				if err = rows.Scan(&seq, &raw); err != nil {
 					break
 				}
-				if err = json.Unmarshal(raw, &event); err != nil {
+				if event, err = decodeStudentEvent(raw); err != nil {
 					break
 				}
 				if event.Sequence != seq || event.Cursor != seq || event.AttemptID != sub.attempt || event.OccurrenceID != sub.occurrence {

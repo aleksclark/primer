@@ -16,12 +16,11 @@
   P4 is00010/00011, then separately owned management/release012–015. Local
   checkpoints are allowed; push/PR/integration remains L1/L0 coordinated.
 
-**Current status: CP2 review remediation, not completed P4.** CP1 foundation
-`d24287d5` was independently accepted. SAMEe24 BLOCKED CP2 `82d92597` on terminal
-job exhaustion and provider-controlled question egress; that checkpoint and all
-receipts remain preserved. The scoped corrections below require SAMEe24 rereview.
-Generated student clients/UI, full coverage/race10, browser, Android and matching-
-head CI gates remain open; no CP3 continuation/contract handoff is claimed.
+**Current status: CP3 Go-producer/TypeScript checkpoint, not completed P4.**
+CP1 `d24287d5` and CP2 remediation `65339f8` were independently accepted for staged
+continuation. SAMEe24's BLOCK of `82d92597` and every earlier receipt remain
+preserved. CP3 source/contract/client evidence below requires its own review;
+UI, coverage/race10, browser, Android and matching-head CI gates remain open.
 
 ## CP1 foundation recovery (historical, independently accepted)
 
@@ -282,17 +281,96 @@ running-executable hashes and checkout manifests remain intact. No long race or
 full unchanged module rerun was used as a default remediation shortcut. Original
 82d source/RED/PASS/interruption/VCS-provenance records remain untouched.
 
+## CP3 producer / TypeScript facade checkpoint
+
+The generated-client skill and ownership/build references were refreshed before
+work. CP3 prioritizes a pre-merge producer handoff, without waiting on or editing
+Kotlin/legacy Android and without large UI work.
+
+- Actual `studentCommand` and `verification.DialogueEvent` Go declarations carry
+  variant membership/scalar constraints. `student_ws_contract.go` reflects those
+  declarations into the SAME rules used by inbound/outbound runtime validation,
+  offline JSON Schema and generated TS unions. Unknown fields/wrong variants,
+  missing binding, unsafe numeric/cursor values and false terminal status/count
+  combinations fail closed. Corrupt persisted events are rejected, not stripped.
+- The Go socket path/protocol/read/page/window/write bounds are shared by actual
+  route/transport code and schema metadata. State now reports real active job
+  phases so reconnect/conflict recovery cannot invite an answer while busy.
+  No cookie/tenant/student/prose policy is accepted from the client.
+- Parent config metadata reflects the actual `domain.DialogueConfig` and the
+  constants used by server validation/source resolution. It includes retained-
+  evidence, bounded source/rubric/retry limits and the manifest envelope. Closed
+  published question plans remain server-only, never parent-input or student DTOs.
+- Existing `cmd/agent-protocol-gen -bundle` emits a complete v2 bundle: parent
+  schema/TS, student schema/TS, parent-config schema/TS, REST JSON/YAML, manifest
+  and completion marker. The marker is invalidated before derivation/writes;
+  default Node generation invalidates before invoking real Go too. No new Go
+  producer command, Docker/context/build-key or dependency change.
+- The normalized digest covers the four JSON contracts with recursive object-key
+  ordering/Go-compatible string encoding; array order and all semantic fields,
+  nullability, enums/constraints are preserved. Node independently recomputes it.
+  Optional expected-digest binding rejects coherent-but-stale artifacts. Integrity
+  is not authenticity: explicit bundle trust remains the current-source Go→Node
+  build chain, not a claim that arbitrary supplied artifacts are current.
+- Separate TS package consumes generated types/rules and existing openapi-fetch
+  middleware. No parallel REST fetch lane bypasses Clerk. Student constructor
+  owns same-origin/base-path/cookie-CSRF, strict events, ack/cursor/reconnect and
+  identical pending-message replay. Stale-CAS recovery retains unsent text and
+  never silently rebases it. Completion is an explicit server result, not a count
+  or answer-level acceptance. Parent inspect/override/config remain separate.
+- Only named parent/student facades may construct sockets; source/DTO/transport
+  checks and no-tracked-generated-output checks are executable. The existing
+  empty `.gitkeep` is the sole narrow output-root marker exception.
+- `make -C primer-tasks clients-typescript` runs fresh generation, TS typecheck,
+  boundaries, client runtime tests, genuine Go-overlay/Node-no-Go tests and the
+  dedicated tagged real generated-client public conformance test. The existing
+  `clients` target retains its subsequent Kotlin edge; it was not run during the
+  Kotlin source hold. Root Makefile and other shared build files stay unchanged.
+
+### CP3 observed qualification
+
+- Parent WS schema/TS, REST YAML and generated REST TypeScript are byte-identical
+  to the pre-CP3 `65339f8` baseline. Existing additive P4 REST operations/retry
+  selectors are preserved; no new REST operations were needed in CP3.
+- Real Go source overlays rename a runtime student command JSON field and change
+  an actual config bound; both generated artifacts AND actual Go runtime checks
+  follow. A stale TS consumer fails compilation after the generated wire rename.
+- Fresh double generation is deterministic. Real Node with no Go consumes the
+  explicit bundle and typechecks; missing/corrupt/mixed/unsupported/wrong-normalized-
+  digest/expected-stale bundles fail before replacing outputs. Default mode invokes
+  actual Go and refuses an existing-output fallback when Go is unavailable.
+- Eight client tests cover generated guards/config limits, terminal truthfulness,
+  base/tasks/api/CSRF, current-version and identical retry payloads, busy/conflict
+  recovery, URL/foreign-frame refusals, Clerk middleware and typed errors. Boundary
+  mutations prove parallel sockets/fetch/copied DTOs/tracked generated output fail.
+- A real generated-client Node consumer calls the actual Tasks process/PG/Fantasy
+  through public start/WS/inspect, rejects an incorrect answer, reconnects2/3,
+  completes once and observes a typed404. Node cookie/Origin bridging is an explicit
+  test-platform bootstrap, not a mock server/model or product transport bypass.
+- Go emitter/runtime contract tests, focused server concurrency/override/IDOR
+  regressions, vet/build, existing web typecheck and15 preserved web unit tests
+  pass. No browser exploration, full race10, coverage or native acceptance claimed.
+
+CP3 REDs remain under `/tmp/primer-p4-gates/cp3/`: initial generated public client
+rejected Huma's documented REST `$schema` link with502; the facade now removes
+ONLY that generated REST metadata before the strict WS-state guard, and actual
+public response metadata/passing flow verifies the adapter. Initial no-generated-
+output gate rejected the existing empty `.gitkeep`; exact marker allowlisting
+preserves rejection of real generated source. These are not hidden or called
+flaky. Raw artifact hashes/normalized digest and final source binding are in the
+producer handoff report, clearly pre-merge and pending independent CP3 review.
+
 ## Next checkpoint / remaining acceptance
 
-1. Independent review of this CP2 source/failure-adaptation/provenance checkpoint.
-2. Go-owned actual REST/WS contract generation and verified bundle/facades, then
-   additive TaskEditor/Decide-Learn/Inspect web surfaces. No handwritten client
-   DTOs or local-completion projections. Preserve existing parent contract bytes
-   or document actual additive changes.
-3. At coherent CP3 producer/contract freeze, deliver exact commit + normalized
-   contract digest to L0/L1 for peer additive handoff. This CP2 checkpoint is not
-   that final producer freeze. Kotlin/Android stays held pending its explicit
-   handoff; native dialogue is deferred, ordinary build compatibility still owed.
+1. SAMEe24 independent review of the CP3 producer/facade checkpoint. Its exact
+   commit and normalized contract digest are a PRE-MERGE handoff through L1/L0,
+   not full-P4 or peer/native acceptance.
+2. After that review, additive TaskEditor/Decide-Learn/Inspect web surfaces using
+   the generated facade; preserve editing/presets/history/Clerk/P3 behavior.
+   No Playwright authoring before independently owned Chrome exploration.
+3. Kotlin/Android stays held pending its explicit consolidated handoff. Do not
+   wait for native acceptance to hand off the Go producer; native dialogue remains
+   deferred and ordinary existing build compatibility is still owed.
 4. Actual85% coverage and original race10 with effective runtime instrumentation,
    generated clients/web, independent Chrome before promotion, Android build and
    all exact-head CI/review before integration. No full-P4/native/live-provider/

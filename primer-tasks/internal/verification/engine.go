@@ -26,7 +26,7 @@ type Registry struct {
 func NewRegistry() *Registry {
 	r := &Registry{manifests: map[string]Manifest{}}
 	r.Register(Manifest{Kind: "parent_approval", ConfigVersion: 1, Interaction: "parent_action", Executor: "human", MaxAttempts: 3, Timeout: 24 * time.Hour})
-	r.Register(Manifest{Kind: domain.AgentDialogueKind, ConfigVersion: domain.AgentDialogueConfigVersion, Interaction: "chat", Executor: "fantasy", MaxAttempts: 2, Timeout: 10 * time.Minute})
+	r.Register(Manifest{Kind: domain.AgentDialogueKind, ConfigVersion: domain.AgentDialogueConfigVersion, Interaction: domain.AgentDialogueInteraction, Executor: domain.AgentDialogueExecutor, MaxAttempts: 2, Timeout: 10 * time.Minute})
 	return r
 }
 func (r *Registry) Register(m Manifest) { r.mu.Lock(); defer r.mu.Unlock(); r.manifests[m.Kind] = m }

@@ -48,7 +48,7 @@ func (s *Server) studentWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bounded upgrade unavailable", 503)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"primer-tasks.student.v1"}, InsecureSkipVerify: true})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{studentSocketProtocol}, InsecureSkipVerify: true})
 	resetErr := controller.SetWriteDeadline(time.Time{})
 	_ = upgrade.Rollback(check)
 	cancel()
@@ -60,10 +60,10 @@ func (s *Server) studentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
-	conn.SetReadLimit(16 * 1024)
+	conn.SetReadLimit(studentReadLimit)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	if err = s.writeStudentFrame(ctx, conn, a, wireStudentEvent{Protocol: 1, Kind: "hello", Time: time.Now().UTC()}); err != nil {
+	if err = s.writeStudentFrame(ctx, conn, a, wireStudentEvent{Protocol: studentProtocolVersion, Kind: "hello", Time: time.Now().UTC()}); err != nil {
 		closeStudentDelivery(conn, err)
 		return
 	}
@@ -94,7 +94,7 @@ func (s *Server) studentWS(w http.ResponseWriter, r *http.Request) {
 		}
 		command, err := decodeStudentCommand(data)
 		if err != nil {
-			if !send(wireStudentEvent{Protocol: 1, Kind: "error", Time: time.Now().UTC(), Code: "invalid_request"}) {
+			if !send(wireStudentEvent{Protocol: studentProtocolVersion, Kind: "error", Time: time.Now().UTC(), Code: "invalid_request"}) {
 				return
 			}
 			continue

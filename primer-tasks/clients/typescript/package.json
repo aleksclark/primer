@@ -9,7 +9,9 @@
   "scripts": {
     "generate": "node ./generate-client.mjs",
     "test:generation": "node --test generate-client.test.mjs",
-    "check:boundary": "node ./scripts/check-agent-boundary.mjs"
+    "check:boundary": "node ./scripts/check-agent-boundary.mjs",
+    "typecheck": "tsc -p tsconfig.json --allowImportingTsExtensions",
+    "test": "node --test src/*.test.mjs"
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0"

@@ -18,9 +18,19 @@ import (
 const (
 	AgentDialogueKind          = "agent_dialogue"
 	AgentDialogueConfigVersion = 1
+	AgentDialogueInteraction   = "chat"
+	AgentDialogueExecutor      = "fantasy"
 	DialoguePolicyVersion      = "dialogue.v1"
 	DialogueRequiredQuestions  = 3
 	DialogueSourceMaxBytes     = 12000
+	DialogueFocusMaxRunes      = 500
+	DialogueRubricMaxItems     = 20
+	DialogueCriterionMaxRunes  = 500
+	DialogueFollowUpsMax       = 5
+	DialogueAttemptsMax        = 10
+	DialogueTurnsMax           = 100
+	DialogueRetentionPolicy    = "retain"
+	DialogueCuratedSourceRef   = "fixture://chapter-4"
 )
 
 var (
@@ -69,7 +79,7 @@ func ResolveDialogueSource(c DialogueConfig) (DialogueSource, error) {
 	}
 	source := DialogueSource{Reference: "inline", Version: "inline.v1", Text: c.SourceText}
 	if c.SourceRef != "" {
-		if c.SourceRef != "fixture://chapter-4" {
+		if c.SourceRef != DialogueCuratedSourceRef {
 			return DialogueSource{}, ErrInvalidDialogueConfig
 		}
 		source = DialogueSource{Reference: c.SourceRef, Version: "garden-wall.v1", Text: CuratedChapterSource}
@@ -85,22 +95,22 @@ func (c DialogueConfig) Validate() error {
 	if _, err := ResolveDialogueSource(c); err != nil {
 		return err
 	}
-	if strings.TrimSpace(c.LearningFocus) == "" || !utf8.ValidString(c.LearningFocus) || len([]rune(c.LearningFocus)) > 500 || c.RequiredQuestions != DialogueRequiredQuestions {
+	if strings.TrimSpace(c.LearningFocus) == "" || !utf8.ValidString(c.LearningFocus) || len([]rune(c.LearningFocus)) > DialogueFocusMaxRunes || c.RequiredQuestions != DialogueRequiredQuestions {
 		return ErrInvalidDialogueConfig
 	}
-	if len(c.Rubric) < 1 || len(c.Rubric) > 20 {
+	if len(c.Rubric) < 1 || len(c.Rubric) > DialogueRubricMaxItems {
 		return ErrInvalidDialogueConfig
 	}
 	seen := map[string]bool{}
 	for _, criterion := range c.Rubric {
 		key := strings.ToLower(strings.TrimSpace(criterion))
-		if key == "" || !utf8.ValidString(criterion) || len([]rune(criterion)) > 500 || seen[key] {
+		if key == "" || !utf8.ValidString(criterion) || len([]rune(criterion)) > DialogueCriterionMaxRunes || seen[key] {
 			return ErrInvalidDialogueConfig
 		}
 		seen[key] = true
 	}
 	// A turn is one admitted student answer, never a question/tool step.
-	if c.AllowedFollowUps < 0 || c.AllowedFollowUps > 5 || c.MaxAttempts < 1 || c.MaxAttempts > 10 || c.MaxTurns < DialogueRequiredQuestions || c.MaxTurns > 100 || c.RetentionPolicy != "retain" {
+	if c.AllowedFollowUps < 0 || c.AllowedFollowUps > DialogueFollowUpsMax || c.MaxAttempts < 1 || c.MaxAttempts > DialogueAttemptsMax || c.MaxTurns < DialogueRequiredQuestions || c.MaxTurns > DialogueTurnsMax || c.RetentionPolicy != DialogueRetentionPolicy {
 		return ErrInvalidDialogueConfig
 	}
 	return nil
@@ -112,7 +122,11 @@ func (c DialogueConfig) Criteria() []string { return append([]string(nil), c.Rub
 // source substitutions, retentionDays, prompts and unsupported retention modes.
 // Create/revise/publish share this boundary; stored envelopes are not rewritten.
 func ParseDialogueConfig(raw map[string]any) (DialogueConfig, error) {
-	allowed := map[string]bool{"sourceRef": true, "sourceText": true, "learningFocus": true, "requiredQuestions": true, "rubric": true, "allowedFollowUps": true, "maxAttempts": true, "maxTurns": true, "retentionPolicy": true}
+	allowed := map[string]bool{}
+	shape := DialogueConfigSchema()
+	for key := range shape["properties"].(map[string]any) {
+		allowed[key] = true
+	}
 	for key, value := range raw {
 		if !allowed[key] || value == nil {
 			return DialogueConfig{}, ErrInvalidDialogueConfig
@@ -121,7 +135,7 @@ func ParseDialogueConfig(raw map[string]any) (DialogueConfig, error) {
 			return DialogueConfig{}, ErrInvalidDialogueConfig
 		}
 	}
-	for _, key := range []string{"learningFocus", "requiredQuestions", "rubric", "allowedFollowUps", "maxAttempts", "maxTurns", "retentionPolicy"} {
+	for _, key := range shape["required"].([]string) {
 		if _, ok := raw[key]; !ok {
 			return DialogueConfig{}, ErrInvalidDialogueConfig
 		}
@@ -137,8 +151,84 @@ func ParseDialogueConfig(raw map[string]any) (DialogueConfig, error) {
 	return c, c.Validate()
 }
 
+// DialogueConfigSchema reflects the actual parent-input Go type. Bounds and
+// supported values are the SAME constants enforced by Validate/Resolve above.
+// It is offline metadata, never a student-authority or published-plan input.
+func DialogueConfigSchema() map[string]any {
+	properties := map[string]any{}
+	required := []string{}
+	names := map[string]string{}
+	t := reflect.TypeOf(DialogueConfig{})
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := strings.Split(field.Tag.Get("json"), ",")
+		name := tag[0]
+		if name == "" || name == "-" {
+			continue
+		}
+		names[field.Name] = name
+		p := map[string]any{}
+		switch field.Type.Kind() {
+		case reflect.String:
+			p["type"] = "string"
+		case reflect.Int:
+			p["type"] = "integer"
+		case reflect.Bool:
+			p["type"] = "boolean"
+		case reflect.Slice:
+			p["type"] = "array"
+			p["items"] = map[string]any{"type": "string"}
+		default:
+			panic("unsupported dialogue config type")
+		}
+		switch field.Name {
+		case "SourceRef":
+			p["const"] = DialogueCuratedSourceRef
+		case "SourceText":
+			p["minLength"] = 1
+			p["x-maxBytes"] = DialogueSourceMaxBytes
+			p["x-nonBlank"] = true
+		case "LearningFocus":
+			p["minLength"] = 1
+			p["maxLength"] = DialogueFocusMaxRunes
+			p["x-nonBlank"] = true
+		case "RequiredQuestions":
+			p["const"] = DialogueRequiredQuestions
+		case "Rubric":
+			p["minItems"] = 1
+			p["maxItems"] = DialogueRubricMaxItems
+			p["uniqueItems"] = true
+			p["x-uniqueNormalized"] = true
+			p["items"] = map[string]any{"type": "string", "minLength": 1, "maxLength": DialogueCriterionMaxRunes, "x-nonBlank": true}
+		case "AllowedFollowUps":
+			p["minimum"] = 0
+			p["maximum"] = DialogueFollowUpsMax
+		case "MaxAttempts":
+			p["minimum"] = 1
+			p["maximum"] = DialogueAttemptsMax
+		case "MaxTurns":
+			p["minimum"] = DialogueRequiredQuestions
+			p["maximum"] = DialogueTurnsMax
+		case "RetentionPolicy":
+			p["const"] = DialogueRetentionPolicy
+		}
+		properties[name] = p
+		optional := false
+		for _, option := range tag[1:] {
+			optional = optional || option == "omitempty"
+		}
+		if !optional {
+			required = append(required, name)
+		}
+	}
+	return map[string]any{"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "DialogueConfig", "x-manifest": map[string]any{"kind": AgentDialogueKind, "configVersion": AgentDialogueConfigVersion, "interaction": AgentDialogueInteraction, "executor": AgentDialogueExecutor}, "type": "object", "properties": properties, "required": required, "additionalProperties": false, "oneOf": []any{
+		map[string]any{"required": []string{names["SourceRef"]}, "not": map[string]any{"required": []string{names["SourceText"]}}},
+		map[string]any{"required": []string{names["SourceText"]}, "not": map[string]any{"required": []string{names["SourceRef"]}}},
+	}}
+}
+
 func ValidateDialogueRequirement(r VerificationRequirement) error {
-	if r.Kind != AgentDialogueKind || r.ConfigVersion != AgentDialogueConfigVersion || r.Interaction != "chat" || r.Executor != "fantasy" {
+	if r.Kind != AgentDialogueKind || r.ConfigVersion != AgentDialogueConfigVersion || r.Interaction != AgentDialogueInteraction || r.Executor != AgentDialogueExecutor {
 		return ErrInvalidDialogueConfig
 	}
 	_, err := ParseDialogueConfig(r.Config)

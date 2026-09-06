@@ -4,7 +4,7 @@
 DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
-	build test cover openapi agent-protocol clients tasks-client tasks-agent-compat tasks-typecheck tasks-lint \
+	build test cover openapi agent-protocol clients clients-typescript tasks-client tasks-agent-compat tasks-typecheck tasks-lint \
 	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof \
 	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
 
@@ -47,9 +47,18 @@ openapi:
 agent-protocol:
 	go run ./cmd/agent-protocol-gen -out build/agent-protocol.schema.json
 
-clients: openapi agent-protocol
+# TypeScript qualification is independently runnable while native source is
+# separately owned. The existing clients target retains its Kotlin build edge.
+clients-typescript:
 	npm --prefix clients/typescript ci --no-audit --no-fund
 	npm --prefix clients/typescript run generate
+	npm --prefix clients/typescript run typecheck
+	npm --prefix clients/typescript run check:boundary
+	npm --prefix clients/typescript test
+	npm --prefix clients/typescript run test:generation
+	go test -tags tasksclientcontract ./internal/api -run '^TestGeneratedStudentClientUsesPublicBoundary$$' -count=1
+
+clients: clients-typescript
 	node clients/kotlin/generate-client.mjs
 
 tasks-client: clients
