@@ -6,7 +6,6 @@ import com.aleksclark.primer.updates.ReleaseTrust
 import com.aleksclark.primer.updates.SignedManifest
 import com.aleksclark.primertasks.client.ReleaseManifest
 import com.aleksclark.primertasks.client.ReleaseTarget
-import com.aleksclark.primertasks.client.ReleaseManifest
 import java.io.File
 import java.util.Base64
 import kotlinx.serialization.json.Json
