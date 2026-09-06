@@ -22,6 +22,7 @@ async function createStudent(page: Page, name: string) {
 
 async function createAndPublishTask(page: Page, title: string) {
   await page.goto("/parent/tasks");
+  await page.getByRole("button", { name: /^Create task$/ }).click();
   await page.getByLabel("Task title").fill(title);
   await page.getByRole("button", { name: /^Create draft$/ }).click();
   const row = page.getByRole("row").filter({ hasText: title });
@@ -30,21 +31,28 @@ async function createAndPublishTask(page: Page, title: string) {
   await expect(row).toContainText("published");
 }
 
-async function scheduleToday(page: Page, title: string, student: string, rrule = "") {
+async function scheduleToday(page: Page, title: string, student: string, preset: "once" | "daily" = "once") {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  await page.getByRole("button", { name: /^Schedule a task$/ }).click();
+  await page.getByLabel("Find a published task").fill(title);
   const taskOption = page.getByLabel("Task to schedule").locator("option").filter({ hasText: title }).first();
   const taskValue = await taskOption.getAttribute("value");
   if (!taskValue) throw new Error("The public task selector did not expose the published task value");
   await page.getByLabel("Task to schedule").selectOption(taskValue);
+  await page.getByLabel("Find a student").fill(student);
   await page.getByLabel("Student to schedule").selectOption({ label: student });
-  await page.getByLabel("Schedule start").fill(`${today}T14:00`);
-  await page.getByLabel("IANA timezone").fill("America/Chicago");
-  await page.getByLabel("RRULE").fill(rrule);
-  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Repeat", { exact: true }).selectOption(preset);
+  if (preset === "daily") await page.getByLabel("Repeat limit (optional)", { exact: true }).fill("2");
+  await page.getByLabel("Start date", { exact: true }).fill(today);
+  await page.getByLabel("Time", { exact: true }).fill("14:00");
+  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByLabel("Time zone", { exact: true }).fill("America/Chicago");
   await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/schedules") && response.status() === 201),
     page.getByRole("button", { name: /^Schedule task$/ }).click(),
   ]);
+  await expect(page.getByText("Schedule results", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Saved");
 }
 
 async function issuePairingCode(page: Page, student: string) {
@@ -63,7 +71,7 @@ async function pairStudent(context: BrowserContext, code: string) {
   await page.getByLabel("Pairing code").fill(code);
   await page.getByRole("button", { name: /pair this browser/i }).click();
   await expect(page).toHaveURL(/\/student$/);
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Today with / })).toBeVisible();
   return page;
 }
 
@@ -92,10 +100,10 @@ test("public task schedule, student verification, collections, and tenant bounda
     await expect(parentPage).toHaveURL(/\/parent\/schedules\?status=all$/);
 
     await parentPage.goto("/parent/occurrences");
-    await expect(parentPage.getByRole("heading", { name: "Occurrences" })).toBeVisible();
+    await expect(parentPage.getByRole("heading", { name: "Assigned work" })).toBeVisible();
     await expect(parentPage.getByText(taskTitle)).toBeVisible();
-    await parentPage.getByLabel("Occurrence status filter").selectOption("pending");
-    await parentPage.getByLabel("Occurrence sort direction").selectOption("desc");
+    await parentPage.getByLabel("Assigned work status filter").selectOption("pending");
+    await parentPage.getByLabel("Assigned work sort direction").selectOption("desc");
     await expect(parentPage).toHaveURL(/status=pending.*dir=desc|dir=desc.*status=pending/);
 
     const pairing = await issuePairingCode(parentPage, studentName);
@@ -105,34 +113,34 @@ test("public task schedule, student verification, collections, and tenant bounda
     await taskLink.click();
     await expect(studentPage.getByRole("heading", { name: taskTitle })).toBeVisible();
     await studentPage.getByRole("button", { name: /^Start task$/ }).click();
-    await expect(studentPage.getByText(/in_progress/i)).toBeVisible();
+    await expect(studentPage.getByText("In progress", { exact: true })).toBeVisible();
     await studentPage.getByRole("button", { name: /^Submit for parent approval$/ }).click();
-    await expect(studentPage.getByText(/awaiting_verification/i)).toBeVisible();
+    await expect(studentPage.getByText("Waiting for parent", { exact: true })).toBeVisible();
 
     await parentPage.goto("/parent/occurrences?status=awaiting_verification");
     let awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
-    await expect(awaiting).toContainText("awaiting_verification");
+    await expect(awaiting).toContainText("Waiting for parent");
     await Promise.all([
       parentPage.waitForResponse((response) => response.url().includes("/decision") && response.status() === 200),
       awaiting.getByRole("button", { name: /^Reject$/ }).click(),
     ]);
     await parentPage.goto("/parent/occurrences?status=pending");
-    let pending = parentPage.getByRole("row").filter({ hasText: taskTitle });
-    await expect(pending).toContainText("pending");
+    const pending = parentPage.getByRole("row").filter({ hasText: taskTitle });
+    await expect(pending).toContainText("Not started");
     await Promise.all([
       parentPage.waitForResponse((response) => response.url().includes("/retry") && response.status() === 200),
       pending.getByRole("button", { name: /^Retry$/ }).click(),
     ]);
     await parentPage.goto("/parent/occurrences?status=awaiting_verification");
     awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
-    await expect(awaiting).toContainText("awaiting_verification");
+    await expect(awaiting).toContainText("Waiting for parent");
     await Promise.all([
       parentPage.waitForResponse((response) => response.url().includes("/decision") && response.status() === 200),
       awaiting.getByRole("button", { name: /^Approve$/ }).click(),
     ]);
     await parentPage.goto("/parent/occurrences");
     awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
-    await expect(awaiting).toContainText("completed");
+    await expect(awaiting).toContainText("Completed");
 
     await studentPage.goto("/student");
     await expect(studentPage.getByText(taskTitle)).toBeVisible();
@@ -147,4 +155,112 @@ test("public task schedule, student verification, collections, and tenant bounda
   } finally {
     await Promise.all([parentA.close(), parentB.close(), studentContext.close()]);
   }
+});
+
+test("parents edit drafts and published tasks without rewriting assigned work, then edit and cancel a cadence", async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const suffix = Date.now().toString(36);
+    const title = `Careful work ${suffix}`;
+    const revised = `Careful work updated ${suffix}`;
+    const student = `Schedule learner ${suffix}`;
+    await signIn(page, "A");
+    await createStudent(page, student);
+    await createAndPublishTask(page, title);
+    await scheduleToday(page, title, student);
+    await page.goto("/parent/tasks");
+    await page.getByLabel("Search tasks").fill(suffix);
+    await page.getByRole("row").filter({ hasText: title }).getByRole("button", { name: "Edit", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "Edit task", exact: true });
+    await expect(editor).toContainText("Work already assigned keeps its original instructions");
+    await editor.getByLabel("Task title").fill(revised);
+    await editor.getByLabel("Instructions").fill("Read the new instructions carefully.");
+    await editor.getByRole("button", { name: "Save new draft" }).click();
+    let row = page.getByRole("row").filter({ hasText: revised });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("draft");
+    // Editing a draft also appends a version; it still occupies one task row.
+    await row.getByRole("button", { name: "Edit", exact: true }).click();
+    await editor.getByLabel("Instructions").fill("Read these final instructions carefully.");
+    await editor.getByRole("button", { name: "Save new draft" }).click();
+    row = page.getByRole("row").filter({ hasText: revised });
+    await expect(row).toHaveCount(1);
+    await row.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(row).toContainText("published");
+
+    await page.goto("/parent/occurrences");
+    await expect(page.getByRole("row").filter({ hasText: title })).toContainText(student);
+    await expect(page.getByText(revised, { exact: true })).toHaveCount(0);
+    await page.goto("/parent/schedules");
+    const originalSchedule = page.getByRole("row").filter({ hasText: title });
+    await expect(originalSchedule).toContainText(student);
+    await originalSchedule.getByRole("button", { name: "Edit schedule", exact: true }).click();
+    const scheduleEditor = page.getByRole("form", { name: "Edit schedule", exact: true });
+    await expect(scheduleEditor).toContainText("Existing assigned times and instructions stay unchanged");
+    await scheduleEditor.getByLabel("Repeat", { exact: true }).selectOption("daily");
+    await scheduleEditor.getByLabel("Repeat limit (optional)", { exact: true }).fill("2");
+    await scheduleEditor.getByRole("button", { name: "Save schedule", exact: true }).click();
+    await expect(scheduleEditor.getByRole("status")).toContainText("Already assigned work has not changed");
+    await scheduleEditor.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(originalSchedule).toContainText("Daily");
+    page.once("dialog", (dialog) => dialog.accept());
+    await originalSchedule.getByRole("button", { name: "Cancel schedule", exact: true }).click();
+    await expect(originalSchedule).toHaveCount(0);
+
+    await page.goto("/parent/tasks");
+    await scheduleToday(page, revised, student, "daily");
+    await page.goto("/parent/tasks");
+    row = page.getByRole("row").filter({ hasText: revised });
+    page.once("dialog", (dialog) => dialog.accept());
+    await row.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(row).toHaveCount(0);
+    await page.getByLabel("Task status filter").selectOption("all");
+    await expect(row).toContainText("Archived");
+    await expect(row.getByRole("button", { name: "Publish", exact: true })).toHaveCount(0);
+  } finally { await context.close(); }
+});
+
+test("several daily times are separate, named schedules with honest save results", async ({ browser }, testInfo) => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const suffix = Date.now().toString(36);
+    const title = `Daily care ${suffix}`;
+    const student = `Daily learner ${suffix}`;
+    await signIn(page, "A");
+    await createStudent(page, student);
+    await createAndPublishTask(page, title);
+    await page.getByRole("button", { name: "Schedule a task", exact: true }).click();
+    await page.getByLabel("Find a published task").fill(title);
+    await page.getByLabel("Task to schedule", { exact: true }).selectOption({ label: title });
+    await page.getByLabel("Find a student").fill(student);
+    await page.getByLabel("Student to schedule", { exact: true }).selectOption({ label: student });
+    await page.getByLabel("Repeat", { exact: true }).selectOption("multiple");
+    await page.getByLabel("Times per day", { exact: true }).fill("2");
+    await page.getByLabel("Time 1", { exact: true }).fill("09:00");
+    await page.getByLabel("Time 2", { exact: true }).fill("18:00");
+    await page.getByLabel("Repeat limit for each time (optional)", { exact: true }).fill("2");
+    const form = page.getByRole("form", { name: "Schedule a task", exact: true });
+    await expect(form).toContainText("Each time becomes a separate daily schedule");
+    await page.screenshot({ path: testInfo.outputPath("presets-dark-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByLabel("Time 2", { exact: true })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("presets-dark-mobile.png"), fullPage: true });
+    await page.getByRole("button", { name: "Schedule task", exact: true }).click();
+    await expect(form.getByRole("status")).toContainText("09:00 — Saved");
+    await expect(form.getByRole("status")).toContainText("18:00 — Saved");
+    await expect(form.getByRole("button", { name: "Schedule task", exact: true })).toHaveCount(0);
+    await page.goto("/parent/schedules");
+    const rows = page.getByRole("row").filter({ hasText: title });
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText(student);
+    await expect(rows.first()).toContainText("09:00");
+    await expect(rows.last()).toContainText("18:00");
+    await page.screenshot({ path: testInfo.outputPath("schedules-dark-mobile.png"), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.getByRole("button", { name: "Switch to light theme", exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath("schedules-light-desktop.png"), fullPage: true });
+  } finally { await context.close(); }
 });
