@@ -21,6 +21,7 @@ type PlanComment struct {
 	ID               string    `json:"id"`
 	RevisionID       string    `json:"revisionId"`
 	NodeID           string    `json:"nodeId"`
+	ItemID           string    `json:"itemId,omitempty"`
 	AuthorSubjectRef string    `json:"authorSubjectRef"`
 	AuthorName       string    `json:"authorName"`
 	Body             string    `json:"body"`
@@ -42,7 +43,7 @@ type commentListInput struct {
 type commentOutput struct{ Body PlanComment }
 type commentPageOutput struct {
 	Body struct {
-		Items      []PlanComment `json:"items"`
+		Items      []PlanComment `json:"items" nullable:"false"`
 		TotalCount int           `json:"totalCount"`
 		Limit      int           `json:"limit"`
 		Offset     int           `json:"offset"`
@@ -50,7 +51,11 @@ type commentPageOutput struct {
 }
 
 func commentView(c *domain.PlanComment) PlanComment {
-	return PlanComment{ID: encodePlanID("comment_", c.ID), RevisionID: revisionID(c.PlanRevisionID), NodeID: c.NodeID, AuthorSubjectRef: c.AuthorSubjectRef, AuthorName: c.AuthorDisplayName, Body: c.Body, CreatedAt: c.CreatedAt}
+	itemID := ""
+	if strings.HasPrefix(c.NodeID, itemIDPrefix) {
+		itemID = c.NodeID
+	}
+	return PlanComment{ItemID: itemID, ID: encodePlanID("comment_", c.ID), RevisionID: revisionID(c.PlanRevisionID), NodeID: c.NodeID, AuthorSubjectRef: c.AuthorSubjectRef, AuthorName: c.AuthorDisplayName, Body: c.Body, CreatedAt: c.CreatedAt}
 }
 
 type PlanApproval struct {
@@ -281,7 +286,7 @@ func (s *Server) registerCollabRoutes(api huma.API) {
 			return nil, huma.Error400BadRequest("invalid target workspace")
 		}
 		principal, _ := AuthFromContext(ctx)
-		grant, err := repo.NewShareRepo(s.querier).Create(ctx, &domain.CurriculumShare{CurriculumID: c.ID, SourceWorkspaceID: ws, TargetWorkspaceID: target, Permission: in.Body.Permission, CreatedBySubjectRef: principal.SubjectRef})
+		grant, err := repo.NewShareRepo(s.querier).GrantAuthorized(ctx, &domain.CurriculumShare{CurriculumID: c.ID, SourceWorkspaceID: ws, TargetWorkspaceID: target, Permission: in.Body.Permission, CreatedBySubjectRef: principal.SubjectRef})
 		if err != nil {
 			return nil, planError(err)
 		}
@@ -305,13 +310,15 @@ func (s *Server) registerCollabRoutes(api huma.API) {
 		if err != nil {
 			return nil, huma.Error404NotFound("not found")
 		}
-		_, err = s.querier.Exec(ctx, `DELETE FROM curriculum_studio.curriculum_shares WHERE curriculum_id=$1 AND source_workspace_id=$2 AND target_workspace_id=$3`, c.ID, ws, target)
+		principal, _ := AuthFromContext(ctx)
+		err = repo.NewShareRepo(s.querier).RevokeAuthorized(ctx, ws, c.ID, target, principal.SubjectRef)
 		if err != nil {
 			return nil, planError(err)
 		}
 		return nil, nil
 	})
 	s.registerLibraryRoutes(api)
+	s.registerCollabSurfaceRoutes(api)
 }
 
 // seedTemplate is invoked inside curriculum creation's transaction: a failed

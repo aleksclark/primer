@@ -219,7 +219,7 @@ func (r *PlanRevisionRepo) Publish(ctx context.Context, workspaceID, id uuid.UUI
 func (r *PlanRevisionRepo) publishScoped(ctx context.Context, workspaceID, id uuid.UUID, subjectRef string) error {
 	return MapError(WithTx(ctx, r.Q, func(q Querier) error {
 		var owner uuid.UUID
-		if e := q.QueryRow(ctx, `SELECT c.workspace_id FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1 FOR UPDATE OF c,r`, id).Scan(&owner); e != nil {
+		if e := q.QueryRow(ctx, `SELECT c.workspace_id FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1`, id).Scan(&owner); e != nil {
 			return e
 		}
 		if owner != workspaceID {
@@ -229,6 +229,14 @@ func (r *PlanRevisionRepo) publishScoped(ctx context.Context, workspaceID, id uu
 	}))
 }
 func publishRevision(ctx context.Context, q Querier, id uuid.UUID, subjectRef string) error {
+	var policyWS uuid.UUID
+	if err := q.QueryRow(ctx, `SELECT c.workspace_id FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1`, id).Scan(&policyWS); err != nil {
+		return err
+	}
+	policy, err := lockPolicy(ctx, q, policyWS, false)
+	if err != nil {
+		return err
+	}
 	var curriculumID, workspaceID uuid.UUID
 	var status string
 	if e := q.QueryRow(ctx, `SELECT r.curriculum_id,c.workspace_id,r.status FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1 FOR UPDATE OF c,r`, id).Scan(&curriculumID, &workspaceID, &status); e != nil {
@@ -236,6 +244,11 @@ func publishRevision(ctx context.Context, q Querier, id uuid.UUID, subjectRef st
 	}
 	if status != "draft" {
 		return fmt.Errorf("%w: revision status %s", ErrInvalidTransition, status)
+	}
+	if policy.RequireApprovalForPublish {
+		if err := requireCurrentApproval(ctx, q, workspaceID, id); err != nil {
+			return err
+		}
 	}
 	var oldID *uuid.UUID
 	if e := q.QueryRow(ctx, `SELECT published_revision_id FROM curriculum_studio.curricula WHERE id=$1 FOR UPDATE`, curriculumID).Scan(&oldID); e != nil {

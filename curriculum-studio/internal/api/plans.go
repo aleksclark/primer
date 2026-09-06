@@ -62,7 +62,7 @@ func curriculumView(v *domain.Curriculum) Curriculum {
 	return Curriculum{ID: curriculumID(v.ID), WorkspaceID: encodeWSID(v.WorkspaceID), Name: v.Title, Description: v.Description, Template: metadata.Template, TemplateCode: metadata.TemplateCode, Status: curriculumStatus(v.Status), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 func revisionView(v *domain.PlanRevision) PlanRevision {
-	return PlanRevision{ID: revisionID(v.ID), CurriculumID: curriculumID(v.CurriculumID), RevisionNum: v.Revision, State: revisionState(v.Status), Brief: briefView(v.Brief), ETag: revisionETag(v), PublishedBy: v.PublishedBySubjectRef, PublishedAt: v.PublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return PlanRevision{Title: v.Title, ID: revisionID(v.ID), CurriculumID: curriculumID(v.CurriculumID), RevisionNum: v.Revision, State: revisionState(v.Status), Brief: briefView(v.Brief), ETag: revisionETag(v), PublishedBy: v.PublishedBySubjectRef, PublishedAt: v.PublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 func briefView(raw json.RawMessage) *CurriculumBrief {
 	if len(raw) == 0 || string(raw) == "{}" {
@@ -118,6 +118,10 @@ func requireAuthor(ctx context.Context, m MembershipView) error {
 }
 func planError(err error) error {
 	switch {
+	case errors.Is(err, repo.ErrRoleDenied), errors.Is(err, repo.ErrPolicyDenied):
+		return huma.Error403Forbidden(err.Error())
+	case errors.Is(err, repo.ErrApprovalRequired):
+		return huma.Error409Conflict(err.Error())
 	case errors.Is(err, repo.ErrNotFound):
 		return huma.Error404NotFound("not found")
 	case errors.Is(err, repo.ErrConflict):
@@ -272,7 +276,7 @@ func (s *Server) registerRevisionPlanRoutes(api huma.API) {
 			return nil, planError(e)
 		}
 		cid, _ := decodePlanID(in.CurriculumID, curriculumIDPrefix)
-		values, e := repo.NewPlanRevisionRepo(s.querier).List(ctx, ws, cid)
+		values, total, e := repo.NewPlanRevisionRepo(s.querier).ListPage(ctx, ws, cid, in.Limit, in.Offset)
 		if e != nil {
 			return nil, planError(e)
 		}
@@ -280,7 +284,7 @@ func (s *Server) registerRevisionPlanRoutes(api huma.API) {
 		for i := range values {
 			out.Body.Items = append(out.Body.Items, revisionView(&values[i]))
 		}
-		out.Body.TotalCount = len(values)
+		out.Body.TotalCount = total
 		if out.Body.Limit <= 0 {
 			out.Body.Limit = 50
 		}
@@ -372,15 +376,8 @@ func (s *Server) registerRevisionPlanRoutes(api huma.API) {
 		if e = requireAuthor(ctx, m); e != nil {
 			return nil, e
 		}
-		graph, ge := repo.NewPlanGraphRepo(s.querier).Load(ctx, ws, v.ID)
-		if ge != nil {
-			return nil, planError(ge)
-		}
-		if result := validation.Run(graph); result.Status == "failed" {
-			return nil, huma.Error409Conflict("revision validation failed")
-		}
 		principal, _ := AuthFromContext(ctx)
-		if e = repo.NewPlanRevisionRepo(s.querier).Publish(ctx, ws, v.ID, principal.SubjectRef); e != nil {
+		if e = repo.NewPlanRevisionRepo(s.querier).PublishAuthorized(ctx, ws, v.ID, principal.SubjectRef); e != nil {
 			return nil, planError(e)
 		}
 		v, e = repo.NewPlanRevisionRepo(s.querier).Get(ctx, ws, v.ID)
@@ -416,11 +413,27 @@ func (s *Server) registerGraphRoutes(api huma.API) {
 		if e != nil {
 			return nil, planError(e)
 		}
-		graph, e := repo.NewPlanGraphRepo(s.querier).Load(ctx, ws, rev.ID)
+		var graph *domain.PlanGraph
+		var fingerprint string
+		e = repo.WithTx(ctx, s.querier, func(q repo.Querier) error {
+			var id uuid.UUID
+			if err := q.QueryRow(ctx, `SELECT r.id FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE r.id=$1 AND c.workspace_id=$2 FOR SHARE OF r`, rev.ID, ws).Scan(&id); err != nil {
+				return err
+			}
+			var err error
+			graph, err = repo.NewPlanGraphRepo(q).Load(ctx, ws, rev.ID)
+			if err != nil {
+				return err
+			}
+			fingerprint, err = repo.NewApprovalRepo(q).Fingerprint(ctx, ws, rev.ID)
+			return err
+		})
 		if e != nil {
 			return nil, planError(e)
 		}
-		return &graphResponse{Body: graphView(graph)}, nil
+		view := graphView(graph)
+		view.ContentFingerprint = fingerprint
+		return &graphResponse{Body: view}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "replaceRevisionGraph", Method: http.MethodPut, Path: "/studio/v1/revisions/{revisionId}/graph", Tags: []string{"Graph"}}, func(ctx context.Context, in *graphInput) (*graphResponse, error) {
 		rev, ws, m, e := s.revisionForCaller(ctx, in.RevisionID)

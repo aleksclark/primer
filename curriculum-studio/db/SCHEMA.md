@@ -59,8 +59,20 @@ plan IDs/codes while preserving names and remapping relationships. Missing
 catalog/resource dependencies fail the whole transaction. Only workspace-owned
 or visible global references can be attached through existing graph repos.
 
-Policy JSON storage is reserved in this migration; policy configuration and
-enforcement beyond the existing role gates are not implemented by this slice.
+Migration 00014 makes the policy configurable through the collaboration-policy
+API. Its closed keys are `requireApprovalForPublish` (default false) and
+`sharingEnabled` (default true). Only an active local owner/admin can update it.
+Policy locks precede publication's curriculum/revision and membership locks;
+publication checks current fingerprint-bound reviewer approval when required.
+Disabling sharing atomically revokes every outgoing grant and prevents new ones;
+re-enabling does not recreate grants. Revocation is always allowed for authors.
+Unknown knobs and non-boolean values are rejected by HTTP and database checks.
+
+Materialized-item comments use the same bounded comment table plus an `item_id`
+FK. Their revision/workspace comes from item → run → revision → curriculum, with
+an additional database ownership trigger. Shared curriculum grants do not
+permit item or plan commenting. The API's `itemId` field identifies these notes;
+`nodeId` contains the same canonical `mit_` target key for common pagination.
 
 ## Subject and external identity conventions
 

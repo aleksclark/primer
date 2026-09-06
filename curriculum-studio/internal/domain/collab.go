@@ -107,8 +107,8 @@ func (s NamedSeed) DisplayName() string {
 // RevisionDiff compares stable outcome codes, not per-revision UUIDs. Renames
 // appear as a removed old name and an added new name.
 type RevisionDiff struct {
-	AddedOutcomes   []OutcomeChange `json:"addedOutcomes"`
-	RemovedOutcomes []OutcomeChange `json:"removedOutcomes"`
+	AddedOutcomes   []OutcomeChange `json:"addedOutcomes" nullable:"false"`
+	RemovedOutcomes []OutcomeChange `json:"removedOutcomes" nullable:"false"`
 }
 type OutcomeChange struct {
 	Code string `json:"code"`

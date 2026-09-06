@@ -150,6 +150,7 @@ type CurriculumUpdate struct {
 }
 
 type PlanRevision struct {
+	Title        string           `json:"title"`
 	ID           string           `json:"id"`
 	CurriculumID string           `json:"curriculumId"`
 	RevisionNum  int              `json:"revisionNumber,omitempty"`
@@ -211,10 +212,11 @@ type PlanEdgeWrite struct {
 }
 
 type PlanGraph struct {
-	RevisionID string     `json:"revisionId"`
-	Nodes      []PlanNode `json:"nodes"`
-	Edges      []PlanEdge `json:"edges"`
-	ETag       string     `json:"etag"`
+	ContentFingerprint string     `json:"contentFingerprint,omitempty" doc:"Fingerprint of the graph snapshot displayed by GET, used to bind reviewer decisions."`
+	RevisionID         string     `json:"revisionId"`
+	Nodes              []PlanNode `json:"nodes" nullable:"false"`
+	Edges              []PlanEdge `json:"edges" nullable:"false"`
+	ETag               string     `json:"etag"`
 }
 
 type PlanGraphWrite struct {
@@ -234,7 +236,7 @@ type ValidationReport struct {
 	ID                string              `json:"id"`
 	RevisionID        string              `json:"revisionId"`
 	MaterializationID string              `json:"materializationId,omitempty"`
-	Findings          []ValidationFinding `json:"findings"`
+	Findings          []ValidationFinding `json:"findings" nullable:"false"`
 	Passed            bool                `json:"passed"`
 	CreatedAt         time.Time           `json:"createdAt"`
 }
@@ -415,13 +417,13 @@ type WebhookDelivery struct {
 // Page DTOs are transport envelopes; no domain model is hidden in them.
 
 type CurriculumPage struct {
-	Items      []Curriculum `json:"items"`
+	Items      []Curriculum `json:"items" nullable:"false"`
 	TotalCount int          `json:"totalCount"`
 	Limit      int          `json:"limit"`
 	Offset     int          `json:"offset"`
 }
 type PlanRevisionPage struct {
-	Items      []PlanRevision `json:"items"`
+	Items      []PlanRevision `json:"items" nullable:"false"`
 	TotalCount int            `json:"totalCount"`
 	Limit      int            `json:"limit"`
 	Offset     int            `json:"offset"`
@@ -451,13 +453,13 @@ type ResourcePage struct {
 	Offset     int        `json:"offset"`
 }
 type MaterializationPage struct {
-	Items      []Materialization `json:"items"`
+	Items      []Materialization `json:"items" nullable:"false"`
 	TotalCount int               `json:"totalCount"`
 	Limit      int               `json:"limit"`
 	Offset     int               `json:"offset"`
 }
 type MaterializedItemPage struct {
-	Items      []MaterializedItem `json:"items"`
+	Items      []MaterializedItem `json:"items" nullable:"false"`
 	TotalCount int                `json:"totalCount"`
 	Limit      int                `json:"limit"`
 	Offset     int                `json:"offset"`
@@ -557,8 +559,9 @@ type resourceListInput struct {
 	WorkspaceID string `path:"workspaceId"`
 }
 type materializationListInput struct {
-	authoringListQuery
 	RevisionID string `path:"revisionId"`
+	Limit      int    `query:"limit" minimum:"1" maximum:"100" default:"25"`
+	Offset     int    `query:"offset" minimum:"0" default:"0"`
 }
 type itemListInput struct {
 	// Huma does not emit fields embedded through an unexported struct. Keep

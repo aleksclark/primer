@@ -188,6 +188,7 @@ def test_migrations_are_goose_paired():
         "00011_webhook_delivery_leases.sql",
         "00012_materialized_item_stage_idempotency.sql",
         "00013_collaborative_authoring.sql",
+        "00014_collaboration_surfaces.sql",
     ]
     for path in MIGRATIONS:
         text = path.read_text()

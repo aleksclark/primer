@@ -55,7 +55,7 @@ type standardCrosswalkView struct {
 }
 
 type standardsPage[T any] struct {
-	Items      []T `json:"items"`
+	Items      []T `json:"items" nullable:"false"`
 	TotalCount int `json:"totalCount"`
 	Limit      int `json:"limit"`
 	Offset     int `json:"offset"`
