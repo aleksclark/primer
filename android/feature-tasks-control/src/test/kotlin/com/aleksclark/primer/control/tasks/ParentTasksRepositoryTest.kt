@@ -32,4 +32,12 @@ class ParentTasksRepositoryTest {
         assertEquals("/api/students?limit=20&offset=0", request?.path)
         assertEquals("Bearer parent-jwt", request?.getHeader("Authorization"))
     }
+
+    @Test
+    fun pagesStudentsWithoutFetchingTheHousehold() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"items":[],"totalCount":40,"limit":20,"offset":20}"""))
+        ParentTasksRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" }).listStudents("ali", 20)
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertEquals("/api/students?q=ali&limit=20&offset=20", request?.path)
+    }
 }

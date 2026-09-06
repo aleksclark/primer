@@ -69,6 +69,8 @@ fun RosterScreen(
     onOpen: (Student) -> Unit,
     onCreate: () -> Unit,
     onRetry: () -> Unit,
+    hasMore: Boolean = false,
+    onMore: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PrimerSectionHeader(label = "For parents", title = "Students", description = "Add students and issue a one-use pairing QR.") {
@@ -89,6 +91,7 @@ fun RosterScreen(
                     )
                     PrimerButton(text = "Open ${student.displayName}", onClick = { onOpen(student) }, variant = PrimerButtonVariant.Quiet)
                 }
+                if (hasMore && onMore != null) item { PrimerButton(text = "More students", onClick = onMore, variant = PrimerButtonVariant.Secondary) }
             }
         }
     }
@@ -136,6 +139,8 @@ fun TasksScreen(
     onPublish: (TaskRevision) -> Unit,
     onArchive: (TaskRevision) -> Unit,
     onEdit: (TaskRevision) -> Unit,
+    hasMore: Boolean = false,
+    onMore: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PrimerSectionHeader(label = "For parents", title = "Tasks", trailing = { PrimerButton(text = "Create task", onClick = onCreate) })
@@ -149,6 +154,7 @@ fun TasksScreen(
                 if (task.status == "draft") PrimerButton(text = "Publish", onClick = { onPublish(task) })
                 if (task.templateStatus != "retired") PrimerButton(text = "Archive", onClick = { onArchive(task) }, variant = PrimerButtonVariant.Attention)
             }
+            if (hasMore && onMore != null) item { PrimerButton(text = "More tasks", onClick = onMore, variant = PrimerButtonVariant.Secondary) }
         }
     }
 }
@@ -181,6 +187,8 @@ fun SchedulesScreen(
     onCreate: () -> Unit,
     onEdit: (Schedule) -> Unit,
     onCancel: (Schedule) -> Unit,
+    hasMore: Boolean = false,
+    onMore: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PrimerSectionHeader(label = "For parents", title = "Schedules", trailing = { PrimerButton(text = "Schedule a task", onClick = onCreate) })
@@ -198,6 +206,7 @@ fun SchedulesScreen(
                     PrimerButton(text = "Cancel schedule", onClick = { onCancel(schedule) }, variant = PrimerButtonVariant.Attention)
                 }
             }
+            if (hasMore && onMore != null) item { PrimerButton(text = "More schedules", onClick = onMore, variant = PrimerButtonVariant.Secondary) }
         }
     }
 }
@@ -245,6 +254,8 @@ fun ReviewScreen(
     onReject: (Occurrence) -> Unit,
     onRetry: (Occurrence) -> Unit,
     onOpen: (Occurrence) -> Unit,
+    hasMore: Boolean = false,
+    onMore: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PrimerSectionHeader(label = "For parents", title = "Assigned work")
@@ -264,6 +275,7 @@ fun ReviewScreen(
                 }
                 if (occurrence.status == "pending") PrimerButton(text = "Retry", onClick = { onRetry(occurrence) }, variant = PrimerButtonVariant.Secondary)
             }
+            if (hasMore && onMore != null) item { PrimerButton(text = "More assigned work", onClick = onMore, variant = PrimerButtonVariant.Secondary) }
         }
     }
 }

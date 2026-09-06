@@ -58,6 +58,10 @@ data class ControlUiState(
     val recoveryPublicJson: ByteArray? = null,
     val creatingStudent: Boolean = false,
     val creatingSchedule: Boolean = false,
+    val studentsHasMore: Boolean = false,
+    val tasksHasMore: Boolean = false,
+    val schedulesHasMore: Boolean = false,
+    val occurrencesHasMore: Boolean = false,
 )
 
 class ControlViewModel(
@@ -99,9 +103,15 @@ class ControlViewModel(
         loadStudents()
     }
 
-    fun loadStudents() = act {
-        val page = tasks.listStudents(_state.value.studentQuery, 0)
-        _state.value = _state.value.copy(students = page.items, message = null)
+    fun loadStudents(reset: Boolean = true) = act {
+        val offset = if (reset) 0L else _state.value.students.size.toLong()
+        val page = tasks.listStudents(_state.value.studentQuery, offset)
+        val items = if (reset) page.items else _state.value.students + page.items
+        _state.value = _state.value.copy(
+            students = items,
+            studentsHasMore = items.size < page.totalCount.toInt(),
+            message = null,
+        )
     }
 
     fun openStudent(student: Student) = act {
@@ -125,7 +135,7 @@ class ControlViewModel(
         val id = _state.value.selectedStudent?.id ?: return@act
         tasks.archiveStudent(id)
         loadStudents()
-        _state.value = _state.value.copy(selectedStudent = null)
+        _state.value = _state.value.copy(selectedStudent = null, creatingStudent = false)
     }
 
     fun issuePairing() = act {
@@ -133,9 +143,11 @@ class ControlViewModel(
         _state.value = _state.value.copy(pairing = tasks.issuePairing(id))
     }
 
-    fun loadTasks() = act {
-        val page = tasks.listTasks(_state.value.taskQuery, 0, "active")
-        _state.value = _state.value.copy(tasks = page.items)
+    fun loadTasks(reset: Boolean = true) = act {
+        val offset = if (reset) 0L else _state.value.tasks.size.toLong()
+        val page = tasks.listTasks(_state.value.taskQuery, offset, "active")
+        val items = if (reset) page.items else _state.value.tasks + page.items
+        _state.value = _state.value.copy(tasks = items, tasksHasMore = items.size < page.totalCount.toInt())
     }
 
     fun saveTask() = act {
@@ -151,11 +163,15 @@ class ControlViewModel(
     fun publish(task: TaskRevision) = act { tasks.publishTask(task.id); loadTasks() }
     fun retire(task: TaskRevision) = act { tasks.retireTask(task.templateId); loadTasks() }
 
-    fun loadSchedules() = act {
-        val page = tasks.listSchedules(0, "active")
-        _state.value = _state.value.copy(schedules = page.items)
-        loadTasks()
-        loadStudents()
+    fun loadSchedules(reset: Boolean = true) = act {
+        val offset = if (reset) 0L else _state.value.schedules.size.toLong()
+        val page = tasks.listSchedules(offset, "active")
+        val items = if (reset) page.items else _state.value.schedules + page.items
+        _state.value = _state.value.copy(schedules = items, schedulesHasMore = items.size < page.totalCount.toInt())
+        if (reset) {
+            loadTasks()
+            loadStudents()
+        }
     }
 
     fun saveSchedule() = act {
@@ -172,9 +188,11 @@ class ControlViewModel(
 
     fun cancelSchedule(schedule: Schedule) = act { tasks.retireSchedule(schedule.id); loadSchedules() }
 
-    fun loadOccurrences() = act {
-        val page = tasks.listOccurrences("", "asc")
-        _state.value = _state.value.copy(occurrences = page.items)
+    fun loadOccurrences(reset: Boolean = true) = act {
+        val offset = if (reset) 0L else _state.value.occurrences.size.toLong()
+        val page = tasks.listOccurrences("", "asc", offset)
+        val items = if (reset) page.items else _state.value.occurrences + page.items
+        _state.value = _state.value.copy(occurrences = items, occurrencesHasMore = items.size < page.totalCount.toInt())
     }
 
     fun decide(accepted: Boolean) = act {
@@ -280,6 +298,15 @@ class ControlViewModel(
             try {
                 block()
             } catch (error: Exception) {
+                if (error is TasksHttpException && error.statusCode == 409) {
+                    val id = _state.value.selectedOccurrence?.id
+                    if (id != null) {
+                        runCatching { tasks.getOccurrence(id) }.onSuccess { occurrence ->
+                            _state.value = _state.value.copy(selectedOccurrence = occurrence, message = controlMessage(error))
+                            return@launch
+                        }
+                    }
+                }
                 _state.value = _state.value.copy(message = controlMessage(error))
             }
         }
