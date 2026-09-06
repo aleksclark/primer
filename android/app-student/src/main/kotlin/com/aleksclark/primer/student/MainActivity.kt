@@ -49,7 +49,6 @@ import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
-import com.aleksclark.primer.student.management.ManagementEnrollmentQrParser
 import com.aleksclark.primer.student.tasks.StudentTasksRoute
 import com.aleksclark.primer.student.tasks.TasksDeepLinkRouting
 import com.aleksclark.primer.student.tasks.TasksNavState
@@ -315,6 +314,32 @@ private fun StudentScreen(
                     }
                 },
             )
+            PrimerTextField(
+                value = enrollmentQr,
+                onValueChange = { enrollmentQr = it },
+                label = "Management enrollment QR",
+            )
+            PrimerButton(
+                text = "Enroll management (parent only)",
+                enabled = !busy,
+                onClick = {
+                    val raw = enrollmentQr
+                    enrollmentQr = ""
+                    busy = true
+                    scope.launch {
+                        try {
+                            message = runtime.enrollManagement(raw).message
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = "Management enrollment failed: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            busy = false
+                            tick++
+                        }
+                    }
+                },
+            )
         }
         if (codes != null && (setup || maintenance)) item {
             Text("PARENT RECOVERY — STORE OFF DEVICE", style = PrimerTheme.typography.label, color = PrimerTheme.colors.attention)
@@ -452,16 +477,23 @@ private fun StudentScreen(
             )
             PrimerButton(
                 text = "Enroll management (parent only)",
+                enabled = !busy,
                 onClick = {
-                    action {
-                        check(runtime.policy.inMaintenance)
-                        val parsed = ManagementEnrollmentQrParser.parse(
-                            enrollmentQr,
-                            configuredHttpsOrigin = BuildConfig.CONFIGURED_API_ORIGIN,
-                            allowEmulatorOrigin = BuildConfig.DEBUG,
-                        ) ?: error("That QR is not a trusted Primer management enrollment code")
-                        enrollmentQr = ""
-                        message = "Parsed management enrollment for ${parsed.origin}${parsed.mount}. HTTP enroll waits on :tasks-client artifact contract."
+                    val raw = enrollmentQr
+                    enrollmentQr = ""
+                    busy = true
+                    scope.launch {
+                        try {
+                            check(runtime.policy.inMaintenance)
+                            message = runtime.enrollManagement(raw).message
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = "Management enrollment failed: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            busy = false
+                            tick++
+                        }
                     }
                 },
             )

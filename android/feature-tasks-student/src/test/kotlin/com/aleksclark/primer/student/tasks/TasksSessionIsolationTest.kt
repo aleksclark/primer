@@ -1,6 +1,5 @@
 package com.aleksclark.primer.student.tasks
 
-import android.net.Uri
 import com.aleksclark.primertasks.client.TasksClient
 import com.aleksclark.primertasks.client.TasksHttpException
 import java.util.concurrent.TimeUnit
@@ -167,7 +166,13 @@ class TasksSessionIsolationTest {
 
     @Test
     fun incomingWarmLinkOpensTasksAndLeaveClearsPendingLink() {
-        val first = TasksDeepLinkRouting.incoming(TasksNavState(), Uri.parse("primerstudent://occurrences/abc"))
+        val first = TasksDeepLinkRouting.incomingLink(
+            TasksNavState(),
+            scheme = "primerstudent",
+            host = "occurrences",
+            lastPathSegment = "abc",
+            serialized = "primerstudent://occurrences/abc",
+        )
         assertTrue(first.showTasks)
         assertEquals("primerstudent://occurrences/abc", first.pendingOccurrenceLink)
         val left = TasksDeepLinkRouting.leave(first)
@@ -175,5 +180,14 @@ class TasksSessionIsolationTest {
         assertNull(left.pendingOccurrenceLink)
         val openedManually = TasksNavState(showTasks = true)
         assertNull(openedManually.pendingOccurrenceLink)
+        val afterLeave = TasksDeepLinkRouting.incomingLink(
+            left,
+            scheme = null,
+            host = null,
+            lastPathSegment = null,
+            serialized = null,
+        )
+        assertEquals(false, afterLeave.showTasks)
+        assertNull(afterLeave.pendingOccurrenceLink)
     }
 }

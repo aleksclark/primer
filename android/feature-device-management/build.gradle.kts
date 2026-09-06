@@ -20,6 +20,11 @@ dependencies {
     implementation(project(":core-security"))
     implementation(project(":core-device-policy"))
     implementation(project(":core-updates"))
+    implementation(project(":tasks-client"))
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
