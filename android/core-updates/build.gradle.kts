@@ -13,6 +13,20 @@ android {
     }
 }
 kotlin { jvmToolchain(17) }
+
+val generateReleaseManifest by tasks.registering(Exec::class) {
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("node", "android/core-updates/generate-release-manifest.mjs")
+    inputs.file(rootProject.projectDir.parentFile.resolve("primer-tasks/build/openapi.json"))
+    outputs.dir(layout.buildDirectory.dir("generated/releaseManifest"))
+}
+android {
+    sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("generated/releaseManifest"))
+}
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn(generateReleaseManifest)
+}
+
 dependencies {
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
