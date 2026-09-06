@@ -93,6 +93,8 @@ dependencies {
     api(libs.compose.material3)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
+    testImplementation(libs.zxing.core)
 }

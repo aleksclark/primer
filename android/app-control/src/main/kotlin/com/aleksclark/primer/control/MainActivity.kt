@@ -34,6 +34,7 @@ import com.aleksclark.primer.control.tasks.ControlSignInScreen
 import com.aleksclark.primer.control.tasks.OccurrenceDetailScreen
 import com.aleksclark.primer.control.tasks.ReviewScreen
 import com.aleksclark.primer.control.tasks.RosterScreen
+import com.aleksclark.primer.control.tasks.ScheduleDraft
 import com.aleksclark.primer.control.tasks.ScheduleEditorScreen
 import com.aleksclark.primer.control.tasks.SchedulesScreen
 import com.aleksclark.primer.control.tasks.StudentDetailScreen
@@ -190,15 +191,16 @@ private fun ControlAppScreen(
                 }
             }
             composable("tasks") {
-                if (state.editingTask != null || state.taskTitle.isNotEmpty()) {
+                if (state.creatingTask || state.editingTask != null) {
                     TaskEditorScreen(
                         title = state.taskTitle,
                         instructions = state.taskInstructions,
                         editing = state.editingTask != null,
+                        creating = state.creatingTask,
                         onTitle = { value -> model.update { it.copy(taskTitle = value) } },
                         onInstructions = { value -> model.update { it.copy(taskInstructions = value) } },
                         onSave = model::saveTask,
-                        onClose = { model.update { it.copy(editingTask = null, taskTitle = "") } },
+                        onClose = model::closeTaskEditor,
                         message = state.message,
                     )
                 } else {
@@ -207,10 +209,10 @@ private fun ControlAppScreen(
                         query = state.taskQuery,
                         onQuery = { value -> model.update { it.copy(taskQuery = value) }; model.loadTasks() },
                         message = state.message,
-                        onCreate = { model.update { it.copy(editingTask = null, taskTitle = " ") } },
+                        onCreate = model::beginCreateTask,
                         onPublish = model::publish,
                         onArchive = model::retire,
-                        onEdit = { task -> model.update { it.copy(editingTask = task, taskTitle = task.title, taskInstructions = task.instructions) } },
+                        onEdit = model::beginEditTask,
                         hasMore = state.tasksHasMore,
                         onMore = { model.loadTasks(reset = false) },
                     )
@@ -224,23 +226,34 @@ private fun ControlAppScreen(
                         tasks = state.tasks,
                         studentId = state.scheduleStudentId,
                         taskId = state.scheduleTaskId,
+                        studentQuery = state.studentQuery,
+                        taskQuery = state.taskQuery,
                         editing = state.editingSchedule != null,
                         onStudent = { value -> model.update { it.copy(scheduleStudentId = value) } },
                         onTask = { value -> model.update { it.copy(scheduleTaskId = value) } },
+                        onStudentQuery = model::setStudentQuery,
+                        onTaskQuery = { value -> model.update { it.copy(taskQuery = value) }; model.loadTasks() },
+                        onMoreStudents = { model.loadStudents(reset = false) },
+                        onMoreTasks = { model.loadTasks(reset = false) },
+                        studentsHasMore = state.studentsHasMore,
+                        tasksHasMore = state.tasksHasMore,
                         onKind = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(kind = value)) } },
                         onDate = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(date = value)) } },
                         onTime = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(time = value)) } },
                         onTimezone = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(timezone = value)) } },
+                        onRrule = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(rrule = value)) } },
+                        onDueOffset = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(dueOffsetMinutes = value.toLongOrNull() ?: 0)) } },
+                        onEndAt = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(endAt = value)) } },
                         onSave = model::saveSchedule,
-                        onClose = { model.update { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false) } },
+                        onClose = { model.update { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false, scheduleDraft = ScheduleDraft()) } },
                         message = state.message,
                     )
                 } else {
                     SchedulesScreen(
                         schedules = state.schedules,
                         message = state.message,
-                        onCreate = { model.update { it.copy(creatingSchedule = true, editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "") } },
-                        onEdit = { schedule -> model.update { it.copy(editingSchedule = schedule, scheduleStudentId = schedule.studentId, scheduleTaskId = schedule.revisionId, creatingSchedule = false) } },
+                        onCreate = model::beginCreateSchedule,
+                        onEdit = model::beginEditSchedule,
                         onCancel = model::cancelSchedule,
                         hasMore = state.schedulesHasMore,
                         onMore = { model.loadSchedules(reset = false) },
@@ -253,9 +266,9 @@ private fun ControlAppScreen(
                     ReviewScreen(
                         occurrences = state.occurrences,
                         message = state.message,
-                        onApprove = { item -> model.update { it.copy(selectedOccurrence = item) }; model.decide(true) },
-                        onReject = { item -> model.update { it.copy(selectedOccurrence = item) }; model.decide(false) },
-                        onRetry = { item -> model.update { it.copy(selectedOccurrence = item) }; model.retryOccurrence() },
+                        onApprove = { item -> model.decide(true, occurrence = item, reason = "Approved ${item.title}") },
+                        onReject = { item -> model.decide(false, occurrence = item, reason = "Rejected ${item.title}") },
+                        onRetry = { item -> model.retryOccurrence(item) },
                         onOpen = { item -> model.update { it.copy(selectedOccurrence = item) } },
                         hasMore = state.occurrencesHasMore,
                         onMore = { model.loadOccurrences(reset = false) },

@@ -19,6 +19,7 @@ import com.aleksclark.primer.ui.PrimerRuledSurface
 import com.aleksclark.primer.ui.PrimerSectionHeader
 import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
+import com.aleksclark.primer.ui.PrimerQrMark
 import com.aleksclark.primer.ui.PrimerTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
@@ -147,9 +148,12 @@ fun StudentDetailScreen(
             PrimerRuledSurface(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     PrimerStatus("Show once", tone = PrimerStatusTone.Accent)
-                    androidx.compose.material3.Text(pairing.qrPayload, style = com.aleksclark.primer.ui.PrimerTheme.typography.mono)
+                    PrimerQrMark(
+                        payload = pairing.qrPayload,
+                        contentDescription = "Pairing QR for ${student?.displayName ?: "student"}. Expires ${pairing.expiresAt}.",
+                    )
                     androidx.compose.material3.Text(pairing.code, style = com.aleksclark.primer.ui.PrimerTheme.typography.title)
-                    androidx.compose.material3.Text("Expires ${pairing.expiresAt}. Keep this page open while the student scans.", style = com.aleksclark.primer.ui.PrimerTheme.typography.small)
+                    androidx.compose.material3.Text("Expires ${pairing.expiresAt}. Keep this page open while the student scans. Sign-out clears this code.", style = com.aleksclark.primer.ui.PrimerTheme.typography.small)
                 }
             }
         }
@@ -191,6 +195,7 @@ fun TaskEditorScreen(
     title: String,
     instructions: String,
     editing: Boolean,
+    creating: Boolean,
     onTitle: (String) -> Unit,
     onInstructions: (String) -> Unit,
     onSave: () -> Unit,
@@ -198,7 +203,7 @@ fun TaskEditorScreen(
     message: String?,
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        PrimerSectionHeader(label = "For parents", title = if (editing) "Edit task" else "Create a task")
+        PrimerSectionHeader(label = "For parents", title = if (creating) "Create a task" else if (editing) "Edit task" else "Create a task")
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
         PrimerTextField(value = title, onValueChange = onTitle, label = "Task title")
         PrimerTextField(value = instructions, onValueChange = onInstructions, label = "Instructions", singleLine = false)
@@ -245,13 +250,24 @@ fun ScheduleEditorScreen(
     tasks: List<TaskRevision>,
     studentId: String,
     taskId: String,
+    studentQuery: String,
+    taskQuery: String,
     editing: Boolean,
     onStudent: (String) -> Unit,
     onTask: (String) -> Unit,
+    onStudentQuery: (String) -> Unit,
+    onTaskQuery: (String) -> Unit,
+    onMoreStudents: () -> Unit,
+    onMoreTasks: () -> Unit,
+    studentsHasMore: Boolean,
+    tasksHasMore: Boolean,
     onKind: (String) -> Unit,
     onDate: (String) -> Unit,
     onTime: (String) -> Unit,
     onTimezone: (String) -> Unit,
+    onRrule: (String) -> Unit,
+    onDueOffset: (String) -> Unit,
+    onEndAt: (String) -> Unit,
     onSave: () -> Unit,
     onClose: () -> Unit,
     message: String?,
@@ -259,15 +275,34 @@ fun ScheduleEditorScreen(
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PrimerSectionHeader(label = "For parents", title = if (editing) "Edit schedule" else "Schedule a task")
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
-        if (!editing) {
-            PrimerTextField(value = studentId, onValueChange = onStudent, label = "Student id")
-            PrimerTextField(value = taskId, onValueChange = onTask, label = "Published task revision id")
-            androidx.compose.material3.Text("${students.size} students and ${tasks.size} published tasks loaded from the server page.", style = com.aleksclark.primer.ui.PrimerTheme.typography.small)
+        PrimerTextField(value = studentQuery, onValueChange = onStudentQuery, label = "Search students")
+        students.forEach { student ->
+            val selected = student.id == studentId
+            PrimerButton(
+                text = if (selected) "Selected ${student.displayName}" else student.displayName,
+                onClick = { onStudent(student.id) },
+                variant = if (selected) PrimerButtonVariant.Secondary else PrimerButtonVariant.Quiet,
+            )
         }
+        if (studentsHasMore) PrimerButton(text = "More students", onClick = onMoreStudents, variant = PrimerButtonVariant.Secondary)
+        PrimerTextField(value = taskQuery, onValueChange = onTaskQuery, label = "Search published tasks")
+        val published = tasks.filter { it.status == "published" || it.templateStatus == "published" }
+        published.forEach { task ->
+            val selected = task.id == taskId
+            PrimerButton(
+                text = if (selected) "Selected ${task.title}" else task.title,
+                onClick = { onTask(task.id) },
+                variant = if (selected) PrimerButtonVariant.Secondary else PrimerButtonVariant.Quiet,
+            )
+        }
+        if (tasksHasMore) PrimerButton(text = "More published tasks", onClick = onMoreTasks, variant = PrimerButtonVariant.Secondary)
         PrimerTextField(value = draft.kind, onValueChange = onKind, label = "Kind (one_off, daily, weekly, recurrence)")
         PrimerTextField(value = draft.date, onValueChange = onDate, label = "Start date (YYYY-MM-DD)")
         PrimerTextField(value = draft.time, onValueChange = onTime, label = "Time (HH:MM)")
         PrimerTextField(value = draft.timezone, onValueChange = onTimezone, label = "IANA timezone")
+        PrimerTextField(value = draft.rrule, onValueChange = onRrule, label = "RRULE (optional)")
+        PrimerTextField(value = draft.dueOffsetMinutes.toString(), onValueChange = onDueOffset, label = "Due offset minutes")
+        PrimerTextField(value = draft.endAt, onValueChange = onEndAt, label = "End at (optional RFC3339)")
         PrimerButton(text = "Save schedule", onClick = onSave)
         PrimerButton(text = "Cancel", onClick = onClose, variant = PrimerButtonVariant.Quiet)
     }

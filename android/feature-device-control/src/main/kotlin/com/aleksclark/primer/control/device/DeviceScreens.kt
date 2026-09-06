@@ -19,6 +19,7 @@ import com.aleksclark.primer.ui.PrimerRecordRow
 import com.aleksclark.primer.ui.PrimerSectionHeader
 import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
+import com.aleksclark.primer.ui.PrimerQrMark
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primertasks.client.ApprovedApp
 import com.aleksclark.primertasks.client.DesiredState
@@ -51,7 +52,11 @@ fun DevicesScreen(
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
         if (enrollment != null) {
             PrimerRecordRow(label = "Enrollment code", value = enrollment.code)
-            androidx.compose.material3.Text(enrollment.qrPayload, style = com.aleksclark.primer.ui.PrimerTheme.typography.mono)
+            PrimerQrMark(
+                payload = enrollment.qrPayload,
+                contentDescription = "Student enrollment QR. Expires ${enrollment.expiresAt}.",
+            )
+            PrimerStatus("Expires ${enrollment.expiresAt}. Sign-out clears this code.", tone = PrimerStatusTone.Neutral)
         }
         ControlSelfUpdateScreen(
             update = selfUpdate,
@@ -111,7 +116,25 @@ fun DeviceDetailScreen(
         PrimerRecordRow(label = "Desired revision", value = device.desiredRevision.toString())
         PrimerRecordRow(label = "Applied revision", value = device.appliedRevision.toString())
         PrimerRecordRow(label = "Sync", value = syncStatus?.let(DeviceSync::label) ?: "unknown")
-        PrimerTextField(value = selectedRelease, onValueChange = onRelease, label = "Release id to target")
+        PrimerSectionHeader(label = "Release", title = "Published packages")
+        if (releases.isEmpty()) {
+            PrimerStatus("No published releases are available to target.", tone = PrimerStatusTone.Neutral)
+        } else {
+            releases.forEach { release ->
+                val selected = release.id == selectedRelease
+                PrimerRecordRow(
+                    label = "${release.packageName} / ${release.channel}",
+                    value = "${release.versionName} (${release.versionCode})",
+                    status = if (selected) "Selected" else release.status,
+                )
+                PrimerButton(
+                    text = if (selected) "Selected ${release.versionName}" else "Select ${release.versionName}",
+                    onClick = { onRelease(release.id) },
+                    variant = if (selected) PrimerButtonVariant.Secondary else PrimerButtonVariant.Quiet,
+                    enabled = !mutating,
+                )
+            }
+        }
         PrimerButton(text = "Set release target", onClick = onTarget, enabled = selectedRelease.isNotBlank() && !mutating)
         PrimerButton(text = "Requeue current target", onClick = onRequeue, enabled = selectedRelease.isNotBlank() && !mutating, variant = PrimerButtonVariant.Secondary)
         PrimerButton(text = "Quarantine", onClick = onQuarantine, variant = PrimerButtonVariant.Secondary, enabled = !mutating)
