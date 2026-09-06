@@ -186,6 +186,8 @@ def test_migrations_are_goose_paired():
         "00009_materialization_fingerprint_unique.sql",
         "00010_workflow_leases.sql",
         "00011_webhook_delivery_leases.sql",
+        "00012_materialized_item_stage_idempotency.sql",
+        "00013_collaborative_authoring.sql",
     ]
     for path in MIGRATIONS:
         text = path.read_text()
@@ -288,6 +290,12 @@ EXPECTED_TABLES = [
     "webhook_deliveries",
     "idempotency_keys",
     "audit_events",
+    "plan_comments",
+    "plan_approvals",
+    "curriculum_shares",
+    "unit_library_entries",
+    "plan_templates",
+    "workspace_policies",
 ]
 
 

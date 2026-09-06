@@ -124,21 +124,23 @@ type CurriculumBrief struct {
 }
 
 type Curriculum struct {
-	ID          string             `json:"id"`
-	WorkspaceID string             `json:"workspaceId"`
-	Name        string             `json:"name" minLength:"1"`
-	Description string             `json:"description,omitempty"`
-	Template    CurriculumTemplate `json:"template,omitempty"`
-	Status      CurriculumStatus   `json:"status"`
-	CreatedAt   time.Time          `json:"createdAt"`
-	UpdatedAt   time.Time          `json:"updatedAt"`
+	TemplateCode string             `json:"templateCode,omitempty"`
+	ID           string             `json:"id"`
+	WorkspaceID  string             `json:"workspaceId"`
+	Name         string             `json:"name" minLength:"1"`
+	Description  string             `json:"description,omitempty"`
+	Template     CurriculumTemplate `json:"template,omitempty"`
+	Status       CurriculumStatus   `json:"status"`
+	CreatedAt    time.Time          `json:"createdAt"`
+	UpdatedAt    time.Time          `json:"updatedAt"`
 }
 
 type CurriculumCreate struct {
-	Name        string             `json:"name" minLength:"1"`
-	Description string             `json:"description,omitempty"`
-	Template    CurriculumTemplate `json:"template,omitempty"`
-	Brief       *CurriculumBrief   `json:"brief,omitempty"`
+	TemplateCode string             `json:"templateCode,omitempty" maxLength:"100" doc:"Workspace template code; overrides the built-in template selection."`
+	Name         string             `json:"name" minLength:"1"`
+	Description  string             `json:"description,omitempty"`
+	Template     CurriculumTemplate `json:"template,omitempty"`
+	Brief        *CurriculumBrief   `json:"brief,omitempty"`
 }
 
 type CurriculumUpdate struct {
@@ -559,8 +561,12 @@ type materializationListInput struct {
 	RevisionID string `path:"revisionId"`
 }
 type itemListInput struct {
-	authoringListQuery
+	// Huma does not emit fields embedded through an unexported struct. Keep
+	// these implemented query controls explicit so regenerated SPA clients agree.
 	MaterializationID string `path:"materializationId"`
+	Limit             int    `query:"limit" minimum:"1" maximum:"200" default:"25"`
+	Offset            int    `query:"offset" minimum:"0" default:"0"`
+	Q                 string `query:"q"`
 }
 type eventListInput struct {
 	authoringListQuery

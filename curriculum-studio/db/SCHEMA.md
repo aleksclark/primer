@@ -26,6 +26,29 @@ duplicate SQL).
   visible to every requested workspace; tenant-global resources are likewise
   visible only through an explicit workspace-scoped read.
 
+## Collaborative authoring (migration 00013)
+
+Comments and approvals remain private to the owning workspace. Shared access is
+limited to explicit curriculum/revision/graph/diff reads, not comments, reviews,
+exports, materializations, library saves, or any mutation. Grants never become
+workspace memberships.
+
+Approval writes compare the supplied content fingerprint to
+`plan_content_fingerprint(revision_id)` in the same SQL statement and recheck an
+active, local human reviewer membership. Later graph/brief edits make the stored
+decision obsolete; API reads return `pending` until a fresh decision. Approval
+is recorded separately from publication (it does not bypass graph validation or
+change the existing publication policy).
+
+Library snapshots keep unit content, linked outcomes/objectives/arcs, internal
+prerequisites, mappings/evidence, projects and resource links. Copying uses fresh
+plan IDs/codes while preserving names and remapping relationships. Missing
+catalog/resource dependencies fail the whole transaction. Only workspace-owned
+or visible global references can be attached through existing graph repos.
+
+Policy JSON storage is reserved in this migration; policy configuration and
+enforcement beyond the existing role gates are not implemented by this slice.
+
 ## Subject and external identity conventions
 
 | Field | Canonical form | Owner |
@@ -159,6 +182,12 @@ closed sets below are the contract:
 | `webhook_endpoints` / `webhook_deliveries` | Delivery + idempotency + DB lease state |
 | `idempotency_keys` | Inbound API / callback idempotency |
 | `audit_events` | Authoring and integration audit trail |
+| `plan_comments` | Workspace/revision/node-scoped notes with server-derived author identity and name |
+| `plan_approvals` | Latest reviewer decision and reviewed content fingerprint per revision |
+| `curriculum_shares` | Explicit read-only curriculum grants to another workspace |
+| `unit_library_entries` | Workspace-owned durable unit snapshots, copied with remapped graph IDs |
+| `plan_templates` | Global and workspace-owned named template seeds |
+| `workspace_policies` | Workspace-local JSON policy storage (no Identity dependency) |
 
 ## Invariant enforcement map
 

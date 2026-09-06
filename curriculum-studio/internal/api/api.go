@@ -128,6 +128,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	s.registerPlanRoutes(humaAPI)
 	s.registerMaterializationRoutes(humaAPI)
 	s.registerWebhookRoutes(humaAPI)
+	s.registerCollabRoutes(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)

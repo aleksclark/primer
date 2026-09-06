@@ -27,6 +27,12 @@ func CanManageMembers(role string) bool {
 	}
 }
 
+// CanReview is deliberately separate from authoring permission. Authors cannot
+// approve their own work by virtue of their author role.
+func CanReview(role string) bool {
+	return role == domain.MembershipRoleReviewer
+}
+
 // HasScope reports whether the validated JWT scopes include required.
 func HasScope(scopes []string, required string) bool {
 	if required == "" {

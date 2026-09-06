@@ -48,7 +48,18 @@ func curriculumStatus(status string) CurriculumStatus {
 func revisionState(status string) RevisionState { return RevisionState(status) }
 
 func curriculumView(v *domain.Curriculum) Curriculum {
-	return Curriculum{ID: curriculumID(v.ID), WorkspaceID: encodeWSID(v.WorkspaceID), Name: v.Title, Description: v.Description, Template: CurriculumTemplate(v.Approach), Status: curriculumStatus(v.Status), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	var metadata struct {
+		Template     CurriculumTemplate `json:"studioTemplate"`
+		TemplateCode string             `json:"studioTemplateCode"`
+	}
+	_ = json.Unmarshal(v.Metadata, &metadata)
+	if metadata.Template == "" {
+		metadata.Template = "custom"
+		if v.Approach == "project_based" {
+			metadata.Template = "project_based_unit"
+		}
+	}
+	return Curriculum{ID: curriculumID(v.ID), WorkspaceID: encodeWSID(v.WorkspaceID), Name: v.Title, Description: v.Description, Template: metadata.Template, TemplateCode: metadata.TemplateCode, Status: curriculumStatus(v.Status), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 func revisionView(v *domain.PlanRevision) PlanRevision {
 	return PlanRevision{ID: revisionID(v.ID), CurriculumID: curriculumID(v.CurriculumID), RevisionNum: v.Revision, State: revisionState(v.Status), Brief: briefView(v.Brief), ETag: revisionETag(v), PublishedBy: v.PublishedBySubjectRef, PublishedAt: v.PublishedAt, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
@@ -77,6 +88,9 @@ func (s *Server) curriculumForCaller(ctx context.Context, raw string) (*domain.C
 		if e == nil {
 			return v, membership.WorkspaceID, membership, nil
 		}
+		if !errors.Is(e, repo.ErrNotFound) {
+			return nil, uuid.Nil, MembershipView{}, e
+		}
 	}
 	return nil, uuid.Nil, MembershipView{}, repo.ErrNotFound
 }
@@ -89,6 +103,9 @@ func (s *Server) revisionForCaller(ctx context.Context, raw string) (*domain.Pla
 		v, e := repo.NewPlanRevisionRepo(s.querier).Get(ctx, membership.WorkspaceID, id)
 		if e == nil {
 			return v, membership.WorkspaceID, membership, nil
+		}
+		if !errors.Is(e, repo.ErrNotFound) {
+			return nil, uuid.Nil, MembershipView{}, e
 		}
 	}
 	return nil, uuid.Nil, MembershipView{}, repo.ErrNotFound
@@ -135,7 +152,7 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 			limit = 100
 		}
 		q := strings.TrimSpace(in.Q)
-		rows, err := s.querier.Query(ctx, `SELECT c.id,c.workspace_id,c.slug,c.title,c.description,c.approach,c.grade_band,c.status,c.current_draft_revision_id,c.published_revision_id,c.metadata,c.created_at,c.updated_at FROM curriculum_studio.curricula c WHERE c.workspace_id=$1 AND ($2='' OR c.title ILIKE '%'||$2||'%' OR c.description ILIKE '%'||$2||'%') ORDER BY c.title,c.id LIMIT $3 OFFSET $4`, ws, q, limit, max(0, in.Offset))
+		rows, err := s.querier.Query(ctx, `SELECT c.id,c.workspace_id,c.slug,c.title,c.description,c.approach,c.grade_band,c.status,c.current_draft_revision_id,c.published_revision_id,c.metadata,c.created_at,c.updated_at FROM curriculum_studio.curricula c WHERE (c.workspace_id=$1 OR EXISTS(SELECT 1 FROM curriculum_studio.curriculum_shares sh WHERE sh.curriculum_id=c.id AND sh.source_workspace_id=c.workspace_id AND sh.target_workspace_id=$1 AND sh.permission='read')) AND ($2='' OR c.title ILIKE '%'||$2||'%' OR c.description ILIKE '%'||$2||'%') ORDER BY c.title,c.id LIMIT $3 OFFSET $4`, ws, q, limit, max(0, in.Offset))
 		if err != nil {
 			return nil, planError(err)
 		}
@@ -151,7 +168,7 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 		if err := rows.Err(); err != nil {
 			return nil, planError(err)
 		}
-		if err := s.querier.QueryRow(ctx, `SELECT count(*) FROM curriculum_studio.curricula WHERE workspace_id=$1 AND ($2='' OR title ILIKE '%'||$2||'%' OR description ILIKE '%'||$2||'%')`, ws, q).Scan(&out.Body.TotalCount); err != nil {
+		if err := s.querier.QueryRow(ctx, `SELECT count(*) FROM curriculum_studio.curricula c WHERE (c.workspace_id=$1 OR EXISTS(SELECT 1 FROM curriculum_studio.curriculum_shares sh WHERE sh.curriculum_id=c.id AND sh.source_workspace_id=c.workspace_id AND sh.target_workspace_id=$1 AND sh.permission='read')) AND ($2='' OR c.title ILIKE '%'||$2||'%' OR c.description ILIKE '%'||$2||'%')`, ws, q).Scan(&out.Body.TotalCount); err != nil {
 			return nil, planError(err)
 		}
 		return out, nil
@@ -171,9 +188,9 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 		if template == "" {
 			template = "custom"
 		}
-		approach := template
-		if approach == "homeschool_year" || approach == "single_subject" || approach == "classroom_semester" || approach == "standards_remediation" {
-			approach = "custom"
+		approach := "custom"
+		if template == "project_based_unit" {
+			approach = "project_based"
 		}
 		brief := json.RawMessage(`{}`)
 		if in.Body.Brief != nil {
@@ -182,11 +199,30 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 				brief = encoded
 			}
 		}
+		metadata := map[string]any{}
+		if err = json.Unmarshal(brief, &metadata); err != nil {
+			return nil, planError(err)
+		}
+		metadata["studioTemplate"] = template
+		metadata["studioTemplateCode"] = strings.TrimSpace(in.Body.TemplateCode)
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			return nil, planError(err)
+		}
 		var created *domain.Curriculum
 		err = repo.WithTx(ctx, s.querier, func(q repo.Querier) error {
-			created, err = repo.NewCurriculumRepo(q).Create(ctx, &domain.Curriculum{WorkspaceID: ws, Slug: slugify(in.Body.Name) + "-" + uuid.NewString()[:8], Title: strings.TrimSpace(in.Body.Name), Description: in.Body.Description, Approach: approach, Metadata: brief})
+			created, err = repo.NewCurriculumRepo(q).Create(ctx, &domain.Curriculum{WorkspaceID: ws, Slug: slugify(in.Body.Name) + "-" + uuid.NewString()[:8], Title: strings.TrimSpace(in.Body.Name), Description: in.Body.Description, Approach: approach, Metadata: metadataJSON})
 			if err != nil {
 				return err
+			}
+			code := strings.TrimSpace(in.Body.TemplateCode)
+			if code == "" && template != "custom" {
+				code = template
+			}
+			if code != "" {
+				if err = seedTemplate(ctx, q, ws, created, code, brief); err != nil {
+					return err
+				}
 			}
 			payload, _ := json.Marshal(map[string]string{"curriculum_id": created.ID.String()})
 			_, err = q.Exec(ctx, `INSERT INTO curriculum_studio.outbox_events(workspace_id,event_type,aggregate_kind,aggregate_id,payload) VALUES($1,$2,$3,$4,$5)`, ws, domain.EventCurriculumCreated, "curriculum", created.ID, payload)
@@ -198,7 +234,7 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 		return &curriculumResponse{Body: curriculumView(created)}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "getCurriculum", Method: http.MethodGet, Path: "/studio/v1/curricula/{curriculumId}", Tags: []string{"Curricula"}}, func(ctx context.Context, in *curriculumPath) (*curriculumResponse, error) {
-		v, _, _, e := s.curriculumForCaller(ctx, in.CurriculumID)
+		v, _, e := s.curriculumReadable(ctx, in.CurriculumID)
 		if e != nil {
 			return nil, planError(e)
 		}
@@ -231,7 +267,7 @@ func (s *Server) registerCurriculumPlanRoutes(api huma.API) {
 
 func (s *Server) registerRevisionPlanRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "listRevisions", Method: http.MethodGet, Path: "/studio/v1/curricula/{curriculumId}/revisions", Tags: []string{"Revisions"}}, func(ctx context.Context, in *revisionListInput) (*revisionPageResponse, error) {
-		_, ws, _, e := s.curriculumForCaller(ctx, in.CurriculumID)
+		_, ws, e := s.curriculumReadable(ctx, in.CurriculumID)
 		if e != nil {
 			return nil, planError(e)
 		}
@@ -285,7 +321,7 @@ func (s *Server) registerRevisionPlanRoutes(api huma.API) {
 		return &revisionResponse{Body: revisionView(created)}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "getRevision", Method: http.MethodGet, Path: "/studio/v1/revisions/{revisionId}", Tags: []string{"Revisions"}}, func(ctx context.Context, in *revisionPath) (*revisionResponse, error) {
-		v, _, _, e := s.revisionForCaller(ctx, in.RevisionID)
+		v, _, e := s.revisionReadable(ctx, in.RevisionID)
 		if e != nil {
 			return nil, planError(e)
 		}
@@ -376,7 +412,7 @@ func max(a, b int) int {
 
 func (s *Server) registerGraphRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "getRevisionGraph", Method: http.MethodGet, Path: "/studio/v1/revisions/{revisionId}/graph", Tags: []string{"Graph"}}, func(ctx context.Context, in *revisionPath) (*graphResponse, error) {
-		rev, ws, _, e := s.revisionForCaller(ctx, in.RevisionID)
+		rev, ws, e := s.revisionReadable(ctx, in.RevisionID)
 		if e != nil {
 			return nil, planError(e)
 		}
