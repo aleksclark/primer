@@ -87,6 +87,7 @@ object SelfUpdateFlow {
 interface SelfUpdateCommands {
     fun snapshot(): SelfUpdateSessionState
     fun reconcile(): InstallAttempt
+    fun evaluate(apk: java.io.File, expected: SignedManifest): SelfUpdateEligibility
     fun install(apk: java.io.File, expected: SignedManifest): InstallAttempt
     fun handleResult(intent: android.content.Intent, onUserAction: ((android.content.Intent) -> Boolean)? = null): InstallAttempt
     fun resumeUserAction(onUserAction: (android.content.Intent) -> Boolean): InstallAttempt

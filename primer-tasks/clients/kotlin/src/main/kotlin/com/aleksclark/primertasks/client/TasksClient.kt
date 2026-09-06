@@ -123,15 +123,19 @@ class TasksClient(
     suspend fun managementDeviceArtifact(id: String, sink: OutputStream): Long =
         io { api.managementDeviceArtifact(id, sink) }
     suspend fun downloadManagedReleaseArtifact(id: String, sink: OutputStream): Long =
-        io { api.managementDeviceArtifact(id, sink) }
+        io { api.managedReleasesApk(id, sink) }
     suspend fun managementDeviceArtifact(id: String): ByteArray = io {
         val out = ByteArrayOutputStream()
         val written = api.managementDeviceArtifact(id, out)
         check(written <= inMemoryCap) { "in-memory artifact cap exceeded" }
         out.toByteArray()
     }
-    suspend fun downloadManagedReleaseArtifact(id: String): ByteArray =
-        managementDeviceArtifact(id)
+    suspend fun downloadManagedReleaseArtifact(id: String): ByteArray = io {
+        val out = ByteArrayOutputStream()
+        val written = api.managedReleasesApk(id, out)
+        check(written <= inMemoryCap) { "in-memory artifact cap exceeded" }
+        out.toByteArray()
+    }
 
     fun authHeader(token: String) = "Bearer $token"
 

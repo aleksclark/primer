@@ -51,6 +51,16 @@ class SelfUpdateSession(
         )
     }
 
+    override fun evaluate(apk: File, expected: SignedManifest): SelfUpdateEligibility = synchronized(lock) {
+        val directory = File(context.cacheDir, "self-updates").apply { check(mkdirs() || isDirectory) }
+        val snapshot = File.createTempFile("evaluate-", ".apk", directory)
+        try {
+            inspectVerified(apk, snapshot, expected).second
+        } finally {
+            snapshot.delete()
+        }
+    }
+
     override fun install(apk: File, expected: SignedManifest): InstallAttempt = synchronized(lock) {
         reconcile()
         check(!active) { "An installation is already in progress" }
@@ -58,26 +68,7 @@ class SelfUpdateSession(
         val directory = File(context.cacheDir, "self-updates").apply { check(mkdirs() || isDirectory) }
         val snapshot = File.createTempFile("candidate-", ".apk", directory)
         return try {
-            ArchiveChecks.validateExpected(expected.byteSize, expected.sha256)
-            apk.inputStream().use { input ->
-                snapshot.outputStream().use { output -> ArchiveChecks.copyVerified(input, output, expected.byteSize, expected.sha256) }
-            }
-            val installed = identity(installedInfo())
-            val archive = inspect(snapshot)
-            val eligibility = SelfUpdatePolicy.decide(
-                runningPackage = context.packageName,
-                installed = installed,
-                archive = archive,
-                expected = expected,
-                sdk = Build.VERSION.SDK_INT,
-                deviceAbis = Build.SUPPORTED_ABIS.toSet(),
-                candidateTargetSdk = archiveTargetSdk(snapshot),
-                canUpdateWithoutUserAction = context.packageManager.checkPermission(
-                    "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
-                    context.packageName,
-                ) == PackageManager.PERMISSION_GRANTED,
-                unknownSourcesAllowed = context.packageManager.canRequestPackageInstalls(),
-            )
+            val eligibility = inspectVerified(apk, snapshot, expected).second
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                 setAppPackageName(context.packageName)
                 setSize(snapshot.length())
@@ -286,6 +277,30 @@ class SelfUpdateSession(
                 .putString("outcomeError", reason.take(200))
                 .commit(),
         ) { "Cannot persist self-update status" }
+    }
+
+    private fun inspectVerified(apk: File, snapshot: File, expected: SignedManifest): Pair<ArchiveIdentity, SelfUpdateEligibility> {
+        ArchiveChecks.validateExpected(expected.byteSize, expected.sha256)
+        apk.inputStream().use { input ->
+            snapshot.outputStream().use { output -> ArchiveChecks.copyVerified(input, output, expected.byteSize, expected.sha256) }
+        }
+        val installed = identity(installedInfo())
+        val archive = inspect(snapshot)
+        val eligibility = SelfUpdatePolicy.decide(
+            runningPackage = context.packageName,
+            installed = installed,
+            archive = archive,
+            expected = expected,
+            sdk = Build.VERSION.SDK_INT,
+            deviceAbis = Build.SUPPORTED_ABIS.toSet(),
+            candidateTargetSdk = archiveTargetSdk(snapshot),
+            canUpdateWithoutUserAction = context.packageManager.checkPermission(
+                "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
+                context.packageName,
+            ) == PackageManager.PERMISSION_GRANTED,
+            unknownSourcesAllowed = context.packageManager.canRequestPackageInstalls(),
+        )
+        return archive to eligibility
     }
 
     @Suppress("DEPRECATION")
