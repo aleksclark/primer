@@ -88,6 +88,14 @@ Executed with Java 17 and `/opt/android-sdk`:
   credential-denial paths but not actual enrollment replacement/cancellation.
   The helper test manually revoking a lease does not prove those lifecycle paths;
   production wiring and session-level cancellation/replacement tests were requested.
+- Follow-up `050b0489` was integrated as `599e16af`; replacement/cancellation
+  revocation calls now exist. Parent regression `5eced100` establishes a healthy
+  desired-policy response, delays a second response, requests replacement through
+  the same session, and then releases the old response. It **fails in debug and
+  release** because the revoked generation still applies the old policy. The
+  lease currently fences installation, not policy/recovery effects. Student lint
+  and assembly pass, but this lifecycle gate remains red; remediation is assigned
+  to A. The caller's original request epoch also needs preservation across waits.
 - The current Control debug APK opened successfully on the isolated API-28 AVD
   `primer-release-api28` as an ordinary app (no device owner). It displayed the
   unconfigured-Clerk screen, and no Control crash appeared. This is startup/error
