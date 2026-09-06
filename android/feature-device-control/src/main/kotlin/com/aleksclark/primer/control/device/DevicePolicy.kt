@@ -66,6 +66,22 @@ fun Policy.withMaintenance(allowParentUnlock: Boolean): Policy =
 fun policyUpdate(baseRevision: Long, policy: Policy) =
     PolicyUpdateInput(baseRevision = baseRevision, policy = policy)
 
+object MaintenanceLease {
+    const val DEFAULT_MINUTES = 15L
+    const val MIN_MINUTES = 1L
+    const val MAX_MINUTES = 30L
+
+    fun boundedMinutes(raw: Long): Long {
+        require(raw in MIN_MINUTES..MAX_MINUTES) { "Maintenance lease must be 1–30 minutes." }
+        return raw
+    }
+
+    fun parseMinutes(text: String): Long {
+        val value = text.trim().toLongOrNull() ?: error("Enter lease minutes between 1 and 30.")
+        return boundedMinutes(value)
+    }
+}
+
 object ReleaseCas {
     fun matching(targets: List<ReleaseTarget>, release: Release): ReleaseTarget? =
         targets.firstOrNull { it.packageName == release.packageName && it.channel == release.channel }
