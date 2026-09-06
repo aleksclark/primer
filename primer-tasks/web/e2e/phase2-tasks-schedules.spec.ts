@@ -100,7 +100,7 @@ test("public task schedule, student verification, collections, and tenant bounda
     await expect(parentPage).toHaveURL(/\/parent\/schedules\?status=all$/);
 
     await parentPage.goto("/parent/occurrences");
-    await expect(parentPage.getByRole("heading", { name: "Assigned work" })).toBeVisible();
+    await expect(parentPage.getByRole("heading", { name: "Assigned work", exact: true })).toBeVisible();
     await expect(parentPage.getByText(taskTitle)).toBeVisible();
     await parentPage.getByLabel("Assigned work status filter").selectOption("pending");
     await parentPage.getByLabel("Assigned work sort direction").selectOption("desc");
@@ -111,7 +111,7 @@ test("public task schedule, student verification, collections, and tenant bounda
     await expect(studentPage.getByText(taskTitle)).toBeVisible();
     const taskLink = studentPage.getByRole("link", { name: new RegExp(taskTitle) }).first();
     await taskLink.click();
-    await expect(studentPage.getByRole("heading", { name: taskTitle })).toBeVisible();
+    await expect(studentPage.getByRole("heading", { name: taskTitle, exact: true })).toBeVisible();
     await studentPage.getByRole("button", { name: /^Start task$/ }).click();
     await expect(studentPage.getByText("In progress", { exact: true })).toBeVisible();
     await studentPage.getByRole("button", { name: /^Submit for parent approval$/ }).click();
