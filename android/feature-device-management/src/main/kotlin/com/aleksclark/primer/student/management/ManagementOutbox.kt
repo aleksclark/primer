@@ -56,6 +56,45 @@ object ManagementAuth {
     }
 }
 
+/**
+ * Process-wide authorization generation. Install callbacks must not snapshot a
+ * Boolean and must not runBlocking on Main. Issue a lease before PackageInstaller
+ * commit; revoke on enrollment change/cancel so later callbacks fail closed.
+ */
+class ManagementAuthorization private constructor(
+    private val generation: Long,
+    val binding: ManagementBinding,
+) {
+    fun authorized(): Boolean {
+        val current = currentBinding
+        return generation == currentGeneration &&
+            current != null &&
+            current.token == binding.token &&
+            current.origin == binding.origin &&
+            current.deviceId == binding.deviceId &&
+            current.keyId == binding.keyId &&
+            current.token.isNotBlank()
+    }
+
+    companion object {
+        @Volatile private var currentGeneration = 0L
+        @Volatile private var currentBinding: ManagementBinding? = null
+
+        @Synchronized
+        fun issue(binding: ManagementBinding): ManagementAuthorization {
+            currentGeneration += 1
+            currentBinding = binding
+            return ManagementAuthorization(currentGeneration, binding)
+        }
+
+        @Synchronized
+        fun revoke() {
+            currentGeneration += 1
+            currentBinding = null
+        }
+    }
+}
+
 object RemotePolicyProjection {
     fun extraControls(
         lockTaskEnabled: Boolean,

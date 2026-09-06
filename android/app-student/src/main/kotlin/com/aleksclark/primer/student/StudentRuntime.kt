@@ -95,8 +95,14 @@ class StudentRuntime(private val context: Context) {
                     targetId = targetId,
                     targetVersion = targetVersion,
                 )
-                val observed = installedVersion(manifest.packageName) ?: attempt.versionCode
-                return InstallOutcome(attempt.status, observed, attempt.error)
+                val observed = installedVersion(manifest.packageName)
+                val status = if (attempt.status == "confirmed" && observed == null) "failed" else attempt.status
+                val error = if (status == "failed" && attempt.status == "confirmed") {
+                    "Installed version could not be read back from the OS"
+                } else {
+                    attempt.error
+                }
+                return InstallOutcome(status, observed, error)
             }
         },
         trustRoot = BuildConfig.RELEASE_TRUST_ROOT,

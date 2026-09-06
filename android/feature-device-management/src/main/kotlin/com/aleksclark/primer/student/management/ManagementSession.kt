@@ -103,7 +103,8 @@ class ManagementSession(
                     keyId = keyId,
                 ),
             )
-            applyDesired(result.desired, elapsedMs(), boot())
+            val binding = credentials.read() ?: return ManagementSyncResult("Management enrollment did not persist.")
+            applyDesired(result.desired, elapsedMs(), boot(), binding)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: TasksHttpException) {
@@ -128,7 +129,7 @@ class ManagementSession(
         val client = clientFactory(binding.origin) { binding.token }
         return try {
             val flush = flushOutbox(binding)
-            val desired = applyDesired(client.managementDeviceDesired(), requestElapsed, requestBoot)
+            val desired = applyDesired(client.managementDeviceDesired(), requestElapsed, requestBoot, binding)
             val retryable = flush.retryable || desired.retryable || outbox.hasRetryable(binding.origin, binding.deviceId)
             if (retryable) desired.copy(retryable = true) else desired
         } catch (cancelled: CancellationException) {
@@ -153,8 +154,13 @@ class ManagementSession(
         return live.takeIf { sameBinding(expected, it) }
     }
 
-    private suspend fun applyDesired(desired: DesiredState, requestElapsedMs: Long, requestBoot: Int): ManagementSyncResult {
-        val binding = requireLiveBinding(credentials.read() ?: return ManagementSyncResult("Management is not enrolled"))
+    private suspend fun applyDesired(
+        desired: DesiredState,
+        requestElapsedMs: Long,
+        requestBoot: Int,
+        requestBinding: ManagementBinding,
+    ): ManagementSyncResult {
+        val binding = requireLiveBinding(requestBinding)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         if (desired.device.id != binding.deviceId) {
             return ManagementSyncResult("Desired state is for a different device. Local recovery still works.")
@@ -353,6 +359,7 @@ class ManagementSession(
             } catch (error: TasksHttpException) {
                 if (ManagementAuth.clearsEnrollment(error.statusCode, error.code) && credentials.expectedToken() == binding.token) {
                     credentials.clearTokenOnly()
+                    ManagementAuthorization.revoke()
                     throw error
                 }
                 val permanent = error.statusCode in 400..499 && error.statusCode != 409 && error.statusCode != 429
@@ -379,7 +386,6 @@ class ManagementSession(
             }
             if (target.status in setOf("confirmed", "blocked", "failed")) continue
             if (sink.installActive && (sink.pendingTargetId != target.id || sink.pendingTargetVersion != target.targetVersion)) {
-                enqueueReceipt(liveStart, target, "blocked", sink.installedVersion(target.packageName), "Another installation is already in progress")
                 continue
             }
             if (sink.installActive && sink.pendingTargetId == target.id && sink.pendingTargetVersion == target.targetVersion) {
@@ -409,9 +415,9 @@ class ManagementSession(
             }
             enqueueReceipt(liveStart, target, "downloading", installedVersion, null)
             val directory = sink.stagingDir().apply { check(mkdirs() || isDirectory) }
-            val unique = "${target.id}-${target.targetVersion}-${target.releaseId}"
-            val partial = File(directory, "$unique.partial")
-            val verified = File(directory, "$unique.apk")
+            val partial = File.createTempFile("mgmt-${target.id}-", ".partial", directory)
+            val verified = File.createTempFile("mgmt-${target.id}-", ".apk", directory)
+            check(verified.delete())
             try {
                 val liveBeforeDownload = requireLiveBinding(liveStart)
                     ?: error("Management enrollment changed before download")
@@ -435,24 +441,27 @@ class ManagementSession(
                     continue
                 }
                 enqueueReceipt(liveBeforeInstall, target, "installing", sink.installedVersion(target.packageName), null)
+                val generation = ManagementAuthorization.issue(liveBeforeInstall)
                 val outcome = sink.installVerified(
                     verified,
                     manifest,
-                    { requireLiveBinding(liveBeforeInstall) != null },
+                    { generation.authorized() },
                     approvedAtInstall,
                     target.id,
                     target.targetVersion,
                 )
-                val observed = sink.installedVersion(target.packageName) ?: outcome.versionCode
+                val observed = sink.installedVersion(target.packageName)
                 val status = when {
-                    outcome.status == "confirmed" && observed != target.versionCode -> "failed"
-                    outcome.status == "confirmed" -> "confirmed"
+                    outcome.status == "confirmed" && observed == target.versionCode -> "confirmed"
+                    outcome.status == "confirmed" -> "failed"
                     else -> outcome.status
                 }
-                val error = if (status == "failed" && outcome.status == "confirmed") {
-                    "Observed installed version $observed; target ${target.versionCode} was not confirmed"
-                } else {
-                    outcome.error
+                val error = when {
+                    status == "failed" && outcome.status == "confirmed" && observed == null ->
+                        "Installed version could not be read back from the OS"
+                    status == "failed" && outcome.status == "confirmed" ->
+                        "Observed installed version $observed; target ${target.versionCode} was not confirmed"
+                    else -> outcome.error
                 }
                 enqueueReceipt(liveBeforeInstall, target, status, observed, error)
             } catch (cancelled: CancellationException) {
@@ -460,6 +469,7 @@ class ManagementSession(
             } catch (error: TasksHttpException) {
                 if (ManagementAuth.clearsEnrollment(error.statusCode, error.code) && credentials.expectedToken() == binding.token) {
                     credentials.clearTokenOnly()
+                    ManagementAuthorization.revoke()
                     throw error
                 }
                 enqueueReceipt(binding, target, "failed", sink.installedVersion(target.packageName), "Unable to download release")
@@ -475,6 +485,7 @@ class ManagementSession(
     private suspend fun authFailure(binding: ManagementBinding, error: TasksHttpException): ManagementSyncResult {
         if (ManagementAuth.clearsEnrollment(error.statusCode, error.code) && credentials.expectedToken() == binding.token) {
             credentials.clearTokenOnly()
+            ManagementAuthorization.revoke()
             return ManagementSyncResult("Management credential was revoked. Last-known policy remains; local recovery still works.")
         }
         return ManagementSyncResult("Unable to refresh management policy.", retryable = error.statusCode >= 500)

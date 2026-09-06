@@ -176,27 +176,15 @@ class ManagementSessionTest {
     }
 
     @Test
-    fun concurrentSyncIsSerializedAndLiveBindingIsRechecked() = runBlocking {
-        val deviceId = "11111111-1111-1111-1111-111111111111"
-        secrets.binding = ManagementBinding("mgmt-token", server.url("/").toString().trimEnd('/'), deviceId, "a".repeat(64))
-        server.enqueue(
-            MockResponse().setHeader("Content-Type", "application/json").setBody(
-                """{"device":{"id":"$deviceId","displayName":"Student","deviceModel":"SM-S166V","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"policyRevision":{"revision":1,"policy":{"approvedApps":[],"lockTask":{"enabled":true,"packages":["com.aleksclark.primer.student"]},"maintenance":{"allowParentUnlock":true}},"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[],"serverTime":"2026-01-01T00:00:00Z"}""",
-            ),
-        )
-        server.enqueue(
-            MockResponse().setHeader("Content-Type", "application/json").setBody(
-                """{"id":"r1","reportId":"22222222-2222-2222-2222-222222222222","deviceId":"$deviceId","policyRevision":1,"status":"applied","stale":false,"receivedAt":"2026-01-01T00:00:00Z"}""",
-            ),
-        )
-        val applied = mutableListOf<Long>()
-        val result = session(
-            applied = applied,
-            onPolicy = { secrets.binding = secrets.binding?.copy(token = "rotated") },
-        ).sync()
-        assertTrue(result.message.contains("enrollment changed") || applied.isNotEmpty())
-        val second = session(applied = applied).sync()
-        assertTrue(second.message.contains("enrollment changed") || second.message.contains("Unable") || second.message.contains("revoked") || second.message.contains("Applied"))
+    fun authorizationLeaseDoesNotSnapshotABoolean() {
+        val first = ManagementBinding("token-a", "https://example.invalid", "device-a", "a".repeat(64))
+        val second = ManagementBinding("token-b", "https://example.invalid", "device-a", "a".repeat(64))
+        val lease = ManagementAuthorization.issue(first)
+        assertTrue(lease.authorized())
+        ManagementAuthorization.issue(second)
+        assertTrue(!lease.authorized())
+        ManagementAuthorization.revoke()
+        assertTrue(!lease.authorized())
     }
 
     @Test
