@@ -76,9 +76,14 @@ package/channel/version/signer/size/hash before download. Device rollout still
 uses `selectedReleaseId`; Control self-update does not.
 
 Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
-Automatic discovery of new versions with parent settings/safe timing is **not**
-claimed. Missing `PRIMER_RELEASE_TRUST_ROOT` fails closed. No hardware or live
-install acceptance. minSdk **28**; no `overrideLibrary`; no duplicate installer.
+Parent settings may enable catalog checks on resume and a 15-minute-floor periodic
+refresh. Unattended catch-up is opt-in and only when the shared adapter reports
+`EligibleUnattended`; confirmation-required, deferred, and failed states never
+auto-install. Discovery never skips signed-manifest verification. This is not a
+silent-install guarantee and not live Clerk/self-update acceptance. Missing
+`PRIMER_RELEASE_TRUST_ROOT` fails closed. minSdk **28**; no `overrideLibrary`; no
+duplicate installer. Production `ReleaseTrust` verifies only; fixture sign helpers
+are not on the production type.
 
 ### Exact Clerk identity acceptance (external; not the test issuer)
 
