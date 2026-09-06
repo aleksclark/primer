@@ -227,6 +227,23 @@ func register[I, O any](api huma.API, op huma.Operation, handler func(context.Co
 	}
 	if registered != nil {
 		delete(registered.Responses, "422")
+		if op.Path == "/management-device/artifacts/{id}" || op.Path == "/managed-releases/{id}/apk" {
+			advertiseAPKBody(registered)
+		}
+	}
+}
+
+func advertiseAPKBody(op *huma.Operation) {
+	if op == nil || op.Responses == nil {
+		return
+	}
+	resp := op.Responses["200"]
+	if resp == nil {
+		return
+	}
+	delete(resp.Content, "application/json")
+	resp.Content["application/vnd.android.package-archive"] = &huma.MediaType{
+		Schema: &huma.Schema{Type: huma.TypeString, Format: "binary"},
 	}
 }
 

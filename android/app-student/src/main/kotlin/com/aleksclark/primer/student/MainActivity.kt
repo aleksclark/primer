@@ -49,8 +49,10 @@ import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
+import com.aleksclark.primer.student.management.ManagementEnrollmentQrParser
 import com.aleksclark.primer.student.tasks.StudentTasksRoute
-import com.aleksclark.primer.student.tasks.occurrenceIdFromDeepLink
+import com.aleksclark.primer.student.tasks.TasksDeepLinkRouting
+import com.aleksclark.primer.student.tasks.TasksNavState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -160,7 +162,8 @@ private fun StudentScreen(
     var digest by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
-    var showTasks by remember { mutableStateOf(occurrenceIdFromDeepLink(deepLink) != null) }
+    var enrollmentQr by remember { mutableStateOf("") }
+    var tasksNav by remember { mutableStateOf(TasksDeepLinkRouting.incoming(TasksNavState(), deepLink)) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -220,8 +223,16 @@ private fun StudentScreen(
             }
         }
     }
-    if (showTasks) {
-        StudentTasksRoute(deepLink = deepLink, onLeave = { showTasks = false })
+    LaunchedEffect(deepLink) {
+        tasksNav = TasksDeepLinkRouting.incoming(tasksNav, deepLink)
+    }
+    if (tasksNav.showTasks) {
+        val pending = tasksNav.pendingOccurrenceLink?.let(Uri::parse)
+        StudentTasksRoute(
+            deepLink = pending,
+            onLeave = { tasksNav = TasksDeepLinkRouting.leave(tasksNav) },
+            onDeepLinkConsumed = { tasksNav = TasksDeepLinkRouting.consumed(tasksNav) },
+        )
         return
     }
 
@@ -378,7 +389,7 @@ private fun StudentScreen(
                 PrimerButton(text = "Open ${app.label}", onClick = { action { runtime.policy.launchApproved(app) } })
             }
             item {
-                PrimerButton(text = "Open Tasks", onClick = { showTasks = true })
+                PrimerButton(text = "Open Tasks", onClick = { tasksNav = TasksNavState(showTasks = true) })
                 Text(
                     "Old Primer Tasks (com.aleksclark.primertasks) pairings cannot be copied. Request a new Student QR, then revoke the old pairing. Tasks failures never clear device owner or recovery.",
                     style = PrimerTheme.typography.body,
@@ -431,6 +442,26 @@ private fun StudentScreen(
                         codes = null
                         editing = false
                         confirmRemoval = false
+                    }
+                },
+            )
+            PrimerTextField(
+                value = enrollmentQr,
+                onValueChange = { enrollmentQr = it },
+                label = "Management enrollment QR",
+            )
+            PrimerButton(
+                text = "Enroll management (parent only)",
+                onClick = {
+                    action {
+                        check(runtime.policy.inMaintenance)
+                        val parsed = ManagementEnrollmentQrParser.parse(
+                            enrollmentQr,
+                            configuredHttpsOrigin = BuildConfig.CONFIGURED_API_ORIGIN,
+                            allowEmulatorOrigin = BuildConfig.DEBUG,
+                        ) ?: error("That QR is not a trusted Primer management enrollment code")
+                        enrollmentQr = ""
+                        message = "Parsed management enrollment for ${parsed.origin}${parsed.mount}. HTTP enroll waits on :tasks-client artifact contract."
                     }
                 },
             )

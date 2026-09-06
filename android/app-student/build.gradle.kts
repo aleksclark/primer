@@ -80,6 +80,8 @@ dependencies {
     implementation(project(":core-device-policy"))
     implementation(project(":core-updates"))
     implementation(project(":feature-tasks-student"))
+    implementation(project(":feature-device-management"))
+    implementation(project(":core-security"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -38,6 +38,23 @@ class RecoveryStore(context: Context) {
         save(Recovery.rotate(state, codes), "recovery_rotated")
     }
 
+    fun consumedRequestIds(): Set<String> = synchronized(lock) {
+        JSONArray(prefs.getString("consumedRequests", "[]")!!).strings().toSet()
+    }
+
+    /** Atomic remote rotation. Replay of a consumed requestId cannot reset used codes. */
+    fun activateRemoteCodes(requestId: String, codes: List<String>): Boolean = synchronized(lock) {
+        require(requestId.isNotBlank())
+        val consumed = JSONArray(prefs.getString("consumedRequests", "[]")!!).strings()
+        if (requestId in consumed) return false
+        save(Recovery.rotate(read(), codes), "recovery_remote_rotated:$requestId")
+        val next = (consumed + requestId).takeLast(200)
+        check(prefs.edit().putString("consumedRequests", JSONArray(next).toString()).commit()) {
+            "Remote recovery request could not be marked consumed"
+        }
+        true
+    }
+
     fun authorize(code: String): RecoveryAttempt = synchronized(lock) {
         val result = Recovery.attempt(read(), code, clock())
         // Commit consumption, throttle and audit BEFORE callers can open maintenance.
