@@ -55,6 +55,13 @@ function numberField(value: Record<string, unknown>, key: string): number | null
   return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : null;
 }
 
+/** Parent-facing, allowlisted error copy; never display provider errors or raw codes. */
+export function safeAgentErrorMessage(code: string): string {
+  if (code === "confirmation_stale") return "The task or schedule changed. Request a fresh preview. No changes from this request were applied.";
+  if (code === "confirmation_rejected") return "Confirmation was not applied. Reconnect if your sign-in expired, or cancel this request and ask for a fresh preview.";
+  return "The request could not be completed. Check the current task or schedule before trying again.";
+}
+
 /** Parse untrusted socket data; invalid frames never reach a page. */
 export function parseAgentEvent(input: unknown): AgentEvent | null {
   if (!isRecord(input) || input.protocol !== AGENT_PROTOCOL_VERSION) return null;
@@ -75,10 +82,10 @@ export function parseAgentEvent(input: unknown): AgentEvent | null {
     case "thinking_start":
     case "thinking_end": return { ...base, kind };
     case "text_start":
-    case "text_end": return { ...base, kind, text: stringField(input, "text") ?? undefined };
+    case "text_end": return { ...base, kind, text: stringField(input, "text") ?? undefined, source: input.source === "domain" ? "domain" : undefined };
     case "text_delta": {
       const text = stringField(input, "text");
-      return text === null ? null : { ...base, kind, text };
+      return text === null ? null : { ...base, kind, text, source: input.source === "domain" ? "domain" : undefined };
     }
     case "tool_progress": {
       const label = stringField(input, "label");

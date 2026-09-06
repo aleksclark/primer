@@ -18,8 +18,9 @@ import (
 var (
 	ErrConfirmationRejected = errors.New("confirmation rejected")
 	ErrConfirmationExpired  = errors.New("confirmation expired")
-	// Stale is an alias for the terminal expiry case.
-	ErrConfirmationStale    = ErrConfirmationExpired
+	// A changed domain version is irrecoverably stale; expiry/credential
+	// refresh alone is not. Preserve the broader expiry classification.
+	ErrConfirmationStale    = fmt.Errorf("%w: resource version changed", ErrConfirmationExpired)
 	ErrConfirmationReplay   = errors.New("confirmation already used")
 	ErrConfirmationForeign  = errors.New("confirmation does not belong to caller")
 	ErrConfirmationAltered  = errors.New("confirmation action changed")

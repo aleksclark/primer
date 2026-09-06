@@ -20,10 +20,10 @@ import (
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/bedrock"
 	"charm.land/fantasy/providers/openrouter"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
 	"primer-tasks/internal/agent"
 	agentprotocol "primer-tasks/internal/agent/protocol"
 	tasksdb "primer-tasks/internal/db"
@@ -124,6 +124,7 @@ type wireAgentEvent struct {
 	MessageID        string    `json:"messageId,omitempty"`
 	ClientMessageID  string    `json:"clientMessageId,omitempty"`
 	Text             string    `json:"text,omitempty"`
+	Source           string    `json:"source,omitempty"`
 	Delta            string    `json:"-"`
 	Tool             string    `json:"label,omitempty"`
 	ToolStatus       string    `json:"-"`
@@ -227,13 +228,16 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Origin and CSRF are checked above using the authenticated parent session.
-	// nhooyr's default same-host check is intentionally bypassed here because
+	// The library's default same-host check is intentionally bypassed here because
 	// Stacklane and loopback are both legitimate public origins in development.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"primer-tasks.v1"}, InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "closed")
+	// Explicit policy/backpressure closes own the handshake. Cleanup must not
+	// compete with a second normal-close status. The maintained transport also
+	// tracks closeSent, so a peer reply is not echoed as another Close frame.
+	defer conn.CloseNow()
 	ctx, cancel := context.WithCancel(context.WithValue(r.Context(), agentAuthKey{}, authorization))
 	defer cancel()
 	conn.SetReadLimit(16 * 1024)

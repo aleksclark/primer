@@ -39,6 +39,9 @@ func socketFields(t reflect.Type) map[string]reflect.StructField {
 	return out
 }
 func validateSocketEvent(e wireAgentEvent) error {
+	if e.Source != "" && (e.Source != "domain" || (e.Type != "text_start" && e.Type != "text_delta" && e.Type != "text_end")) {
+		return fmt.Errorf("invalid text provenance")
+	}
 	required, ok := socketEventFields[e.Type]
 	if !ok {
 		return fmt.Errorf("unsupported event variant")

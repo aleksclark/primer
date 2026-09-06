@@ -67,7 +67,7 @@ func TestAgentProposalValidationCannotPersistInvalidOrDisallowedActions(t *testi
 	if err := json.Unmarshal([]byte(`{"kind":"retire_task","targetIds":["x"],"payload":{"expectedVersion":"bad"}}`), &action); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyAgentAction(h.ctx, phase3Services{h.s}, parent.ServiceContext{TenantID: tenantA}, action); err == nil {
+	if _, err := applyAgentAction(h.ctx, phase3Services{h.s}, parent.ServiceContext{TenantID: tenantA}, action); err == nil {
 		t.Fatal("ill-typed confirmed version accepted")
 	}
 }

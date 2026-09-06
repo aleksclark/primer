@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import {
   readDurableAgentConversation,
   safeAgentToolLabel,
+  safeAgentErrorMessage,
   writeDurableAgentConversation,
   tasksClient,
   type AgentClient,
@@ -10,6 +11,7 @@ import {
 } from "@primer-tasks/client";
 import "./index.css";
 import { Link } from "react-router-dom";
+import { latestRunStatus, pendingConfirmation, assistantText } from "./agent-state";
 
 function PageHeader({ eyebrow, title, lede, actions }: { eyebrow: string; title: string; lede?: string; actions?: ReactNode }) {
   return <header className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{lede && <p>{lede}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>;
@@ -31,26 +33,6 @@ type TranscriptItem = {
   tone?: "active" | "attention";
 };
 
-function latestRunStatus(events: readonly AgentEvent[]): string | undefined {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event.kind === "terminal") return event.status;
-    if (event.kind === "user_message") return "queued";
-    if (event.kind === "tool_progress" && event.phase === "awaiting_confirmation") return "awaiting_confirmation";
-    if (event.kind === "thinking_start" || event.kind === "text_start" || (event.kind === "tool_progress" && (event.phase === "started" || event.phase === "called"))) return "running";
-  }
-  return undefined;
-}
-
-function hasPendingConfirmation(events: readonly AgentEvent[]): boolean {
-  const preview = [...events].reverse().find((event) => event.kind === "tool_progress" && event.phase === "awaiting_confirmation" && event.confirmationId);
-  if (!preview || preview.kind !== "tool_progress" || preview.confirmationId === undefined) return false;
-  return !events.some((event) => event.sequence > preview.sequence && (
-    (event.kind === "tool_progress" && event.label === "Confirm change" && event.phase === "completed") ||
-    (event.kind === "terminal" && event.runId === preview.runId)
-  ));
-}
-
 function buildTranscript(events: readonly AgentEvent[], submitted: readonly SubmittedMessage[]): TranscriptItem[] {
   const items: TranscriptItem[] = submitted.filter(message => !events.some(event => event.kind === "user_message" && event.clientMessageId === message.clientMessageId)).map((message, index) => ({
     key: `local-${message.clientMessageId}`,
@@ -67,18 +49,18 @@ function buildTranscript(events: readonly AgentEvent[], submitted: readonly Subm
         items.push({ key: `user-${event.clientMessageId}`, sequence: event.sequence, kind: "user", text: event.text, label: "Parent command" });
         break;
       case "text_start":
-        assistant.set(streamId, { key: `assistant-${streamId}`, sequence: event.sequence, kind: "assistant", text: event.text ?? "", label: "Assistant" });
+        assistant.set(streamId, { key: `assistant-${streamId}`, sequence: event.sequence, kind: "assistant", text: assistantText("", event), label: event.source === "domain" ? "Confirmed result" : "Assistant" });
         break;
       case "text_delta": {
-        const current = assistant.get(streamId) ?? { key: `assistant-${streamId}`, sequence: event.sequence, kind: "assistant" as const, text: "", label: "Assistant" };
-        current.text += event.text;
+        const current = assistant.get(streamId) ?? { key: `assistant-${streamId}`, sequence: event.sequence, kind: "assistant" as const, text: "", label: event.source === "domain" ? "Confirmed result" : "Assistant" };
+        current.text = assistantText(current.text, event);
         assistant.set(streamId, current);
         break;
       }
       case "text_end": {
         if (event.text) {
-          const current = assistant.get(streamId) ?? { key: `assistant-${streamId}`, sequence: event.sequence, kind: "assistant" as const, text: "", label: "Assistant" };
-          current.text = event.text;
+          const current = assistant.get(streamId) ?? { key: `assistant-${streamId}`, sequence: event.sequence, kind: "assistant" as const, text: "", label: event.source === "domain" ? "Confirmed result" : "Assistant" };
+          current.text = assistantText(current.text, event);
           assistant.set(streamId, current);
         }
         break;
@@ -95,7 +77,7 @@ function buildTranscript(events: readonly AgentEvent[], submitted: readonly Subm
         items.push({ key: `retry-${event.sequence}`, sequence: event.sequence, kind: "retry", text: `Retry ${event.retry}`, label: event.retryAfterMs ? `Bounded retry · ${event.retryAfterMs} ms` : "Bounded retry" });
         break;
       case "error":
-        items.push({ key: `error-${event.sequence}`, sequence: event.sequence, kind: "error", text: "The server stopped this run before a confirmed result was produced.", label: event.code, tone: "attention" });
+        items.push({ key: `error-${event.sequence}`, sequence: event.sequence, kind: "error", text: safeAgentErrorMessage(event.code), label: event.code === "confirmation_stale" ? "Preview changed" : "Request not applied", tone: "attention" });
         break;
       case "terminal":
         items.push({ key: `terminal-${event.sequence}`, sequence: event.sequence, kind: event.status === "failed" || event.status === "disabled" ? "error" : "status", text: event.text ?? terminalCopy(event.status), label: terminalLabel(event.status), tone: event.status === "failed" || event.status === "disabled" ? "attention" : "active" });
@@ -139,13 +121,14 @@ function ConnectionState({ snapshot }: { snapshot: AgentClientSnapshot }) {
 }
 
 function AgentTranscript({ items, client, snapshot }: { items: TranscriptItem[]; client: AgentClient; snapshot: AgentClientSnapshot }) {
+  const pending = pendingConfirmation(snapshot.events);
   return <section className="agent-transcript" aria-label="Agent command record" aria-live="polite">
     {items.length === 0 ? <div className="empty"><h2>Ready for a parent command</h2><p>Ask for a bounded task or schedule inspection. Mutations are previewed and confirmed by the server before they take effect.</p></div> : items.map((item) => <div className={`agent-entry agent-entry-${item.kind}`} key={item.key}>
       <span className="system-label">{item.label ?? "Record"}</span>
       <p>{item.text || "Working…"}</p>
       {item.kind === "confirmation" && <span className="meta">The server owns the preview and requires an explicit confirmation command.</span>}
     </div>)}
-    {hasPendingConfirmation(snapshot.events) && items.some((item) => item.kind === "confirmation") && <div className="agent-confirmation-actions" aria-label="Confirmation state"><p className="meta">No mutation is implied until you confirm this single-use server preview.</p>{[...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)?.confirmationId && <button className="button" type="button" onClick={() => client.confirm([...items].reverse().find((item) => item.kind === "confirmation" && item.confirmationId)!.confirmationId!, snapshot.runId)}>Confirm preview</button>}<button className="button secondary" type="button" onClick={() => client.cancel(snapshot.runId)}>Cancel request</button></div>}
+    {pending && <div className="agent-confirmation-actions" aria-label="Confirmation state"><p className="meta">No mutation is implied until you confirm this single-use server preview.</p><button className="button" type="button" onClick={() => client.confirm(pending.confirmationId!, pending.runId)}>Confirm preview</button><button className="button secondary" type="button" onClick={() => client.cancel(pending.runId)}>Cancel request</button></div>}
   </section>;
 }
 

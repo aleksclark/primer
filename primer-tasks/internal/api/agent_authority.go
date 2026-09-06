@@ -10,7 +10,6 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/jackc/pgx/v5"
-	"primer-tasks/internal/agent"
 	"primer-tasks/internal/domain/parent"
 	"primer-tasks/internal/jobs"
 )
@@ -311,17 +310,23 @@ func (s *Server) confirmAgentAction(ctx context.Context, sc scope, cmd agentComm
 	}
 	svc := phase3Services{&local}
 	c := parent.ServiceContext{TenantID: sc.Tenant, ActorID: sc.Subject, RunID: cmd.RunID, ToolStep: step, IdempotencyKey: cmd.RunID}
-	err = applyAgentAction(ctx, svc, c, action)
+	clauses, err := applyAgentAction(ctx, svc, c, action)
+	if errors.Is(err, parent.ErrConfirmationStale) {
+		// The effect savepoint rolled back; consuming this obsolete handle and
+		// its failed terminal state now commit together. Provider/session errors
+		// take the ordinary rollback path and leave a refreshable preview intact.
+		if err = local.recordStaleConfirmation(ctx, sc, conversation, cmd.RunID, action); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
 	if err != nil {
 		return err
 	}
 	if err = local.publishAgent(ctx, sc.Tenant, conversation, wireAgentEvent{Type: "tool_progress", RunID: cmd.RunID, Tool: "Confirm change", Phase: "completed", Summary: "Confirmed change applied through the Tasks service."}); err != nil {
 		return err
 	}
-	if err = agent.NewPostgresRepository(tx).TransitionRun(ctx, sc.Tenant, cmd.RunID, agent.RunSucceeded, step, agent.Usage{}); err != nil {
-		return err
-	}
-	if err = local.publishAgent(ctx, sc.Tenant, conversation, wireAgentEvent{Type: "terminal", RunID: cmd.RunID, Status: "completed", Message: "The confirmed parent command completed."}); err != nil {
+	if err = local.recordConfirmedReceipt(ctx, sc, conversation, cmd.RunID, clauses); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -341,70 +346,4 @@ func decodeAction(action parent.Action, out any) error {
 		return err
 	}
 	return json.Unmarshal(b, out)
-}
-func applyAgentAction(ctx context.Context, svc phase3Services, c parent.ServiceContext, a parent.Action) error {
-	if len(a.TargetIDs) != 1 {
-		return parent.ErrConfirmationRejected
-	}
-	var err error
-	switch a.Kind {
-	case parent.ActionRetireTask, parent.ActionDisableSchedule:
-		var v struct {
-			ExpectedVersion int `json:"expectedVersion"`
-		}
-		if err = decodeAction(a, &v); err != nil {
-			return err
-		}
-		if a.Kind == parent.ActionRetireTask {
-			_, err = svc.RetireTask(ctx, c, a.TargetIDs[0], v.ExpectedVersion)
-		} else {
-			_, err = svc.DisableSchedule(ctx, c, a.TargetIDs[0], v.ExpectedVersion)
-		}
-	case parent.ToolDraftTask:
-		var in parent.TaskDraftInput
-		if err = decodeAction(a, &in); err == nil {
-			_, err = svc.DraftTask(ctx, c, in)
-		}
-	case parent.ToolUpdateTask:
-		var in parent.TaskUpdateInput
-		if err = decodeAction(a, &in); err == nil {
-			in.TaskID = a.TargetIDs[0]
-			_, err = svc.UpdateTask(ctx, c, in)
-		}
-	case parent.ToolPublishTask:
-		_, err = svc.PublishTask(ctx, c, a.TargetIDs[0])
-	case parent.ToolCreateSchedule:
-		var in parent.ScheduleInput
-		if err = decodeAction(a, &in); err == nil {
-			_, err = svc.CreateSchedule(ctx, c, in)
-		}
-	case parent.ToolUpdateSchedule:
-		var in parent.ScheduleUpdateInput
-		if err = decodeAction(a, &in); err == nil {
-			in.ScheduleID = a.TargetIDs[0]
-			_, err = svc.UpdateSchedule(ctx, c, in)
-		}
-	case parent.ActionCreateTaskSchedule:
-		var in struct {
-			Title, Instructions, StudentID string
-			StartAt                        time.Time
-		}
-		if err = decodeAction(a, &in); err != nil {
-			return err
-		}
-		task, e := svc.DraftTask(ctx, c, parent.TaskDraftInput{Title: in.Title, Instructions: in.Instructions})
-		if e != nil {
-			return e
-		}
-		c.ToolStep++
-		task, e = svc.PublishTask(ctx, c, task.ID)
-		if e != nil {
-			return e
-		}
-		c.ToolStep++
-		_, err = svc.CreateSchedule(ctx, c, parent.ScheduleInput{StudentID: in.StudentID, TemplateID: task.TemplateID, RevisionID: task.ID, Kind: "one_off", Timezone: "UTC", StartAt: in.StartAt})
-	default:
-		err = errors.New("unsupported action")
-	}
-	return err
 }

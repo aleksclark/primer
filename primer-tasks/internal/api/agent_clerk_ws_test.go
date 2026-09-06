@@ -16,8 +16,8 @@ import (
 	"git.clark.team/aleksclark/authstack/clerk"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	tasksdb "primer-tasks/internal/db"
 	"primer-tasks/internal/jobs"
 )

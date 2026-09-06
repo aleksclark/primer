@@ -33,5 +33,21 @@ migration `00005_clerk_parents.sql`, whose bytes remain unchanged.
 `schema.sql` is historical contract documentation, not an alternate persistence
 backend; integration tests now execute the real migration chain.
 
+Confirmed mutations publish a system-authored receipt (`source=domain`), not
+fabricated model output. Semantic text clauses and an authoritative text-end
+replacement are committed with the actual canonical effects and final message;
+there is no additional model/tool turn or artificial typing delay. A version-stale
+confirmation is durably retired with an actionable failed terminal result, while
+credential-refreshable pending previews retain their normal authority fences.
+
+Tasks directly pins the maintained `github.com/coder/websocket v1.8.14` transport.
+The retired nhooyr pin echoed a second Close frame after a peer replied to a
+server-initiated Close; first-CloseError-only Go/Node tests missed that browser
+protocol violation. Qualification now asserts exactly one Close frame followed
+by EOF after the peer reply. The existing root workspace graph selects v1.8.15;
+both the standalone direct pin and workspace graph are tested without changing
+another module's pins. Handler cleanup uses CloseNow rather than a competing
+normal-close handshake. The 64-event window and write deadlines are unchanged.
+
 Qualification uses a credential-free scripted Fantasy model and real PostgreSQL.
 It establishes runtime/API behavior, not live-model quality or readiness.

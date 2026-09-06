@@ -147,6 +147,8 @@ textarea.input { resize: vertical; }
 .agent-entry { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 16px; padding: 16px; border-bottom: 1px solid var(--rule); }
 .agent-entry:last-child { border-bottom: 0; }
 .agent-entry p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-entry > * { min-width: 0; }
+.agent-entry > .system-label { white-space: normal; overflow-wrap: anywhere; }
 .agent-entry-user { border-left: 3px solid var(--accent); }
 .agent-entry-assistant { border-left: 3px solid var(--rule-strong); }
 .agent-entry-thinking, .agent-entry-tool, .agent-entry-retry { color: var(--muted); }

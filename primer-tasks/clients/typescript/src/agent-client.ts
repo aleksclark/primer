@@ -4,6 +4,7 @@ import {
   type AgentEvent,
   type AgentMessageCommand,
   parseAgentEvent,
+  safeAgentErrorMessage,
 } from "./agent-protocol";
 
 export type AgentConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "offline";
@@ -186,11 +187,11 @@ export function createAgentClient(options: AgentClientOptions): AgentClient {
       return;
     }
     if (event.kind === "error") {
-      setConnectionState(current.connectionState, clientError("server", `The agent reported ${event.code}.`, false));
+      setConnectionState(current.connectionState, clientError("server", safeAgentErrorMessage(event.code), false));
     }
     if (event.kind === "user_message") unacknowledged.delete(event.clientMessageId);
     if (event.cursor > 0 && socket?.readyState === SOCKET_OPEN) socket.send(JSON.stringify({ protocol: AGENT_PROTOCOL_VERSION, kind: "ack", cursor: event.cursor }));
-    if (event.runId && event.cursor > current.cursor) current = { ...current, runId: event.runId };
+    if (event.runId && event.cursor > current.cursor && (event.kind === "user_message" || !current.runId)) current = { ...current, runId: event.runId };
     if (event.cursor <= current.cursor) {
       notify();
       return;

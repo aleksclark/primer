@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
 )
 
 type agentWSTest struct {
@@ -319,7 +319,7 @@ func TestPublicAgentConfirmedEffectsCancelAndReplay(t *testing.T) {
 		t.Fatal("raw reasoning in events")
 	}
 	// Issue a version-bound disabling preview, edit through the ordinary public
-	// schedule API, and reject its now-stale CAS without consuming the handle.
+	// schedule API, and durably retire its now-stale CAS handle without effects.
 	conv = h.conversation("parent-a")
 	h.run(c, conv, "stale", "Disable schedule.")
 	preview = h.until(c, "tool_progress", "awaiting_confirmation")
@@ -341,7 +341,10 @@ func TestPublicAgentConfirmedEffectsCancelAndReplay(t *testing.T) {
 	if n := h.count(`SELECT count(*) FROM task_schedules WHERE id=$1 AND enabled AND version=2`, row.ID); n != 1 {
 		t.Fatal("stale CAS overwrote newer schedule")
 	}
-	if n := h.count(`SELECT count(*) FROM parent_confirmation_previews WHERE run_id=$1 AND consumed_at IS NULL`, preview.RunID); n != 1 {
-		t.Fatal("failed effect consumed its preview")
+	if n := h.count(`SELECT count(*) FROM parent_confirmation_previews WHERE run_id=$1 AND consumed_at IS NOT NULL`, preview.RunID); n != 1 {
+		t.Fatal("obsolete preview remained actionable")
+	}
+	if n := h.count(`SELECT count(*) FROM agent_runs WHERE id=$1 AND status='failed'`, preview.RunID); n != 1 {
+		t.Fatal("stale preview lacked durable terminal state")
 	}
 }

@@ -36,7 +36,7 @@ Current base: `34a4f5c2aaddd4c37b95c3bbca5bb2dcdeef7be8`. Read-only recovered di
 | `internal/api/agent_execution_more_integration_test.go` | Recovered dirty donor bytes |
 | `internal/api/agent_full_run_integration_test.go` | Adapted to current released source |
 | `internal/api/agent_ws.go` | Adapted to current released source |
-| `internal/api/agent_ws_integration_test.go` | Recovered dirty donor bytes |
+| `internal/api/agent_ws_integration_test.go` | Adapted to current released source |
 | `internal/api/agent_ws_more_integration_test.go` | Recovered dirty donor bytes |
 | `internal/api/agent_ws_more_test.go` | Recovered dirty donor bytes |
 | `internal/api/agent_ws_test.go` | Recovered dirty donor bytes |
@@ -76,11 +76,11 @@ Current base: `34a4f5c2aaddd4c37b95c3bbca5bb2dcdeef7be8`. Read-only recovered di
 | `web/src/App.tsx` | Adapted to current released source |
 | `web/src/index.css` | Adapted to current released source |
 | `internal/api/agent_authority.go` | Adapted to current released source |
-| `internal/api/agent_authority_ws_test.go` | Recovered dirty donor bytes |
-| `internal/api/agent_backpressure_ws_test.go` | Recovered dirty donor bytes |
+| `internal/api/agent_authority_ws_test.go` | Adapted to current released source |
+| `internal/api/agent_backpressure_ws_test.go` | Adapted to current released source |
 | `internal/api/agent_completion.go` | Adapted to current released source |
 | `internal/api/agent_mutations_integration_test.go` | Adapted to current released source |
-| `internal/api/agent_rejection_integration_test.go` | Recovered dirty donor bytes |
+| `internal/api/agent_rejection_integration_test.go` | Adapted to current released source |
 | `internal/api/agent_scripted_preview.go` | Recovered dirty donor bytes |
 | `internal/api/agent_socket.go` | Adapted to current released source |
 | `internal/api/agent_test_helpers_test.go` | Recovered dirty donor bytes |
@@ -107,6 +107,16 @@ Independent review blocked `aa7baac186b129190d3885d80985b7274ff5536d`: a plain a
 Real PostgreSQL/public-WebSocket tests use a gate below net/http on the actual TCP frame write and observe PostgreSQL's blocking graph. They prove revocation-first denial by an explicit policy close, delivery-first blocking of revocation until the real frame write returns, Clerk revocation insertion after the locking statement has begun, changed conversation actor/archive, and queued private control frames. Both BFF and Clerk delivery-first session tests call the real HTTP logout routes. A deliberately stalled real write is released only by the production deadline, which also unblocks durable Clerk logout. No time-based absence assertion, fake streamed effect, or alternate persistence path is used.
 
 The pre-fix aa7 race session2897801 was stopped before edits with no completed exit receipt and is explicitly **interrupted/superseded, not PASS**, recorded at `/tmp/primer-p3-gates/aa7-race10-superseded.txt`; its log remains preserved. Focused compile, new concurrency suite and existing auth/replay/cancel/backpressure regressions passed before the focused follow-up freeze. Full Tasks/85%/client/web and one complete race x10 are required anew at that follow-up SHA. Applied005, released usability files, domain mutations and external modules are untouched by this fix.
+
+## Browser-defect remediation
+
+Independent Chrome CALL1 on aa7 found three functional failures, preserved read-only in the browser worktree's `.paseo-e2e/tasks-p3-reconciled/` exploration/JSON/screenshots: missing named completion text for confirmed changes, a malformed duplicate-Close exchange yielding1006, and overlapping error labels/still-actionable stale previews. e569's tail privacy fix was independently approved but did not address these surfaces. Its unfinished race session3225283 was explicitly stopped before browser-remediation edits and is superseded/NOT PASS; e569 full-gate85.5% evidence remains historical only.
+
+- Confirmation now commits canonical domain-result receipt clauses, a system-authored final message and `source=domain` text_start/text_delta/text_end with the effects. Nothing streams before commit; semantic operation clauses are not simulated token pacing or a fabricated provider reply. Public-WS tests prove current human names, no unconfirmed effects, complete replay without duplication, duplicate-handle idempotency and no success receipt after rollback/cancel.
+- The actual close cause was nhooyr1.8.17's unconditional echo of a received Close even after it sent Close. Its public Close CAS already makes repeated application Close calls no-ops, so the handler's old deferred1000 alone was not the cause. A real public RFC6455 probe reproduced a second opcode8 after one masked peer reply (`browser-fixes/close-rfc-before.exit1`). Node's native client was permissive, so it is not the sole oracle. Under the explicit L0 amendment, only Tasks' direct pin changes to coder/websocket1.8.14 and its eight existing import sites; standalone14 and the already-selected root-workspace15 both pass exactly-one-Close-then-EOF proof. No other module pin changed; root go.work.sum adds only the needed existing15 content checksum. Cleanup now uses CloseNow, with the maintained transport owning the handshake. Buffers/deadlines and e569 private-frame revocation guards remain.
+- Version-stale domain CAS is distinct from expiry/auth failure. An authorized stale acknowledgement commits handle invalidation plus actionable confirmation_stale/failed terminal with no effect; credential-refreshable previews remain pending. UI labels use safe parent copy and wrap inside the original ruled layout. Obsolete confirmation controls disappear on the durable terminal; late old-handle errors cannot retarget a new proposal. Fifteen Node unit tests, including the four new chat-state/replay tests, run in the existing web build; no second browser/Playwright stack is introduced.
+
+Focused receipts live under `/tmp/primer-p3-gates/browser-fixes/`. The initial raw-probe nonce-length fixture error in close-before.log is preserved separately and is not used as bug evidence. Current standalone14 close/authority regressions, normal-workspace receipt/CAS/raw-close regressions, clients/web, lint/vet and UI-state tests passed before the coherent follow-up freeze. All final full/85%/compat/client/web/race10 receipts must bind the follow-up SHA; independent Chrome re-exploration/promotion and security review remain L1-owned and mandatory. No new live browser stack, deployment, production data or provider-quality claim is made here.
 
 ## Evidence status
 

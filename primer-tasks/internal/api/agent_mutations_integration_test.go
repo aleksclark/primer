@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
-	"nhooyr.io/websocket"
 	"primer-tasks/internal/agent"
 	"primer-tasks/internal/agent/protocol"
 	"primer-tasks/internal/domain/parent"
@@ -135,6 +135,20 @@ func TestPublicAcknowledgementsUseAllP2MutationPaths(t *testing.T) {
 	h.until(c, "error", "")
 	if h.count(`SELECT count(*) FROM task_revisions WHERE template_id=$1`, templateID) != 2 {
 		t.Fatal("stale revision CAS bypassed")
+	}
+	staleTerminal := h.until(c, "terminal", "")
+	if staleTerminal.Status != "failed" || !strings.Contains(staleTerminal.Text, "task changed") {
+		t.Fatal("stale task preview did not become actionable terminal failure")
+	}
+	listedTasks := requestJSON(t, h.s.Routes(), "GET", "/tasks?view=templates&status=active", "parent-a", "")
+	var latest TaskPage2
+	if json.Unmarshal(listedTasks.Body.Bytes(), &latest) != nil || len(latest.Items) != 1 || latest.Items[0].Version != 2 {
+		t.Fatal("current editable template missing")
+	}
+	preview = stage("update_task", fmt.Sprintf(`{"id":%q,"title":"Fresh task edit","instructions":"New current revision."}`, latest.Items[0].ID))
+	confirm(preview)
+	if h.count(`SELECT count(*) FROM task_revisions WHERE template_id=$1 AND version=3 AND status='draft'`, templateID) != 1 {
+		t.Fatal("fresh task preview did not succeed")
 	}
 	// The direct ID read does not silently limit a large tenant to its first page.
 	if _, err := h.db.Exec(h.ctx, `INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local) SELECT gen_random_uuid(),$1,$2,$3,$4,'one_off','UTC',now()-interval '2 days' FROM generate_series(1,105)`, tenantA, studentID, templateID, taskID); err != nil {

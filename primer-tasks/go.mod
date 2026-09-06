@@ -4,6 +4,7 @@ go 1.26.6
 
 require (
 	charm.land/fantasy v0.41.1
+	github.com/coder/websocket v1.8.14
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-jose/go-jose/v4 v4.1.4
@@ -11,7 +12,6 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/testcontainers/testcontainers-go v0.38.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.38.0
-	nhooyr.io/websocket v1.8.17
 )
 
 require (

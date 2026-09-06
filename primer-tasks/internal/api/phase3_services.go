@@ -228,8 +228,14 @@ func (p phase3Services) UpdateTask(ctx context.Context, c parent.ServiceContext,
 			return e
 		}
 		var version int
-		if e = p.s.DB.QueryRow(ctx, `SELECT (SELECT max(r.version) FROM task_revisions r WHERE r.tenant_id=t.tenant_id AND r.template_id=t.id) FROM task_templates t WHERE t.tenant_id=$1 AND t.id=$2 AND t.status<>'retired' FOR UPDATE`, c.TenantID, row.TemplateID).Scan(&version); e != nil || in.ExpectedVersion < 1 || in.ExpectedVersion != version || row.Version != version {
-			return parent.ErrConfirmationExpired
+		if e = p.s.DB.QueryRow(ctx, `SELECT (SELECT max(r.version) FROM task_revisions r WHERE r.tenant_id=t.tenant_id AND r.template_id=t.id) FROM task_templates t WHERE t.tenant_id=$1 AND t.id=$2 AND t.status<>'retired' FOR UPDATE`, c.TenantID, row.TemplateID).Scan(&version); e != nil {
+			if errors.Is(e, pgx.ErrNoRows) {
+				return parent.ErrConfirmationStale
+			}
+			return e
+		}
+		if in.ExpectedVersion != version || row.Version != version {
+			return parent.ErrConfirmationStale
 		}
 		var requirements []Requirement
 		b, e := json.Marshal(in.Requirements)
@@ -252,7 +258,10 @@ func (p phase3Services) PublishTask(ctx context.Context, c parent.ServiceContext
 func (p phase3Services) RetireTask(ctx context.Context, c parent.ServiceContext, id string, version int) (x parent.Task, err error) {
 	err = p.mutate(ctx, c, parent.ActionRetireTask, []any{id, version}, &x, func(p phase3Services) error {
 		if e := p.s.DB.QueryRow(ctx, `SELECT r.id,r.template_id,r.version,r.title,r.instructions,r.status FROM task_revisions r JOIN task_templates t ON t.id=r.template_id AND t.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND r.id=$2 AND r.version=$3 AND (SELECT max(latest.version) FROM task_revisions latest WHERE latest.tenant_id=t.tenant_id AND latest.template_id=t.id)=$3 AND t.status<>'retired' FOR UPDATE OF t`, c.TenantID, id, version).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status); e != nil {
-			return parent.ErrConfirmationExpired
+			if errors.Is(e, pgx.ErrNoRows) {
+				return parent.ErrConfirmationStale
+			}
+			return e
 		}
 		return p.invokeP2(ctx, c, http.MethodPost, x.TemplateID, nil, nil, p.s.retireTask2)
 	})
@@ -307,10 +316,16 @@ func (p phase3Services) UpdateSchedule(ctx context.Context, c parent.ServiceCont
 	err = p.mutate(ctx, c, parent.ToolUpdateSchedule, in, &x, func(p phase3Services) error {
 		var version int
 		if e := p.s.DB.QueryRow(ctx, `SELECT version FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled FOR UPDATE`, c.TenantID, in.ScheduleID).Scan(&version); e != nil {
-			return parent.ErrServiceMissing
+			if errors.Is(e, pgx.ErrNoRows) {
+				return parent.ErrConfirmationStale
+			}
+			return e
 		}
-		if in.ExpectedVersion < 1 || version != in.ExpectedVersion {
-			return parent.ErrConfirmationExpired
+		if in.ExpectedVersion < 1 {
+			return parent.ErrInvalidInput
+		}
+		if version != in.ExpectedVersion {
+			return parent.ErrConfirmationStale
 		}
 		return p.invokeP2(ctx, c, http.MethodPatch, in.ScheduleID, scheduleInput(in.ScheduleInput), &x, p.s.updateSchedule2)
 	})
@@ -319,8 +334,14 @@ func (p phase3Services) UpdateSchedule(ctx context.Context, c parent.ServiceCont
 func (p phase3Services) DisableSchedule(ctx context.Context, c parent.ServiceContext, id string, version int) (x parent.Schedule, err error) {
 	err = p.mutate(ctx, c, parent.ActionDisableSchedule, []any{id, version}, &x, func(p phase3Services) error {
 		var current int
-		if e := p.s.DB.QueryRow(ctx, `SELECT version FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled FOR UPDATE`, c.TenantID, id).Scan(&current); e != nil || current != version {
-			return parent.ErrConfirmationExpired
+		if e := p.s.DB.QueryRow(ctx, `SELECT version FROM task_schedules WHERE tenant_id=$1 AND id=$2 AND enabled FOR UPDATE`, c.TenantID, id).Scan(&current); e != nil {
+			if errors.Is(e, pgx.ErrNoRows) {
+				return parent.ErrConfirmationStale
+			}
+			return e
+		}
+		if current != version {
+			return parent.ErrConfirmationStale
 		}
 		if e := p.invokeP2(ctx, c, http.MethodDelete, id, nil, nil, p.s.retireSchedule2); e != nil {
 			return e

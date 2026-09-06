@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"primer-tasks/internal/agent"
 	"primer-tasks/internal/domain/parent"
 )
