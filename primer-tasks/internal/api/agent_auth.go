@@ -22,6 +22,7 @@ type agentAuthKey struct{}
 // not expose exp, and Tasks must not decode provider claims to invent one.
 type agentAuthorization struct {
 	check                    func(context.Context) error
+	verifyProvider           func(context.Context) error
 	issuer, subject, session string
 	bffHash                  []byte
 	deadline                 time.Time
@@ -74,12 +75,18 @@ func (s *Server) socketAuthorization(r *http.Request, sc scope) (*agentAuthoriza
 			return nil, auth.ErrUnauthenticated
 		}
 		a := &agentAuthorization{issuer: principal.Issuer, subject: string(principal.Subject), session: principal.SessionID}
-		a.check = func(ctx context.Context) error {
+		a.verifyProvider = func(ctx context.Context) error {
 			p, err := s.ParentAuthenticator.Authenticate(ctx, auth.Credential{Token: token}, s.ParentPolicy)
 			if err != nil || p.Kind != auth.PrincipalHuman || p.Credential != auth.CredentialSession || p.Issuer != a.issuer || string(p.Subject) != a.subject || p.SessionID == "" || p.SessionID != a.session {
 				return auth.ErrUnauthenticated
 			}
-			req := r.Clone(auth.WithPrincipal(ctx, p))
+			return nil
+		}
+		a.check = func(ctx context.Context) error {
+			if err := a.verifyProvider(ctx); err != nil {
+				return err
+			}
+			req := r.Clone(auth.WithPrincipal(ctx, principal))
 			current, err := s.clerkScope(req)
 			if err != nil || current != sc {
 				return auth.ErrForbidden
@@ -113,27 +120,66 @@ func checkAgentAuthorization(ctx context.Context) error {
 	return nil // Non-Clerk internal fixtures; durable Clerk rows require it below.
 }
 
-// Shared row locks serialize role/identity revocation against domain effects.
-// Clerk logout obtains the corresponding exclusive identity lock before writing
-// its local sid revocation. No provider org/role is consulted.
+// Shared locks serialize local revocation with effects and private frame writes.
+// Lock in membership -> identity/session order, then use NEW statements for all
+// authorization predicates. A locking SELECT may have taken its MVCC snapshot
+// before waiting: notably Clerk logout locks identity but inserts a different
+// session-revocation row, so NOT EXISTS in that locking SELECT would be stale.
 func lockAgentParent(ctx context.Context, tx pgx.Tx, tenant, actor string) error {
-	if err := checkAgentAuthorization(ctx); err != nil {
+	if err := lockAgentParentRows(ctx, tx, tenant, actor); err != nil {
 		return err
 	}
-	var role string
-	if err := tx.QueryRow(ctx, `SELECT role FROM parent_memberships WHERE tenant_id=$1 AND subject_ref=$2 AND revoked_at IS NULL AND role='admin' FOR SHARE`, tenant, actor).Scan(&role); err != nil {
+	return checkLockedAgentParent(ctx, tx, tenant, actor)
+}
+
+func lockAgentParentRows(ctx context.Context, tx pgx.Tx, tenant, actor string) error {
+	var locked string
+	if err := tx.QueryRow(ctx, `SELECT subject_ref FROM parent_memberships WHERE tenant_id=$1 AND subject_ref=$2 FOR SHARE`, tenant, actor).Scan(&locked); err != nil {
 		return parent.ErrInvalidContext
 	}
-	if a, ok := ctx.Value(agentAuthKey{}).(*agentAuthorization); ok {
-		var allowed bool
+	a, hasCredential := ctx.Value(agentAuthKey{}).(*agentAuthorization)
+	if hasCredential {
 		if a.issuer != "" {
-			if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM parent_session_revocations r WHERE r.issuer=i.issuer AND r.session_id=$3) FROM parent_identities i WHERE i.issuer=$1 AND i.subject=$2 AND i.tenant_id=$4 AND i.subject_ref=$5 AND i.revoked_at IS NULL FOR SHARE OF i`, a.issuer, a.subject, a.session, tenant, actor).Scan(&allowed); err != nil || !allowed {
+			if err := tx.QueryRow(ctx, `SELECT subject FROM parent_identities WHERE issuer=$1 AND subject=$2 FOR SHARE`, a.issuer, a.subject).Scan(&locked); err != nil {
 				return parent.ErrInvalidContext
 			}
 		} else {
-			if err := tx.QueryRow(ctx, `SELECT true FROM bff_sessions WHERE handle_hash=$1 AND tenant_id=$2 AND subject_ref=$3 AND session_kind='parent' AND expires_at>now() AND revoked_at IS NULL FOR SHARE`, a.bffHash, tenant, actor).Scan(&allowed); err != nil {
+			if err := tx.QueryRow(ctx, `SELECT subject_ref FROM bff_sessions WHERE handle_hash=$1 FOR SHARE`, a.bffHash).Scan(&locked); err != nil {
 				return parent.ErrInvalidContext
 			}
+		}
+	}
+	return nil
+}
+
+// Called only while membership and identity/session row locks remain held.
+func checkLockedAgentParent(ctx context.Context, tx pgx.Tx, tenant, actor string) error {
+	a, hasCredential := ctx.Value(agentAuthKey{}).(*agentAuthorization)
+	// These statements start AFTER every authority row lock was acquired.
+	var allowed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM parent_memberships WHERE tenant_id=$1 AND subject_ref=$2 AND revoked_at IS NULL AND role='admin')`, tenant, actor).Scan(&allowed); err != nil || !allowed {
+		return parent.ErrInvalidContext
+	}
+	if hasCredential {
+		if a.issuer != "" {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM parent_identities i WHERE i.issuer=$1 AND i.subject=$2 AND i.tenant_id=$4 AND i.subject_ref=$5 AND i.revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM parent_session_revocations r WHERE r.issuer=i.issuer AND r.session_id=$3))`, a.issuer, a.subject, a.session, tenant, actor).Scan(&allowed); err != nil || !allowed {
+				return parent.ErrInvalidContext
+			}
+			if a.verifyProvider == nil {
+				return parent.ErrInvalidContext
+			}
+			// Verify expiry using Authstack, without another pooled DB connection
+			// while holding this transaction's locks. No JWT parsing in Tasks.
+			if err := a.verifyProvider(ctx); err != nil {
+				return err
+			}
+		} else {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM bff_sessions WHERE handle_hash=$1 AND tenant_id=$2 AND subject_ref=$3 AND session_kind='parent' AND expires_at>clock_timestamp() AND revoked_at IS NULL)`, a.bffHash, tenant, actor).Scan(&allowed); err != nil || !allowed {
+				return parent.ErrInvalidContext
+			}
+		}
+		if !a.deadline.IsZero() && !time.Now().Before(a.deadline) {
+			return auth.ErrUnauthenticated
 		}
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 	"primer-tasks/internal/agent"
+	"primer-tasks/internal/domain/parent"
 )
 
 const agentWriteTimeout = 2 * time.Second
@@ -27,6 +28,61 @@ func writeAgentFrame(ctx context.Context, conn *websocket.Conn, event wireAgentE
 	return wsjson.Write(writeCtx, conn, event)
 }
 
+// writePrivateAgentFrame linearizes each private frame with local revocation.
+// The transaction covers exactly ONE bounded frame, not a replay page. Locks
+// are acquired before fresh READ COMMITTED authorization statements, including
+// after waiting for a conversation or a Clerk logout's identity lock.
+func (s *Server) writePrivateAgentFrame(ctx context.Context, conn *websocket.Conn, sc scope, authorization *agentAuthorization, event wireAgentEvent) error {
+	if authorization == nil {
+		return parent.ErrInvalidContext
+	}
+	frameCtx, cancel := context.WithTimeout(context.WithValue(ctx, agentAuthKey{}, authorization), agentWriteTimeout+time.Second)
+	defer cancel()
+	tx, err := s.DB.Begin(frameCtx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(frameCtx)
+	if _, err = tx.Exec(frameCtx, `SET TRANSACTION ISOLATION LEVEL READ COMMITTED`); err != nil {
+		return err
+	}
+	if err = lockAgentParentRows(frameCtx, tx, sc.Tenant, sc.Subject); err != nil {
+		return err
+	}
+	conversation := event.ConversationID
+	if conversation == "" && event.RunID != "" {
+		if err = tx.QueryRow(frameCtx, `SELECT conversation_id FROM agent_runs WHERE tenant_id=$1 AND id=$2`, sc.Tenant, event.RunID).Scan(&conversation); err != nil {
+			return parent.ErrInvalidContext
+		}
+	}
+	if conversation != "" {
+		var locked string
+		if err = tx.QueryRow(frameCtx, `SELECT id FROM agent_conversations WHERE tenant_id=$1 AND id=$2 FOR SHARE`, sc.Tenant, conversation).Scan(&locked); err != nil {
+			return parent.ErrInvalidContext
+		}
+	}
+	// Fresh statements AFTER all potentially waiting locks. In particular, do
+	// not combine Clerk session NOT EXISTS with the identity-locking SELECT.
+	if err = checkLockedAgentParent(frameCtx, tx, sc.Tenant, sc.Subject); err != nil {
+		return err
+	}
+	if conversation != "" {
+		var allowed bool
+		if err = tx.QueryRow(frameCtx, `SELECT EXISTS(SELECT 1 FROM agent_conversations WHERE tenant_id=$1 AND id=$2 AND actor_id=$3 AND status='active')`, sc.Tenant, conversation, sc.Subject).Scan(&allowed); err != nil || !allowed {
+			return parent.ErrInvalidContext
+		}
+	}
+	return writeAgentFrame(frameCtx, conn, event)
+}
+
+func closeAgentDelivery(conn *websocket.Conn, err error) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		_ = conn.Close(websocket.StatusTryAgainLater, "bounded private delivery timed out; reconnect using durable cursor")
+		return
+	}
+	_ = conn.Close(websocket.StatusPolicyViolation, "private delivery authorization unavailable or revoked")
+}
+
 // tailAgentSocket is the sole writer after hello. Live delivery and historical
 // replay use the same cursor query, with one bounded page resident at a time.
 // Notifications only shorten latency; polling observes other server processes
@@ -41,7 +97,9 @@ func (s *Server) tailAgentSocket(ctx context.Context, conn *websocket.Conn, sc s
 		case <-sub.done:
 			return
 		case event := <-sub.queue:
-			if writeAgentFrame(ctx, conn, event) != nil {
+			// Socket-bound control frames can also contain private run data.
+			if err := s.writePrivateAgentFrame(ctx, conn, sc, sub.authorization, event); err != nil {
+				closeAgentDelivery(conn, err)
 				return
 			}
 		case <-ticker.C:
@@ -85,7 +143,7 @@ func (s *Server) tailAgentSocket(ctx context.Context, conn *websocket.Conn, sc s
 					err = errors.New("invalid durable event")
 					break
 				}
-				if err = writeAgentFrame(ctx, conn, event); err != nil {
+				if err = s.writePrivateAgentFrame(ctx, conn, sc, sub.authorization, event); err != nil {
 					break
 				}
 				sub.cursor = item.Sequence
@@ -93,6 +151,7 @@ func (s *Server) tailAgentSocket(ctx context.Context, conn *websocket.Conn, sc s
 		}
 		sub.mu.Unlock()
 		if err != nil {
+			closeAgentDelivery(conn, err)
 			return
 		}
 		if len(events) == 32 {
