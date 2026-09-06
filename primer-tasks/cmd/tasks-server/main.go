@@ -59,8 +59,9 @@ func main() {
 			os.Exit(2)
 		}
 		// Household authority is the local ledger, not Clerk organizations. A
-		// standard Clerk session has no aud; bind exact issuer + browser azp.
-		app.ParentPolicy = auth.AuthenticationPolicy{AcceptedCredentials: []auth.CredentialKind{auth.CredentialSession}, AuthorizedParties: []string{cfg.PublicOrigin}}
+		// standard Clerk session has no aud; bind exact issuer + authorized azp.
+		// PublicOrigin remains required. Extra native parties are additive.
+		app.ParentPolicy = auth.AuthenticationPolicy{AcceptedCredentials: []auth.CredentialKind{auth.CredentialSession}, AuthorizedParties: cfg.AuthorizedParties()}
 		if cfg.ClerkAudience != "" {
 			app.ParentPolicy.Audiences = []string{cfg.ClerkAudience}
 		}

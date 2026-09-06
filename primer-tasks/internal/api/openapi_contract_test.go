@@ -100,6 +100,8 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 		"/managed-devices/{id}/releases",
 		"/management-device/release-receipts",
 		"/management-device/artifacts/{id}",
+		"/management-device/releases/{id}",
+		"/managed-releases/{id}/apk",
 	} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("management contract omitted %s", path)
@@ -113,6 +115,14 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	}
 	if len(paths["/management-device/desired"].Get.Security) == 0 || paths["/management-device/desired"].Get.Security[0]["managementDevice"] == nil {
 		t.Fatal("management-device desired must declare managementDevice bearer")
+	}
+	artifact := paths["/management-device/artifacts/{id}"].Get.Responses["200"]
+	if artifact == nil || artifact.Content["application/vnd.android.package-archive"] == nil || artifact.Content["application/json"] != nil {
+		t.Fatal("artifact 200 must advertise application/vnd.android.package-archive, not JSON")
+	}
+	schema := artifact.Content["application/vnd.android.package-archive"].Schema
+	if schema == nil || schema.Type != "string" || schema.Format != "binary" {
+		t.Fatalf("artifact schema = %#v, want string format=binary", schema)
 	}
 }
 
@@ -163,8 +173,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 60 {
-		t.Fatalf("registered %d operations, want 60", operationCount)
+	if operationCount != 62 {
+		t.Fatalf("registered %d operations, want 62", operationCount)
 	}
 	for path, item := range registered {
 		if item.Get == nil && item.Post == nil && item.Patch == nil && item.Delete == nil {

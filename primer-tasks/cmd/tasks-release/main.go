@@ -20,10 +20,11 @@ import (
 func main() {
 	apk := flag.String("apk", "", "path to a signed APK")
 	channel := flag.String("channel", "stable", "release channel")
+	pauseID := flag.String("pause", "", "published release UUID to pause")
 	publisher := flag.String("publisher", os.Getenv("TASKS_RELEASE_PUBLISHER"), "publisher identity recorded in audit")
 	flag.Parse()
-	if *apk == "" {
-		fail(" -apk is required")
+	if *apk == "" && *pauseID == "" {
+		fail(" -apk or -pause is required")
 	}
 	dsn := os.Getenv("TASKS_DATABASE_URL")
 	if dsn == "" {
@@ -48,7 +49,12 @@ func main() {
 	}
 	defer pool.Close()
 	svc := &devicemanagement.Service{DB: pool, ArtifactDir: dir, ReleaseSigningKey: key}
-	rel, err := svc.PublishAPK(ctx, strings.TrimSpace(*publisher), *apk, *channel)
+	var rel devicemanagement.Release
+	if *pauseID != "" {
+		rel, err = svc.PauseRelease(ctx, strings.TrimSpace(*publisher), *pauseID)
+	} else {
+		rel, err = svc.PublishAPK(ctx, strings.TrimSpace(*publisher), *apk, *channel)
+	}
 	if err != nil {
 		fail(err.Error())
 	}

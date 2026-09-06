@@ -24,6 +24,7 @@ class TasksClient(
     private val parentCredentials: CredentialProvider? = null,
     private val deviceCredentials: CredentialProvider? = null,
     private val managementCredentials: CredentialProvider? = null,
+    maxBinaryBytes: Long = DEFAULT_MAX_BINARY_BYTES,
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
     private val api = GeneratedTasksApi(
@@ -38,6 +39,7 @@ class TasksClient(
                 AuthKind.NONE -> null
             }
         },
+        maxBinaryBytes = maxBinaryBytes,
     )
 
     suspend fun health(): Health = io { api.health() }
@@ -108,20 +110,49 @@ class TasksClient(
     suspend fun revokeManagedDevice(id: String, body: StateChangeInput): ManagedDevice =
         io { api.managedDevicesRevoke(id, body) }
 
+    suspend fun listManagedReleases(): ReleasePage = io { api.managedReleasesList() }
+    suspend fun getManagedRelease(id: String): Release = io { api.managedReleasesGet(id) }
+    suspend fun setManagedDeviceRelease(id: String, body: ReleaseTargetInput): ReleaseTarget =
+        io { api.managedDevicesReleaseTarget(id, body) }
+    suspend fun managementDeviceReleaseReceipt(body: ReleaseReceiptInput): ReleaseReceipt =
+        io { api.managementDeviceReleaseReceipt(body) }
+    suspend fun managementDeviceArtifact(id: String): ByteArray =
+        io { api.managementDeviceArtifact(id) }
+    suspend fun downloadManagedReleaseArtifact(id: String): ByteArray =
+        io { api.managementDeviceArtifact(id) }
+
     fun authHeader(token: String) = "Bearer $token"
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
 
     companion object {
+        const val DEFAULT_MAX_BINARY_BYTES: Long = 200L * 1024L * 1024L
+
         internal fun apiOrigin(raw: String): String {
-            val trimmed = raw.trim().trimEnd('/')
-            if (trimmed.isEmpty()) return "/api"
-            val uri = runCatching { URI(trimmed) }.getOrNull()
-            val path = uri?.rawPath?.trimEnd('/') ?: trimmed
-            return when {
-                path.endsWith("/tasks/api") || path.endsWith("/api") -> trimmed
-                path.endsWith("/tasks") -> "$trimmed/api"
-                else -> "$trimmed/api"
+            val trimmed = raw.trim()
+            require(trimmed.isNotEmpty()) { "Tasks API origin is required" }
+            val uri = runCatching { URI(trimmed) }.getOrElse {
+                throw IllegalArgumentException("Tasks API origin is not an absolute URL")
+            }
+            val scheme = uri.scheme?.lowercase()
+            require(scheme == "https" || scheme == "http") { "Tasks API origin must be http or https" }
+            require(!uri.host.isNullOrBlank()) { "Tasks API origin must include a host" }
+            require(uri.userInfo == null) { "Tasks API origin must not include userinfo" }
+            require(uri.rawQuery.isNullOrEmpty() && uri.query == null) { "Tasks API origin must not include a query" }
+            require(uri.fragment == null) { "Tasks API origin must not include a fragment" }
+            val path = (uri.rawPath ?: "").trimEnd('/')
+            require(path.isEmpty() || path == "/tasks" || path == "/api" || path == "/tasks/api") {
+                "Tasks API origin path must be empty, /tasks, /api, or /tasks/api"
+            }
+            val origin = buildString {
+                append(scheme).append("://").append(uri.host)
+                if (uri.port > 0) append(':').append(uri.port)
+            }
+            return when (path) {
+                "/tasks/api" -> "$origin/tasks/api"
+                "/tasks" -> "$origin/tasks/api"
+                "/api" -> "$origin/api"
+                else -> "$origin/api"
             }
         }
     }

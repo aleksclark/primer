@@ -1,6 +1,7 @@
 package devicemanagement
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -106,4 +107,34 @@ func TestTrustKeyMissing(t *testing.T) {
 	if _, err := s.trustKey(); err == nil {
 		t.Fatal("missing trust root accepted")
 	}
+}
+
+func TestEnrollmentKeyAndRecoveryEnvelope(t *testing.T) {
+	if _, err := enrollmentKeyIDFromPublic("%%%%"); err == nil {
+		t.Fatal("invalid keyset accepted")
+	}
+	pub := base64Raw("{\"primaryKeyId\":1}")
+	id, err := enrollmentKeyIDFromPublic(pub)
+	if err != nil || len(id) != 64 {
+		t.Fatalf("key id = %q %v", id, err)
+	}
+	if err := validateRecoveryEnvelope(nil); err == nil {
+		t.Fatal("nil envelope accepted")
+	}
+	if err := validateRecoveryEnvelope(&RecoveryEnvelope{KeyID: id, Alg: RecoveryHPKEAlg, Ciphertext: base64Raw("cipher-cipher-cipher-cipher")}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstalledAppsRequireSelfStudent(t *testing.T) {
+	if err := validateInstalledApps([]InstalledApp{{PackageName: StudentPackageName, SignerSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}); err == nil {
+		t.Fatal("missing self accepted")
+	}
+	if err := validateInstalledApps([]InstalledApp{{PackageName: StudentPackageName, SignerSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Self: true}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func base64Raw(v string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(v))
 }

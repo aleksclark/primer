@@ -39,7 +39,7 @@ type ArtifactOutput struct {
 	ContentType        string `header:"Content-Type"`
 	ContentDisposition string `header:"Content-Disposition"`
 	ContentLength      int64  `header:"Content-Length"`
-	Body               []byte
+	Body               []byte `contentType:"application/vnd.android.package-archive"`
 }
 
 func (s *Server) registerReleases(api huma.API) {
@@ -63,6 +63,17 @@ func (s *Server) registerReleases(api huma.API) {
 		}
 		return &ReleaseOutput{Body: out}, nil
 	})
+	register(api, huma.Operation{OperationID: "managed-releases-apk", Method: http.MethodGet, Path: "/managed-releases/{id}/apk", Errors: []int{401, 404, 503}}, func(ctx context.Context, in *ArtifactIDInput) (*ArtifactOutput, error) {
+		sc, err := s.parentManagementScope(ctx)
+		if err != nil {
+			return nil, s.wrapParentErr(err)
+		}
+		data, rel, err := s.management().ParentArtifactBytes(ctx, sc, in.ID)
+		if err != nil {
+			return nil, managementProblem(err)
+		}
+		return apkOutput(rel, data), nil
+	})
 	register(api, huma.Operation{OperationID: "managed-devices-release-target", Method: http.MethodPost, Path: "/managed-devices/{id}/releases", Errors: []int{400, 401, 404, 409, 503}}, func(ctx context.Context, in *ReleaseTargetEnvelope) (*ReleaseTargetOutput, error) {
 		sc, err := s.parentManagementScope(ctx)
 		if err != nil {
@@ -85,6 +96,17 @@ func (s *Server) registerReleases(api huma.API) {
 		}
 		return &ReleaseReceiptOutput{Body: out}, nil
 	})
+	register(api, huma.Operation{OperationID: "management-device-release", Method: http.MethodGet, Path: "/management-device/releases/{id}", Errors: []int{401, 403, 404, 503}}, func(ctx context.Context, in *ArtifactIDInput) (*ReleaseOutput, error) {
+		sc, err := s.requireManagementDevice(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out, err := s.management().DeviceRelease(ctx, sc, in.ID)
+		if err != nil {
+			return nil, managementProblem(err)
+		}
+		return &ReleaseOutput{Body: out}, nil
+	})
 	register(api, huma.Operation{OperationID: "management-device-artifact", Method: http.MethodGet, Path: "/management-device/artifacts/{id}", Errors: []int{401, 403, 404, 503}}, func(ctx context.Context, in *ArtifactIDInput) (*ArtifactOutput, error) {
 		sc, err := s.requireManagementDevice(ctx)
 		if err != nil {
@@ -94,11 +116,15 @@ func (s *Server) registerReleases(api huma.API) {
 		if err != nil {
 			return nil, managementProblem(err)
 		}
-		return &ArtifactOutput{
-			ContentType:        "application/vnd.android.package-archive",
-			ContentDisposition: `attachment; filename="` + rel.PackageName + `-` + hex.EncodeToString([]byte(rel.SHA256[:8])) + `.apk"`,
-			ContentLength:      int64(len(data)),
-			Body:               data,
-		}, nil
+		return apkOutput(rel, data), nil
 	})
+}
+
+func apkOutput(rel devicemanagement.Release, data []byte) *ArtifactOutput {
+	return &ArtifactOutput{
+		ContentType:        "application/vnd.android.package-archive",
+		ContentDisposition: `attachment; filename="` + rel.PackageName + `-` + hex.EncodeToString([]byte(rel.SHA256[:8])) + `.apk"`,
+		ContentLength:      int64(len(data)),
+		Body:               data,
+	}
 }

@@ -1,3 +1,4 @@
+// Resolve shared Android/Kotlin plugins once, including modules outside android/.
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
