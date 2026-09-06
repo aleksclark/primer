@@ -47,6 +47,17 @@ import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTheme
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        (application as ControlApp).resumedActivity = this
+    }
+
+    override fun onPause() {
+        val app = application as ControlApp
+        if (app.resumedActivity === this) app.resumedActivity = null
+        super.onPause()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as ControlApp
@@ -274,6 +285,7 @@ private fun ControlAppScreen(
                         onIssue = model::issueEnrollment,
                         onOpen = model::openDevice,
                         onInstallUpdate = model::installControlUpdate,
+                        onContinueUpdate = model::continueControlUpdate,
                         onOpenInstallSettings = {
                             model.openInstallSettings()?.let(startSettings)
                         },
