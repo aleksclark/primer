@@ -29,27 +29,27 @@ these packaging files.
 
 ## Published artifact and source binding
 
-- **IMAGE-SOURCE:** `cf51afa0ae4e9029b873bd0d6ab6aeeacf222a66`
-- **Registry selector:** `ghcr.io/aleksclark/primer-tasks@sha256:f3d235b2d211f148e351ea6c8f7489aef7d0f67e9b30a7e2a29f3437d8e97c42`
-- **Publication:** [successful run 33987383074](https://github.com/aleksclark/primer/actions/runs/33987383074), artifact `9975590710`
-- **Receipt:** [`tasks-image-receipt.json`](tasks-image-receipt.json), including the
-  actual platform/config/attestation digests, attached SLSA v1 and SPDX metadata,
-  build-input tree fingerprint and matching runtime-smoked `/app` file hashes.
+- **IMAGE-SOURCE:** `1d10fd6171234248c179e52094da0393fbdbd890`
+- **Registry selector:** `ghcr.io/aleksclark/primer-tasks@sha256:8697f84d9d0bbffe1c11490aab55b845fb252ba2e2d29f2f939975d5e5ff93e9`
+- **Publication:** [successful run 34007201476](https://github.com/aleksclark/primer/actions/runs/34007201476), artifact `9981341528`
+- **Receipt:** [`tasks-image-receipt.json`](tasks-image-receipt.json), recording the
+  source revision, immutable registry selector, trace tag, publication run and
+  artifact ID observed in the downloaded publication artifact. Detailed
+  platform/config/attestation/SBOM and runtime-smoked `/app` file metadata from
+  the previous image are intentionally not claimed for this digest.
 
 **RELEASE-MANIFEST** is the later commit containing this lock/receipt, not the
 image source. Deployment-artifact/documentation-only changes do not cause a
 build → lock → new-SHA → rebuild loop. Before referring to this image from a
-later manifest, verify that none of the receipt's `build_input_paths` differ
-from IMAGE-SOURCE. Actual image build-input changes require a new image and
-receipt; never relabel this image as built from the lock commit.
+later manifest, verify that the relevant build inputs still match
+IMAGE-SOURCE. Actual image build-input changes require a new image and receipt;
+never relabel this image as built from the lock commit.
 
-The published image was pulled by its real digest. All 11 `/app` binaries/SPA
-files and their modes match the actual production-key image used for disposable
-runtime smoke: real PostgreSQL migration/rerun (five migrations, no seeds),
-matching production JWKS startup, non-root/read-only health, parent API 401,
-mounted SPA/assets/deep links, trailing-slash redirect and clean SIGTERM. No
-real public Clerk login or bootstrap has been claimed. Attached provenance is
-BuildKit's digest-bound metadata, not a claim of independently signed provenance.
+The downloaded publication artifact verifies this source-bound immutable image
+selector and trace tag only. No platform/configuration, attestation, SBOM,
+application-file hash, runtime-smoke, real public Clerk login or bootstrap claim
+is made for this digest. Those details must be observed from this publication
+before being added to the receipt.
 
 ## Build contract
 
@@ -205,13 +205,14 @@ Terraform-only `regex`. Driver configuration must still be validated by the
 approved operator's Nomad agent; local validation did not contact a live agent.
 
 Do not report static checks or an intermediate builder stage as a completed
-production image. The receipt records the completed packaging smoke with a
-disposable Tasks PostgreSQL: migration/re-run, non-root/read-only server health,
-real SPA/assets under `/tasks/`, API 401 without parent auth, and clean SIGTERM.
-Then the approved operator verifies the real public login/bootstrap, student
-pairing and one manual task completion. Existing internal LMS health is the
-non-regression control; public `/api/v1/health` is not a Tasks endpoint and may
-still 404. No fixture issuer may be called public release evidence.
+production image. For this lock, the receipt records only the source-bound
+publication metadata observed in the downloaded artifact; it intentionally does
+not claim platform/configuration, attestation, SBOM, application-file hashes or
+runtime smoke for this digest. Then the approved operator verifies the real
+public login/bootstrap, student pairing and one manual task completion. Existing
+internal LMS health is the non-regression control; public `/api/v1/health` is not
+a Tasks endpoint and may still 404. No fixture issuer may be called public
+release evidence.
 
 Rollback the service to a prior **compatible immutable digest** via the approved
 writer. Image auto-revert does not roll back migrations or parent mappings. Keep
