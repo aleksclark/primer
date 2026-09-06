@@ -158,6 +158,14 @@ class TvRepository(private val api: TvApi) {
                 sizeBytes = body.sizeBytes,
                 sha256 = body.sha256,
                 downloadPath = body.downloadUrl,
+                packageName = body.packageName,
+                versionName = body.versionName,
+                signerSha256 = body.signerSha256,
+                minSdk = body.minSdk,
+                channel = body.channel,
+                manifestPayloadBase64 = body.manifestPayloadBase64,
+                manifestSignature = body.manifestSignature,
+                signingKeyId = body.signingKeyId,
             )
         },
     )

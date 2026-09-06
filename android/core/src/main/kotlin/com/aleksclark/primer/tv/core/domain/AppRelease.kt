@@ -13,6 +13,14 @@ data class AppRelease(
     val sizeBytes: Long,
     val sha256: String,
     val downloadPath: String,
+    val packageName: String = "",
+    val versionName: String? = null,
+    val signerSha256: String? = null,
+    val minSdk: Int? = null,
+    val channel: String? = null,
+    val manifestPayloadBase64: String? = null,
+    val manifestSignature: String? = null,
+    val signingKeyId: String? = null,
 ) {
     /**
      * Whether this release is worth installing over [installedVersionCode].
