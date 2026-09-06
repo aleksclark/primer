@@ -58,12 +58,17 @@ class DataStoreSettingsStore(private val store: DataStore<Preferences>) : Settin
         }
     }
 
+    override suspend fun setDarkTheme(darkTheme: Boolean) {
+        store.edit { it[KEY_DARK_THEME] = darkTheme }
+    }
+
     companion object {
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_TOKEN = stringPreferencesKey("token")
         private val KEY_DEVICE_ID = stringPreferencesKey("device_id")
         private val KEY_DEVICE_NAME = stringPreferencesKey("device_name")
         private val KEY_DEVICE_KIND = stringPreferencesKey("device_kind")
+        private val KEY_DARK_THEME = booleanPreferencesKey("dark_theme")
 
         /** Exposed for tests, which drive a temp-directory DataStore. */
         fun toSettings(prefs: Preferences) = DeviceSettings(
@@ -72,6 +77,7 @@ class DataStoreSettingsStore(private val store: DataStore<Preferences>) : Settin
             deviceId = prefs[KEY_DEVICE_ID],
             deviceName = prefs[KEY_DEVICE_NAME],
             deviceKind = prefs[KEY_DEVICE_KIND],
+            darkTheme = prefs[KEY_DARK_THEME] ?: true,
         )
     }
 }

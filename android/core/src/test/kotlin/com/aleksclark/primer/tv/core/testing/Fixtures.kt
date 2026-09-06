@@ -277,4 +277,8 @@ class FakeSettingsStore(initial: DeviceSettings = DeviceSettings()) : SettingsSt
     override suspend fun clearPairing() {
         state.value = state.value.copy(token = null, deviceId = null, deviceName = null, deviceKind = null)
     }
+
+    override suspend fun setDarkTheme(darkTheme: Boolean) {
+        state.value = state.value.copy(darkTheme = darkTheme)
+    }
 }

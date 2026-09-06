@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -21,6 +19,10 @@ import com.aleksclark.primer.tv.app.ui.components.SettingsInfoRow
 import com.aleksclark.primer.tv.app.ui.components.SettingsSection
 import com.aleksclark.primer.tv.app.ui.components.UpdateCard
 import com.aleksclark.primer.tv.app.ui.designsystem.PrimerTheme
+import com.aleksclark.primer.ui.PrimerButton
+import com.aleksclark.primer.ui.PrimerButtonVariant
+import com.aleksclark.primer.ui.PrimerRecordRow
+import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.tv.app.update.UpdateState
 import com.aleksclark.primer.tv.core.data.DeviceSettings
 import com.aleksclark.primer.tv.core.domain.FormFactor
@@ -33,6 +35,7 @@ import com.aleksclark.primer.tv.core.presentation.UpdateStatus
 sealed interface SettingsEvent {
     data object CheckForUpdate : SettingsEvent
     data object InstallUpdate : SettingsEvent
+    data class SetDarkTheme(val darkTheme: Boolean) : SettingsEvent
     data object Unpair : SettingsEvent
 }
 
@@ -62,6 +65,7 @@ fun SettingsScreen(
     }
     SettingsScreenContent(
         model = model,
+        darkTheme = settings.darkTheme,
         onEvent = onEvent,
         modifier = modifier,
     )
@@ -70,6 +74,7 @@ fun SettingsScreen(
 @Composable
 fun SettingsScreenContent(
     model: SettingsUiModel,
+    darkTheme: Boolean,
     onEvent: (SettingsEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -100,6 +105,18 @@ fun SettingsScreenContent(
             SettingsInfoRow(label = "Name", value = model.deviceName)
             SettingsInfoRow(label = "Kind", value = model.deviceKind)
             model.deviceId?.let { SettingsInfoRow(label = "Device ID", value = it) }
+            PrimerRecordRow(
+                label = "Appearance",
+                value = if (darkTheme) "Dark (System C default)" else "Light (full parity)",
+                status = if (darkTheme) "DARK" else "LIGHT",
+                statusTone = PrimerStatusTone.Accent,
+            )
+            PrimerButton(
+                text = if (darkTheme) "Use light theme" else "Use dark theme",
+                onClick = { onEvent(SettingsEvent.SetDarkTheme(!darkTheme)) },
+                modifier = Modifier.fillMaxWidth(),
+                variant = PrimerButtonVariant.Secondary,
+            )
         }
 
         SettingsSection(SettingsSectionId.SERVER) {
@@ -121,27 +138,15 @@ fun SettingsScreenContent(
                 style = typography.body,
                 color = colors.onSurfaceMuted,
             )
-            Button(
+            PrimerButton(
+                text = "Unpair",
                 onClick = { onEvent(SettingsEvent.Unpair) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.error,
-                    contentColor = colors.onError,
-                ),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = 0.dp,
-                    pressedElevation = 0.dp,
-                    focusedElevation = 0.dp,
-                    hoveredElevation = 0.dp,
-                    disabledElevation = 0.dp,
-                ),
-                shape = PrimerTheme.shapes.button,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = minHeight)
                     .semantics { contentDescription = "Unpair this device" },
-            ) {
-                Text("UNPAIR", style = typography.button)
-            }
+                variant = PrimerButtonVariant.Attention,
+            )
         }
     }
 }
