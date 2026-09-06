@@ -37,14 +37,22 @@ class PolicyStore(context: Context) {
     }
 
     fun lastRemoteRevision(): Long = prefs.getLong("remoteRevision", 0)
+    fun lastRemoteOrigin(): String = prefs.getString("remoteOrigin", "").orEmpty()
+    fun lastRemoteDeviceId(): String = prefs.getString("remoteDeviceId", "").orEmpty()
 
-    fun rememberRemote(revision: Long, apps: List<ApprovedApp>) {
-        check(revision >= lastRemoteRevision()) { "Stale policy revision cannot overwrite last-known policy" }
+    fun rememberRemote(revision: Long, apps: List<ApprovedApp>, origin: String = lastRemoteOrigin(), deviceId: String = lastRemoteDeviceId()) {
+        val sameEnrollment = origin == lastRemoteOrigin() && deviceId == lastRemoteDeviceId() && origin.isNotBlank()
+        if (sameEnrollment) check(revision >= lastRemoteRevision()) { "Stale policy revision cannot overwrite last-known policy" }
         val json = JSONArray(apps.map {
             JSONObject().put("package", it.packageName).put("label", it.label).put("signers", JSONArray(it.signers.toList()))
         })
         check(
-            prefs.edit().putLong("remoteRevision", revision).putString("remoteApps", json.toString()).commit(),
+            prefs.edit()
+                .putLong("remoteRevision", revision)
+                .putString("remoteApps", json.toString())
+                .putString("remoteOrigin", origin)
+                .putString("remoteDeviceId", deviceId)
+                .commit(),
         ) { "Unable to persist last-known remote policy" }
     }
 

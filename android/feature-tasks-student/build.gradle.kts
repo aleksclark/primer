@@ -35,6 +35,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":tasks-client"))
     implementation(project(":core-ui"))
+    implementation(project(":core-device-policy"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

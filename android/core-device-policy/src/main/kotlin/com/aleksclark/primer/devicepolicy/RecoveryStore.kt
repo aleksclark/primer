@@ -55,6 +55,21 @@ class RecoveryStore(context: Context) {
         true
     }
 
+    fun alreadyConsumed(requestId: String): Boolean = requestId in consumedRequestIds()
+
+    fun openRemoteLease(requestId: String, durationMs: Long): Boolean = synchronized(lock) {
+        require(requestId.isNotBlank())
+        val consumed = JSONArray(prefs.getString("consumedRequests", "[]")!!).strings()
+        if (requestId in consumed) return false
+        val now = clock()
+        save(Recovery.openLease(read(), now, durationMs), "recovery_remote_lease:$requestId")
+        val next = (consumed + requestId).takeLast(200)
+        check(prefs.edit().putString("consumedRequests", JSONArray(next).toString()).commit()) {
+            "Remote maintenance lease could not be marked consumed"
+        }
+        true
+    }
+
     fun authorize(code: String): RecoveryAttempt = synchronized(lock) {
         val result = Recovery.attempt(read(), code, clock())
         // Commit consumption, throttle and audit BEFORE callers can open maintenance.

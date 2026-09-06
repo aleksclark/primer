@@ -12,14 +12,17 @@ import com.aleksclark.primer.devicepolicy.DevicePolicyController
 import com.aleksclark.primer.devicepolicy.RecoveryStore
 import com.aleksclark.primer.student.admin.MaintenanceExpiryReceiver
 import com.aleksclark.primer.student.admin.PrimerDeviceAdminReceiver
+import com.aleksclark.primer.student.management.DataStoreManagementOutbox
 import com.aleksclark.primer.student.management.ManagementCredentialStore
 import com.aleksclark.primer.student.management.ManagementSession
 import com.aleksclark.primer.student.management.ManagementSyncResult
 import com.aleksclark.primer.student.management.ManagementSyncWorker
+import com.aleksclark.primer.student.management.RemoteReleaseSink
 import com.aleksclark.primer.student.update.InstallResultReceiver
 import com.aleksclark.primer.updates.ManagedUpdater
 import com.aleksclark.primertasks.client.CredentialProvider
 import com.aleksclark.primertasks.client.TasksClient
+import java.io.File
 
 class StudentRuntime(private val context: Context) {
     val policy = DevicePolicyController(context, ComponentName(context, PrimerDeviceAdminReceiver::class.java),
@@ -27,6 +30,7 @@ class StudentRuntime(private val context: Context) {
     val recovery by lazy { RecoveryStore(context) }
     val updater by lazy { ManagedUpdater(context, ComponentName(context, InstallResultReceiver::class.java)) }
     private val managementCredentials by lazy { ManagementCredentialStore(context) }
+    private val managementOutbox by lazy { DataStoreManagementOutbox(context) }
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
     private fun managementSession(): ManagementSession = ManagementSession(
@@ -38,11 +42,26 @@ class StudentRuntime(private val context: Context) {
         allowEmulatorOrigin = BuildConfig.DEBUG,
         deviceName = Build.MODEL,
         deviceModel = Build.MODEL,
-        stableDeviceKey = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: context.packageName,
-        applyPolicy = { revision, apps -> policy.rememberRemotePolicy(revision, apps) },
+        applyPolicy = { revision, apps, extras, origin, deviceId ->
+            policy.rememberRemotePolicy(revision, apps, extras, origin, deviceId)
+        },
         inventory = { policy.inventory() },
         applyRemoteRecovery = { requestId, codes -> applyRemoteRecovery(requestId, codes) },
+        applyRemoteLease = { requestId, durationMs -> openRemoteLease(requestId, durationMs) },
         studentVersion = updater.version.toString(),
+        outbox = managementOutbox,
+        localRestrictions = DevicePolicyController.restrictions,
+        releaseSink = object : RemoteReleaseSink {
+            override val studentVersion: Long get() = updater.version
+            override val installActive: Boolean get() = updater.active
+            override val pendingTargetId: String get() = updater.pendingTargetId
+            override val pendingTargetVersion: Long get() = updater.pendingTargetVersion
+            override fun remember(targetId: String, targetVersion: Long) = updater.rememberReleaseTarget(targetId, targetVersion)
+            override fun stagingDir(): File = File(context.cacheDir, "managed-updates")
+            override fun installVerified(file: File, size: Long): String =
+                updater.installVerifiedFile(file, size) { policy.isOwner && policy.store.configured }
+        },
+        trustRoot = BuildConfig.RELEASE_TRUST_ROOT,
         elapsedMs = { SystemClock.elapsedRealtime() },
         boot = { Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1) },
     )
@@ -81,15 +100,17 @@ class StudentRuntime(private val context: Context) {
             } else recovery.close()
             updater.reconcile()
             policy.applyLastKnownRemote()
-            runCatching { ManagementSyncWorker.schedule(context) }
+            val scheduled = ManagementSyncWorker.schedule(context)
+            if (!scheduled) policy.store.record("WorkManager catch-up could not be scheduled")
         }
         return policy.reconcile()
     }
 
-    suspend fun enrollManagement(rawQr: String): ManagementSyncResult {
+    suspend fun enrollManagement(rawQr: String, replace: Boolean = false): ManagementSyncResult {
         check(policy.isOwner && (policy.inMaintenance || !policy.store.configured)) { "Parent setup or maintenance required" }
-        val result = managementSession().enroll(rawQr)
-        runCatching { ManagementSyncWorker.schedule(context) }
+        val result = managementSession().enroll(rawQr, replace)
+        val scheduled = ManagementSyncWorker.schedule(context)
+        if (!scheduled) policy.store.record("WorkManager catch-up could not be scheduled")
         policy.applyLastKnownRemote()
         return result
     }
@@ -104,6 +125,21 @@ class StudentRuntime(private val context: Context) {
     fun applyRemoteRecovery(requestId: String, codes: List<String>): Boolean {
         check(policy.isOwner && policy.store.configured) { "Managed parent setup required" }
         return recovery.activateRemoteCodes(requestId, codes)
+    }
+
+    fun openRemoteLease(requestId: String, durationMs: Long): Boolean {
+        check(policy.isOwner && policy.store.configured) { "Managed parent setup required" }
+        check(canScheduleExpiry()) { "Exact maintenance-expiry alarms are unavailable" }
+        val opened = recovery.openRemoteLease(requestId, durationMs)
+        if (opened || recovery.alreadyConsumed(requestId)) {
+            try { scheduleExpiry() } catch (e: RuntimeException) {
+                recovery.close()
+                policy.reconcile()
+                throw IllegalStateException("Cannot schedule maintenance expiry; access remains locked", e)
+            }
+            policy.reconcile()
+        }
+        return opened || recovery.alreadyConsumed(requestId)
     }
 
     fun startHome() {

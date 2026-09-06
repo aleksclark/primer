@@ -162,6 +162,7 @@ private fun StudentScreen(
     var busy by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
     var enrollmentQr by remember { mutableStateOf("") }
+    var replaceEnrollment by remember { mutableStateOf(false) }
     var tasksNav by remember { mutableStateOf(TasksDeepLinkRouting.incoming(TasksNavState(), deepLink)) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -231,6 +232,13 @@ private fun StudentScreen(
             deepLink = pending,
             onLeave = { tasksNav = TasksDeepLinkRouting.leave(tasksNav) },
             onDeepLinkConsumed = { tasksNav = TasksDeepLinkRouting.consumed(tasksNav) },
+            pairing = runtime.policy.pairingCapability(),
+            onRequestParentCameraGrant = {
+                action {
+                    message = runtime.policy.grantCameraForPairing()
+                }
+            },
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         )
         return
     }
@@ -475,6 +483,11 @@ private fun StudentScreen(
                 onValueChange = { enrollmentQr = it },
                 label = "Management enrollment QR",
             )
+            PrimerCheckboxRow(
+                text = "Replace existing management enrollment",
+                checked = replaceEnrollment,
+                onCheckedChange = { replaceEnrollment = it },
+            )
             PrimerButton(
                 text = "Enroll management (parent only)",
                 enabled = !busy,
@@ -485,7 +498,8 @@ private fun StudentScreen(
                     scope.launch {
                         try {
                             check(runtime.policy.inMaintenance)
-                            message = runtime.enrollManagement(raw).message
+                            message = runtime.enrollManagement(raw, replaceEnrollment).message
+                            replaceEnrollment = false
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -506,6 +520,10 @@ private fun StudentScreen(
                         editing = true
                     }
                 },
+            )
+            PrimerButton(
+                text = "Grant camera for pairing",
+                onClick = { action { message = runtime.policy.grantCameraForPairing() } },
             )
             PrimerButton(text = "Open device settings", onClick = { action { runtime.policy.openSettings() } })
             Text(

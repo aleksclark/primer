@@ -18,6 +18,9 @@ data class RecoveryState(
     fun maintenanceActive(now: RecoveryClock): Boolean =
         now.boot >= 0 && leaseBoot == now.boot && now.elapsedMs < leaseUntilElapsedMs
 
+    fun remainingLeaseMs(now: RecoveryClock): Long =
+        if (maintenanceActive(now)) leaseUntilElapsedMs - now.elapsedMs else 0
+
     fun waitMs(now: RecoveryClock): Long = when {
         backoffMs == 0L -> 0
         retryBoot == now.boot -> maxOf(retryWallMs - now.wallMs, retryElapsedMs - now.elapsedMs, 0)
@@ -63,11 +66,18 @@ object Recovery {
                 retryWallMs = now.wallMs + delay, retryElapsedMs = now.elapsedMs + delay,
             ), false, "recovery_denied")
         }
-        return RecoveryAttempt(state.copy(
+        return RecoveryAttempt(openLease(state.copy(
             verifiers = state.verifiers.filterIndexed { index, _ -> index != found },
             failures = 0, backoffMs = 0, retryWallMs = 0, retryElapsedMs = 0,
-            leaseBoot = now.boot, leaseUntilElapsedMs = now.elapsedMs + LEASE_MS,
-        ), true, "maintenance_opened")
+        ), now, LEASE_MS), true, "maintenance_opened")
+    }
+
+    fun openLease(state: RecoveryState, now: RecoveryClock, durationMs: Long): RecoveryState {
+        require(now.boot >= 0) { "Boot identity unavailable; maintenance is disabled." }
+        require(durationMs > 0) { "Remote maintenance lease has expired" }
+        val requested = now.elapsedMs + durationMs
+        val until = if (state.maintenanceActive(now)) minOf(state.leaseUntilElapsedMs, requested) else requested
+        return state.copy(leaseBoot = now.boot, leaseUntilElapsedMs = until)
     }
 
     private fun normalize(code: String) = code.replace("-", "").trim().uppercase()

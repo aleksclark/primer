@@ -15,7 +15,6 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
-/** Local parent-selected APK qualification path. Remote release transport comes later. */
 class ManagedUpdater(
     private val context: Context,
     private val resultReceiver: ComponentName,
@@ -24,7 +23,9 @@ class ManagedUpdater(
     private val installer = context.packageManager.packageInstaller
     val status: String get() = prefs.getString("status", "No update attempted")!!
     val version: Long get() = installed().longVersionCode
-    private val active: Boolean get() = prefs.getBoolean("active", false)
+    val active: Boolean get() = prefs.getBoolean("active", false)
+    val pendingTargetId: String get() = prefs.getString("releaseTargetId", "").orEmpty()
+    val pendingTargetVersion: Long get() = prefs.getLong("releaseTargetVersion", 0)
 
     @Suppress("DEPRECATION")
     private fun installed(): PackageInfo = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
@@ -51,38 +52,7 @@ class ManagedUpdater(
             }
             if (verified.exists()) check(verified.delete()) { "Cannot clear previous staging file" }
             check(partial.renameTo(verified)) { "Cannot prepare verified APK" }
-            @Suppress("DEPRECATION")
-            val archive = context.packageManager.getPackageArchiveInfo(verified.path, PackageManager.GET_SIGNING_CERTIFICATES)
-                ?: error("Invalid Android APK archive")
-            val nativeAbis = ZipFile(verified).use { zip ->
-                zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }
-                    .map { it.split('/')[1] }.toSet()
-            }
-            ArchiveChecks.validateArchive(identity(installed(), emptySet()), identity(archive, nativeAbis),
-                Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toSet())
-            check(authorized()) { "Parent maintenance expired before installation" }
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-                setAppPackageName(context.packageName)
-                setSize(size)
-                setInstallReason(PackageManager.INSTALL_REASON_POLICY)
-                if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE)
-                if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-            }
-            sessionId = installer.createSession(params)
-            installer.openSession(sessionId).use { session ->
-                verified.inputStream().use { input ->
-                    session.openWrite("base.apk", 0, size).use { output -> input.copyTo(output); session.fsync(output) }
-                }
-                check(authorized()) { "Parent maintenance expired before commit" }
-                check(prefs.edit().putBoolean("active", true).putInt("session", sessionId)
-                    .putLong("target", archive.longVersionCode).putString("status", "Installing version ${archive.longVersionCode}")
-                    .commit()) { "Could not persist install attempt" }
-                val intent = Intent(ACTION_RESULT).setComponent(resultReceiver)
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-                val callback = PendingIntent.getBroadcast(context, sessionId, intent, flags)
-                session.commit(callback.intentSender)
-            }
+            commitVerified(verified, size, authorized)
             status
         } catch (e: Exception) {
             sessionId?.let { id -> runCatching { installer.abandonSession(id) } }
@@ -91,6 +61,66 @@ class ManagedUpdater(
             record("Update failed: $reason", active = false)
             status
         } finally { partial.delete(); verified.delete() }
+    }
+
+    fun rememberReleaseTarget(targetId: String, targetVersion: Long) {
+        check(prefs.edit().putString("releaseTargetId", targetId).putLong("releaseTargetVersion", targetVersion).commit()) {
+            "Cannot persist release target"
+        }
+    }
+
+    fun installVerifiedFile(verified: File, size: Long, authorized: () -> Boolean): String = synchronized(lock) {
+        check(authorized()) { "Device ownership required" }
+        check(context.getSystemService(DevicePolicyManager::class.java).isDeviceOwnerApp(context.packageName)) {
+            "Silent install requires Student device ownership"
+        }
+        reconcile()
+        check(!active) { "An installation is already in progress" }
+        try {
+            commitVerified(verified, size, authorized)
+            status
+        } catch (e: Exception) {
+            val reason = if (e is ArchiveRejected) e.message else e.javaClass.simpleName
+            record("Update failed: $reason", active = false)
+            status
+        } finally {
+            verified.delete()
+        }
+    }
+
+    private fun commitVerified(verified: File, size: Long, authorized: () -> Boolean) {
+        @Suppress("DEPRECATION")
+        val archive = context.packageManager.getPackageArchiveInfo(verified.path, PackageManager.GET_SIGNING_CERTIFICATES)
+            ?: error("Invalid Android APK archive")
+        val nativeAbis = ZipFile(verified).use { zip ->
+            zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }
+                .map { it.split('/')[1] }.toSet()
+        }
+        ArchiveChecks.validateArchive(identity(installed(), emptySet()), identity(archive, nativeAbis),
+            Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toSet())
+        check(authorized()) { "Authorization expired before installation" }
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setAppPackageName(context.packageName)
+            setSize(size)
+            setInstallReason(PackageManager.INSTALL_REASON_POLICY)
+            if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE)
+            if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+        }
+        val sessionId = installer.createSession(params)
+        installer.openSession(sessionId).use { session ->
+            verified.inputStream().use { input ->
+                session.openWrite("base.apk", 0, size).use { output -> input.copyTo(output); session.fsync(output) }
+            }
+            check(authorized()) { "Authorization expired before commit" }
+            check(prefs.edit().putBoolean("active", true).putInt("session", sessionId)
+                .putLong("target", archive.longVersionCode).putString("status", "Installing version ${archive.longVersionCode}")
+                .commit()) { "Could not persist install attempt" }
+            val intent = Intent(ACTION_RESULT).setComponent(resultReceiver)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val callback = PendingIntent.getBroadcast(context, sessionId, intent, flags)
+            session.commit(callback.intentSender)
+        }
     }
 
     fun handleResult(intent: Intent) = synchronized(lock) {

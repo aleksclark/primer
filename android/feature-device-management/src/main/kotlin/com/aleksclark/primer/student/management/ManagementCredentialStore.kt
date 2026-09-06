@@ -23,6 +23,7 @@ data class ManagementBinding(
     val origin: String,
     val deviceId: String,
     val keyId: String,
+    val replace: Boolean = false,
 )
 
 interface ManagementSecrets {
@@ -31,6 +32,8 @@ interface ManagementSecrets {
     suspend fun publicEnrollment(): Pair<String, String>
     suspend fun privateHandle(): KeysetHandle?
     suspend fun clearTokenOnly()
+    suspend fun stableDeviceKey(): String
+    suspend fun expectedToken(): String?
 }
 
 class ManagementCredentialStore(private val context: Context) : ManagementSecrets {
@@ -39,6 +42,7 @@ class ManagementCredentialStore(private val context: Context) : ManagementSecret
     private val deviceIdKey = stringPreferencesKey("device_id")
     private val keyIdKey = stringPreferencesKey("key_id")
     private val privateKeysetKey = stringPreferencesKey("encrypted_private_keyset")
+    private val stableKey = stringPreferencesKey("stable_device_key")
     private val wrapping = AndroidKeystoreKeyset()
 
     override suspend fun save(binding: ManagementBinding) {
@@ -85,6 +89,16 @@ class ManagementCredentialStore(private val context: Context) : ManagementSecret
         context.managementDataStore.edit {
             it.remove(tokenKey)
         }
+    }
+
+    override suspend fun expectedToken(): String? = read()?.token
+
+    override suspend fun stableDeviceKey(): String {
+        val existing = context.managementDataStore.data.first()[stableKey]
+        if (!existing.isNullOrBlank()) return existing
+        val generated = java.util.UUID.randomUUID().toString()
+        context.managementDataStore.edit { it[stableKey] = generated }
+        return generated
     }
 
     private fun encrypt(value: String): String {
