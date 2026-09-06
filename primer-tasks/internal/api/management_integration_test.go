@@ -12,10 +12,15 @@ import (
 	"primer-tasks/internal/devicemanagement"
 )
 
+const (
+	studentSigner = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	tvSigner      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
+
 func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	pool := integrationPool(t)
 	alice, bob := seedIntegration(t, pool)
-	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("management-secret"), IssuerSecret: []byte("management-issuer")})
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("management-secret"), IssuerSecret: []byte("management-issuer"), PublicOrigin: "https://tasks.test"})
 	h := s.Routes()
 
 	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/enrollments", "", `{"label":"A16"}`); rec.Code != http.StatusUnauthorized {
@@ -29,6 +34,9 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	var enrollmentA devicemanagement.Enrollment
 	if err := json.Unmarshal(issueA.Body.Bytes(), &enrollmentA); err != nil || enrollmentA.Code == "" {
 		t.Fatalf("enrollment A body: %s", issueA.Body.String())
+	}
+	if enrollmentA.BaseURL != "https://tasks.test" || !strings.Contains(enrollmentA.QRPayload, enrollmentA.BaseURL+"/management-device/enroll#") || enrollmentA.ResponseLossPolicy != "fresh-parent-enrollment" {
+		t.Fatalf("enrollment QR/baseURL contract: %+v", enrollmentA)
 	}
 
 	pairRec := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
@@ -64,6 +72,13 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	if rec := requestJSON(t, h, http.MethodGet, "/management-device/desired", "parent-a", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("parent cookie accepted as management device = %d %s", rec.Code, rec.Body.String())
 	}
+	raw := httptest.NewRequest(http.MethodGet, "/management-device/desired", nil)
+	raw.Header.Set("Authorization", enrolled.Token)
+	rawRec := httptest.NewRecorder()
+	h.ServeHTTP(rawRec, raw)
+	if rawRec.Code != http.StatusUnauthorized {
+		t.Fatalf("raw token without Bearer scheme accepted = %d %s", rawRec.Code, rawRec.Body.String())
+	}
 
 	listA := requestJSON(t, h, http.MethodGet, "/managed-devices", "parent-a", "")
 	if listA.Code != http.StatusOK || !strings.Contains(listA.Body.String(), enrolled.Device.ID) {
@@ -77,14 +92,17 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 		t.Fatalf("cross-household get = %d %s", rec.Code, rec.Body.String())
 	}
 
-	unsafe := `{"baseRevision":0,"policy":{"approvedApps":[{"packageName":"com.example.other","signerSha256":"abc"}]}}`
+	unsafe := `{"baseRevision":0,"policy":{"approvedApps":[{"packageName":"com.example.other","signerSha256":"` + studentSigner + `"}]}}`
 	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/policy", "parent-a", unsafe); rec.Code != http.StatusBadRequest {
 		t.Fatalf("policy without Student = %d %s", rec.Code, rec.Body.String())
 	}
-	policyBody := `{"baseRevision":0,"policy":{"approvedApps":[{"packageName":"com.aleksclark.primer.student","label":"Student","signerSha256":"deadbeef","required":true}]}}`
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/policy", "parent-a", `{"baseRevision":0,"policy":{"approvedApps":[{"packageName":"com.aleksclark.primer.student","signerSha256":"deadbeef","required":true}]}}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("short signer accepted = %d %s", rec.Code, rec.Body.String())
+	}
+	policyBody := `{"baseRevision":0,"policy":{"approvedApps":[{"packageName":"com.aleksclark.primer.student","label":"Student","signerSha256":"` + studentSigner + `","required":true}],"lockTask":{"enabled":true,"packages":["com.aleksclark.primer.student"]},"maintenance":{"allowParentUnlock":true}}}`
 	policy := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/policy", "parent-a", policyBody)
 	if policy.Code != http.StatusOK {
-		t.Fatalf("policy v1 = %d %s", policy.Code, policy.Body.String())
+		t.Fatalf("policy v1 = %d %s body=%s", policy.Code, policy.Body.String(), policyBody)
 	}
 	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/policy", "parent-a", policyBody); rec.Code != http.StatusConflict {
 		t.Fatalf("stale CAS = %d %s", rec.Code, rec.Body.String())
@@ -92,7 +110,7 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 
 	var wg sync.WaitGroup
 	codes := make(chan int, 2)
-	next := `{"baseRevision":1,"policy":{"approvedApps":[{"packageName":"com.aleksclark.primer.student","signerSha256":"deadbeef","required":true},{"packageName":"com.aleksclark.primer.tv","signerSha256":"cafebabe"}]}}`
+	next := `{"baseRevision":1,"policy":{"approvedApps":[{"packageName":"com.aleksclark.primer.student","signerSha256":"` + studentSigner + `","required":true},{"packageName":"com.aleksclark.primer.tv","signerSha256":"` + tvSigner + `"}],"lockTask":{"enabled":true,"packages":["com.aleksclark.primer.student"]},"maintenance":{"allowParentUnlock":true}}}`
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func() {
@@ -142,12 +160,19 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	if replay.Code != http.StatusOK {
 		t.Fatalf("idempotent report replay = %d %s", replay.Code, replay.Body.String())
 	}
+	changed := requestBearerJSON(t, h, http.MethodPost, "/management-device/reports", enrolled.Token, `{"reportId":"`+reportID+`","policyRevision":2,"status":"failed"}`)
+	if changed.Code != http.StatusConflict {
+		t.Fatalf("changed report payload = %d %s", changed.Code, changed.Body.String())
+	}
 	got = requestJSON(t, h, http.MethodGet, "/managed-devices/"+enrolled.Device.ID, "parent-a", "")
-	if !strings.Contains(got.Body.String(), `"appliedRevision":2`) {
-		t.Fatalf("applied revision missing: %s", got.Body.String())
+	if !strings.Contains(got.Body.String(), `"appliedRevision":2`) || !strings.Contains(got.Body.String(), `"installedStudentVersion":"1"`) {
+		t.Fatalf("parent latest report missing: %s", got.Body.String())
 	}
 
-	recovery := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"rotate_recovery_code","materialCiphertext":"staged-new-code"}`)
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"rotate_recovery_code","envelope":{"keyId":"device-key-1","alg":"X25519-ChaCha20Poly1305","nonce":"n1n1n1n1n1n1n1n1","ciphertext":"cipher-cipher-cipher"}}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("rotation without parent ack = %d %s", rec.Code, rec.Body.String())
+	}
+	recovery := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"maintenance_lease","deliveryExpiresMinutes":15,"leaseExpiresMinutes":10}`)
 	if recovery.Code != http.StatusCreated || !strings.Contains(recovery.Body.String(), `"status":"pending"`) {
 		t.Fatalf("recovery intent = %d %s", recovery.Code, recovery.Body.String())
 	}
@@ -155,12 +180,21 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	if err := json.Unmarshal(recovery.Body.Bytes(), &intent); err != nil {
 		t.Fatal(err)
 	}
-	confirm := requestBearerJSON(t, h, http.MethodPost, "/management-device/recovery/"+intent.ID+"/confirm", enrolled.Token, `{"reportId":"`+uuid.NewString()+`"}`)
+	confirmID := uuid.NewString()
+	confirm := requestBearerJSON(t, h, http.MethodPost, "/management-device/recovery/"+intent.ID+"/confirm", enrolled.Token, `{"reportId":"`+confirmID+`"}`)
 	if confirm.Code != http.StatusOK {
 		t.Fatalf("confirm recovery = %d %s", confirm.Code, confirm.Body.String())
 	}
+	replayConfirm := requestBearerJSON(t, h, http.MethodPost, "/management-device/recovery/"+intent.ID+"/confirm", enrolled.Token, `{"reportId":"`+confirmID+`"}`)
+	if replayConfirm.Code != http.StatusOK {
+		t.Fatalf("idempotent confirm = %d %s", replayConfirm.Code, replayConfirm.Body.String())
+	}
+	changedConfirm := requestBearerJSON(t, h, http.MethodPost, "/management-device/recovery/"+intent.ID+"/confirm", enrolled.Token, `{"reportId":"`+uuid.NewString()+`"}`)
+	if changedConfirm.Code != http.StatusConflict {
+		t.Fatalf("changed confirm = %d %s", changedConfirm.Code, changedConfirm.Body.String())
+	}
 
-	restarted := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("management-secret"), IssuerSecret: []byte("management-issuer")}).Routes()
+	restarted := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("management-secret"), IssuerSecret: []byte("management-issuer"), PublicOrigin: "https://tasks.test"}).Routes()
 	afterRestart := requestBearer(t, restarted, http.MethodGet, "/management-device/desired", enrolled.Token)
 	if afterRestart.Code != http.StatusOK || !strings.Contains(afterRestart.Body.String(), `"desiredRevision":2`) {
 		t.Fatalf("restart durability = %d %s", afterRestart.Code, afterRestart.Body.String())
@@ -175,8 +209,14 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/revoke", "parent-a", `{"reason":"lost"}`); rec.Code != http.StatusOK {
 		t.Fatalf("revoke management = %d %s", rec.Code, rec.Body.String())
 	}
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"maintenance_lease"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("recovery on revoked device = %d %s", rec.Code, rec.Body.String())
+	}
 	if rec := requestBearer(t, h, http.MethodGet, "/management-device/desired", enrolled.Token); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked management credential still valid = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/enrollments/"+enrollmentA.ID+"/abandon", "parent-a", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("abandon consumed enrollment = %d %s", rec.Code, rec.Body.String())
 	}
 
 	_ = bob

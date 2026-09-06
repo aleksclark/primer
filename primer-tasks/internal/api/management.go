@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -61,12 +65,38 @@ func (s *Server) requireManagementDevice(ctx context.Context) (devicemanagement.
 		return devicemanagement.DeviceScope{}, managementProblem(devicemanagement.ErrUnavailable)
 	}
 	req, _ := humachiRequest(hctx)
-	token := strings.TrimSpace(strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer "))
+	token, err := bearerToken(req.Header.Get("Authorization"))
+	if err != nil {
+		return devicemanagement.DeviceScope{}, managementProblem(err)
+	}
 	sc, err := s.management().AuthenticateDevice(req.Context(), token)
 	if err != nil {
 		return devicemanagement.DeviceScope{}, managementProblem(err)
 	}
 	return sc, nil
+}
+
+func loadReleaseSigningKey() ed25519.PrivateKey {
+	raw := strings.TrimSpace(os.Getenv("TASKS_RELEASE_SIGNING_KEY"))
+	if raw == "" {
+		return nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(b) != ed25519.PrivateKeySize {
+		b, err = hex.DecodeString(raw)
+		if err != nil || len(b) != ed25519.PrivateKeySize {
+			return nil
+		}
+	}
+	return ed25519.PrivateKey(b)
+}
+
+func bearerToken(header string) (string, error) {
+	typ, token, ok := strings.Cut(strings.TrimSpace(header), " ")
+	if !ok || !strings.EqualFold(typ, "Bearer") || strings.TrimSpace(token) == "" || strings.Contains(strings.TrimSpace(token), " ") {
+		return "", devicemanagement.ErrUnauthorized
+	}
+	return strings.TrimSpace(token), nil
 }
 
 func (s *Server) wrapParentErr(err error) error {

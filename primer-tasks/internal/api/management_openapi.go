@@ -15,7 +15,7 @@ type EnrollInputEnvelope struct {
 	Body devicemanagement.EnrollInput `required:"true"`
 }
 type ManagedDeviceIDInput struct {
-	ID string `path:"id"`
+	ID string `path:"id" format:"uuid"`
 }
 type PolicyUpdateEnvelope struct {
 	ID   string                             `path:"id"`
@@ -70,8 +70,12 @@ type RecoveryIntentOutput struct {
 	Body devicemanagement.RecoveryIntent
 }
 
+type EnrollmentIDInput struct {
+	ID string `path:"id" format:"uuid"`
+}
+
 func (s *Server) registerManagement(api huma.API) {
-	register(api, huma.Operation{OperationID: "managed-devices-enrollments-create", Method: http.MethodPost, Path: "/managed-devices/enrollments", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 503}, SkipValidateBody: true}, func(ctx context.Context, in *IssueEnrollmentInput) (*EnrollmentOutput, error) {
+	register(api, huma.Operation{OperationID: "managed-devices-enrollments-create", Method: http.MethodPost, Path: "/managed-devices/enrollments", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 503}}, func(ctx context.Context, in *IssueEnrollmentInput) (*EnrollmentOutput, error) {
 		sc, err := s.parentManagementScope(ctx)
 		if err != nil {
 			return nil, s.wrapParentErr(err)
@@ -118,7 +122,17 @@ func (s *Server) registerManagement(api huma.API) {
 		}
 		return &DesiredStateOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "managed-devices-policy", Method: http.MethodPost, Path: "/managed-devices/{id}/policy", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *PolicyUpdateEnvelope) (*PolicyRevisionOutput, error) {
+	register(api, huma.Operation{OperationID: "managed-devices-enrollments-abandon", Method: http.MethodPost, Path: "/managed-devices/enrollments/{id}/abandon", DefaultStatus: http.StatusNoContent, Errors: []int{401, 404, 500}}, func(ctx context.Context, in *EnrollmentIDInput) (*NoContentOutput, error) {
+		sc, err := s.parentManagementScope(ctx)
+		if err != nil {
+			return nil, s.wrapParentErr(err)
+		}
+		if err = s.management().AbandonEnrollment(ctx, sc, in.ID); err != nil {
+			return nil, managementProblem(err)
+		}
+		return &NoContentOutput{}, nil
+	})
+	register(api, huma.Operation{OperationID: "managed-devices-policy", Method: http.MethodPost, Path: "/managed-devices/{id}/policy", Errors: []int{400, 401, 404, 409, 500}}, func(ctx context.Context, in *PolicyUpdateEnvelope) (*PolicyRevisionOutput, error) {
 		sc, err := s.parentManagementScope(ctx)
 		if err != nil {
 			return nil, s.wrapParentErr(err)
@@ -129,7 +143,7 @@ func (s *Server) registerManagement(api huma.API) {
 		}
 		return &PolicyRevisionOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "managed-devices-recovery", Method: http.MethodPost, Path: "/managed-devices/{id}/recovery", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 404, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *RecoveryIntentEnvelope) (*RecoveryIntentOutput, error) {
+	register(api, huma.Operation{OperationID: "managed-devices-recovery", Method: http.MethodPost, Path: "/managed-devices/{id}/recovery", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 404, 500}}, func(ctx context.Context, in *RecoveryIntentEnvelope) (*RecoveryIntentOutput, error) {
 		sc, err := s.parentManagementScope(ctx)
 		if err != nil {
 			return nil, s.wrapParentErr(err)
@@ -140,14 +154,14 @@ func (s *Server) registerManagement(api huma.API) {
 		}
 		return &RecoveryIntentOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "managed-devices-quarantine", Method: http.MethodPost, Path: "/managed-devices/{id}/quarantine", Errors: []int{401, 404, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *StateChangeEnvelope) (*ManagedDeviceOutput, error) {
+	register(api, huma.Operation{OperationID: "managed-devices-quarantine", Method: http.MethodPost, Path: "/managed-devices/{id}/quarantine", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, in *StateChangeEnvelope) (*ManagedDeviceOutput, error) {
 		return s.changeManagedState(ctx, in.ID, "quarantined", in.Body.Reason)
 	})
-	register(api, huma.Operation{OperationID: "managed-devices-revoke", Method: http.MethodPost, Path: "/managed-devices/{id}/revoke", Errors: []int{401, 404, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *StateChangeEnvelope) (*ManagedDeviceOutput, error) {
+	register(api, huma.Operation{OperationID: "managed-devices-revoke", Method: http.MethodPost, Path: "/managed-devices/{id}/revoke", Errors: []int{401, 404, 409, 500}}, func(ctx context.Context, in *StateChangeEnvelope) (*ManagedDeviceOutput, error) {
 		return s.changeManagedState(ctx, in.ID, "revoked", in.Body.Reason)
 	})
 
-	register(api, huma.Operation{OperationID: "management-device-enroll", Method: http.MethodPost, Path: "/management-device/enroll", DefaultStatus: http.StatusCreated, Errors: []int{400, 410, 503}, SkipValidateBody: true}, func(ctx context.Context, in *EnrollInputEnvelope) (*EnrollOutput, error) {
+	register(api, huma.Operation{OperationID: "management-device-enroll", Method: http.MethodPost, Path: "/management-device/enroll", DefaultStatus: http.StatusCreated, Errors: []int{400, 410, 503}}, func(ctx context.Context, in *EnrollInputEnvelope) (*EnrollOutput, error) {
 		out, err := s.management().Enroll(ctx, in.Body)
 		if err != nil {
 			return nil, managementProblem(err)
@@ -165,7 +179,7 @@ func (s *Server) registerManagement(api huma.API) {
 		}
 		return &DesiredStateOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "management-device-report", Method: http.MethodPost, Path: "/management-device/reports", Errors: []int{400, 401, 409, 503}, SkipValidateBody: true}, func(ctx context.Context, in *PolicyReportEnvelope) (*PolicyReportOutput, error) {
+	register(api, huma.Operation{OperationID: "management-device-report", Method: http.MethodPost, Path: "/management-device/reports", Errors: []int{400, 401, 409, 503}}, func(ctx context.Context, in *PolicyReportEnvelope) (*PolicyReportOutput, error) {
 		sc, err := s.requireManagementDevice(ctx)
 		if err != nil {
 			return nil, err
@@ -176,7 +190,7 @@ func (s *Server) registerManagement(api huma.API) {
 		}
 		return &PolicyReportOutput{Body: out}, nil
 	})
-	register(api, huma.Operation{OperationID: "management-device-recovery-confirm", Method: http.MethodPost, Path: "/management-device/recovery/{id}/confirm", Errors: []int{400, 401, 404, 503}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *RecoveryConfirmEnvelope) (*StatusOutput, error) {
+	register(api, huma.Operation{OperationID: "management-device-recovery-confirm", Method: http.MethodPost, Path: "/management-device/recovery/{id}/confirm", Errors: []int{400, 401, 404, 409, 503}}, func(ctx context.Context, in *RecoveryConfirmEnvelope) (*StatusOutput, error) {
 		sc, err := s.requireManagementDevice(ctx)
 		if err != nil {
 			return nil, err

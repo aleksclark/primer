@@ -48,6 +48,10 @@ func main() {
 	}
 	app := api.New(pool, cfg.Env)
 	app.BasePath = cfg.BasePath
+	if app.Management != nil {
+		app.Management.BasePath = cfg.BasePath
+		app.Management.PublicOrigin = cfg.PublicOrigin
+	}
 	if cfg.AuthMode == "clerk" {
 		app.ParentAuthenticator, err = parentauth.New(ctx, cfg.ClerkIssuer, cfg.ClerkJWKSURL)
 		if err != nil {

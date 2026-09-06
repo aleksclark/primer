@@ -201,7 +201,11 @@ func init() {
 type humaContextKey struct{}
 
 func register[I, O any](api huma.API, op huma.Operation, handler func(context.Context, *I) (*O, error)) {
-	if op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") && !strings.HasPrefix(op.Path, "/management-device/") {
+	switch {
+	case strings.HasPrefix(op.Path, "/management-device/") && op.Path != "/management-device/enroll":
+		op.Security = []map[string][]string{{"managementDevice": {}}}
+		op.Errors = append(op.Errors, 401, 403, 503)
+	case op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") && op.Path != "/management-device/enroll":
 		op.Security = []map[string][]string{{"parentSession": {}}}
 		op.Errors = append(op.Errors, 401, 403, 503)
 	}
@@ -234,7 +238,10 @@ func (s *Server) humaAPI() huma.API {
 	config.DocsPath = ""
 	config.SchemasPath = ""
 	config.OpenAPIPath = "/openapi"
-	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{"parentSession": {Type: "http", Scheme: "bearer", BearerFormat: "JWT", Description: "Clerk session JWT; local household membership is required. Student credentials are separate."}}
+	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"parentSession":    {Type: "http", Scheme: "bearer", BearerFormat: "JWT", Description: "Clerk session JWT; local household membership is required. Student credentials are separate."},
+		"managementDevice": {Type: "http", Scheme: "bearer", BearerFormat: "opaque", Description: "Hashed management-device credential. Never accepted by Tasks /device or parent routes."},
+	}
 	api := humachi.New(r, config)
 	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
 		next(huma.WithValue(ctx, humaContextKey{}, ctx))
