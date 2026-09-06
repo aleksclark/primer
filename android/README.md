@@ -46,40 +46,52 @@ PRIMER_API_ORIGIN=https://api.primerlms.com/tasks/api \
 External Clerk setup is parent-owned. This tree does not claim live JWT azp or
 physical acceptance. Needed configuration, without changing canonical auth here:
 
-- Register Android application ID `com.aleksclark.primer.control` in the Clerk dashboard.
 - Publishable key only in the APK (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secrets stay out of the binary.
-- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control uses official password `SignIn.create` then `Clerk.setActive` of the **new** session ID only.
+- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control currently implements official `SignIn.create` password then `Clerk.setActive` of the **new** session ID only. If the live instance requires another factor, extend that native flow — do not weaken server policy.
 - Declared 0.1.31 coordinates (POM, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0, coroutines 1.10.2, androidx.browser 1.9.0. Those artifacts ship Kotlin 2.2 metadata. `:core-parent-identity` and `:app-control` force stdlib 2.0.21 / serialization 1.7.3 / coroutines 1.9.0 / browser 1.8.0 so Kotlin 2.0.21 / AGP 8.7.3 can compile. Compile success is not runtime-compatibility evidence. There is no root-wide force and no `-Xskip-metadata-version-check`. Unit tests do not initialize a live Clerk backend.
-- Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set; live Clerk JWT azp is still not claimed.
+- Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set. Live Clerk JWT claims are unmeasured here.
 - Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
 
 ### Control self-update (held)
 
-`:core-updates` `ManagedUpdater` still requires `isDeviceOwnerApp` and
-`USER_ACTION_NOT_REQUIRED`. Control is unprivileged and must not become a
-device owner. There is no shared unprivileged updater on A's 26004535 surface
-(PackageInstaller with parent-visible confirmation, same-package/signer/version
-gates, no silent session). Do not copy Student's silent installer into Control.
-When A exposes that updater, Control can consume it for parent-initiated
-same-package updates. Until then this app has no self-update UI.
+Control is unprivileged and must not become a device owner. Student's
+`ManagedUpdater` is device-owner silent install; do not copy it. Keep this UI
+held until A lands a **shared** updater adapter Control can consume — no
+duplicate installer in `:app-control`.
+
+When that adapter exists, Control may use ordinary Android unattended-update
+eligibility (same package, compatible signer/version, platform session) with an
+**explicit confirmation fallback** if the platform requires user action. Do not
+assume device-owner privileges. Do not redefine every Control update as a
+prompted install; unattended remains allowed when Android grants it.
 
 ### Exact Clerk identity acceptance (external; not the test issuer)
 
 The local Tasks test issuer is **not** Clerk. Native Control acceptance must use
-the real Clerk instance that Tasks already uses for the web parent. Do not paste
+the real Clerk instance that already serves the Tasks web parent. Do not paste
 JWTs, scrape cookies, or revive `/auth/callback`. Do not put production secrets
-in source or APKs.
+in source or APKs. Creating test users and household memberships needs **operator
+approval**. Actual Clerk policy and JWT claims are **external measurements** —
+this README does not assert observed native `azp` or that password is enabled /
+MFA is disabled on the live instance.
 
-**Clerk dashboard (instance that already serves Tasks web):**
+Control 0.1.31 implements official `SignIn.create` password strategy because
+hosted Account Portal is not in that SDK. If the configured instance requires an
+unsupported factor (MFA, magic link, SSO, new password), **extend the native
+flow** to that Clerk-supported method. Do not weaken server authorized-party,
+issuer, or membership policy to make login work.
 
-1. Native applications → add Android application ID `com.aleksclark.primer.control`.
-   Session JWTs from this SDK present that package as `azp`.
-2. Enable Email + Password for that instance (Control 0.1.31 uses official
-   `SignIn.create` password strategy; hosted Account Portal is not in 0.1.31).
-3. Create **two** parent users (household A and household B). Do not reuse the
-   browser test issuer principals.
-4. Publishable key only on the device (`pk_test_…` / `pk_live_…`). Secret keys
-   stay on the server / operator env.
+**Operator checklist (approval required; do not change instance policy here):**
+
+1. Confirm whether Android application ID `com.aleksclark.primer.control` is
+   registered on the Clerk instance. Measure the resulting session `azp` from a
+   real Control login; do not assume it.
+2. Confirm which first factors the instance actually allows. Do not enable
+   password or disable MFA from this tree.
+3. After operator approval, provision two parent users and two household
+   memberships (A and B). Do not reuse browser test-issuer principals.
+4. Publishable key only on the device (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secret
+   keys stay in operator env.
 
 **Tasks host (operator env, parent L0 owns the port; Control does not edit these files):**
 
@@ -91,11 +103,11 @@ TASKS_PUBLIC_ORIGIN=https://<tasks-web-origin>   # remains required
 TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control
 ```
 
-`TASKS_CLERK_AUTHORIZED_PARTIES` is additive. PublicOrigin must stay first and
-required. Optional `TASKS_CLERK_AUDIENCE` only if this Clerk instance emits `aud`.
-Household membership is still the local Tasks ledger, not Clerk organizations.
+`TASKS_CLERK_AUTHORIZED_PARTIES` is proposed additive config. PublicOrigin must
+stay required. Optional `TASKS_CLERK_AUDIENCE` only if this Clerk instance emits
+`aud`. Household membership remains the local Tasks ledger, not Clerk orgs.
 
-**Control build on the parent phone / emulator (debug, no production mutation):**
+**Control debug build (no production mutation):**
 
 ```bash
 cd android
@@ -104,13 +116,10 @@ PRIMER_API_ORIGIN=https://<tasks-host>/tasks/api \
 ./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
 ```
 
-Install `app-control/build/outputs/apk/debug/app-control-debug.apk`. Sign in with
-the household-A Clerk email/password through Control. Expected JWT claims against
-`internal/parentauth`: `iss` = TASKS_CLERK_ISSUER, `sid` present, `azp` =
-`com.aleksclark.primer.control` (or the web origin for browser sessions).
-Membership denial: same Clerk user with no household row must fail closed.
-Foreign household B must not load A data. Sign-out must revoke the Tasks session
-before Clerk.signOut. None of this is claimed passed.
+Acceptance measurements after a real Control login (not claimed): issuer matches
+`TASKS_CLERK_ISSUER`, session id present, authorized-party matches whatever Clerk
+emits for this app, no-membership denial, household B isolation, Tasks logout
+before Clerk.signOut.
 
 
 ## Build
