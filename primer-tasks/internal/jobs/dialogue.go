@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"primer-tasks/internal/verification"
 )
 
 const DialogueLeaseDuration = 10 * time.Second
@@ -26,14 +27,9 @@ func (r *PostgresRepository) ClaimDialogue(ctx context.Context, owner string) (j
 	if r == nil || r.DB == nil || owner == "" {
 		return j, false, ErrDialogueLeaseLost
 	}
-	// Recovery is a production queue action, not a test-only requeue call. A
-	// takeover spends another finite attempt and preserves the durable stage.
-	_, err = r.DB.Exec(ctx, `UPDATE verification_jobs SET status=CASE WHEN attempts>=max_attempts OR deadline<=clock_timestamp() THEN 'failed' ELSE 'queued' END,lease_owner=NULL,lease_until=NULL,last_error='lease_lost',updated_at=clock_timestamp() WHERE status='running' AND lease_until<=clock_timestamp()`)
-	if err != nil {
-		return j, false, err
-	}
-	_, err = r.DB.Exec(ctx, `UPDATE verification_jobs SET status='failed',last_error='exhausted',updated_at=clock_timestamp() WHERE status='queued' AND (attempts>=max_attempts OR deadline<=clock_timestamp())`)
-	if err != nil {
+	// Recovery/outcomes use the engine's occurrence/attempt/job fences, never
+	// an isolated queue UPDATE that could strand an open occurrence.
+	if err = (verification.DialogueEngine{DB: r.DB}).ReconcileDialogueJobs(ctx); err != nil {
 		return j, false, err
 	}
 	err = r.DB.QueryRow(ctx, `WITH candidate AS (SELECT id FROM verification_jobs WHERE status='queued' AND available_at<=clock_timestamp() AND deadline>clock_timestamp() AND attempts<max_attempts ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1), claimed AS (UPDATE verification_jobs j SET status='running',lease_owner=$1,lease_generation=lease_generation+1,lease_until=clock_timestamp()+interval '10 seconds',attempts=attempts+1,updated_at=clock_timestamp() FROM candidate c WHERE j.id=c.id RETURNING j.*) SELECT j.id,j.tenant_id,d.student_id,j.session_id,d.occurrence_id,j.attempt_id,COALESCE(j.message_id::text,''),j.stage,j.lease_owner,j.lease_generation,j.attempts,j.max_attempts,j.deadline FROM claimed j JOIN dialogue_attempts d ON d.tenant_id=j.tenant_id AND d.attempt_id=j.attempt_id`, owner).Scan(&j.ID, &j.TenantID, &j.StudentID, &j.SessionID, &j.OccurrenceID, &j.AttemptID, &j.MessageID, &j.Stage, &j.LeaseOwner, &j.LeaseGeneration, &j.Attempts, &j.MaxAttempts, &j.Deadline)
@@ -74,22 +70,12 @@ func (r *PostgresRepository) RenewDialogue(ctx context.Context, j DialogueJob) e
 	return tx.Commit(ctx)
 }
 func (r *PostgresRepository) FailDialogue(ctx context.Context, j DialogueJob, code string) error {
-	if code != "provider_unavailable" && code != "lease_lost" && code != "revoked" && code != "exhausted" && code != "invalid_evaluation" {
-		return errors.New("invalid dialogue failure code")
-	}
-	tx, err := r.lockDialogueJob(ctx, j)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	// No automatic reset of attempts. Explicit retry may requeue the same saved
-	// answer only while the original finite budget and deadline permit it.
-	tag, err := tx.Exec(ctx, `UPDATE verification_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,last_error=$5,updated_at=clock_timestamp() WHERE id=$1 AND tenant_id=$2 AND status='running' AND lease_owner=$3 AND lease_generation=$4 AND lease_until>clock_timestamp()`, j.ID, j.TenantID, j.LeaseOwner, j.LeaseGeneration, code)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
+	if r == nil || r.DB == nil {
 		return ErrDialogueLeaseLost
 	}
-	return tx.Commit(ctx)
+	err := (verification.DialogueEngine{DB: r.DB}).FailDialogueJob(ctx, verification.DialogueJobReference{JobID: j.ID, TenantID: j.TenantID, Owner: j.LeaseOwner, Generation: j.LeaseGeneration}, code)
+	if errors.Is(err, verification.ErrDialogueLease) {
+		return ErrDialogueLeaseLost
+	}
+	return err
 }

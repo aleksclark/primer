@@ -103,7 +103,7 @@ func TestDialogueMigrationsPreserveReleasedP3AndFenceEvidence(t *testing.T) {
 	f := seedDialogueLegacy(t, ctx, pool)
 	insertDialogueProjection(t, ctx, pool, f)
 	question := uuid.NewString()
-	execDialogueSQL(t, ctx, pool, `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'wall',1,2,'What did the family repair?')`, question, f.tenant, f.attempt)
+	execDialogueSQL(t, ctx, pool, `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'wall',1,2,'What did the family repair after the storm?')`, question, f.tenant, f.attempt)
 	message := uuid.NewString()
 	execDialogueSQL(t, ctx, pool, `INSERT INTO verification_messages(id,tenant_id,attempt_id,question_id,policy_version,snapshot_digest,sequence,expected_version,role,content,client_message_id) VALUES($1,$2,$3,$4,'dialogue.v1',$5,1,2,'student','They repaired the wall.','message-one')`, message, f.tenant, f.attempt, question, f.snapshot.Digest)
 	job := uuid.NewString()
@@ -137,13 +137,14 @@ func TestDialogueMigrationsPreserveReleasedP3AndFenceEvidence(t *testing.T) {
 		execDialogueSQL(t, ctx, pool, `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,1)`, other.attempt, f.tenant, other.occurrence, f.requirement)
 		insertDialogueProjection(t, ctx, pool, other)
 		foreignQuestion := uuid.NewString()
-		execDialogueSQL(t, ctx, pool, `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'other',1,2,'A foreign question?')`, foreignQuestion, f.tenant, other.attempt)
+		execDialogueSQL(t, ctx, pool, `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'wall',1,2,'What did the family repair after the storm?')`, foreignQuestion, f.tenant, other.attempt)
 		messageSQL := `INSERT INTO verification_messages(id,tenant_id,attempt_id,question_id,policy_version,snapshot_digest,sequence,expected_version,role,content,client_message_id) VALUES($1,$2,$3,$4,$5,$6,2,4,'student','answer','second')`
 		expectDialogueSQLReject(t, ctx, pool, "23503", messageSQL, uuid.NewString(), f.tenant, f.attempt, foreignQuestion, "dialogue.v1", f.snapshot.Digest)
 		expectDialogueSQLReject(t, ctx, pool, "23503", messageSQL, uuid.NewString(), f.tenant, f.attempt, question, "dialogue.v2", f.snapshot.Digest)
 		expectDialogueSQLReject(t, ctx, pool, "23503", messageSQL, uuid.NewString(), f.tenant, f.attempt, question, "dialogue.v1", strings.Repeat("0", 64))
-		expectDialogueSQLReject(t, ctx, pool, "23505", `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'renamed',2,5,' WHAT DID THE FAMILY REPAIR? ')`, uuid.NewString(), f.tenant, f.attempt)
+		expectDialogueSQLReject(t, ctx, pool, "23505", `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'wall',1,5,'What did the family repair after the storm?')`, uuid.NewString(), f.tenant, f.attempt)
 		expectDialogueSQLReject(t, ctx, pool, "23514", `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'fourth',4,11,'Fourth question?')`, uuid.NewString(), f.tenant, f.attempt)
+		expectDialogueSQLReject(t, ctx, pool, "23514", `INSERT INTO dialogue_questions(id,tenant_id,attempt_id,question_key,ordinal,version,prompt) VALUES($1,$2,$3,'wall',1,6,'The answer is that mortar must dry before the next course of stones; why?')`, uuid.NewString(), f.tenant, f.attempt)
 		// Use a new unevaluated message so the FK, rather than an earlier unique
 		// constraint, is the rejecting boundary. These are synthetic SQL rows,
 		// never a public/Fantasy execution fixture.

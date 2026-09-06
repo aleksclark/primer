@@ -21,7 +21,7 @@ func dialogueState(t *testing.T) DialogueState {
 func addQuestion(t *testing.T, s DialogueState) DialogueState {
 	t.Helper()
 	n := len(s.Questions) + 1
-	next, err := RecordQuestion(s, DialogueQuestion{ID: fmt.Sprintf("q%d", n), AttemptID: s.Context.AttemptID, QuestionKey: fmt.Sprintf("concept%d", n), Prompt: fmt.Sprintf("Question %d?", n), Ordinal: n, Version: s.Version + 1})
+	next, err := RecordQuestion(s, DialogueQuestion{ID: fmt.Sprintf("q%d", n), AttemptID: s.Context.AttemptID, QuestionKey: s.Snapshot.Questions[n-1].Key, Prompt: s.Snapshot.Questions[n-1].Prompt, Ordinal: n, Version: s.Version + 1})
 	if err != nil {
 		t.Fatal(err)
 	}

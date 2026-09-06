@@ -131,6 +131,10 @@ func DialogueEvidence(s DialogueState) (DecisionReady, error) {
 		if q.ID == "" || q.AttemptID != s.Context.AttemptID || q.Ordinal != i+1 || q.Ordinal > ready.RequiredCount || q.Version < 1 || q.Version > s.Version || strings.TrimSpace(q.QuestionKey) == "" || prompt == "" || len([]rune(q.Prompt)) > 2000 {
 			return ready, ErrDialogueQuestion
 		}
+		planned := s.Snapshot.Questions[q.Ordinal-1]
+		if q.QuestionKey != planned.Key || q.Prompt != planned.Prompt {
+			return ready, ErrDialogueQuestion
+		}
 		if _, exists := questions[q.ID]; exists || keys[q.QuestionKey] || prompts[prompt] {
 			return ready, ErrDuplicateQuestion
 		}
@@ -647,7 +651,7 @@ func (e DialogueEngine) WorkerState(ctx context.Context, a StudentAuthority, occ
 	return s, stage, message, err
 }
 
-func (e DialogueEngine) CommitQuestion(ctx context.Context, a StudentAuthority, occurrence, attempt string, lease DialogueLease, prompt string) (err error) {
+func (e DialogueEngine) CommitQuestion(ctx context.Context, a StudentAuthority, occurrence, attempt string, lease DialogueLease, questionKey string) (err error) {
 	tx, err := e.DB.Begin(ctx)
 	if err != nil {
 		return err
@@ -667,7 +671,14 @@ func (e DialogueEngine) CommitQuestion(ctx context.Context, a StudentAuthority, 
 	if err != nil {
 		return err
 	}
-	q := DialogueQuestion{ID: uuid.NewString(), AttemptID: attempt, QuestionKey: fmt.Sprintf("question-%d", len(s.Questions)+1), Ordinal: len(s.Questions) + 1, Version: s.Version + 1, Prompt: prompt}
+	if len(s.Questions) >= len(s.Snapshot.Questions) {
+		return ErrDialogueTerminal
+	}
+	planned := s.Snapshot.Questions[len(s.Questions)]
+	if questionKey != planned.Key {
+		return ErrDialogueQuestion
+	}
+	q := DialogueQuestion{ID: uuid.NewString(), AttemptID: attempt, QuestionKey: planned.Key, Ordinal: len(s.Questions) + 1, Version: s.Version + 1, Prompt: planned.Prompt}
 	next, err := RecordQuestion(s, q)
 	if err != nil {
 		return err
@@ -807,6 +818,175 @@ func (e DialogueEngine) CommitEvaluation(ctx context.Context, a StudentAuthority
 		_, err = tx.Exec(ctx, `UPDATE verification_jobs SET stage='question',updated_at=clock_timestamp() WHERE id=$1`, lease.JobID)
 	}
 	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// DialogueJobReference is queue/worker provenance, not student authority. A
+// recovery actor may only requeue or reject admitted work; it cannot accept it.
+type DialogueJobReference struct {
+	JobID, TenantID, Owner string
+	Generation             int64
+}
+
+// ReconcileDialogueJobs handles expired leases, deadlines and exhausted failed
+// jobs through the SAME occurrence/attempt/job fences as ordinary effects. A
+// bounded candidate pass is safe to replay after process death or concurrently.
+func (e DialogueEngine) ReconcileDialogueJobs(ctx context.Context) error {
+	for pass := 0; pass < 8; pass++ {
+		var ref DialogueJobReference
+		err := e.DB.QueryRow(ctx, `SELECT j.id,j.tenant_id FROM verification_jobs j
+ JOIN verification_attempts a ON a.tenant_id=j.tenant_id AND a.id=j.attempt_id
+ JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=a.occurrence_id
+ WHERE j.status IN ('queued','running','failed') AND (
+  ((a.status<>'open' OR o.status IN ('completed','canceled','excused') OR a.number<>(SELECT max(number) FROM verification_attempts WHERE tenant_id=a.tenant_id AND occurrence_id=a.occurrence_id AND requirement_id=a.requirement_id)) AND j.status IN ('queued','running'))
+  OR (a.status='open' AND o.status NOT IN ('completed','canceled','excused') AND a.number=(SELECT max(number) FROM verification_attempts WHERE tenant_id=a.tenant_id AND occurrence_id=a.occurrence_id AND requirement_id=a.requirement_id) AND
+   (j.deadline<=clock_timestamp() OR (j.status IN ('queued','failed') AND j.attempts>=j.max_attempts) OR (j.status='running' AND j.lease_until<=clock_timestamp()))))
+ ORDER BY j.available_at,j.id LIMIT 1`).Scan(&ref.JobID, &ref.TenantID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err = e.settleDialogueJob(ctx, ref, "", true); err != nil && !errors.Is(err, ErrDialogueLease) {
+			return err
+		}
+	}
+	return nil
+}
+func (e DialogueEngine) FailDialogueJob(ctx context.Context, ref DialogueJobReference, code string) error {
+	switch code {
+	case "provider_unavailable", "lease_lost", "revoked", "exhausted", "invalid_evaluation":
+	default:
+		return ErrDialogueContext
+	}
+	return e.settleDialogueJob(ctx, ref, code, false)
+}
+func (e DialogueEngine) settleDialogueJob(ctx context.Context, ref DialogueJobReference, code string, recovery bool) error {
+	var a StudentAuthority
+	var occurrence, attempt string
+	if err := e.DB.QueryRow(ctx, `SELECT d.tenant_id,d.student_id,j.session_id,d.occurrence_id,d.attempt_id FROM verification_jobs j JOIN dialogue_attempts d ON d.tenant_id=j.tenant_id AND d.attempt_id=j.attempt_id WHERE j.tenant_id=$1 AND j.id=$2`, ref.TenantID, ref.JobID).Scan(&a.TenantID, &a.StudentID, &a.SessionID, &occurrence, &attempt); err != nil {
+		return ErrDialogueContext
+	}
+	tx, err := e.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	// Negative recovery must not impersonate an expired/revoked session. Lock
+	// its immutable admission rows, but do not turn them into positive authority.
+	var id string
+	if err = tx.QueryRow(ctx, `SELECT id FROM students WHERE tenant_id=$1 AND id=$2 FOR SHARE`, a.TenantID, a.StudentID).Scan(&id); err != nil {
+		return err
+	}
+	if err = tx.QueryRow(ctx, `SELECT id FROM student_sessions WHERE id=$1 AND tenant_id=$2 AND student_id=$3 FOR SHARE`, a.SessionID, a.TenantID, a.StudentID).Scan(&id); err != nil {
+		return err
+	}
+	if err = tx.QueryRow(ctx, `SELECT id FROM task_occurrences WHERE tenant_id=$1 AND id=$2 AND student_id=$3 FOR UPDATE`, a.TenantID, occurrence, a.StudentID).Scan(&id); err != nil {
+		return err
+	}
+	if err = tx.QueryRow(ctx, `SELECT attempt_id FROM dialogue_attempts WHERE tenant_id=$1 AND attempt_id=$2 AND occurrence_id=$3 FOR UPDATE`, a.TenantID, attempt, occurrence).Scan(&id); err != nil {
+		return err
+	}
+	if err = tx.QueryRow(ctx, `SELECT id FROM verification_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, a.TenantID, ref.JobID).Scan(&id); err != nil {
+		return err
+	}
+	var status, owner, lastError, attemptStatus, occurrenceStatus string
+	var generation int64
+	var attempts, maximum int
+	var expired, leaseExpired, latest bool
+	if err = tx.QueryRow(ctx, `SELECT j.status,COALESCE(j.lease_owner,''),j.lease_generation,j.attempts,j.max_attempts,COALESCE(j.last_error,''),j.deadline<=clock_timestamp(),COALESCE(j.lease_until<=clock_timestamp(),false),v.status,o.status,v.number=(SELECT max(number) FROM verification_attempts WHERE tenant_id=v.tenant_id AND occurrence_id=v.occurrence_id AND requirement_id=v.requirement_id)
+ FROM verification_jobs j JOIN verification_attempts v ON v.tenant_id=j.tenant_id AND v.id=j.attempt_id JOIN task_occurrences o ON o.tenant_id=v.tenant_id AND o.id=v.occurrence_id
+ WHERE j.id=$1 AND j.tenant_id=$2 AND j.attempt_id=$3 AND j.session_id=$4`, ref.JobID, a.TenantID, attempt, a.SessionID).Scan(&status, &owner, &generation, &attempts, &maximum, &lastError, &expired, &leaseExpired, &attemptStatus, &occurrenceStatus, &latest); err != nil {
+		return err
+	}
+	if !recovery && (status != "running" || owner != ref.Owner || generation != ref.Generation) {
+		return ErrDialogueLease
+	}
+	if status == "succeeded" {
+		return nil
+	}
+	terminalContext := attemptStatus != "open" || domain.IsTerminal(domain.OccurrenceStatus(occurrenceStatus)) || !latest
+	if terminalContext {
+		if status == "running" || status == "queued" {
+			if _, err = tx.Exec(ctx, `UPDATE verification_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,last_error='exhausted',updated_at=clock_timestamp() WHERE id=$1`, ref.JobID); err != nil {
+				return err
+			}
+		}
+		return tx.Commit(ctx) // Never rewrite completed/canceled/overridden evidence.
+	}
+	terminal := expired || attempts >= maximum
+	if recovery {
+		if status == "running" && !leaseExpired && !expired {
+			return nil
+		}
+		if status != "running" && !terminal {
+			return nil
+		}
+		if status == "running" && leaseExpired && !terminal {
+			_, err = tx.Exec(ctx, `UPDATE verification_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,last_error='lease_lost',updated_at=clock_timestamp() WHERE id=$1`, ref.JobID)
+			if err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		}
+	} else if leaseExpired && !terminal {
+		return ErrDialogueLease
+	}
+	if code == "" {
+		code = lastError
+	}
+	if code == "" || expired {
+		code = "exhausted"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE verification_jobs SET status='failed',lease_owner=NULL,lease_until=NULL,last_error=$2,updated_at=clock_timestamp() WHERE id=$1`, ref.JobID, code); err != nil {
+		return err
+	}
+	if !terminal {
+		return tx.Commit(ctx)
+	}
+	s, err := LoadDialogueState(ctx, tx, a, occurrence, attempt)
+	if err != nil {
+		return err
+	}
+	reason, eventCode := "dialogue job retry budget exhausted", "job_budget_exhausted"
+	if code == "provider_unavailable" || code == "invalid_evaluation" {
+		reason, eventCode = "dialogue provider retry budget exhausted", "provider_exhausted"
+	}
+	if expired {
+		reason, eventCode = "dialogue job deadline expired", "deadline_exhausted"
+	} else if leaseExpired || code == "lease_lost" {
+		reason, eventCode = "dialogue lease recovery budget exhausted", "lease_exhausted"
+	}
+	decision := uuid.NewString()
+	if _, err = tx.Exec(ctx, `INSERT INTO verification_decisions(id,tenant_id,attempt_id,accepted,reason,decided_by) VALUES($1,$2,$3,false,$4,'verification_engine')`, decision, a.TenantID, attempt, reason); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE verification_attempts SET status='exhausted' WHERE tenant_id=$1 AND id=$2 AND status='open'`, a.TenantID, attempt)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrDialogueConflict
+	}
+	tag, err = tx.Exec(ctx, `UPDATE task_occurrences SET status='pending' WHERE tenant_id=$1 AND id=$2 AND status NOT IN ('completed','canceled','excused')`, a.TenantID, occurrence)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrDialogueConflict
+	}
+	s.Version++
+	if _, err = tx.Exec(ctx, `UPDATE dialogue_attempts SET version=$3,updated_at=clock_timestamp() WHERE tenant_id=$1 AND attempt_id=$2`, a.TenantID, attempt, s.Version); err != nil {
+		return err
+	}
+	ready, err := DialogueEvidence(s)
+	if err != nil {
+		return err
+	}
+	if err = appendDialogueEvent(ctx, tx, s, "job-exhaustion", DialogueEvent{Kind: "error", Status: "exhausted", OccurrenceStatus: "pending", Code: eventCode, DecisionID: decision, DecisionSource: "verification_engine", AcceptedCount: ready.AcceptedCount, RequiredCount: 3}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

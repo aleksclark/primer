@@ -13,7 +13,10 @@ import (
 	"primer-tasks/internal/verification"
 )
 
-type FixtureQuestion struct{ Key, Prompt, Concept string }
+const AdversarialDialogueQuestion = "The answer is that mortar must dry before the next course of stones; why?"
+const InlineDialogueFixtureSource = "Ada measured the beam twice. She marked the cut before using the saw. She checked the finished length to prevent mistakes."
+
+type FixtureQuestion struct{ Key, Concept string }
 type CuratedDialogueFixture struct {
 	SourceRef string
 	Questions []FixtureQuestion
@@ -21,9 +24,9 @@ type CuratedDialogueFixture struct {
 
 func CuratedThreeQuestionFixture() CuratedDialogueFixture {
 	return CuratedDialogueFixture{SourceRef: "fixture://chapter-4", Questions: []FixtureQuestion{
-		{Key: "wall", Prompt: "What did the family repair after the storm?", Concept: "repairing the garden wall"},
-		{Key: "mortar", Prompt: "Why must the mortar dry before the next course of stones?", Concept: "waiting for mortar to dry"},
-		{Key: "rushing", Prompt: "What would rushing the work do to the wall?", Concept: "rushing weakens the wall"},
+		{Key: "wall", Concept: "repairing the garden wall"},
+		{Key: "mortar", Concept: "waiting for mortar to dry"},
+		{Key: "rushing", Concept: "rushing weakens the wall"},
 	}}
 }
 func (f CuratedDialogueFixture) Evaluate(key, answer string) (bool, string) {
@@ -46,6 +49,12 @@ func (f CuratedDialogueFixture) Evaluate(key, answer string) (bool, string) {
 		accepted = strings.Contains(a, "mortar") && (strings.Contains(a, "dry") || strings.Contains(a, "harden")) && (strings.Contains(a, "before") || strings.Contains(a, "wait") || strings.Contains(a, "because"))
 	case "rushing":
 		accepted = strings.Contains(a, "rush") && strings.Contains(a, "wall") && (strings.Contains(a, "weaken") || strings.Contains(a, "unstable"))
+	case "source-fact":
+		accepted = strings.Contains(a, "measur") && strings.Contains(a, "beam") && strings.Contains(a, "twice")
+	case "source-evidence":
+		accepted = strings.Contains(a, "mark") && strings.Contains(a, "cut")
+	case "source-connection":
+		accepted = strings.Contains(a, "check") && strings.Contains(a, "length") && (strings.Contains(a, "prevent") || strings.Contains(a, "mistake"))
 	}
 	if accepted {
 		return true, verification.DialogueAcceptedRationale
@@ -63,7 +72,7 @@ type ScriptedDialogueModel struct {
 }
 
 func NewScriptedDialogueModel(state verification.DialogueState, stage, message, fault string, delay time.Duration) (*ScriptedDialogueModel, error) {
-	if state.Snapshot.Source.Text != domain.CuratedChapterSource {
+	if state.Snapshot.Source.Text != domain.CuratedChapterSource && state.Snapshot.Source.Text != InlineDialogueFixtureSource {
 		return nil, errors.New("scripted source unsupported")
 	}
 	if delay < 0 || delay > 5*time.Second {
@@ -95,10 +104,17 @@ func (m *ScriptedDialogueModel) Stream(ctx context.Context, _ fantasy.Call) (fan
 		fixture := CuratedThreeQuestionFixture()
 		if m.stage == "question" {
 			ordinal := len(m.state.Questions)
-			if ordinal >= len(fixture.Questions) {
+			if ordinal >= len(m.state.Snapshot.Questions) {
 				return nil, errors.New("fixture question limit")
 			}
-			tool, input = ToolRecordQuestion, recordQuestionInput{Prompt: fixture.Questions[ordinal].Prompt}
+			key := m.state.Snapshot.Questions[ordinal].Key
+			tool, input = ToolRecordQuestion, recordQuestionInput{QuestionKey: key}
+			if m.fault == "question_prose" {
+				input = map[string]any{"questionKey": key, "prompt": AdversarialDialogueQuestion}
+			}
+			if m.fault == "question_wrong_identity" {
+				input = recordQuestionInput{QuestionKey: AdversarialDialogueQuestion}
+			}
 		} else {
 			if len(m.state.Questions) == 0 {
 				return nil, errors.New("fixture current question unavailable")
@@ -110,7 +126,7 @@ func (m *ScriptedDialogueModel) Stream(ctx context.Context, _ fantasy.Call) (fan
 				}
 			}
 			ordinal := m.state.Questions[len(m.state.Questions)-1].Ordinal - 1
-			accepted, _ := fixture.Evaluate(fixture.Questions[ordinal].Key, answer)
+			accepted, _ := fixture.Evaluate(m.state.Snapshot.Questions[ordinal].Key, answer)
 			criteria := []string{}
 			if accepted {
 				criteria = m.state.Snapshot.Config.Criteria()

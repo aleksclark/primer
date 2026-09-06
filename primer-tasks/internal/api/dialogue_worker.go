@@ -149,7 +149,7 @@ func (s *Server) runDialogueJob(parentCtx context.Context, queue *jobs.PostgresR
 		}
 		commitCtx, done := context.WithTimeout(ctx, 3*time.Second)
 		if execution.Stage == "question" {
-			err = backend.engine.CommitQuestion(commitCtx, backend.authority, backend.occurrence, backend.attempt, backend.lease, execution.Question)
+			err = backend.engine.CommitQuestion(commitCtx, backend.authority, backend.occurrence, backend.attempt, backend.lease, execution.QuestionKey)
 		} else {
 			err = backend.engine.CommitEvaluation(commitCtx, backend.authority, backend.occurrence, backend.attempt, backend.lease, execution.Evaluation)
 		}

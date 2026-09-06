@@ -16,11 +16,12 @@
   P4 is00010/00011, then separately owned management/release012–015. Local
   checkpoints are allowed; push/PR/integration remains L1/L0 coordinated.
 
-**Current status: CP2 server/runtime checkpoint, not completed P4.** The public
-server/Fantasy/PG dialogue path now exists with focused process/protocol evidence.
-Generated student client contracts/facades, UI, full coverage/race10, independent
-browser and Android compatibility gates remain open. CP1 foundation `d24287d5`
-was independently accepted; CP2 still requires its independent checkpoint review.
+**Current status: CP2 review remediation, not completed P4.** CP1 foundation
+`d24287d5` was independently accepted. SAMEe24 BLOCKED CP2 `82d92597` on terminal
+job exhaustion and provider-controlled question egress; that checkpoint and all
+receipts remain preserved. The scoped corrections below require SAMEe24 rereview.
+Generated student clients/UI, full coverage/race10, browser, Android and matching-
+head CI gates remain open; no CP3 continuation/contract handoff is claimed.
 
 ## CP1 foundation recovery (historical, independently accepted)
 
@@ -204,6 +205,82 @@ workload is materially larger than P3; full race10 still has its unchanged40m
 package/60m job ceilings. No deadline/budget increase, assertion removal or skip
 is authorized. Actual full coverage85% remains to be measured; subprocess
 functional evidence must not be misrepresented as parent-process coverage.
+
+## CP2 BLOCK remediation (SAMEe24)
+
+Review receipt `/tmp/primer-p4-review-cp2.md`, SHA256
+`ba7a0da99f552c9b4eeb735e3904aa11576757e4d2694af1aa737f149798ddef`, was read fully.
+Scope remains the existing named window; no additional service/root/config/pin/
+Android scope or budget/gate changes.
+
+### HIGH1 — terminal job failure stranded an open occurrence
+
+- Reproduced RED through actual public provider retries to the maximum: job
+  failed but attempt stayed open and occurrence awaiting_verification.
+- Removed queue-only expiry/failure updates. Queue recovery and worker failure
+  now delegate to the generic engine, which locks immutable admission rows,
+  occurrence, attempt projection and job, then rechecks state/clock/generation.
+- Nonterminal expired leases requeue the durable stage without resetting budget.
+  Terminal provider/deadline/lease exhaustion atomically preserves evidence,
+  records one negative decision/error event, exhausts the attempt and makes the
+  occurrence parent-retryable. Recovery is explicitly negative system authority,
+  never positive authority borrowed from an expired student credential.
+- Completed/canceled/overridden or superseded contexts only clean stale queued/
+  running jobs; their prior decisions/state/evidence are not rewritten.
+- Public max-provider-retry recovery passed. Supplementary queued/running/failed
+  deadline, running lease-budget and queued-budget preconditions are recovered by
+  the real production process; real earlier accepted evidence is retained, parent
+  retry creates the next permitted attempt, replay stays idempotent and stale
+  generation writes fail. No accepted results were injected as public success.
+- Actual public completed/overridden/canceled outcomes plus stale-expired queue
+  preconditions retain byte-equivalent protected evidence after recovery.
+
+### HIGH1 related note — mixed requirement retry ambiguity
+
+- Retry now selects current attempts per requirement, not a global attempt-number
+  winner or the first revision ordinal. A unique failed candidate preserves the
+  simple legacy call. Multiple candidates require explicit requirementId and/or
+  attemptId; foreign, mismatched, superseded or nonfailed selections fail closed.
+- Retry numbers increment only the selected requirement. Explicit selection can
+  recover another failed requirement while the occurrence awaits verification,
+  without duplicating the first retry. Inspect exposes bounded generic attempt
+  identities/kinds so callers do not guess IDs.
+- Public tied-number tests passed for both manual/dialogue orderings, one failed
+  candidate, ambiguous failures, foreign/mismatched selectors and exact selected
+  retry outcomes. Legacy manual/Clerk boundary and DB-failure checks passed.
+
+### HIGH2 — answer-bearing provider question prose
+
+- Reproduced RED by an adversarial provider question-tool output containing the
+  reviewer's answer-bearing sentence; it reached the public stream on blocked82d.
+- Removed the blacklist/suffix-based prose acceptance path. Visible wording now
+  comes only from an affirmative three-question plan/version bound into the
+  issued immutable snapshot/digest. Curated chapter prompts are server-owned;
+  arbitrary bounded inline sources use closed source-neutral comprehension
+  templates, with no source text interpolated into them.
+- The real Fantasy question tool accepts ONLY the current question identity.
+  Extra/duplicate/case-aliased/free-form fields and wrong identities reject the
+  turn, including valid identity plus adversarial prose. The engine resolves
+  wording from its snapshot, pure evidence validation checks that binding, and
+  incoming011 enforces it again at the question INSERT boundary.
+- Both curated and distinct inline public three-concept flows passed through real
+  Fantasy/PG. Adversarial prose/identity cases persist no question and no unsafe
+  question event. This is closed egress authority, not a semantic blacklist or
+  an educational-quality claim about live evaluation.
+
+### Remediation receipts and limits
+
+Receipts live under `/tmp/primer-p4-gates/cp2-remediation/`:
+`findings-before` is preserved RED for BOTH blocking cases; `question-unit`,
+`question-public-after`, `exhaustion-after`, `expiry-selection-first`,
+`affected-packages`, `coherent-regressions`, `preservation-expiry`, and vet/build
+record actual focused results. Later frozen binding receipts supersede only for
+final-input qualification, never relabel earlier source snapshots.
+
+Child-race build-tag/effective-setting, fail-closed exit/detector checks, actual
+running-executable hashes and checkout manifests remain intact. No long race or
+full unchanged module rerun was used as a default remediation shortcut. Original
+82d source/RED/PASS/interruption/VCS-provenance records remain untouched.
 
 ## Next checkpoint / remaining acceptance
 

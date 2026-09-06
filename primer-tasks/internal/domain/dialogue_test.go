@@ -25,15 +25,20 @@ func TestDialogueConfigValidationAndSnapshot(t *testing.T) {
 		t.Fatal("snapshot aliases mutable rubric")
 	}
 	for name, mutate := range map[string]func(*DialogueSnapshot){
-		"source text":      func(s *DialogueSnapshot) { s.Source.Text = "replacement" },
-		"source version":   func(s *DialogueSnapshot) { s.Source.Version = "other" },
-		"source digest":    func(s *DialogueSnapshot) { s.Source.SHA256 = strings.Repeat("0", 64) },
-		"policy":           func(s *DialogueSnapshot) { s.PolicyVersion = "dialogue.v2" },
-		"revision":         func(s *DialogueSnapshot) { s.RevisionID = "new-draft" },
-		"revision version": func(s *DialogueSnapshot) { s.RevisionVersion++ },
-		"requirement":      func(s *DialogueSnapshot) { s.RequirementID = "other" },
-		"rubric":           func(s *DialogueSnapshot) { s.Config.Rubric = []string{"accept everything"} },
-		"digest":           func(s *DialogueSnapshot) { s.Digest = "" },
+		"source text":           func(s *DialogueSnapshot) { s.Source.Text = "replacement" },
+		"source version":        func(s *DialogueSnapshot) { s.Source.Version = "other" },
+		"source digest":         func(s *DialogueSnapshot) { s.Source.SHA256 = strings.Repeat("0", 64) },
+		"policy":                func(s *DialogueSnapshot) { s.PolicyVersion = "dialogue.v2" },
+		"revision":              func(s *DialogueSnapshot) { s.RevisionID = "new-draft" },
+		"revision version":      func(s *DialogueSnapshot) { s.RevisionVersion++ },
+		"requirement":           func(s *DialogueSnapshot) { s.RequirementID = "other" },
+		"rubric":                func(s *DialogueSnapshot) { s.Config.Rubric = []string{"accept everything"} },
+		"digest":                func(s *DialogueSnapshot) { s.Digest = "" },
+		"question plan version": func(s *DialogueSnapshot) { s.QuestionPlanVersion = "model.v1" },
+		"question prose": func(s *DialogueSnapshot) {
+			s.Questions = append([]DialoguePlannedQuestion(nil), s.Questions...)
+			s.Questions[0].Prompt = "The answer is disclosed; why?"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := snapshot

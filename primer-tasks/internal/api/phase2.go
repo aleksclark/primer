@@ -593,6 +593,13 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 	}
 	jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": string(next)})
 }
+
+type OccurrenceRetryInput2 struct {
+	ID            string `path:"id"`
+	RequirementID string `query:"requirementId"`
+	AttemptID     string `query:"attemptId"`
+}
+
 func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	oid := chi.URLParam(r, "id")
 	tx, e := s.DB.Begin(r.Context())
@@ -606,33 +613,57 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 404, "not_found", "occurrence not found")
 		return
 	}
-	if occurrenceStatus != string(domain.OccurrencePending) {
-		problem(w, 409, "conflict", "retry requires a pending occurrence")
+	requestedRequirement, requestedAttempt := r.URL.Query().Get("requirementId"), r.URL.Query().Get("attemptId")
+	explicit := requestedRequirement != "" || requestedAttempt != ""
+	if occurrenceStatus != string(domain.OccurrencePending) && !(explicit && occurrenceStatus == string(domain.OccurrenceAwaitingVerification)) {
+		problem(w, 409, "conflict", "retry requires a pending occurrence or explicit failed requirement")
 		return
 	}
-	var latestStatus, req, kind string
-	if e = tx.QueryRow(r.Context(), `SELECT a.status,a.requirement_id,r.kind FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id WHERE a.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC LIMIT 1 FOR UPDATE OF a`, sc.Tenant, oid).Scan(&latestStatus, &req, &kind); e != nil || (latestStatus != "rejected" && latestStatus != "exhausted") {
-		problem(w, 409, "conflict", "retry requires a rejected or exhausted attempt")
+	rows, e := tx.Query(r.Context(), `SELECT a.id,a.requirement_id,r.kind,a.status,a.number FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id JOIN task_occurrences o ON o.tenant_id=a.tenant_id AND o.id=a.occurrence_id AND o.revision_id=r.revision_id
+ WHERE a.tenant_id=$1 AND a.occurrence_id=$2 AND a.number=(SELECT max(number) FROM verification_attempts WHERE tenant_id=a.tenant_id AND occurrence_id=a.occurrence_id AND requirement_id=a.requirement_id)
+ AND ($3='' OR a.requirement_id::text=$3) AND ($4='' OR a.id::text=$4) ORDER BY r.ordinal FOR UPDATE OF a`, sc.Tenant, oid, requestedRequirement, requestedAttempt)
+	if e != nil {
+		problem(w, 500, "internal", "unable to select retry attempt")
 		return
 	}
-	var n int
-	if kind == domain.AgentDialogueKind {
-		if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 AND requirement_id=$3`, sc.Tenant, oid, req).Scan(&n); e != nil {
-			problem(w, 500, "internal", "unable to read dialogue attempt policy")
-			return
+	type retryCandidate struct {
+		id, requirement, kind, status string
+		number                        int
+	}
+	var candidates []retryCandidate
+	matched := 0
+	for rows.Next() {
+		var candidate retryCandidate
+		if e = rows.Scan(&candidate.id, &candidate.requirement, &candidate.kind, &candidate.status, &candidate.number); e != nil {
+			break
 		}
+		matched++
+		if candidate.status == "rejected" || candidate.status == "exhausted" {
+			candidates = append(candidates, candidate)
+		}
+	}
+	if e == nil {
+		e = rows.Err()
+	}
+	rows.Close()
+	if e != nil {
+		problem(w, 500, "internal", "unable to read retry attempt")
+		return
+	}
+	if explicit && matched == 0 {
+		problem(w, 404, "not_found", "retry selection unavailable")
+		return
+	}
+	if len(candidates) != 1 {
+		problem(w, 409, "conflict", "select exactly one rejected or exhausted requirement attempt")
+		return
+	}
+	selected := candidates[0]
+	req, kind, n := selected.requirement, selected.kind, selected.number+1
+	if kind == domain.AgentDialogueKind {
 		var maximum int
 		if e = tx.QueryRow(r.Context(), `SELECT (p.snapshot->'config'->>'maxAttempts')::int FROM dialogue_revision_policies p JOIN task_occurrences o ON o.tenant_id=p.tenant_id AND o.revision_id=p.revision_id WHERE p.tenant_id=$1 AND o.id=$2 AND p.requirement_id=$3`, sc.Tenant, oid, req).Scan(&maximum); e != nil || n > maximum {
 			problem(w, 409, "conflict", "dialogue attempt policy exhausted")
-			return
-		}
-	} else {
-		if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n); e != nil {
-			problem(w, 500, "internal", e.Error())
-			return
-		}
-		if e = tx.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY vr.ordinal LIMIT 1`, sc.Tenant, oid).Scan(&req); e != nil {
-			problem(w, 404, "not_found", "occurrence not found")
 			return
 		}
 	}
@@ -641,7 +672,7 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		return
 	}
 	var updated int
-	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2 AND status='pending' RETURNING 1`, sc.Tenant, oid).Scan(&updated); e != nil {
+	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE tenant_id=$1 AND id=$2 AND status=$3 RETURNING 1`, sc.Tenant, oid, occurrenceStatus).Scan(&updated); e != nil {
 		problem(w, 409, "conflict", "occurrence changed concurrently")
 		return
 	}
@@ -649,7 +680,7 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]any{"occurrenceId": oid, "attemptNumber": n, "status": "awaiting_verification"})
+	jsonOK(w, map[string]any{"occurrenceId": oid, "requirementId": req, "previousAttemptId": selected.id, "attemptNumber": n, "status": "awaiting_verification"})
 }
 func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc scope, status string) {
 	oid := chi.URLParam(r, "id")

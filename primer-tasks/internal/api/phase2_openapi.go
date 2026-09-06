@@ -120,7 +120,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[map[string]any](ctx, s.requireParent(s.decideOccurrence2), in.Body)
 		return &GenericJSONOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "occurrence-retry", Method: http.MethodPost, Path: "/occurrences/{id}/retry", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*GenericJSONOutput2, error) {
+	register(api, huma.Operation{OperationID: "occurrence-retry", Method: http.MethodPost, Path: "/occurrences/{id}/retry", Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, _ *OccurrenceRetryInput2) (*GenericJSONOutput2, error) {
 		b, h, e := legacyJSON[map[string]any](ctx, s.requireParent(s.retryOccurrence2), nil)
 		return &GenericJSONOutput2{h, b}, e
 	})

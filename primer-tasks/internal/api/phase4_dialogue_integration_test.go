@@ -21,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"primer-tasks/internal/agent"
 	"primer-tasks/internal/domain"
 )
 
@@ -46,6 +47,11 @@ func newPublicDialogueHarness(t *testing.T) *publicDialogueHarness {
 	return newPublicDialogueHarnessWithPolicy(t, 2, 9)
 }
 func newPublicDialogueHarnessWithPolicy(t *testing.T, followUps, maxTurns int, manual ...bool) *publicDialogueHarness {
+	t.Helper()
+	config := domain.DialogueConfig{SourceRef: "fixture://chapter-4", LearningFocus: "Recall three distinct source concepts", RequiredQuestions: 3, Rubric: []string{"uses the assigned source"}, AllowedFollowUps: followUps, MaxAttempts: 2, MaxTurns: maxTurns, RetentionPolicy: "retain"}
+	return newPublicDialogueHarnessWithConfig(t, config, len(manual) > 0 && manual[0])
+}
+func newPublicDialogueHarnessWithConfig(t *testing.T, policy domain.DialogueConfig, manual bool) *publicDialogueHarness {
 	t.Helper()
 	t.Setenv("TASKS_TEST_DATABASE_URL", "")
 	t.Setenv("PRIMER_TASKS_COVERAGE_GATE", "1")
@@ -77,13 +83,13 @@ func newPublicDialogueHarnessWithPolicy(t *testing.T, followUps, maxTurns int, m
 	}
 	h.request(h.parent, "POST", "/students/"+alice+"/pairing", nil, 200, &pairing)
 	h.request(h.student, "POST", "/student/pair", map[string]string{"code": pairing.Code}, 200, nil)
-	config, err := domain.SnapshotDialogueConfig(domain.DialogueConfig{SourceRef: "fixture://chapter-4", LearningFocus: "Recall three distinct source concepts", RequiredQuestions: 3, Rubric: []string{"uses the assigned source"}, AllowedFollowUps: followUps, MaxAttempts: 2, MaxTurns: maxTurns, RetentionPolicy: "retain"})
+	config, err := domain.SnapshotDialogueConfig(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var task TaskRevision
 	requirements := []Requirement{{Kind: domain.AgentDialogueKind, ConfigVersion: 1, Config: config, Interaction: "chat", Executor: "fantasy"}}
-	if len(manual) > 0 && manual[0] {
+	if manual {
 		requirements = append(requirements, Requirement{Kind: "parent_approval", ConfigVersion: 1, Config: map[string]any{}, Interaction: "parent_action", Executor: "human"})
 	}
 	h.request(h.parent, "POST", "/tasks", TaskInput2{Title: "Public P4 chapter", Instructions: "Read then answer", Requirements: requirements}, 201, &task)
@@ -446,6 +452,7 @@ func TestPublicDialogueThreeConceptsRetryReconnectAndExactlyOnce(t *testing.T) {
 	if err := h.pool.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM verification_events WHERE attempt_id=$1 AND payload::text LIKE '%PRIVATE_%'),EXISTS(SELECT 1 FROM verification_evaluations WHERE attempt_id=$1 AND provider='scripted' AND model='primer-dialogue-three-concepts-v1' AND input_tokens>0 AND output_tokens>0)`, h.attempt).Scan(&leaked, &provenance); err != nil || leaked || !provenance {
 		t.Fatal("safe progress/measured model provenance missing")
 	}
+	assertTerminalDialogueIgnoresExpiredQueue(t, h, h.occurrence, h.attempt)
 }
 
 func TestPublicDialogueWorkerProcessDeathResumesCommittedStage(t *testing.T) {
@@ -533,6 +540,113 @@ func TestPublicDialogueProviderFailureRetainsAnswerAndRetriesSameJob(t *testing.
 			}
 			if m, v, a, d, c := h.counts(); m != 1 || v != 1 || a != 1 || d != 0 || c != 0 {
 				t.Fatal("retry did not evaluate exactly the original saved answer")
+			}
+		})
+	}
+}
+
+func TestPublicDialogueProviderBudgetExhaustionAllowsBoundedParentRetry(t *testing.T) {
+	h := newPublicDialogueHarness(t)
+	h.begin()
+	conn := h.socket(0)
+	q := h.question(conn, 0)
+	h.stop(false)
+	conn.CloseNow()
+	h.fault = "timeout"
+	h.start()
+	conn = h.socket(q.Cursor)
+	h.answer(conn, q, "saved-before-provider-exhaustion", "The family repaired the garden wall after the storm.")
+	for attempt := 1; attempt <= 3; attempt++ {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			var calls int
+			var status string
+			err := h.pool.QueryRow(context.Background(), `SELECT attempts,status FROM verification_jobs WHERE attempt_id=$1 AND message_id IS NOT NULL`, h.attempt).Scan(&calls, &status)
+			if err == nil && calls == attempt && status == "failed" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("actual provider failure did not finish within bound")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		state := h.state()
+		if attempt < 3 {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			err := wsjson.Write(ctx, conn, studentCommand{Protocol: 1, Kind: "retry", OccurrenceID: h.occurrence, AttemptID: h.attempt, ExpectedVersion: state.Version})
+			cancel()
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else if state.Status != "exhausted" || state.OccurrenceStatus != "pending" {
+			t.Fatalf("terminal provider budget stranded attempt=%s occurrence=%s", state.Status, state.OccurrenceStatus)
+		}
+	}
+	oldAttempt := h.attempt
+	h.request(h.parent, "POST", "/occurrences/"+h.occurrence+"/retry", nil, 200, nil)
+	h.request(h.parent, "POST", "/occurrences/"+h.occurrence+"/retry", nil, 409, nil)
+	h.stop(false)
+	conn.CloseNow()
+	h.fault = ""
+	h.start()
+	h.begin()
+	if h.attempt == oldAttempt {
+		t.Fatal("parent retry reused exhausted attempt")
+	}
+	conn = h.socket(0)
+	h.question(conn, 0)
+	var messages, evaluations, decisions, completions int
+	if err := h.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM verification_messages WHERE attempt_id=$1),(SELECT count(*) FROM verification_evaluations WHERE attempt_id=$1),(SELECT count(*) FROM verification_decisions WHERE attempt_id=$1 AND NOT accepted),(SELECT count(*) FROM verification_events WHERE attempt_id=$1 AND kind='complete')`, oldAttempt).Scan(&messages, &evaluations, &decisions, &completions); err != nil || messages != 1 || evaluations != 0 || decisions != 1 || completions != 0 {
+		t.Fatal("provider exhaustion lost evidence or invented success")
+	}
+	var inspect DialogueInspect
+	h.request(h.parent, "GET", "/occurrences/"+h.occurrence+"/inspect?attemptId="+oldAttempt, nil, 200, &inspect)
+	if inspect.AttemptTotal != 2 {
+		t.Fatal("retry did not retain exactly the prior attempt")
+	}
+}
+
+func TestPublicDialogueInlineSourceUsesClosedQuestions(t *testing.T) {
+	policy := domain.DialogueConfig{SourceText: agent.InlineDialogueFixtureSource, LearningFocus: "Explain the assigned facts and supporting details", RequiredQuestions: 3, Rubric: []string{"uses the assigned source"}, AllowedFollowUps: 1, MaxAttempts: 2, MaxTurns: 6, RetentionPolicy: "retain"}
+	h := newPublicDialogueHarnessWithConfig(t, policy, false)
+	h.begin()
+	conn := h.socket(0)
+	plan, err := domain.NewDialogueSnapshot("revision", "requirement", 1, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers := []string{"Ada measured the beam twice.", "She marked the cut before using the saw.", "She checked the finished length to prevent mistakes."}
+	for i, answer := range answers {
+		question := h.question(conn, i)
+		if question.Text != plan.Questions[i].Prompt {
+			t.Fatal("visible inline question was not server authorized")
+		}
+		h.answer(conn, question, fmt.Sprintf("inline-%d", i), answer)
+	}
+	h.wait(conn, func(e wireStudentEvent) bool { return e.Kind == "complete" })
+	if m, v, a, d, c := h.counts(); m != 3 || v != 3 || a != 3 || d != 1 || c != 1 {
+		t.Fatal("inline source did not complete truthfully through real tools")
+	}
+}
+
+func TestPublicDialogueRejectsAnswerBearingProviderQuestion(t *testing.T) {
+	for _, fault := range []string{"question_prose", "question_wrong_identity"} {
+		t.Run(fault, func(t *testing.T) {
+			h := newPublicDialogueHarness(t)
+			h.stop(false)
+			h.fault = fault
+			h.start()
+			h.begin()
+			conn := h.socket(0)
+			result := h.wait(conn, func(e wireStudentEvent) bool {
+				return e.Kind == "question" || (e.Kind == "state" && e.Phase == "failed")
+			})
+			if result.Kind == "question" {
+				t.Fatal("unapproved provider question reached the public student stream")
+			}
+			var questions, unsafeEvents int
+			if err := h.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM dialogue_questions WHERE attempt_id=$1),(SELECT count(*) FROM verification_events WHERE attempt_id=$1 AND payload::text LIKE '%The answer is that mortar%')`, h.attempt).Scan(&questions, &unsafeEvents); err != nil || questions != 0 || unsafeEvents != 0 {
+				t.Fatal("unapproved provider prose was persisted")
 			}
 		})
 	}

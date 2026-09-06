@@ -1,4 +1,25 @@
 -- Original P4 00009 criteria evidence, adapted to retained/append-only policy.
+-- Question text comes only from the immutable server-authorized issued plan.
+ALTER TABLE dialogue_revision_policies ADD CONSTRAINT dialogue_revision_question_plan CHECK ((
+ snapshot->>'questionPlanVersion'='dialogue.questions.v1' AND
+ jsonb_typeof(snapshot->'questions')='array' AND jsonb_array_length(snapshot->'questions')=3) IS TRUE);
+ALTER TABLE dialogue_attempts ADD CONSTRAINT dialogue_attempt_question_plan CHECK ((
+ config_snapshot->>'questionPlanVersion'='dialogue.questions.v1' AND
+ jsonb_typeof(config_snapshot->'questions')='array' AND jsonb_array_length(config_snapshot->'questions')=3) IS TRUE);
+CREATE FUNCTION tasks_dialogue_question_plan_binding() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE planned jsonb;
+BEGIN
+ SELECT config_snapshot->'questions'->(NEW.ordinal-1) INTO planned FROM dialogue_attempts
+  WHERE tenant_id=NEW.tenant_id AND attempt_id=NEW.attempt_id;
+ IF (NEW.question_key=planned->>'key' AND NEW.prompt=planned->>'prompt') IS NOT TRUE THEN
+  RAISE EXCEPTION 'unapproved dialogue question' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dialogue_question_plan_binding BEFORE INSERT ON dialogue_questions
+ FOR EACH ROW EXECUTE FUNCTION tasks_dialogue_question_plan_binding();
+
 ALTER TABLE verification_evaluations ADD COLUMN criteria jsonb NOT NULL DEFAULT '[]'::jsonb
  CHECK (jsonb_typeof(criteria)='array' AND jsonb_array_length(criteria) <= 20
         AND (NOT accepted OR jsonb_array_length(criteria) > 0));

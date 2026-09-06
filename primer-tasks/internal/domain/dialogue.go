@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -179,14 +180,41 @@ func DialogueConfigFromRequirementJSON(raw []byte) (DialogueConfig, error) {
 // DialogueSnapshot is server-created from the issued revision, not accepted
 // from a task form or student socket. Its digest binds source, rubric and limits
 // to the revision/requirement identity as well as the policy version.
+const DialogueQuestionPlanVersion = "dialogue.questions.v1"
+
+// Question wording is affirmative server authority, never a provider-prose
+// channel. Inline sources use closed, source-neutral comprehension templates;
+// the embedded chapter retains its source-specific, explicitly curated plan.
+type DialoguePlannedQuestion struct {
+	Key    string `json:"key"`
+	Prompt string `json:"prompt"`
+}
+
+func dialogueQuestionPlan(source DialogueSource) []DialoguePlannedQuestion {
+	if source.Text == CuratedChapterSource {
+		return []DialoguePlannedQuestion{
+			{Key: "wall", Prompt: "What did the family repair after the storm?"},
+			{Key: "mortar", Prompt: "Why must the mortar dry before the next course of stones?"},
+			{Key: "rushing", Prompt: "What would rushing the work do to the wall?"},
+		}
+	}
+	return []DialoguePlannedQuestion{
+		{Key: "source-fact", Prompt: "What is one important fact in the assigned source?"},
+		{Key: "source-evidence", Prompt: "Which different detail in the assigned source supports your first answer?"},
+		{Key: "source-connection", Prompt: "How does another detail in the assigned source connect to the facts you have explained?"},
+	}
+}
+
 type DialogueSnapshot struct {
-	RevisionID      string         `json:"revisionId"`
-	RevisionVersion int            `json:"revisionVersion"`
-	RequirementID   string         `json:"requirementId"`
-	PolicyVersion   string         `json:"policyVersion"`
-	Config          DialogueConfig `json:"config"`
-	Source          DialogueSource `json:"source"`
-	Digest          string         `json:"digest"`
+	RevisionID          string                    `json:"revisionId"`
+	RevisionVersion     int                       `json:"revisionVersion"`
+	RequirementID       string                    `json:"requirementId"`
+	PolicyVersion       string                    `json:"policyVersion"`
+	Config              DialogueConfig            `json:"config"`
+	Source              DialogueSource            `json:"source"`
+	QuestionPlanVersion string                    `json:"questionPlanVersion"`
+	Questions           []DialoguePlannedQuestion `json:"questions"`
+	Digest              string                    `json:"digest"`
 }
 
 func NewDialogueSnapshot(revisionID, requirementID string, revisionVersion int, c DialogueConfig) (DialogueSnapshot, error) {
@@ -201,7 +229,7 @@ func NewDialogueSnapshot(revisionID, requirementID string, revisionVersion int, 
 	if err != nil {
 		return DialogueSnapshot{}, err
 	}
-	s := DialogueSnapshot{RevisionID: revisionID, RevisionVersion: revisionVersion, RequirementID: requirementID, PolicyVersion: DialoguePolicyVersion, Config: c, Source: source}
+	s := DialogueSnapshot{RevisionID: revisionID, RevisionVersion: revisionVersion, RequirementID: requirementID, PolicyVersion: DialoguePolicyVersion, Config: c, Source: source, QuestionPlanVersion: DialogueQuestionPlanVersion, Questions: dialogueQuestionPlan(source)}
 	b, err := json.Marshal(s)
 	if err != nil {
 		return DialogueSnapshot{}, err
@@ -212,7 +240,7 @@ func NewDialogueSnapshot(revisionID, requirementID string, revisionVersion int, 
 
 func (s DialogueSnapshot) Validate() error {
 	expected, err := NewDialogueSnapshot(s.RevisionID, s.RequirementID, s.RevisionVersion, s.Config)
-	if err != nil || s.PolicyVersion != expected.PolicyVersion || s.Source != expected.Source || s.Digest != expected.Digest {
+	if err != nil || s.PolicyVersion != expected.PolicyVersion || s.Source != expected.Source || s.Digest != expected.Digest || s.QuestionPlanVersion != expected.QuestionPlanVersion || !reflect.DeepEqual(s.Questions, expected.Questions) {
 		return fmt.Errorf("%w: snapshot binding", ErrInvalidDialogueConfig)
 	}
 	return nil

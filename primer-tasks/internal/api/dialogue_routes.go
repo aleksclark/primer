@@ -217,6 +217,7 @@ type DialogueInspectEntry struct {
 type DialogueAttemptInfo struct {
 	ID            string `json:"id"`
 	RequirementID string `json:"requirementId"`
+	Kind          string `json:"kind"`
 	Number        int    `json:"number"`
 	Status        string `json:"status"`
 }
@@ -421,18 +422,18 @@ func (s *Server) dialogueInspect(w http.ResponseWriter, r *http.Request, sc scop
 		return
 	}
 	out.AttemptOffset, _ = strconv.Atoi(r.URL.Query().Get("attemptOffset"))
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM dialogue_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, out.OccurrenceID).Scan(&out.AttemptTotal); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, out.OccurrenceID).Scan(&out.AttemptTotal); err != nil {
 		dialogueProblem(w, err)
 		return
 	}
-	rows, err = tx.Query(ctx, `SELECT a.id,a.requirement_id,a.number,a.status FROM verification_attempts a JOIN dialogue_attempts d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id WHERE a.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC,a.id LIMIT $3 OFFSET $4`, sc.Tenant, out.OccurrenceID, out.AttemptLimit, out.AttemptOffset)
+	rows, err = tx.Query(ctx, `SELECT a.id,a.requirement_id,r.kind,a.number,a.status FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id WHERE a.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY r.ordinal,a.number DESC,a.id LIMIT $3 OFFSET $4`, sc.Tenant, out.OccurrenceID, out.AttemptLimit, out.AttemptOffset)
 	if err != nil {
 		dialogueProblem(w, err)
 		return
 	}
 	for rows.Next() {
 		var attempt DialogueAttemptInfo
-		if err = rows.Scan(&attempt.ID, &attempt.RequirementID, &attempt.Number, &attempt.Status); err != nil {
+		if err = rows.Scan(&attempt.ID, &attempt.RequirementID, &attempt.Kind, &attempt.Number, &attempt.Status); err != nil {
 			break
 		}
 		out.Attempts = append(out.Attempts, attempt)
