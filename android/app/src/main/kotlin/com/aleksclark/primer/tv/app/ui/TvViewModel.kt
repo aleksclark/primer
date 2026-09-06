@@ -660,6 +660,7 @@ class TvViewModel(
                             "Version ${next.release.versionCode} is available.",
                         )
                         UpdateState.UpToDate -> showStatus("This device is up to date.")
+                        is UpdateState.Failed -> showStatus(next.message, isError = true)
                         else -> Unit
                     }
                 }

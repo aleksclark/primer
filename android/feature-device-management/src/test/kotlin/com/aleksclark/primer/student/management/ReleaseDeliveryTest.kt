@@ -8,11 +8,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReleaseDeliveryTest {
-    private val key = ByteArray(32) { it.toByte() }
-    private val trust = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+    private val keys = ReleaseTrust.newKeyPair()
+    private val trust = Base64.getUrlEncoder().withoutPadding().encodeToString(keys.first)
 
     private fun target(payload: ByteArray, versionName: String = "0.2.0"): ReleaseTarget {
-        val signature = ReleaseTrust.testSignature(key, payload)
+        val signature = ReleaseTrust.sign(keys.second, payload)
         return ReleaseTarget(
             byteSize = 12,
             channel = "stable",

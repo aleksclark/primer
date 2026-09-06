@@ -7,7 +7,9 @@ import org.junit.Test
 import java.util.Base64
 
 class ReleaseTrustTest {
-    private val key = ByteArray(32) { it.toByte() }
+    private val keys = ReleaseTrust.newKeyPair()
+    private val publicKey = keys.first
+    private val privateKey = keys.second
     private val manifest = SignedManifest(
         packageName = "com.aleksclark.primer.student",
         channel = "stable",
@@ -27,12 +29,21 @@ class ReleaseTrustTest {
     }
 
     @Test
-    fun exactCanonicalBytesVerifyAgainstPinnedKey() {
-        val encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+    fun tinkEd25519VerifiesCanonicalBytesOnPinnedKey() {
+        val encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(publicKey)
         assertEquals(32, ReleaseTrust.decodePinnedKey(encoded).size)
         val message = ReleaseTrust.canonicalBytes(manifest)
-        val signature = ReleaseTrust.testSignature(key, message)
-        assertTrue(ReleaseTrust.verifyEd25519(key, message, signature))
-        assertFalse(ReleaseTrust.verifyEd25519(key, message + 1, signature))
+        val signature = ReleaseTrust.sign(privateKey, message)
+        assertTrue(ReleaseTrust.verifyEd25519(publicKey, message, signature))
+        assertFalse(ReleaseTrust.verifyEd25519(publicKey, message + 1, signature))
+        assertFalse(ReleaseTrust.verifyEd25519(publicKey, message, ReleaseTrust.sign(privateKey, message + 1)))
+        val digestFallback = java.security.MessageDigest.getInstance("SHA-256").digest(publicKey + message) + ByteArray(32)
+        assertFalse(
+            ReleaseTrust.verifyEd25519(
+                publicKey,
+                message,
+                Base64.getUrlEncoder().withoutPadding().encodeToString(digestFallback),
+            ),
+        )
     }
 }

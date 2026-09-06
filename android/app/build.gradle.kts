@@ -10,6 +10,9 @@ val primerVersionCode = providers.gradleProperty("primerVersionCode")
 val primerVersionName = providers.gradleProperty("primerVersionName")
     .orElse(providers.environmentVariable("PRIMER_ANDROID_VERSION_NAME"))
     .orElse("0.1.0")
+val releaseTrustRoot = providers.gradleProperty("primerReleaseTrustRoot")
+    .orElse(providers.environmentVariable("PRIMER_RELEASE_TRUST_ROOT"))
+    .getOrElse("")
 val releaseStoreFile = providers.gradleProperty("primerSigningStoreFile")
     .orElse(providers.environmentVariable("PRIMER_ANDROID_KEYSTORE"))
 val releaseStorePassword = providers.gradleProperty("primerSigningStorePassword")
@@ -45,6 +48,7 @@ android {
         versionName = primerVersionName.get().also {
             require(it.isNotBlank()) { "primerVersionName must not be blank" }
         }
+        buildConfigField("String", "RELEASE_TRUST_ROOT", "\"${releaseTrustRoot.replace("\"", "\\\"")}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -79,6 +83,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -102,6 +107,7 @@ kotlin {
 dependencies {
     implementation(project(":core"))
     implementation(project(":core-ui"))
+    implementation(project(":core-updates"))
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)

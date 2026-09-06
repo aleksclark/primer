@@ -1,6 +1,7 @@
 package com.aleksclark.primer.tv.core.data
 
 import com.aleksclark.primer.tv.core.domain.MediaClass
+import com.aleksclark.primer.tv.core.testing.appReleaseJson
 import com.aleksclark.primer.tv.core.testing.catalogItemJson
 import com.aleksclark.primer.tv.core.testing.catalogJson
 import com.aleksclark.primer.tv.core.testing.grantJson
@@ -278,6 +279,36 @@ class TvRepositoryTest {
         val error = (repositoryFor(server).catalog() as ApiResult.Err).error
 
         assertEquals(500, (error as ApiError.Unexpected).status)
+    }
+
+    @Test
+    fun `app release maps current unsigned metadata and optional signed fields`() = runTest {
+        server.enqueue(json(appReleaseJson()))
+        val unsigned = (repositoryFor(server).appRelease() as ApiResult.Ok).value
+        assertTrue(unsigned.available)
+        assertEquals(2, unsigned.versionCode)
+        assertEquals(12L, unsigned.sizeBytes)
+        assertEquals("b".repeat(64), unsigned.sha256)
+        assertEquals("/api/v1/app/release/apk", unsigned.downloadPath)
+        assertEquals("", unsigned.packageName)
+        assertNull(unsigned.manifestPayloadBase64)
+
+        val extra = """,
+  "packageName":"com.aleksclark.primer.tv",
+  "versionName":"0.2.0",
+  "signerSha256":"${"a".repeat(64)}",
+  "minSdk":28,
+  "channel":"stable",
+  "manifestPayloadBase64":"payload",
+  "manifestSignature":"sig",
+  "signingKeyId":"ed25519-v1""""
+        server.enqueue(json(appReleaseJson(extra = extra)))
+        val signed = (repositoryFor(server).appRelease() as ApiResult.Ok).value
+        assertEquals("com.aleksclark.primer.tv", signed.packageName)
+        assertEquals("0.2.0", signed.versionName)
+        assertEquals(28, signed.minSdk)
+        assertEquals("payload", signed.manifestPayloadBase64)
+        assertEquals("ed25519-v1", signed.signingKeyId)
     }
 
     @Test
