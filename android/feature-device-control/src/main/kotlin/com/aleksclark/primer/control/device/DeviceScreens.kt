@@ -31,6 +31,7 @@ fun DevicesScreen(
     devices: List<ManagedDevice>,
     enrollment: Enrollment?,
     message: String?,
+    selfUpdate: ControlSelfUpdateUi = ControlSelfUpdateUi(),
     onIssue: () -> Unit,
     onOpen: (ManagedDevice) -> Unit,
 ) {
@@ -46,6 +47,7 @@ fun DevicesScreen(
             PrimerRecordRow(label = "Enrollment code", value = enrollment.code)
             androidx.compose.material3.Text(enrollment.qrPayload, style = com.aleksclark.primer.ui.PrimerTheme.typography.mono)
         }
+        ControlSelfUpdateScreen(update = selfUpdate)
         if (devices.isEmpty()) PrimerEmptyState(title = "No managed devices", message = "Issue an enrollment QR for Student. Control never becomes device admin.")
         LazyColumn {
             items(devices, key = { it.id }) { device ->
@@ -133,4 +135,31 @@ fun DeviceDetailScreen(
             PrimerButton(text = "Rotate recovery", onClick = onRotateRecovery, enabled = recovery.acknowledged && !mutating)
         }
     }
+}
+
+@Composable
+fun ControlSelfUpdateScreen(update: ControlSelfUpdateUi) {
+    PrimerSectionHeader(
+        label = "Control app",
+        title = "Self-update",
+        description = "Control is not a device owner. Production install stays held until the shared adapter validates APK hash, signer, and version from bytes — not filename.",
+    )
+    PrimerStatus(update.status, tone = when (update.phase) {
+        ControlSelfUpdatePhase.Held, ControlSelfUpdatePhase.Idle -> PrimerStatusTone.Neutral
+        ControlSelfUpdatePhase.Failed -> PrimerStatusTone.Attention
+        else -> PrimerStatusTone.Accent
+    })
+    PrimerRecordRow(label = "Phase", value = update.phase.name.lowercase())
+    PrimerRecordRow(label = "Installed version", value = update.installedVersion.toString())
+    if (update.candidateVersion != null) PrimerRecordRow(label = "Candidate version", value = update.candidateVersion.toString())
+    val plan = update.plan
+    if (plan != null) {
+        PrimerRecordRow(label = "Verified bytes", value = if (plan.verifiedBytes) "yes" else "no")
+        PrimerRecordRow(label = "Unattended eligible", value = if (plan.unattendedEligible) "yes" else "no")
+        PrimerRecordRow(label = "Confirmation", value = if (plan.confirmationRequired) "system prompt or notification" else "not required")
+        if (plan.settingsRequired) PrimerStatus("Open system install settings, then confirm the update.", tone = PrimerStatusTone.Attention)
+        PrimerStatus(plan.reason, tone = PrimerStatusTone.Neutral)
+    }
+    PrimerButton(text = "Install Control update", onClick = {}, enabled = false)
+    PrimerButton(text = "Open install settings", onClick = {}, enabled = false, variant = PrimerButtonVariant.Secondary)
 }

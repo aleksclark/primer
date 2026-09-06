@@ -55,15 +55,22 @@ physical acceptance. Needed configuration, without changing canonical auth here:
 ### Control self-update (held)
 
 Control is unprivileged and must not become a device owner. Student's
-`ManagedUpdater` is device-owner silent install; do not copy it. Keep this UI
-held until A lands a **shared** updater adapter Control can consume — no
-duplicate installer in `:app-control`.
+`ManagedUpdater` is device-owner silent install; do not copy it. A's
+`SelfUpdateSession` candidate (03707623) is **not** production-trusted: it
+currently trusts caller eligibility instead of validating the actual APK hash,
+signer, and version, and `pendingConfirmation` can wedge when the installer
+session is missing. Do not copy those validators or treat a filename as proof.
 
-When that adapter exists, Control may use ordinary Android unattended-update
-eligibility (same package, compatible signer/version, platform session) with an
-**explicit confirmation fallback** if the platform requires user action. Do not
-assume device-owner privileges. Do not redefine every Control update as a
-prompted install; unattended remains allowed when Android grants it.
+Control UI is prepared against the upcoming stable shared API (`canAttempt`,
+unattended vs confirmation vs settings/notification fallback) but **does not
+commit a PackageInstaller session**. Unattended is allowed only for ordinary
+Android eligibility (SDK 31+, same package/signer/newer version, platform flag).
+If Android requires user action, Control must present confirmation, settings, or
+a notification fallback — not assume device-owner silence. Not every Control
+update is a prompted install.
+
+TV `TvReleaseAdapter` must not copy unsigned outer fields into a verified
+manifest after checking an unrelated payload. That fix belongs in A's adapter.
 
 ### Exact Clerk identity acceptance (external; not the test issuer)
 

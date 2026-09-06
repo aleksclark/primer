@@ -3,6 +3,7 @@ package com.aleksclark.primer.control
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aleksclark.primer.control.device.ApprovedAppDraft
+import com.aleksclark.primer.control.device.ControlSelfUpdateUi
 import com.aleksclark.primer.control.device.DeviceRepository
 import com.aleksclark.primer.control.device.DeviceSync
 import com.aleksclark.primer.control.device.DeviceSyncStatus
@@ -86,6 +87,7 @@ data class ControlUiState(
     val tasksHasMore: Boolean = false,
     val schedulesHasMore: Boolean = false,
     val occurrencesHasMore: Boolean = false,
+    val selfUpdate: ControlSelfUpdateUi = ControlSelfUpdateUi(),
 )
 
 class ControlViewModel(

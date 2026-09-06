@@ -263,6 +263,7 @@ private fun ControlAppScreen(
                         devices = state.devices,
                         enrollment = state.enrollment,
                         message = state.message,
+                        selfUpdate = state.selfUpdate,
                         onIssue = model::issueEnrollment,
                         onOpen = model::openDevice,
                     )
