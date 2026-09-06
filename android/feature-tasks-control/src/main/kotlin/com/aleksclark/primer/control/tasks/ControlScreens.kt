@@ -20,6 +20,10 @@ import com.aleksclark.primer.ui.PrimerSectionHeader
 import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.aleksclark.primertasks.client.Occurrence
 import com.aleksclark.primertasks.client.Pairing
@@ -52,8 +56,31 @@ fun ControlSignInScreen(
         )
         if (denied) PrimerStatus("Signed in, but this household does not include your account.", tone = PrimerStatusTone.Attention)
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
-        PrimerTextField(value = email, onValueChange = onEmail, label = "Email", enabled = configured)
-        PrimerTextField(value = password, onValueChange = onPassword, label = "Password", enabled = configured, visualTransformation = PasswordVisualTransformation())
+        PrimerTextField(
+            value = email,
+            onValueChange = onEmail,
+            label = "Email",
+            enabled = configured,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Email,
+                imeAction = ImeAction.Next,
+            ),
+        )
+        PrimerTextField(
+            value = password,
+            onValueChange = onPassword,
+            label = "Password",
+            enabled = configured,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
+        )
         PrimerButton(text = "Sign in", onClick = onSignIn, enabled = configured && email.isNotBlank() && password.isNotBlank())
         if (signedIn) PrimerButton(text = "Sign out", onClick = onSignOut, variant = PrimerButtonVariant.Quiet)
         PrimerStatus("Live Clerk acceptance is not claimed by this build.", tone = PrimerStatusTone.Neutral)

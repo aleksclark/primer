@@ -8,8 +8,8 @@ interface ParentIdentity {
     val configured: Boolean
     suspend fun ready(): Boolean
     suspend fun isSignedIn(): Boolean
-    suspend fun sessionToken(): String?
-    suspend fun signIn()
-    suspend fun signIn(email: String, password: String): Boolean = false
-    suspend fun signOutProvider()
+    suspend fun sessionId(): String?
+    suspend fun sessionToken(skipCache: Boolean = false): String?
+    suspend fun signIn(email: String, password: String): SignInOutcome
+    suspend fun signOutProvider(): SignOutOutcome
 }
