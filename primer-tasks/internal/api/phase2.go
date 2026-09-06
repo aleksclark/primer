@@ -217,8 +217,14 @@ func (s *Server) listTasks2(w http.ResponseWriter, r *http.Request, sc scope) {
 func (s *Server) publishTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	id := chi.URLParam(r, "id")
 	ctx := r.Context()
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		problem(w, 500, "internal", "unable to publish task")
+		return
+	}
+	defer tx.Rollback(ctx)
 	var x TaskRevision
-	e := s.DB.QueryRow(ctx, `UPDATE task_revisions SET status='published',published_at=now() WHERE tenant_id=$1 AND id=$2 AND status='draft' AND EXISTS(SELECT 1 FROM task_templates t WHERE t.tenant_id=task_revisions.tenant_id AND t.id=task_revisions.template_id AND t.status<>'retired') RETURNING id,template_id,version,title,instructions,status,created_at`, sc.Tenant, id).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt)
+	e = tx.QueryRow(ctx, `UPDATE task_revisions SET status='published',published_at=now() WHERE tenant_id=$1 AND id=$2 AND status='draft' AND EXISTS(SELECT 1 FROM task_templates t WHERE t.tenant_id=task_revisions.tenant_id AND t.id=task_revisions.template_id AND t.status<>'retired') RETURNING id,template_id,version,title,instructions,status,created_at`, sc.Tenant, id).Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "draft revision not found")
 		return
@@ -227,7 +233,14 @@ func (s *Server) publishTask2(w http.ResponseWriter, r *http.Request, sc scope) 
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	_, _ = s.DB.Exec(ctx, `UPDATE task_templates SET title=$1,status='published',current_revision=$2 WHERE tenant_id=$3 AND id=$4`, x.Title, x.Version, sc.Tenant, x.TemplateID)
+	if _, e = tx.Exec(ctx, `UPDATE task_templates SET title=$1,status='published',current_revision=$2 WHERE tenant_id=$3 AND id=$4`, x.Title, x.Version, sc.Tenant, x.TemplateID); e != nil {
+		problem(w, 500, "internal", "unable to publish task")
+		return
+	}
+	if e = tx.Commit(ctx); e != nil {
+		problem(w, 500, "internal", "unable to publish task")
+		return
+	}
 	jsonOK(w, x)
 }
 func (s *Server) retireTask2(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -264,8 +277,8 @@ func (s *Server) createSchedule2(w http.ResponseWriter, r *http.Request, sc scop
 		}
 	}
 	id := uuid.New()
-	_, e := s.DB.Exec(r.Context(), `INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE EXISTS(SELECT 1 FROM task_revisions r JOIN task_templates t ON t.tenant_id=r.tenant_id AND t.id=r.template_id WHERE r.tenant_id=$2 AND r.id=$5 AND r.template_id=$4 AND r.status='published' AND t.status<>'retired')`, id, sc.Tenant, in.StudentID, in.TemplateID, in.RevisionID, in.Kind, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
-	if e != nil {
+	inserted, e := s.DB.Exec(r.Context(), `INSERT INTO task_schedules(id,tenant_id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE EXISTS(SELECT 1 FROM task_revisions r JOIN task_templates t ON t.tenant_id=r.tenant_id AND t.id=r.template_id WHERE r.tenant_id=$2 AND r.id=$5 AND r.template_id=$4 AND r.status='published' AND t.status<>'retired')`, id, sc.Tenant, in.StudentID, in.TemplateID, in.RevisionID, in.Kind, in.Timezone, in.StartAt, in.EndAt, in.RRULE, in.DueOffsetMinutes)
+	if e != nil || inserted.RowsAffected() != 1 {
 		problem(w, 409, "conflict", "schedule references an unavailable task or student")
 		return
 	}

@@ -1,4 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -8,6 +9,7 @@ const contract = path.resolve(here, "../../build/openapi.yaml");
 const output = path.resolve(here, "generated/schema.d.ts");
 
 try {
+  execFileSync("go", ["run", "./cmd/agent-protocol-gen"], { cwd: path.resolve(here, "../.."), stdio: "inherit" });
   const source = await readFile(contract, "utf8");
   const ast = await openapiTS(source, { silent: true });
   const schema = astToString(ast);

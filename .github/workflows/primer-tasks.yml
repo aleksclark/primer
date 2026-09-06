@@ -68,6 +68,13 @@ jobs:
       - name: coverage gate
         run: make tasks-cover
 
+      - name: Fantasy compatibility and public import audit
+        run: make tasks-agent-compat
+
+      - name: parent agent race and lifecycle regression (10 repeats)
+        working-directory: primer-tasks
+        run: go test -race ./internal/agent/... ./internal/jobs/... ./internal/api/... -count=10 -timeout=25m
+
       - name: generated clients
         run: make tasks-clients
 
@@ -89,4 +96,4 @@ jobs:
       - name: live host-stack Playwright
         run: |
           set +m
-          make tasks-e2e
+          TASKS_MODEL_PROVIDER=scripted TASKS_AGENT_MODE=scripted make tasks-e2e

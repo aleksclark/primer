@@ -39,6 +39,14 @@ func (s *Server) parentBoundary(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if path == "/ws" {
+			var err error
+			r, err = s.agentUpgradeRequest(r)
+			if err != nil {
+				problem(w, 401, "unauthorized", "parent socket authorization required")
+				return
+			}
+		}
 		protected.ServeHTTP(w, r)
 	})
 }
@@ -83,7 +91,20 @@ func (s *Server) clerkLogout(w http.ResponseWriter, r *http.Request) {
 		s.parentError(w, auth.ErrUnauthenticated)
 		return
 	}
-	if _, err := s.DB.Exec(r.Context(), `INSERT INTO parent_session_revocations(issuer,session_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, p.Issuer, p.SessionID); err != nil {
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		problem(w, 503, "unavailable", "unable to revoke local parent session")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	// Serialize local logout with in-flight parent-agent effects.
+	if _, err = tx.Exec(r.Context(), `SELECT subject FROM parent_identities WHERE issuer=$1 AND subject=$2 FOR UPDATE`, p.Issuer, string(p.Subject)); err == nil {
+		_, err = tx.Exec(r.Context(), `INSERT INTO parent_session_revocations(issuer,session_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, p.Issuer, p.SessionID)
+	}
+	if err == nil {
+		err = tx.Commit(r.Context())
+	}
+	if err != nil {
 		problem(w, 503, "unavailable", "unable to revoke local parent session")
 		return
 	}

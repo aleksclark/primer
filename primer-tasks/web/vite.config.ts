@@ -42,6 +42,7 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: proxyTarget,
+        ws: true,
         changeOrigin: true,
         secure: false,
         configure: (proxy) => {

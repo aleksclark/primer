@@ -18,12 +18,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	tasksdb "primer-tasks/internal/db"
 	"strings"
 	"time"
 )
 
 type Server struct {
-	DB                  *pgxpool.Pool
+	DB                  tasksdb.Database
 	Env                 string
 	SecureCookie        bool
 	Auth                AuthConfig
@@ -33,6 +34,7 @@ type Server struct {
 	ParentAuthenticator auth.Authenticator
 	ParentPolicy        auth.AuthenticationPolicy
 	BasePath            string
+	agentHub            *agentHub
 }
 type scope struct{ Tenant, Subject string }
 
@@ -83,7 +85,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC()}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
 }
 func (s *Server) Routes() http.Handler { return s.parentBoundary(s.humaAPI().Adapter()) }
 
@@ -185,7 +187,7 @@ func (s *Server) parentScope(r *http.Request) (scope, error) {
 		return scope{}, err
 	}
 	var out scope
-	err = s.DB.QueryRow(r.Context(), `SELECT s.tenant_id,s.subject_ref FROM bff_sessions s JOIN parent_memberships m ON m.tenant_id=s.tenant_id AND m.subject_ref=s.subject_ref WHERE s.handle_hash=$1 AND s.session_kind='parent' AND s.expires_at>now() AND s.revoked_at IS NULL AND m.revoked_at IS NULL`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
+	err = s.DB.QueryRow(r.Context(), `SELECT s.tenant_id,s.subject_ref FROM bff_sessions s JOIN parent_memberships m ON m.tenant_id=s.tenant_id AND m.subject_ref=s.subject_ref WHERE s.handle_hash=$1 AND s.session_kind='parent' AND s.expires_at>now() AND s.revoked_at IS NULL AND m.revoked_at IS NULL AND m.role='admin'`, hash(c.Value)).Scan(&out.Tenant, &out.Subject)
 	return out, err
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +323,7 @@ func (s *Server) parentSession(w http.ResponseWriter, r *http.Request) {
 		s.parentError(w, err)
 		return
 	}
+	s.csrfToken(w, r)
 	jsonOK(w, map[string]string{"subjectRef": sc.Subject, "tenantId": sc.Tenant})
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -653,7 +656,7 @@ func (s *Server) studentFromBearer(r *http.Request) (uuid.UUID, error) {
 func (s *Server) deviceProfile(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	s.studentProfile(w, r, id)
 }
-func audit(ctx context.Context, db *pgxpool.Pool, sc scope, action, id string) {
+func audit(ctx context.Context, db tasksdb.Database, sc scope, action, id string) {
 	_, _ = db.Exec(ctx, `INSERT INTO audit_records(tenant_id,subject_ref,action,entity_id) VALUES($1,$2,$3,$4)`, sc.Tenant, sc.Subject, action, id)
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

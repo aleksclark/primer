@@ -1,5 +1,11 @@
 import createClient from "openapi-fetch";
 import type { paths, components } from "../generated/schema";
+import { createAgentClient } from "./agent-client";
+export { createAgentClient, readDurableAgentConversation, writeDurableAgentConversation } from "./agent-client";
+export type { AgentClient, AgentClientError, AgentClientOptions, AgentClientSnapshot, AgentConnectionState } from "./agent-client";
+export { AGENT_PROTOCOL_VERSION, parseAgentEvent, safeAgentToolLabel } from "./agent-protocol";
+export type { AgentCancelCommand, AgentCommand, AgentConfirmCommand, AgentEvent, AgentMessageCommand, AgentSubscribeCommand, AgentToolLabel, AgentUnsubscribeCommand } from "./agent-protocol";
+export type AgentConversation = components["schemas"]["AgentConversation"];
 
 export type { components, paths } from "../generated/schema";
 export type Student = components["schemas"]["Student"];
@@ -94,6 +100,15 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     },
     async parentSession(options: RequestOptions = {}) {
       return unwrap(transport.GET("/auth/session", { ...options }));
+    },
+
+    async createAgentConversation(options: RequestOptions = {}) {
+      return unwrap(transport.POST("/agent/conversations", { ...options }));
+    },
+    createParentAgentClient(conversationId: string) {
+      const url = new URL(`${baseUrl}/ws`, window.location.origin);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      return createAgentClient({ conversationId, url: url.toString(), getParentToken: options.getParentToken });
     },
 
     /** Start the real BFF authorization-code flow; provider credentials stay server-side. */

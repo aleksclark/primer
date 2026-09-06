@@ -7,7 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "node ./generate-client.mjs"
+    "generate": "node ./generate-client.mjs",
+    "check:boundary": "node ./scripts/check-agent-boundary.mjs"
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0"
