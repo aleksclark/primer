@@ -2,9 +2,13 @@ package devicemanagement
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -179,4 +183,106 @@ func TestRecoveryIdempotencyPauseAndStateBranches(t *testing.T) {
 	if err = svc.AbandonEnrollment(ctx, sc, enroll.ID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPublishTargetReceiptAndPause(t *testing.T) {
+	requireAPKTools(t)
+	pool := domainPool(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO tenants(id,name) VALUES($1,'A')`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{DB: pool, PublicOrigin: "https://tasks.test", ArtifactDir: t.TempDir(), ReleaseSigningKey: priv}
+	sc := Scope{TenantID: tenant.String(), ActorRef: "parent-a"}
+	enroll, err := svc.IssueEnrollment(ctx, sc, IssueEnrollmentInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Enroll(ctx, EnrollInput{Code: enroll.Code, DeviceName: "Student"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apk := buildSignedAPK(t, StudentPackageName, 21, "1.0.21")
+	rel, err := svc.PublishAPK(ctx, "operator", apk, "stable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetReleaseTarget(ctx, sc, claimed.Device.ID, ReleaseTargetInput{ReleaseID: rel.ID}); err == nil {
+		t.Fatal("target without policy accepted")
+	}
+	_, err = svc.UpdatePolicy(ctx, sc, claimed.Device.ID, PolicyUpdateInput{Policy: Policy{ApprovedApps: []ApprovedApp{{PackageName: StudentPackageName, SignerSHA256: rel.SignerSHA256, Required: true}}, LockTask: LockTaskPolicy{Enabled: true, Packages: []string{StudentPackageName}}, Maintenance: MaintenancePolicy{AllowParentUnlock: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := svc.SetReleaseTarget(ctx, sc, claimed.Device.ID, ReleaseTargetInput{ReleaseID: rel.ID, BaseTargetVersion: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := svc.SetReleaseTarget(ctx, sc, claimed.Device.ID, ReleaseTargetInput{ReleaseID: rel.ID, BaseTargetVersion: 0})
+	if err != nil || again.TargetVersion != target.TargetVersion {
+		t.Fatalf("idempotent target = %+v %v", again, err)
+	}
+	ds := DeviceScope{TenantID: sc.TenantID, DeviceID: claimed.Device.ID}
+	if _, err = svc.DeviceRelease(ctx, ds, rel.ID); err != nil {
+		t.Fatal(err)
+	}
+	code := int64(21)
+	if _, err = svc.ReportRelease(ctx, ds, ReleaseReceiptInput{ReportID: uuid.NewString(), TargetID: target.ID, Status: "confirmed", TargetVersion: 1, InstalledVersionCode: &code}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.ReportRelease(ctx, ds, ReleaseReceiptInput{ReportID: uuid.NewString(), TargetID: target.ID, Status: "downloading", TargetVersion: 1}); err == nil {
+		t.Fatal("regress confirmed accepted")
+	}
+	paused, err := svc.PauseRelease(ctx, "operator", rel.ID)
+	if err != nil || paused.Status != "paused" {
+		t.Fatalf("pause = %+v %v", paused, err)
+	}
+	if _, _, err = svc.ArtifactBytes(ctx, ds, rel.ID); err == nil {
+		t.Fatal("paused artifact still delivered")
+	}
+}
+
+func requireAPKTools(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("aapt2"); err != nil {
+		t.Setenv("PATH", "/opt/android-sdk/build-tools/35.0.0:"+os.Getenv("PATH"))
+	}
+	if _, err := exec.LookPath("aapt2"); err != nil {
+		t.Fatalf("aapt2 required: %v", err)
+	}
+}
+
+func buildSignedAPK(t *testing.T, pkg string, version int64, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "AndroidManifest.xml")
+	body := `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + pkg + `" android:versionCode="` + strconv.FormatInt(version, 10) + `" android:versionName="` + name + `">
+  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34"/>
+  <application android:label="Student" android:hasCode="false"/>
+</manifest>`
+	if err := os.WriteFile(manifest, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	apk := filepath.Join(dir, "app.apk")
+	link := exec.Command("aapt2", "link", "-o", apk, "-I", "/opt/android-sdk/platforms/android-34/android.jar", "--manifest", manifest)
+	if out, err := link.CombinedOutput(); err != nil {
+		t.Fatalf("aapt2 link: %v %s", err, out)
+	}
+	keystore := filepath.Join(dir, "release.jks")
+	cmd := exec.Command("keytool", "-genkeypair", "-keystore", keystore, "-storepass", "android", "-keypass", "android", "-alias", "release", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-dname", "CN=PrimerRelease")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("keytool: %v %s", err, out)
+	}
+	signed := apk + ".signed.apk"
+	sign := exec.Command("apksigner", "sign", "--ks", keystore, "--ks-pass", "pass:android", "--key-pass", "pass:android", "--out", signed, apk)
+	if out, err := sign.CombinedOutput(); err != nil {
+		t.Fatalf("apksigner: %v %s", err, out)
+	}
+	return signed
 }

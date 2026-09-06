@@ -1,7 +1,9 @@
 package devicemanagement
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -137,4 +139,41 @@ func TestInstalledAppsRequireSelfStudent(t *testing.T) {
 
 func base64Raw(v string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(v))
+}
+
+func TestSnapshotAndImmutablePublish(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "in.apk")
+	data := []byte("apk-bytes-apk-bytes")
+	if err := os.WriteFile(src, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshotAPK(src, 3); err == nil {
+		t.Fatal("oversized snapshot accepted")
+	}
+	snap, err := snapshotAPK(src, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(snap)
+	sum := sha256Of(data)
+	dest := filepath.Join(dir, "app.apk")
+	if err := publishImmutableAPK(snap, dest, sum, int64(len(data))); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishImmutableAPK(snap, dest, sum, int64(len(data))); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "other.apk")
+	if err := os.WriteFile(other, []byte("different-bytes-here"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishImmutableAPK(other, dest, sha256Of([]byte("different-bytes-here")), int64(len("different-bytes-here"))); err == nil {
+		t.Fatal("clobber accepted")
+	}
+}
+
+func sha256Of(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
 }
