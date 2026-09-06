@@ -207,6 +207,10 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	if rec := requestJSON(t, h, http.MethodGet, "/managed-devices/"+enrolled.Device.ID, "parent-a", ""); rec.Code != http.StatusOK {
 		t.Fatalf("management survived Tasks archive = %d %s", rec.Code, rec.Body.String())
 	}
+	history := requestJSON(t, h, http.MethodGet, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", "")
+	if history.Code != http.StatusOK || !strings.Contains(history.Body.String(), `"status":"applied"`) {
+		t.Fatalf("parent recovery history = %d %s", history.Code, history.Body.String())
+	}
 	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/revoke", "parent-a", `{"reason":"lost"}`); rec.Code != http.StatusOK {
 		t.Fatalf("revoke management = %d %s", rec.Code, rec.Body.String())
 	}

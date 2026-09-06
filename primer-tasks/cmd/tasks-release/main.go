@@ -18,6 +18,8 @@ import (
 )
 
 func main() {
+	// Operator-only publisher. Household parents select published releases;
+	// they cannot sign or pause through Control.
 	apk := flag.String("apk", "", "path to a signed APK")
 	channel := flag.String("channel", "stable", "release channel")
 	pauseID := flag.String("pause", "", "published release UUID to pause")

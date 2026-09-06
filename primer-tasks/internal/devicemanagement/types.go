@@ -253,6 +253,10 @@ type RecoveryConfirmInput struct {
 	ReportID string `json:"reportId" format:"uuid"`
 }
 
+type RecoveryHistoryPage struct {
+	Items []RecoveryIntent `json:"items" nullable:"false"`
+}
+
 type DesiredState struct {
 	Device         Device           `json:"device"`
 	PolicyRevision *PolicyRevision  `json:"policyRevision,omitempty"`

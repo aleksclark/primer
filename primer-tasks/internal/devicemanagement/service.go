@@ -929,17 +929,18 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 	return out, nil
 }
 
-func (s *Service) PendingRecovery(ctx context.Context, tenantID, deviceID string) ([]RecoveryIntent, error) {
-	rows, err := s.pool().Query(ctx, `SELECT id,device_id,kind,status,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at IS NOT NULL,created_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 AND status='pending' AND delivery_expires_at>now() ORDER BY created_at`, tenantID, deviceID)
-	if err != nil {
-		return nil, err
-	}
+func (s *Service) expireRecovery(ctx context.Context, tenantID, deviceID string) error {
+	_, err := s.pool().Exec(ctx, `UPDATE management_recovery_intents SET status='expired' WHERE tenant_id=$1 AND device_id=$2 AND status='pending' AND delivery_expires_at<=now()`, tenantID, deviceID)
+	return err
+}
+
+func scanRecoveryRows(rows pgx.Rows) ([]RecoveryIntent, error) {
 	defer rows.Close()
 	out := []RecoveryIntent{}
 	for rows.Next() {
 		var x RecoveryIntent
 		var raw []byte
-		if err = rows.Scan(&x.ID, &x.DeviceID, &x.Kind, &x.Status, &x.DeliveryExpiresAt, &x.LeaseExpiresAt, &raw, &x.ParentAcknowledged, &x.CreatedAt); err != nil {
+		if err := rows.Scan(&x.ID, &x.DeviceID, &x.Kind, &x.Status, &x.DeliveryExpiresAt, &x.LeaseExpiresAt, &raw, &x.ParentAcknowledged, &x.CreatedAt); err != nil {
 			return nil, err
 		}
 		if len(raw) > 0 && string(raw) != "null" && string(raw) != "{}" {
@@ -951,6 +952,31 @@ func (s *Service) PendingRecovery(ctx context.Context, tenantID, deviceID string
 		out = append(out, x)
 	}
 	return out, rows.Err()
+}
+
+func (s *Service) PendingRecovery(ctx context.Context, tenantID, deviceID string) ([]RecoveryIntent, error) {
+	if err := s.expireRecovery(ctx, tenantID, deviceID); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool().Query(ctx, `SELECT id,device_id,kind,status,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at IS NOT NULL,created_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 AND status='pending' AND delivery_expires_at>now() ORDER BY created_at LIMIT 32`, tenantID, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecoveryRows(rows)
+}
+
+func (s *Service) RecoveryHistory(ctx context.Context, sc Scope, deviceID string) ([]RecoveryIntent, error) {
+	if _, err := s.GetDevice(ctx, sc, deviceID); err != nil {
+		return nil, err
+	}
+	if err := s.expireRecovery(ctx, sc.TenantID, deviceID); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool().Query(ctx, `SELECT id,device_id,kind,status,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at IS NOT NULL,created_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 ORDER BY created_at DESC LIMIT 50`, sc.TenantID, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecoveryRows(rows)
 }
 
 func (s *Service) ConfirmRecoveryIntent(ctx context.Context, sc DeviceScope, intentID, reportID string) error {

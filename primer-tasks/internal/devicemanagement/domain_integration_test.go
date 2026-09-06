@@ -123,6 +123,47 @@ func TestRecoveryIdempotencyPauseAndStateBranches(t *testing.T) {
 	if err = svc.ConfirmRecoveryIntent(ctx, ds, first.ID, uuid.NewString()); err == nil {
 		t.Fatal("changed confirm accepted")
 	}
+	history, err := svc.RecoveryHistory(ctx, sc, claimed.Device.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenApplied, seenPending := false, false
+	for _, item := range history {
+		switch item.Status {
+		case "applied":
+			seenApplied = true
+		case "pending":
+			seenPending = true
+		}
+	}
+	if !seenApplied || !seenPending {
+		t.Fatalf("parent recovery history missing applied/pending: %+v", history)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE management_recovery_intents SET delivery_expires_at=now()-interval '1 minute' WHERE id=$1 AND status='pending'`, lease.ID); err != nil {
+		t.Fatal(err)
+	}
+	history, err = svc.RecoveryHistory(ctx, sc, claimed.Device.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenExpired := false
+	for _, item := range history {
+		if item.ID == lease.ID && item.Status == "expired" {
+			seenExpired = true
+		}
+	}
+	if !seenExpired {
+		t.Fatalf("expired intent not visible to parent: %+v", history)
+	}
+	pendingAfter, err := svc.PendingRecovery(ctx, sc.TenantID, claimed.Device.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range pendingAfter {
+		if item.ID == lease.ID {
+			t.Fatal("expired intent still pending for device")
+		}
+	}
 	if _, err = svc.ChangeDeviceState(ctx, sc, claimed.Device.ID, "quarantined", "check"); err != nil {
 		t.Fatal(err)
 	}

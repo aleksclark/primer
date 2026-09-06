@@ -69,6 +69,10 @@ type RecoveryIntentOutput struct {
 	ResponseHeaders
 	Body devicemanagement.RecoveryIntent
 }
+type RecoveryHistoryOutput struct {
+	ResponseHeaders
+	Body devicemanagement.RecoveryHistoryPage
+}
 
 type EnrollmentIDInput struct {
 	ID string `path:"id" format:"uuid"`
@@ -142,6 +146,17 @@ func (s *Server) registerManagement(api huma.API) {
 			return nil, managementProblem(err)
 		}
 		return &PolicyRevisionOutput{Body: out}, nil
+	})
+	register(api, huma.Operation{OperationID: "managed-devices-recovery-history", Method: http.MethodGet, Path: "/managed-devices/{id}/recovery", Errors: []int{401, 404, 500}}, func(ctx context.Context, in *ManagedDeviceIDInput) (*RecoveryHistoryOutput, error) {
+		sc, err := s.parentManagementScope(ctx)
+		if err != nil {
+			return nil, s.wrapParentErr(err)
+		}
+		items, err := s.management().RecoveryHistory(ctx, sc, in.ID)
+		if err != nil {
+			return nil, managementProblem(err)
+		}
+		return &RecoveryHistoryOutput{Body: devicemanagement.RecoveryHistoryPage{Items: items}}, nil
 	})
 	register(api, huma.Operation{OperationID: "managed-devices-recovery", Method: http.MethodPost, Path: "/managed-devices/{id}/recovery", DefaultStatus: http.StatusCreated, Errors: []int{400, 401, 404, 500}}, func(ctx context.Context, in *RecoveryIntentEnvelope) (*RecoveryIntentOutput, error) {
 		sc, err := s.parentManagementScope(ctx)
