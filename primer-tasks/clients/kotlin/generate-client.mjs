@@ -114,16 +114,21 @@ function jsonSchema(object) {
 function isBinarySchema(schema) {
   if (!schema || typeof schema !== "object" || schema.$ref) return false;
   const { schema: value } = unwrap(schema);
-  return value.format === "binary" || value.format === "byte" || value.contentEncoding === "base64";
+  return value.format === "binary" || value.format === "byte";
+}
+
+function isJsonBase64Schema(schema) {
+  if (!schema || typeof schema !== "object" || schema.$ref) return false;
+  const { schema: value } = unwrap(schema);
+  return value.contentEncoding === "base64" && value.format !== "binary" && value.format !== "byte";
 }
 
 function isBinaryContent(content) {
   if (!content || typeof content !== "object") return false;
-  for (const [type, media] of Object.entries(content)) {
-    if (type !== "application/json" && (type.startsWith("application/") || type === "application/octet-stream")) return true;
-    if (isBinarySchema(media?.schema)) return true;
-  }
-  return false;
+  return Object.entries(content).some(([type, media]) => {
+    if (type === "application/json") return false;
+    return type.startsWith("application/") || type === "application/octet-stream" || isBinarySchema(media?.schema);
+  });
 }
 
 function successOf(operation) {
@@ -133,6 +138,12 @@ function successOf(operation) {
     const content = responses[code].content ?? {};
     if (isBinaryContent(content)) return { code, schema: null, binary: true };
     const schema = jsonSchema(responses[code]);
+    if (isJsonBase64Schema(schema)) {
+      fail(`OpenAPI ${operation.operationId || "operation"} describes application/json with contentEncoding=base64; that is a JSON string, not a binary stream. Correct the media type to a genuine binary format.`);
+    }
+    if (isBinarySchema(schema) && content["application/json"] && Object.keys(content).length === 1) {
+      fail(`OpenAPI ${operation.operationId || "operation"} claims binary bytes under application/json; use a binary media type.`);
+    }
     if (isBinarySchema(schema)) return { code, schema: null, binary: true };
     return { code, schema, binary: false };
   }
@@ -229,16 +240,17 @@ for (const entry of operations) {
   for (const parameter of pathParams) args.push(`${toCamel(parameter.name)}: String`);
   if (queryParams.length) args.push(`query: ${queryTypeName(operationId)} = ${queryTypeName(operationId)}()`);
   if (bodySchema) args.push(`body: ${kotlinType(bodySchema)}`);
-  args.push("token: String? = null");
-  const returnType = success.binary ? "ByteArray" : success.schema ? kotlinType(success.schema) : "Unit";
+  const sinkArgs = success.binary ? [...args, "sink: java.io.OutputStream"] : [...args, "token: String? = null"];
+  if (success.binary) sinkArgs.push("token: String? = null");
+  const returnType = success.binary ? "Long" : success.schema ? kotlinType(success.schema) : "Unit";
   const bodyLine = bodySchema ? `json.encodeToString(${kotlinType(bodySchema)}.serializer(), body)` : "null";
   const queryBuild = queryParams.length ? `        val httpUrl = url(${pathExpr(entry.pathname, pathParams)})\n${queryPuts(operationId, queryParams)}\n        val requestUrl = httpUrl.build()` : `        val requestUrl = url(${pathExpr(entry.pathname, pathParams)}).build()`;
   const decode = success.binary
-    ? `        return executeBytes(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token)`
+    ? `        return executeToSink(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token, sink = sink)`
     : returnType === "Unit"
     ? "        execute(method = " + JSON.stringify(entry.method) + ", url = requestUrl, body = " + bodyLine + ", auth = AuthKind." + authKind(entry.pathname, operationId) + ", token = token, expectBody = false)\n        return"
     : `        val payload = execute(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token, expectBody = true)\n        return json.decodeFromString(${returnType}.serializer(), payload)`;
-  methods.push(`    fun ${toCamel(operationId)}(${args.join(", ")}): ${returnType} {
+  methods.push(`    fun ${toCamel(operationId)}(${sinkArgs.join(", ")}): ${returnType} {
 ${queryBuild}
 ${decode}
     }`);
@@ -289,7 +301,7 @@ ${methods.join("\n\n")}
         }
     }
 
-    private fun executeBytes(method: String, url: HttpUrl, body: String?, auth: AuthKind, token: String?): ByteArray {
+    private fun executeToSink(method: String, url: HttpUrl, body: String?, auth: AuthKind, token: String?, sink: java.io.OutputStream): Long {
         http.newCall(authorized(method, url, body, auth, token)).execute().use { response ->
             val responseBody = response.body ?: throw TasksTransportException(response.code, "empty response")
             if (!response.isSuccessful) throw decodeError(response.code, responseBody.string())
@@ -298,17 +310,20 @@ ${methods.join("\n\n")}
                 throw TasksTransportException(413, "artifact exceeds size cap", "too_large")
             }
             val source = responseBody.source()
-            val buffer = okio.Buffer()
-            while (!source.exhausted()) {
-                val read = source.read(buffer, 8192)
+            var written = 0L
+            val scratch = ByteArray(8192)
+            while (true) {
+                val read = source.read(scratch)
                 if (read < 0) break
-                if (buffer.size > maxBinaryBytes) {
+                written += read
+                if (written > maxBinaryBytes) {
                     throw TasksTransportException(413, "artifact exceeds size cap", "too_large")
                 }
+                sink.write(scratch, 0, read)
             }
-            val bytes = buffer.readByteArray()
-            if (bytes.isEmpty()) throw TasksTransportException(response.code, "empty response")
-            return bytes
+            sink.flush()
+            if (written == 0L) throw TasksTransportException(response.code, "empty response")
+            return written
         }
     }
 

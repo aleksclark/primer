@@ -99,7 +99,7 @@ class TasksClientTest {
     fun managementDeviceRoutesUseManagementCredential() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
-                """{"device":{"id":"d1","displayName":"A16","deviceModel":"SM-S166V","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[]}""",
+                """{"device":{"id":"d1","displayName":"A16","deviceModel":"SM-S166V","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[],"serverTime":"2026-01-01T00:00:00Z"}""",
             ),
         )
         TasksClient(
@@ -224,16 +224,18 @@ class TasksClientTest {
                 .setHeader("Content-Length", apk.size.toString())
                 .setBody(okio.Buffer().write(apk)),
         )
-        val got = TasksClient(
+        val sink = java.io.ByteArrayOutputStream()
+        val written = TasksClient(
             server.url("/").toString(),
             managementCredentials = CredentialProvider { "mgmt-token" },
             parentCredentials = CredentialProvider { "parent-jwt" },
-        ).managementDeviceArtifact("rel-1")
+        ).managementDeviceArtifact("rel-1", sink)
         val request = take()
         assertEquals("/api/management-device/artifacts/rel-1", request.path)
         assertEquals("Bearer mgmt-token", request.getHeader("Authorization"))
         assertEquals("GET", request.method)
-        assertTrue(got.contentEquals(apk))
+        assertEquals(apk.size.toLong(), written)
+        assertTrue(sink.toByteArray().contentEquals(apk))
     }
 
     @Test
@@ -250,7 +252,7 @@ class TasksClientTest {
                 server.url("/").toString(),
                 managementCredentials = CredentialProvider { "mgmt-token" },
                 maxBinaryBytes = 16,
-            ).managementDeviceArtifact("rel-1")
+            ).managementDeviceArtifact("rel-1", java.io.ByteArrayOutputStream())
             fail("expected size cap")
         } catch (error: TasksHttpException) {
             assertEquals(413, error.statusCode)
@@ -264,7 +266,7 @@ class TasksClientTest {
     fun binaryArtifactRequiresManagementCredential() = runBlocking {
         try {
             TasksClient(server.url("/").toString(), parentCredentials = CredentialProvider { "parent-jwt" })
-                .managementDeviceArtifact("rel-1")
+                .managementDeviceArtifact("rel-1", java.io.ByteArrayOutputStream())
             fail("expected missing credential")
         } catch (error: TasksHttpException) {
             assertEquals(401, error.statusCode)

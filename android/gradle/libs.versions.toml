@@ -24,6 +24,7 @@ androidxTestRunner = "1.6.2"
 uiautomator = "2.3.0"
 tink = "1.23.0"
 work = "2.9.1"
+clerk = "0.1.31"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -74,6 +75,7 @@ androidx-test-runner = { module = "androidx.test:runner", version.ref = "android
 androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+clerk-android-api = { module = "com.clerk:clerk-android-api", version.ref = "clerk" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
