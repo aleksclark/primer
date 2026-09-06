@@ -6,14 +6,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const contract = path.resolve(here, "../../primer-tasks/build/openapi.json");
 const outputDir = path.resolve(here, "build/generated/releaseManifest/com/aleksclark/primer/updates/generated");
 const output = path.join(outputDir, "GeneratedReleaseManifest.kt");
-const document = JSON.parse(await readFile(contract, "utf8"));
+
+let document;
+try {
+  document = JSON.parse(await readFile(contract, "utf8"));
+} catch {
+  throw new Error(`Missing ${contract}. Run \`make tasks-clients\` (or \`go run ./primer-tasks/cmd/openapi-gen\`) first.`);
+}
 const schema = document.components?.schemas?.ReleaseManifest;
 if (!schema?.properties) throw new Error("OpenAPI schema ReleaseManifest is required");
 
 const required = new Set(schema.required ?? []);
 function kotlinType(propertySchema) {
   const types = Array.isArray(propertySchema.type) ? propertySchema.type : [propertySchema.type];
-  if (types.includes("array")) return `List<String>`;
+  if (types.includes("array")) return "List<String>";
   if (types.includes("integer")) return "Long";
   if (types.includes("string")) return "String";
   throw new Error(`unsupported ReleaseManifest field ${JSON.stringify(propertySchema)}`);
@@ -34,7 +40,7 @@ package com.aleksclark.primer.updates.generated
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class ReleaseManifest(
+internal data class ReleaseManifest(
 ${fields.join("\n")}
 )
 `;
