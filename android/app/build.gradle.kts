@@ -98,6 +98,7 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+    sourceSets.getByName("test").java.srcDir(project(":core-updates").file("src/testShared/kotlin"))
 }
 
 kotlin {

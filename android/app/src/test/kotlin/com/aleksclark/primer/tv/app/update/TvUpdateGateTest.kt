@@ -1,24 +1,23 @@
 package com.aleksclark.primer.tv.app.update
 
 import com.aleksclark.primer.tv.core.domain.AppRelease
-import com.aleksclark.primer.updates.ReleaseTrust
+import com.aleksclark.primer.updates.GoSignedReleaseVectors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.Base64
 
 class TvUpdateGateTest {
-    private val keys = ReleaseTrust.newKeyPair()
-    private val trust = Base64.getUrlEncoder().withoutPadding().encodeToString(keys.first)
-    private val payload = """{"packageName":"com.aleksclark.primer.tv","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":28,"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}""".toByteArray()
-    private val signature = ReleaseTrust.sign(keys.second, payload)
+    private val trust = GoSignedReleaseVectors.TRUST_ROOT_BASE64URL
 
     private fun release(
         available: Boolean = true,
         versionCode: Int = 2,
-        sha256: String = "b".repeat(64),
+        sha256: String = GoSignedReleaseVectors.SHA256,
         sizeBytes: Long = 12,
         signed: Boolean = true,
+        versionName: String = "0.2.0",
+        payloadBase64: String = GoSignedReleaseVectors.TV_PLAIN_PAYLOAD_BASE64URL,
+        signature: String = GoSignedReleaseVectors.TV_PLAIN_SIGNATURE_BASE64URL,
     ) = AppRelease(
         available = available,
         versionCode = versionCode,
@@ -26,13 +25,13 @@ class TvUpdateGateTest {
         sha256 = sha256,
         downloadPath = "/api/v1/app/release/apk",
         packageName = "com.aleksclark.primer.tv",
-        versionName = "0.2.0",
-        signerSha256 = if (signed) "a".repeat(64) else null,
+        versionName = versionName,
+        signerSha256 = if (signed) GoSignedReleaseVectors.SIGNER_SHA256 else null,
         minSdk = if (signed) 28 else null,
         channel = if (signed) "stable" else null,
-        manifestPayloadBase64 = if (signed) Base64.getUrlEncoder().withoutPadding().encodeToString(payload) else null,
+        manifestPayloadBase64 = if (signed) payloadBase64 else null,
         manifestSignature = if (signed) signature else null,
-        signingKeyId = if (signed) "ed25519-v1" else null,
+        signingKeyId = if (signed) GoSignedReleaseVectors.SIGNING_KEY_ID else null,
     )
 
     @Test
@@ -49,7 +48,7 @@ class TvUpdateGateTest {
     }
 
     @Test
-    fun verifiedPayloadIsOfferedAndTamperedOuterFieldsAreRejected() {
+    fun verifiedGoSignedPayloadIsOfferedAndTamperedOuterFieldsAreRejected() {
         val available = TvUpdateGate.stateFor(release(), trust, 1)
         assertTrue(available is UpdateState.Available)
         assertEquals(2L, (available as UpdateState.Available).manifest.versionCode)

@@ -12,6 +12,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    sourceSets.getByName("test").java.srcDir(project(":core-updates").file("src/testShared/kotlin"))
 }
 
 kotlin { jvmToolchain(17) }
