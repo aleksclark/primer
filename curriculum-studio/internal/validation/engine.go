@@ -12,11 +12,16 @@ import (
 )
 
 const (
-	OutcomeUnmapped    = "OUTCOME_UNMAPPED"
-	OutcomeNoEvidence  = "OUTCOME_NO_EVIDENCE"
-	UnitEmpty          = "UNIT_EMPTY"
-	WorkloadOverloaded = "WORKLOAD_OVERLOAD"
-	PrerequisiteCycle  = "PREREQUISITE_CYCLE"
+	OutcomeUnmapped       = "OUTCOME_UNMAPPED"
+	OutcomeNoEvidence     = "OUTCOME_NO_EVIDENCE"
+	UnitEmpty             = "UNIT_EMPTY"
+	WorkloadOverloaded    = "WORKLOAD_OVERLOAD"
+	PrerequisiteCycle     = "PREREQUISITE_CYCLE"
+	ProjectNoTarget       = "PROJECT_NO_TARGET"
+	ProjectPhaseInvalid   = "PROJECT_PHASE_INVALID"
+	PortfolioEvidence     = "PORTFOLIO_EVIDENCE"
+	ReinforcementNoted    = "REINFORCEMENT_NOTED"
+	ReadingMediaScheduled = "READING_MEDIA_SCHEDULED"
 )
 
 // Result is stable validation output. Findings are sorted by severity, code,
@@ -58,6 +63,7 @@ func Run(g *domain.PlanGraph) Result {
 	if hasCycle(g) {
 		findings = append(findings, finding("error", PrerequisiteCycle, "outcome prerequisites contain a cycle", "revision", uuid.Nil))
 	}
+	findings = append(findings, projectFindings(g)...)
 	sort.Slice(findings, func(i, j int) bool {
 		a, b := findings[i], findings[j]
 		rank := func(s string) int {
@@ -106,6 +112,12 @@ func finding(severity, code, message, kind string, id uuid.UUID) domain.Validati
 		ptr = &id
 	}
 	return domain.ValidationFinding{Severity: severity, Code: code, Message: message, NodeKind: kind, NodeID: ptr, Details: json.RawMessage(`{}`)}
+}
+func ptrUUID(id *uuid.UUID) uuid.UUID {
+	if id == nil {
+		return uuid.Nil
+	}
+	return *id
 }
 func workloadCap(g *domain.PlanGraph) int {
 	for _, c := range g.SchedulingConstraints {
@@ -175,6 +187,82 @@ func unitOutcomesFor(g *domain.PlanGraph, unitID uuid.UUID) []domain.UnitOutcome
 		if v.UnitID == unitID {
 			out = append(out, v)
 		}
+	}
+	return out
+}
+
+func projectFindings(g *domain.PlanGraph) []domain.ValidationFinding {
+	out := []domain.ValidationFinding{}
+	byProject := map[uuid.UUID][]domain.ProjectOutcome{}
+	for _, po := range g.ProjectOutcomes {
+		byProject[po.ProjectID] = append(byProject[po.ProjectID], po)
+	}
+	outcomes := map[uuid.UUID]domain.Outcome{}
+	for _, o := range g.Outcomes {
+		outcomes[o.ID] = o
+	}
+	evidenceByOutcome := map[uuid.UUID][]domain.EvidenceRequirement{}
+	for _, e := range g.EvidenceRequirements {
+		evidenceByOutcome[e.OutcomeID] = append(evidenceByOutcome[e.OutcomeID], e)
+	}
+	for _, p := range g.Projects {
+		roles := byProject[p.ID]
+		hasTarget := false
+		for _, role := range roles {
+			switch role.Role {
+			case domain.ProjectOutcomeRoleTarget:
+				hasTarget = true
+			case domain.ProjectOutcomeRolePrior, domain.ProjectOutcomeRoleStretch:
+			default:
+				out = append(out, finding("error", ProjectNoTarget, fmt.Sprintf("project %q has invalid outcome role %q", p.Title, role.Role), "project", p.ID))
+			}
+		}
+		if !hasTarget {
+			out = append(out, finding("error", ProjectNoTarget, fmt.Sprintf("project %q has no target outcome", p.Title), "project", p.ID))
+		}
+		if _, err := domain.ParseProjectPhases(p.Phases); err != nil {
+			out = append(out, finding("error", ProjectPhaseInvalid, fmt.Sprintf("project %q has invalid phases: %s", p.Title, err.Error()), "project", p.ID))
+		}
+		for _, role := range roles {
+			if role.Role != domain.ProjectOutcomeRoleTarget {
+				continue
+			}
+			evidence := evidenceByOutcome[role.OutcomeID]
+			hasPortfolio := false
+			for _, e := range evidence {
+				switch e.Kind {
+				case "portfolio", "performance", "project":
+					hasPortfolio = true
+				}
+			}
+			if !hasPortfolio {
+				outcomeTitle := role.OutcomeID.String()
+				if o, ok := outcomes[role.OutcomeID]; ok {
+					outcomeTitle = o.Title
+				}
+				out = append(out, finding("warning", PortfolioEvidence, fmt.Sprintf("project %q target outcome %q has no portfolio or performance evidence", p.Title, outcomeTitle), "project", p.ID))
+			}
+		}
+	}
+	for _, pr := range g.PlanResources {
+		switch pr.ResourceKind {
+		case domain.ResourceKindBook, domain.ResourceKindVideo, domain.ResourceKindDocument:
+			label := pr.ResourceTitle
+			if label == "" {
+				label = pr.ResourceKind
+			}
+			out = append(out, finding("info", ReadingMediaScheduled, fmt.Sprintf("schedule %s %q via plan_resources", pr.ResourceKind, label), "project", ptrUUID(pr.ProjectID)))
+		}
+	}
+	for _, m := range g.OutcomeStandardMappings {
+		if m.Alignment != "reinforces" {
+			continue
+		}
+		title := m.OutcomeID.String()
+		if o, ok := outcomes[m.OutcomeID]; ok {
+			title = o.Title
+		}
+		out = append(out, finding("info", ReinforcementNoted, fmt.Sprintf("outcome %q is flagged for reinforcement; Studio will not write LMS mastery", title), "outcome", m.OutcomeID))
 	}
 	return out
 }

@@ -347,7 +347,7 @@ func (r *PlanGraphRepo) CreateOutcomeStandardMapping(ctx context.Context, ws uui
 		return nil, fmt.Errorf("mapping is required")
 	}
 	const q = `INSERT INTO curriculum_studio.outcome_standard_mappings(outcome_id,standard_id,alignment,notes) SELECT o.id,s.id,$3,$4 FROM curriculum_studio.outcomes o JOIN curriculum_studio.plan_revisions r ON r.id=o.plan_revision_id JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.catalog_standards s ON s.id=$2 JOIN curriculum_studio.standard_frameworks f ON f.id=s.framework_id WHERE o.id=$1 AND c.workspace_id=$5 AND (f.workspace_id IS NULL OR f.workspace_id=$5) RETURNING id,outcome_id,standard_id,alignment,notes,created_at`
-	v, e := scanMapping(r.Q.QueryRow(ctx, q, in.OutcomeID, in.StandardID, in.Alignment, in.Notes, ws))
+	v, e := scanMappingInsert(r.Q.QueryRow(ctx, q, in.OutcomeID, in.StandardID, in.Alignment, in.Notes, ws))
 	if e != nil {
 		return nil, MapError(e)
 	}
@@ -432,7 +432,7 @@ func (r *PlanGraphRepo) CreateProject(ctx context.Context, ws uuid.UUID, in *dom
 			return nil, MapError(e)
 		}
 	}
-	ph, e := arrayJSON(in.Phases, "phases")
+	ph, e := projectPhasesJSON(in.Phases)
 	if e != nil {
 		return nil, e
 	}
@@ -519,7 +519,7 @@ func (r *PlanGraphRepo) CreatePlanResource(ctx context.Context, ws uuid.UUID, in
 	if in == nil {
 		return nil, fmt.Errorf("plan resource is required")
 	}
-	v, e := scanPlanResource(r.Q.QueryRow(ctx, `INSERT INTO curriculum_studio.plan_resources(plan_revision_id,resource_id,unit_id,project_id,role,notes) SELECT $1,res.id,$3,$4,$5,$6 FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.resources res ON res.id=$2 AND (res.workspace_id IS NULL OR res.workspace_id=$7) WHERE r.id=$1 AND c.workspace_id=$7 RETURNING id,plan_revision_id,resource_id,unit_id,project_id,role,notes`, in.PlanRevisionID, in.ResourceID, in.UnitID, in.ProjectID, in.Role, in.Notes, ws))
+	v, e := scanPlanResourceInsert(r.Q.QueryRow(ctx, `INSERT INTO curriculum_studio.plan_resources(plan_revision_id,resource_id,unit_id,project_id,role,notes) SELECT $1,res.id,$3,$4,$5,$6 FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.resources res ON res.id=$2 AND (res.workspace_id IS NULL OR res.workspace_id=$7) WHERE r.id=$1 AND c.workspace_id=$7 RETURNING id,plan_revision_id,resource_id,unit_id,project_id,role,notes`, in.PlanRevisionID, in.ResourceID, in.UnitID, in.ProjectID, in.Role, in.Notes, ws))
 	if e != nil {
 		return nil, MapError(e)
 	}
@@ -614,6 +614,18 @@ func arrayJSON(raw json.RawMessage, name string) (json.RawMessage, error) {
 	return raw, nil
 }
 
+func projectPhasesJSON(raw json.RawMessage) (json.RawMessage, error) {
+	phases, err := domain.ParseProjectPhases(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrCheckViolation, err.Error())
+	}
+	encoded, err := json.Marshal(phases)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
 type scanner interface{ Scan(...any) error }
 
 func scanCurriculum(s scanner) (*domain.Curriculum, error) {
@@ -636,9 +648,14 @@ func scanOutcome(s scanner) (*domain.Outcome, error) {
 	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.ObjectiveID, &v.Code, &v.Title, &v.Description, &v.MasteryCriteria, &v.Position, &v.CreatedAt, &v.UpdatedAt)
 	return v, e
 }
-func scanMapping(s scanner) (*domain.OutcomeStandardMapping, error) {
+func scanMappingInsert(s scanner) (*domain.OutcomeStandardMapping, error) {
 	v := new(domain.OutcomeStandardMapping)
 	e := s.Scan(&v.ID, &v.OutcomeID, &v.StandardID, &v.Alignment, &v.Notes, &v.CreatedAt)
+	return v, e
+}
+func scanMapping(s scanner) (*domain.OutcomeStandardMapping, error) {
+	v := new(domain.OutcomeStandardMapping)
+	e := s.Scan(&v.ID, &v.OutcomeID, &v.StandardID, &v.Alignment, &v.Notes, &v.CreatedAt, &v.StandardCode)
 	return v, e
 }
 func scanOutcomePrereq(s scanner) (*domain.OutcomePrerequisite, error) {
@@ -671,9 +688,14 @@ func scanConstraint(s scanner) (*domain.SchedulingConstraint, error) {
 	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.Kind, &v.Payload, &v.CreatedAt)
 	return v, e
 }
-func scanPlanResource(s scanner) (*domain.PlanResource, error) {
+func scanPlanResourceInsert(s scanner) (*domain.PlanResource, error) {
 	v := new(domain.PlanResource)
 	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.ResourceID, &v.UnitID, &v.ProjectID, &v.Role, &v.Notes)
+	return v, e
+}
+func scanPlanResource(s scanner) (*domain.PlanResource, error) {
+	v := new(domain.PlanResource)
+	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.ResourceID, &v.UnitID, &v.ProjectID, &v.Role, &v.Notes, &v.ResourceKind, &v.ResourceTitle)
 	return v, e
 }
 
@@ -706,7 +728,7 @@ func listOutcomes(c context.Context, q Querier, id uuid.UUID) ([]domain.Outcome,
 	return listRows(c, q, `SELECT id,plan_revision_id,objective_id,code,title,description,mastery_criteria,position,created_at,updated_at FROM curriculum_studio.outcomes WHERE plan_revision_id=$1 ORDER BY position,code`, []any{id}, scanOutcome)
 }
 func listMappings(c context.Context, q Querier, id uuid.UUID) ([]domain.OutcomeStandardMapping, error) {
-	return listRows(c, q, `SELECT m.id,m.outcome_id,m.standard_id,m.alignment,m.notes,m.created_at FROM curriculum_studio.outcome_standard_mappings m JOIN curriculum_studio.outcomes o ON o.id=m.outcome_id WHERE o.plan_revision_id=$1 ORDER BY m.id`, []any{id}, scanMapping)
+	return listRows(c, q, `SELECT m.id,m.outcome_id,m.standard_id,m.alignment,m.notes,m.created_at,s.code FROM curriculum_studio.outcome_standard_mappings m JOIN curriculum_studio.outcomes o ON o.id=m.outcome_id JOIN curriculum_studio.catalog_standards s ON s.id=m.standard_id WHERE o.plan_revision_id=$1 ORDER BY m.id`, []any{id}, scanMapping)
 }
 func listOutcomePrereqs(c context.Context, q Querier, id uuid.UUID) ([]domain.OutcomePrerequisite, error) {
 	return listRows(c, q, `SELECT id,plan_revision_id,outcome_id,prerequisite_id,requirement FROM curriculum_studio.outcome_prerequisites WHERE plan_revision_id=$1 ORDER BY id`, []any{id}, scanOutcomePrereq)
@@ -741,5 +763,5 @@ func listConstraints(c context.Context, q Querier, id uuid.UUID) ([]domain.Sched
 	return listRows(c, q, `SELECT id,plan_revision_id,kind,payload,created_at FROM curriculum_studio.scheduling_constraints WHERE plan_revision_id=$1 ORDER BY created_at,id`, []any{id}, scanConstraint)
 }
 func listPlanResources(c context.Context, q Querier, id uuid.UUID) ([]domain.PlanResource, error) {
-	return listRows(c, q, `SELECT id,plan_revision_id,resource_id,unit_id,project_id,role,notes FROM curriculum_studio.plan_resources WHERE plan_revision_id=$1 ORDER BY id`, []any{id}, scanPlanResource)
+	return listRows(c, q, `SELECT pr.id,pr.plan_revision_id,pr.resource_id,pr.unit_id,pr.project_id,pr.role,pr.notes,COALESCE(res.kind,''),COALESCE(res.title,'') FROM curriculum_studio.plan_resources pr LEFT JOIN curriculum_studio.resources res ON res.id=pr.resource_id WHERE pr.plan_revision_id=$1 ORDER BY pr.id`, []any{id}, scanPlanResource)
 }

@@ -182,6 +182,7 @@ type PlanNode struct {
 }
 
 type PlanNodeWrite struct {
+	ID               string            `json:"id,omitempty"`
 	Kind             NodeKind          `json:"kind"`
 	Title            string            `json:"title"`
 	Body             string            `json:"body,omitempty"`
@@ -319,9 +320,10 @@ type AuthoringGenerationPolicy struct {
 	MaxItems          int    `json:"maxItems,omitempty"`
 }
 type AuthoringMaterializeRequest struct {
-	Learner *GenericLearnerProfile     `json:"learner,omitempty"`
-	Window  AuthoringWindow            `json:"window"`
-	Policy  *AuthoringGenerationPolicy `json:"policy,omitempty"`
+	Learner    *GenericLearnerProfile     `json:"learner,omitempty"`
+	Window     AuthoringWindow            `json:"window"`
+	Policy     *AuthoringGenerationPolicy `json:"policy,omitempty"`
+	Attributes map[string]string          `json:"attributes,omitempty"`
 }
 type Materialization struct {
 	ID                 string                `json:"id"`
