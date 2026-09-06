@@ -1,5 +1,7 @@
 # Connected Phase 2 acceptance runner
 
+Student migration (`:feature-tasks-student` / `com.aleksclark.primer.student`) is in progress. Keep this prototype runner until the Student connected path is proven. Do not copy tokens from `com.aleksclark.primertasks` into Student.
+
 `OccurrenceDeepLinkConnectedTest` is the connected promotion test for the real `MainActivity` deep-link path. It does not seed occurrences, create a fake transport, or extract credentials. The occurrence IDs and foreign title must come from the recorded public Parent-A/Parent-B browser acceptance flow.
 
 Prerequisites:

@@ -49,6 +49,8 @@ import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
+import com.aleksclark.primer.student.tasks.StudentTasksRoute
+import com.aleksclark.primer.student.tasks.occurrenceIdFromDeepLink
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,7 +69,15 @@ open class MainActivity : ComponentActivity() {
         // Recovery material must never appear in screenshots, recents thumbnails or recordings.
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            StudentTheme { StudentScreen(this, runtime, lifecycleFailure) { onParentSetupComplete() } }
+            StudentTheme {
+                StudentScreen(
+                    activity = this,
+                    runtime = runtime,
+                    lifecycleFailure = lifecycleFailure,
+                    deepLink = intent?.data,
+                    onConfigured = { onParentSetupComplete() },
+                )
+            }
         }
     }
     override fun onResume() {
@@ -126,6 +136,7 @@ private fun StudentScreen(
     activity: MainActivity,
     runtime: StudentRuntime,
     lifecycleFailure: String?,
+    deepLink: Uri?,
     onConfigured: () -> Unit,
 ) {
     var tick by remember { mutableIntStateOf(0) }
@@ -141,6 +152,7 @@ private fun StudentScreen(
     var digest by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
+    var showTasks by remember { mutableStateOf(occurrenceIdFromDeepLink(deepLink) != null) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -199,6 +211,10 @@ private fun StudentScreen(
                 }
             }
         }
+    }
+    if (showTasks) {
+        StudentTasksRoute(deepLink = deepLink, onLeave = { showTasks = false })
+        return
     }
 
     LazyColumn(
@@ -354,8 +370,9 @@ private fun StudentScreen(
                 PrimerButton(text = "Open ${app.label}", onClick = { action { runtime.policy.launchApproved(app) } })
             }
             item {
+                PrimerButton(text = "Open Tasks", onClick = { showTasks = true })
                 Text(
-                    "Tasks pairing and educational screens arrive in the next slice; this is the device-control qualification build.",
+                    "Old Primer Tasks (com.aleksclark.primertasks) pairings cannot be copied. Request a new Student QR, then revoke the old pairing. Tasks failures never clear device owner or recovery.",
                     style = PrimerTheme.typography.body,
                     color = PrimerTheme.colors.textMuted,
                 )

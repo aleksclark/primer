@@ -21,6 +21,8 @@ scheduled linear stream with a fully locked player) is a later phase.
 | `core` | Pure Kotlin/JVM: API client, domain model, playback session state machine, watch-time accounting. No Android dependencies, so all of it is unit-testable on the JVM. |
 | `core-ui` | Shared System C Compose theme, fonts, and primitives (`com.aleksclark.primer.ui`). Consumed by TV and Student; Control must use this library, not a copy. |
 | `app`  | Android: Compose UI (tablet + leanback), ExoPlayer host, DataStore persistence. |
+| `feature-tasks-student` | Migrated Tasks pairing/checklist/start/submit for Student. Entry: `StudentTasksRoute`. |
+| `app-student` | Device-owner launcher. Tasks, approved apps, and parent maintenance; recovery stays in `StudentRuntime`. |
 
 Keeping the interesting logic in `core` is deliberate: the grant lifecycle,
 heartbeat cadence, and watch-once rules are tested without an emulator.
