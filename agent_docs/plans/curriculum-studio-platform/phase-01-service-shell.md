@@ -83,7 +83,7 @@ Deliver a runnable Curriculum Studio process boundary: Go module under `curricul
 
 ## Implementation Instructions
 
-1. Scaffold `curriculum-studio/go.mod` with Go version aligned to repo (`1.25.x` family as in `server/go.mod`).
+1. Scaffold `curriculum-studio/go.mod` with Go version aligned to repo (`1.26.6` as in `server/go.mod`).
 2. Add dependencies: chi, huma/v2 (even if only health first), pgx/v5, goose/v3, envconfig, testcontainers-go, slog.
 3. Implement `internal/config.Config` fields: `DatabaseURL`, `Host`, `Port`, `Env`, `LogLevel`, `ShutdownTimeout`, `ArtifactStoreDir` (optional empty), `AuthMode` default `jwks` (unused until P2).
 4. Embed migrations from `curriculum-studio/db/migrations` (or shared embed path); set goose table name `studio_goose_db_version`.

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: generate the OpenAPI spec from the API type signatures ─────────
-FROM golang:1.25-alpine AS spec
+FROM golang:1.26.6-alpine AS spec
 WORKDIR /src
 COPY server/go.mod server/go.sum ./server/
 RUN cd server && go mod download
@@ -20,7 +20,7 @@ COPY --from=spec /openapi.yaml ./openapi.yaml
 RUN npm run build
 
 # ── Stage 3: build the server with the SPA embedded ─────────────────────────
-FROM golang:1.25-alpine AS build
+FROM golang:1.26.6-alpine AS build
 WORKDIR /src
 COPY server/go.mod server/go.sum ./server/
 RUN cd server && go mod download
