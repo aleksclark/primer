@@ -7,10 +7,12 @@ import com.aleksclark.primer.control.device.DeviceRepository
 import com.aleksclark.primer.control.device.DeviceSync
 import com.aleksclark.primer.control.device.DeviceSyncStatus
 import com.aleksclark.primer.control.device.RecoveryBinding
+import com.aleksclark.primer.control.tasks.AuthContext
 import com.aleksclark.primer.control.tasks.AuthEpoch
 import com.aleksclark.primer.control.tasks.ConflictRefresh
 import com.aleksclark.primer.control.tasks.ConflictResource
 import com.aleksclark.primer.control.tasks.FailClosedLogout
+import com.aleksclark.primer.control.tasks.LogoutAttempt
 import com.aleksclark.primer.control.tasks.LogoutDecision
 import com.aleksclark.primer.control.tasks.MutationGate
 import com.aleksclark.primer.control.tasks.ParentTasksRepository
@@ -33,11 +35,14 @@ import com.aleksclark.primertasks.client.Student
 import com.aleksclark.primertasks.client.TaskRevision
 import com.aleksclark.primertasks.client.TasksHttpException
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import okhttp3.OkHttpClient
 
 data class ControlUiState(
     val ready: Boolean = false,
@@ -86,16 +91,23 @@ data class ControlUiState(
 class ControlViewModel(
     private val identity: ParentIdentity,
     private val apiBase: String?,
+    private val http: OkHttpClient = OkHttpClient(),
+    private val tasksFactory: (CredentialProvider) -> ParentTasksRepository = { token ->
+        ParentTasksRepository(requireNotNull(apiBase), token, http)
+    },
+    private val devicesFactory: (CredentialProvider) -> DeviceRepository = { token ->
+        DeviceRepository(requireNotNull(apiBase), token, http)
+    },
 ) : ViewModel() {
-    private val tokenMutex = Mutex()
     private val epoch = AuthEpoch()
     private val mutations = MutationGate()
     private val studentQueryGen = AtomicLong(0)
     private val taskQueryGen = AtomicLong(0)
-    private val token = CredentialProvider { cachedToken }
-    private var cachedToken: String? = null
-    private val tasks by lazy { ParentTasksRepository(requireNotNull(apiBase), token) }
-    private val devices by lazy { DeviceRepository(requireNotNull(apiBase), token) }
+    private var session: AuthContext? = null
+    private var logoutAttempt: LogoutAttempt? = null
+    private var workJob = SupervisorJob(viewModelScope.coroutineContext.job)
+    private val workScope: CoroutineScope
+        get() = CoroutineScope(viewModelScope.coroutineContext + workJob)
 
     private val _state = MutableStateFlow(ControlUiState())
     val state: StateFlow<ControlUiState> = _state
@@ -105,39 +117,83 @@ class ControlViewModel(
     }
 
     fun onResume() {
-        if (_state.value.householdOk) viewModelScope.launch { refreshToken(skipCache = true) }
+        viewModelScope.launch {
+            try {
+                refreshAuth()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(message = controlMessage(error))
+            }
+        }
     }
 
     fun clearPassword() {
         if (_state.value.password.isNotEmpty()) _state.value = _state.value.copy(password = "")
     }
 
-    fun signIn() = viewModelScope.launch {
+    fun signIn() {
+        if (mutations.isBusy()) {
+            _state.value = _state.value.copy(message = "Wait for the current change to finish.")
+            return
+        }
+        viewModelScope.launch {
         val email = _state.value.email.trim()
         val password = _state.value.password
         _state.value = _state.value.copy(password = "", message = null)
         when (val outcome = identity.signIn(email, password)) {
             is SignInOutcome.SignedIn -> {
-                epoch.bump()
+                fence()
+                val token = identity.sessionToken(skipCache = true)
+                if (token.isNullOrBlank() || identity.sessionId() != outcome.sessionId) {
+                    _state.value = signedOut(message = "Clerk did not activate the newly created session.")
+                    return@launch
+                }
+                session = AuthContext(sessionId = outcome.sessionId, epoch = epoch.current(), token = token)
+                logoutAttempt = null
                 refreshAuth()
             }
             is SignInOutcome.Incomplete -> _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false, message = outcome.message)
             is SignInOutcome.Failed -> _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false, message = outcome.message)
         }
+        }
     }
 
     fun signOut() = viewModelScope.launch {
-        val tokenPresent = cachedToken != null && apiBase != null
-        val server = if (tokenPresent) {
-            runCatching {
-                refreshToken(skipCache = true)
-                tasks.logout()
-                true to null
-            }.getOrElse { false to controlMessage(it) }
-        } else {
-            true to null
+        val current = session
+        val attempt = logoutAttempt?.takeIf { current == null || it.sessionId == current.sessionId }
+            ?: current?.let { LogoutAttempt(sessionId = it.sessionId, token = it.token, serverRevoked = false) }
+        if (attempt == null) {
+            fence()
+            session = null
+            _state.value = signedOut()
+            return@launch
         }
-        val provider = if (server.first) {
+        fence()
+        logoutAttempt = attempt
+        val liveSid = identity.sessionId()
+        if (liveSid != null && liveSid != attempt.sessionId) {
+            _state.value = _state.value.copy(message = "The signed-in account changed. Sign out again.", logoutIncomplete = true)
+            return@launch
+        }
+        var serverRevoked = attempt.serverRevoked
+        var serverError: String? = null
+        if (!serverRevoked) {
+            if (apiBase == null) {
+                serverError = "Tasks origin is not configured."
+            } else {
+                try {
+                    tasksFor(AuthContext(attempt.sessionId, epoch.current(), attempt.token)).logout()
+                    serverRevoked = true
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    serverError = controlMessage(error)
+                }
+            }
+        }
+        logoutAttempt = attempt.copy(serverRevoked = serverRevoked)
+        val provider = if (serverRevoked) {
             when (val out = identity.signOutProvider()) {
                 SignOutOutcome.SignedOut -> true to null
                 is SignOutOutcome.Failed -> false to out.message
@@ -145,14 +201,25 @@ class ControlViewModel(
         } else {
             false to null
         }
-        when (val decision = FailClosedLogout.decide(server.first, provider.first, server.second, provider.second)) {
+        when (val decision = FailClosedLogout.decide(serverRevoked, provider.first, serverError, provider.second)) {
             LogoutDecision.ClearSession -> {
-                epoch.bump()
-                cachedToken = null
-                _state.value = signedOut(message = null)
+                session = null
+                logoutAttempt = null
+                _state.value = signedOut()
             }
             is LogoutDecision.Incomplete -> {
-                _state.value = _state.value.copy(message = decision.message, logoutIncomplete = true)
+                if (decision.serverRevoked) {
+                    session = null
+                } else if (current != null) {
+                    session = current.copy(epoch = epoch.current())
+                }
+                _state.value = _state.value.copy(
+                    ready = true,
+                    signedIn = true,
+                    householdOk = !decision.serverRevoked && current != null,
+                    message = decision.message,
+                    logoutIncomplete = true,
+                )
             }
         }
     }
@@ -162,85 +229,53 @@ class ControlViewModel(
         loadStudents()
     }
 
-    fun loadStudents(reset: Boolean = true) = act { refreshStudents(reset) }
+    fun loadStudents(reset: Boolean = true) = act { ctx -> refreshStudents(ctx, reset) }
 
-    private suspend fun refreshStudents(reset: Boolean = true) {
-        val query = _state.value.studentQuery
-        val gen = studentQueryGen.incrementAndGet()
-        val snap = epoch.current()
-        val offset = if (reset) 0L else _state.value.students.size.toLong()
-        val page = tasks.listStudents(query, offset)
-        if (!epoch.isCurrent(snap) || gen != studentQueryGen.get()) return
-        val items = if (reset) page.items else _state.value.students + page.items
-        _state.value = _state.value.copy(students = items, studentsHasMore = items.size < page.totalCount.toInt(), message = null)
-    }
-
-    fun openStudent(student: Student) = act {
-        val found = tasks.getStudent(student.id)
-        commit { it.copy(selectedStudent = found, studentName = found.displayName, pairing = null, creatingStudent = false) }
+    fun openStudent(student: Student) = act { ctx ->
+        val found = tasksFor(ctx).getStudent(student.id)
+        commit(ctx) { it.copy(selectedStudent = found, studentName = found.displayName, pairing = null, creatingStudent = false) }
     }
 
     fun saveStudent() = mutate {
+        val ctx = it
         val student = _state.value.selectedStudent
         val name = _state.value.studentName.trim()
-        if (student == null) tasks.createStudent(name) else tasks.updateStudent(student.id, name)
-        refreshStudents()
-        commit { it.copy(selectedStudent = null, studentName = "", creatingStudent = false) }
+        if (student == null) tasksFor(ctx).createStudent(name) else tasksFor(ctx).updateStudent(student.id, name)
+        refreshStudents(ctx)
+        commit(ctx) { state -> state.copy(selectedStudent = null, studentName = "", creatingStudent = false) }
     }
 
-    fun archiveStudent() = mutate(ConflictResource.Student) {
+    fun archiveStudent() = mutate(ConflictResource.Student) { ctx ->
         val id = _state.value.selectedStudent?.id ?: return@mutate
-        tasks.archiveStudent(id)
-        refreshStudents()
-        commit { it.copy(selectedStudent = null, creatingStudent = false) }
+        tasksFor(ctx).archiveStudent(id)
+        refreshStudents(ctx)
+        commit(ctx) { it.copy(selectedStudent = null, creatingStudent = false) }
     }
 
-    fun issuePairing() = mutate {
+    fun issuePairing() = mutate { ctx ->
         val id = _state.value.selectedStudent?.id ?: return@mutate
-        val pairing = tasks.issuePairing(id)
-        commit { it.copy(pairing = pairing) }
+        val pairing = tasksFor(ctx).issuePairing(id)
+        commit(ctx) { it.copy(pairing = pairing) }
     }
 
-    fun loadTasks(reset: Boolean = true) = act { refreshTasks(reset) }
+    fun loadTasks(reset: Boolean = true) = act { ctx -> refreshTasks(ctx, reset) }
 
-    private suspend fun refreshTasks(reset: Boolean = true) {
-        val query = _state.value.taskQuery
-        val gen = taskQueryGen.incrementAndGet()
-        val snap = epoch.current()
-        val offset = if (reset) 0L else _state.value.tasks.size.toLong()
-        val page = tasks.listTasks(query, offset, "active")
-        if (!epoch.isCurrent(snap) || gen != taskQueryGen.get()) return
-        val items = if (reset) page.items else _state.value.tasks + page.items
-        commit { it.copy(tasks = items, tasksHasMore = items.size < page.totalCount.toInt()) }
-    }
-
-    fun saveTask() = mutate(ConflictResource.Task) {
+    fun saveTask() = mutate(ConflictResource.Task) { ctx ->
         val editing = _state.value.editingTask
         val title = _state.value.taskTitle.trim()
         val instructions = _state.value.taskInstructions
-        if (editing == null) tasks.createTask(title, instructions)
-        else tasks.reviseTask(editing.templateId, title, instructions, editing.requirements)
-        refreshTasks()
-        commit { it.copy(editingTask = null, taskTitle = "", taskInstructions = "Complete the task, then ask a parent to check it.") }
+        if (editing == null) tasksFor(ctx).createTask(title, instructions)
+        else tasksFor(ctx).reviseTask(editing.templateId, title, instructions, editing.requirements)
+        refreshTasks(ctx)
+        commit(ctx) { it.copy(editingTask = null, taskTitle = "", taskInstructions = "Complete the task, then ask a parent to check it.") }
     }
 
-    fun publish(task: TaskRevision) = mutate(ConflictResource.Task) { tasks.publishTask(task.id); refreshTasks() }
-    fun retire(task: TaskRevision) = mutate(ConflictResource.Task) { tasks.retireTask(task.templateId); refreshTasks() }
+    fun publish(task: TaskRevision) = mutate(ConflictResource.Task) { ctx -> tasksFor(ctx).publishTask(task.id); refreshTasks(ctx) }
+    fun retire(task: TaskRevision) = mutate(ConflictResource.Task) { ctx -> tasksFor(ctx).retireTask(task.templateId); refreshTasks(ctx) }
 
-    fun loadSchedules(reset: Boolean = true) = act { refreshSchedules(reset) }
+    fun loadSchedules(reset: Boolean = true) = act { ctx -> refreshSchedules(ctx, reset) }
 
-    private suspend fun refreshSchedules(reset: Boolean = true) {
-        val offset = if (reset) 0L else _state.value.schedules.size.toLong()
-        val page = tasks.listSchedules(offset, "active")
-        val items = if (reset) page.items else _state.value.schedules + page.items
-        commit { it.copy(schedules = items, schedulesHasMore = items.size < page.totalCount.toInt()) }
-        if (reset) {
-            refreshTasks()
-            refreshStudents()
-        }
-    }
-
-    fun saveSchedule() = mutate(ConflictResource.Schedule) {
+    fun saveSchedule() = mutate(ConflictResource.Schedule) { ctx ->
         val state = _state.value
         val revision = ScheduleIdentity.fromPublishedTask(
             templateId = state.tasks.firstOrNull { it.id == state.scheduleTaskId }?.templateId ?: state.editingSchedule?.templateId,
@@ -249,135 +284,113 @@ class ControlViewModel(
         val studentId = state.scheduleStudentId.ifBlank { state.editingSchedule?.studentId.orEmpty() }
         require(studentId.isNotBlank()) { "Choose a student." }
         val body = state.scheduleDraft.toInput(studentId, revision.templateId, revision.revisionId)
-        if (state.editingSchedule == null) tasks.createSchedule(body) else tasks.updateSchedule(state.editingSchedule.id, body)
-        refreshSchedules()
-        commit { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false) }
+        if (state.editingSchedule == null) tasksFor(ctx).createSchedule(body) else tasksFor(ctx).updateSchedule(state.editingSchedule.id, body)
+        refreshSchedules(ctx)
+        commit(ctx) { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false) }
     }
 
-    fun cancelSchedule(schedule: Schedule) = mutate(ConflictResource.Schedule) { tasks.retireSchedule(schedule.id); refreshSchedules() }
-
-    fun loadOccurrences(reset: Boolean = true) = act { refreshOccurrences(reset) }
-
-    private suspend fun refreshOccurrences(reset: Boolean = true) {
-        val offset = if (reset) 0L else _state.value.occurrences.size.toLong()
-        val page = tasks.listOccurrences("", "asc", offset)
-        val items = if (reset) page.items else _state.value.occurrences + page.items
-        commit { it.copy(occurrences = items, occurrencesHasMore = items.size < page.totalCount.toInt()) }
+    fun cancelSchedule(schedule: Schedule) = mutate(ConflictResource.Schedule) { ctx ->
+        tasksFor(ctx).retireSchedule(schedule.id)
+        refreshSchedules(ctx)
     }
 
-    fun decide(accepted: Boolean) = mutate(ConflictResource.Occurrence) {
+    fun loadOccurrences(reset: Boolean = true) = act { ctx -> refreshOccurrences(ctx, reset) }
+
+    fun decide(accepted: Boolean) = mutate(ConflictResource.Occurrence) { ctx ->
         val id = _state.value.selectedOccurrence?.id ?: return@mutate
-        tasks.decide(id, accepted, _state.value.decisionReason)
-        val occurrence = tasks.getOccurrence(id)
-        refreshOccurrences()
-        commit { it.copy(selectedOccurrence = occurrence) }
+        tasksFor(ctx).decide(id, accepted, _state.value.decisionReason)
+        val occurrence = tasksFor(ctx).getOccurrence(id)
+        refreshOccurrences(ctx)
+        commit(ctx) { it.copy(selectedOccurrence = occurrence) }
     }
 
-    fun retryOccurrence() = mutate(ConflictResource.Occurrence) {
+    fun retryOccurrence() = mutate(ConflictResource.Occurrence) { ctx ->
         val id = _state.value.selectedOccurrence?.id ?: return@mutate
-        tasks.retry(id)
-        val occurrence = tasks.getOccurrence(id)
-        refreshOccurrences()
-        commit { it.copy(selectedOccurrence = occurrence) }
+        tasksFor(ctx).retry(id)
+        val occurrence = tasksFor(ctx).getOccurrence(id)
+        refreshOccurrences(ctx)
+        commit(ctx) { it.copy(selectedOccurrence = occurrence) }
     }
 
-    fun skipOccurrence() = mutate(ConflictResource.Occurrence) {
+    fun skipOccurrence() = mutate(ConflictResource.Occurrence) { ctx ->
         val id = _state.value.selectedOccurrence?.id ?: return@mutate
-        tasks.skip(id)
-        val occurrence = tasks.getOccurrence(id)
-        refreshOccurrences()
-        commit { it.copy(selectedOccurrence = occurrence) }
+        tasksFor(ctx).skip(id)
+        val occurrence = tasksFor(ctx).getOccurrence(id)
+        refreshOccurrences(ctx)
+        commit(ctx) { it.copy(selectedOccurrence = occurrence) }
     }
 
-    fun cancelOccurrence() = mutate(ConflictResource.Occurrence) {
+    fun cancelOccurrence() = mutate(ConflictResource.Occurrence) { ctx ->
         val id = _state.value.selectedOccurrence?.id ?: return@mutate
-        tasks.cancel(id)
-        val occurrence = tasks.getOccurrence(id)
-        refreshOccurrences()
-        commit { it.copy(selectedOccurrence = occurrence) }
+        tasksFor(ctx).cancel(id)
+        val occurrence = tasksFor(ctx).getOccurrence(id)
+        refreshOccurrences(ctx)
+        commit(ctx) { it.copy(selectedOccurrence = occurrence) }
     }
 
-    fun loadDevices() = act { refreshDevices() }
+    fun loadDevices() = act { ctx -> refreshDevices(ctx) }
 
-    private suspend fun refreshDevices() {
-        val listed = devices.list().items
-        val published = devices.releases().items
-        commit { it.copy(devices = listed, releases = published) }
+    fun openDevice(device: ManagedDevice) = act { ctx -> reloadDevice(ctx, device.id) }
+
+    fun issueEnrollment() = mutate { ctx ->
+        val enrollment = devicesFor(ctx).issue()
+        commit(ctx) { it.copy(enrollment = enrollment) }
     }
 
-    fun openDevice(device: ManagedDevice) = act { reloadDevice(device) }
-
-    private suspend fun reloadDevice(device: ManagedDevice) {
-        resetRecoveryIfDeviceChanged(device)
-        val desired = devices.desired(device.id)
-        val latest = devices.get(device.id)
-        commit {
-            it.copy(
-                selectedDevice = latest,
-                desired = desired,
-                syncStatus = DeviceSync.status(latest.desiredRevision, latest.appliedRevision, latest.latestReport),
-            )
-        }
-    }
-
-    fun issueEnrollment() = mutate {
-        val enrollment = devices.issue()
-        commit { it.copy(enrollment = enrollment) }
-    }
-
-    fun targetRelease(requeue: Boolean = false) = mutate(ConflictResource.Device) {
+    fun targetRelease(requeue: Boolean = false) = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
         val release = _state.value.releases.firstOrNull { it.id == _state.value.selectedReleaseId }
             ?: error("Choose a published release.")
-        val desired = devices.desired(device.id)
-        devices.target(device.id, release, desired, requeue)
-        reloadDevice(device)
+        val desired = devicesFor(ctx).desired(device.id)
+        devicesFor(ctx).target(device.id, release, desired, requeue)
+        reloadDevice(ctx, device.id)
     }
 
-    fun quarantineDevice() = mutate(ConflictResource.Device) {
+    fun quarantineDevice() = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        devices.quarantine(device.id, "parent quarantine")
-        refreshDevices()
-        reloadDevice(device)
+        devicesFor(ctx).quarantine(device.id, "parent quarantine")
+        refreshDevices(ctx)
+        reloadDevice(ctx, device.id)
     }
 
-    fun revokeDevice() = mutate(ConflictResource.Device) {
+    fun revokeDevice() = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        devices.revoke(device.id, "parent revoke")
-        refreshDevices()
-        val latest = devices.get(device.id)
-        commit { it.copy(selectedDevice = latest, recovery = null) }
+        devicesFor(ctx).revoke(device.id, "parent revoke")
+        refreshDevices(ctx)
+        val latest = devicesFor(ctx).get(device.id)
+        commit(ctx) { it.copy(selectedDevice = latest, recovery = null) }
     }
 
-    fun addApprovedApp() = mutate(ConflictResource.Device) {
+    fun addApprovedApp() = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        val desired = devices.desired(device.id)
-        devices.addApprovedApp(device.id, desired, _state.value.approvedAppDraft)
-        commit { it.copy(approvedAppDraft = ApprovedAppDraft()) }
-        reloadDevice(device)
+        val desired = devicesFor(ctx).desired(device.id)
+        devicesFor(ctx).addApprovedApp(device.id, desired, _state.value.approvedAppDraft)
+        commit(ctx) { it.copy(approvedAppDraft = ApprovedAppDraft()) }
+        reloadDevice(ctx, device.id)
     }
 
-    fun removeApprovedApp(packageName: String) = mutate(ConflictResource.Device) {
+    fun removeApprovedApp(packageName: String) = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        devices.removeApprovedApp(device.id, devices.desired(device.id), packageName)
-        reloadDevice(device)
+        devicesFor(ctx).removeApprovedApp(device.id, devicesFor(ctx).desired(device.id), packageName)
+        reloadDevice(ctx, device.id)
     }
 
-    fun setParentUnlock(allow: Boolean) = mutate(ConflictResource.Device) {
+    fun setParentUnlock(allow: Boolean) = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        devices.setParentUnlock(device.id, devices.desired(device.id), allow)
-        reloadDevice(device)
+        devicesFor(ctx).setParentUnlock(device.id, devicesFor(ctx).desired(device.id), allow)
+        reloadDevice(ctx, device.id)
     }
 
-    fun prepareRecovery() = mutate {
+    fun prepareRecovery() = mutate { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        val publicKey = device.enrollmentPublicKey
+        val latest = devicesFor(ctx).get(device.id)
+        val publicKey = latest.enrollmentPublicKey
         if (publicKey.isNullOrBlank()) {
-            commit { it.copy(message = "This device has no enrollment public key yet.") }
+            commit(ctx) { it.copy(selectedDevice = latest, message = "This device has no enrollment public key yet.") }
             return@mutate
         }
-        val prepared = devices.prepareRotation(device.id, publicKey)
-        commit { it.copy(recovery = prepared, message = null) }
+        val prepared = devicesFor(ctx).prepareRotation(latest.id, publicKey)
+        commit(ctx) { it.copy(selectedDevice = latest, recovery = prepared, message = null) }
     }
 
     fun acknowledgeRecovery(value: Boolean) {
@@ -385,10 +398,11 @@ class ControlViewModel(
         _state.value = _state.value.copy(recovery = recovery.copy(acknowledged = value))
     }
 
-    fun rotateRecovery() = mutate(ConflictResource.Device) {
+    fun rotateRecovery() = mutate(ConflictResource.Device) { ctx ->
         val device = _state.value.selectedDevice ?: return@mutate
-        devices.rotateRecovery(device.id, _state.value.recovery, _state.value.recovery?.acknowledged == true)
-        commit { it.copy(recovery = null) }
+        val latest = devicesFor(ctx).get(device.id)
+        devicesFor(ctx).rotateRecovery(latest.id, latest.enrollmentPublicKey, _state.value.recovery, _state.value.recovery?.acknowledged == true)
+        commit(ctx) { it.copy(selectedDevice = latest, recovery = null) }
     }
 
     fun closeDevice() {
@@ -399,51 +413,133 @@ class ControlViewModel(
         _state.value = transform(_state.value)
     }
 
+    private suspend fun refreshStudents(ctx: AuthContext, reset: Boolean = true) {
+        val query = _state.value.studentQuery
+        val gen = studentQueryGen.incrementAndGet()
+        val offset = if (reset) 0L else _state.value.students.size.toLong()
+        val page = tasksFor(ctx).listStudents(query, offset)
+        if (!stillValid(ctx) || gen != studentQueryGen.get()) return
+        val items = if (reset) page.items else _state.value.students + page.items
+        commit(ctx) { it.copy(students = items, studentsHasMore = items.size < page.totalCount.toInt(), message = null) }
+    }
+
+    private suspend fun refreshTasks(ctx: AuthContext, reset: Boolean = true) {
+        val query = _state.value.taskQuery
+        val gen = taskQueryGen.incrementAndGet()
+        val offset = if (reset) 0L else _state.value.tasks.size.toLong()
+        val page = tasksFor(ctx).listTasks(query, offset, "active")
+        if (!stillValid(ctx) || gen != taskQueryGen.get()) return
+        val items = if (reset) page.items else _state.value.tasks + page.items
+        commit(ctx) { it.copy(tasks = items, tasksHasMore = items.size < page.totalCount.toInt()) }
+    }
+
+    private suspend fun refreshSchedules(ctx: AuthContext, reset: Boolean = true) {
+        val offset = if (reset) 0L else _state.value.schedules.size.toLong()
+        val page = tasksFor(ctx).listSchedules(offset, "active")
+        val items = if (reset) page.items else _state.value.schedules + page.items
+        commit(ctx) { it.copy(schedules = items, schedulesHasMore = items.size < page.totalCount.toInt()) }
+        if (reset && stillValid(ctx)) {
+            refreshTasks(ctx)
+            refreshStudents(ctx)
+        }
+    }
+
+    private suspend fun refreshOccurrences(ctx: AuthContext, reset: Boolean = true) {
+        val offset = if (reset) 0L else _state.value.occurrences.size.toLong()
+        val page = tasksFor(ctx).listOccurrences("", "asc", offset)
+        val items = if (reset) page.items else _state.value.occurrences + page.items
+        commit(ctx) { it.copy(occurrences = items, occurrencesHasMore = items.size < page.totalCount.toInt()) }
+    }
+
+    private suspend fun refreshDevices(ctx: AuthContext) {
+        val listed = devicesFor(ctx).list().items
+        val published = devicesFor(ctx).releases().items
+        commit(ctx) { it.copy(devices = listed, releases = published) }
+    }
+
+    private suspend fun reloadDevice(ctx: AuthContext, deviceId: String) {
+        val latest = devicesFor(ctx).get(deviceId)
+        val desired = devicesFor(ctx).desired(deviceId)
+        if (!stillValid(ctx)) return
+        val recovery = _state.value.recovery?.takeIf { it.matches(latest.id, latest.enrollmentPublicKey) }
+        commit(ctx) {
+            it.copy(
+                selectedDevice = latest,
+                desired = desired,
+                recovery = recovery,
+                syncStatus = DeviceSync.status(latest.desiredRevision, latest.appliedRevision, latest.latestReport),
+            )
+        }
+    }
+
     private suspend fun refreshAuth() {
-        val snap = epoch.current()
-        val ready = runCatching { identity.ready() }.getOrDefault(false)
+        val ready = try {
+            identity.ready()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            false
+        }
         if (!ready) {
-            if (epoch.isCurrent(snap)) _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false, message = "Clerk did not become ready. Check the network and try again.")
+            _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false, message = "Clerk did not become ready. Check the network and try again.")
             return
         }
         val signedIn = identity.isSignedIn()
-        val token = if (signedIn) refreshToken(skipCache = true) else null
-        if (!epoch.isCurrent(snap)) return
-        if (!signedIn || apiBase == null || token == null) {
+        val sessionId = identity.sessionId()
+        if (!signedIn || sessionId == null || apiBase == null) {
+            session = null
             _state.value = signedOut(signedIn = signedIn)
             return
         }
+        if (session != null && session?.sessionId != sessionId) fence()
+        val token = try {
+            identity.sessionToken(skipCache = true)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _state.value = _state.value.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error))
+            return
+        }
+        if (token.isNullOrBlank()) {
+            session = null
+            _state.value = signedOut(signedIn = true, message = "Sign in again. The parent session is missing or expired.")
+            return
+        }
+        val ctx = AuthContext(sessionId = sessionId, epoch = epoch.current(), token = token)
+        session = ctx
         try {
-            tasks.session()
-            if (!epoch.isCurrent(snap)) return
-            _state.value = _state.value.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false)
-            loadStudents()
+            tasksFor(ctx).session()
+            commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false) }
+            if (stillValid(ctx)) refreshStudents(ctx)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: TasksHttpException) {
-            if (!epoch.isCurrent(snap)) return
+            if (!stillValid(ctx)) return
             if (error.statusCode == 401 || error.statusCode == 403) {
-                epoch.bump()
-                cachedToken = null
+                fence()
+                session = null
                 _state.value = signedOut(signedIn = true, message = controlMessage(error))
             } else {
-                _state.value = _state.value.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error))
+                commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error)) }
             }
         } catch (error: Exception) {
-            if (epoch.isCurrent(snap)) _state.value = _state.value.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error))
+            if (stillValid(ctx)) commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error)) }
         }
     }
 
-    private suspend fun refreshToken(skipCache: Boolean): String? = tokenMutex.withLock {
-        val token = identity.sessionToken(skipCache)
-        cachedToken = token
-        token
+    private fun fence() {
+        epoch.bump()
+        workJob.cancel()
+        workJob = SupervisorJob(viewModelScope.coroutineContext.job)
     }
 
-    private fun resetRecoveryIfDeviceChanged(device: ManagedDevice) {
-        val recovery = _state.value.recovery ?: return
-        if (!recovery.matches(device.id, device.enrollmentPublicKey)) {
-            _state.value = _state.value.copy(recovery = null)
-        }
+    private fun stillValid(ctx: AuthContext): Boolean {
+        val live = session
+        return epoch.isCurrent(ctx.epoch) && live != null && live.sessionId == ctx.sessionId
     }
+
+    private fun tasksFor(ctx: AuthContext) = tasksFactory(CredentialProvider { ctx.token })
+    private fun devicesFor(ctx: AuthContext) = devicesFactory(CredentialProvider { ctx.token })
 
     private fun signedOut(signedIn: Boolean = false, message: String? = null) = ControlUiState(
         ready = true,
@@ -453,77 +549,113 @@ class ControlViewModel(
         message = message,
     )
 
-    private fun commit(transform: (ControlUiState) -> ControlUiState) {
+    private fun commit(ctx: AuthContext, transform: (ControlUiState) -> ControlUiState) {
+        if (!stillValid(ctx)) return
         _state.value = transform(_state.value)
     }
 
-    private fun mutate(resource: ConflictResource = ConflictResource.None, block: suspend () -> Unit) {
-        viewModelScope.launch {
-            val snap = epoch.current()
-            if (!mutations.tryBegin()) {
-                _state.value = _state.value.copy(message = "Wait for the current change to finish.")
+    private fun mutate(resource: ConflictResource = ConflictResource.None, block: suspend (AuthContext) -> Unit) {
+        if (!mutations.tryBegin()) {
+            _state.value = _state.value.copy(message = "Wait for the current change to finish.")
+            return
+        }
+        workScope.launch {
+            val ctx = captureAuth()
+            if (ctx == null) {
+                mutations.end()
                 return@launch
             }
-            _state.value = _state.value.copy(mutating = true)
+            commit(ctx) { it.copy(mutating = true) }
             try {
-                runAct(resource, block)
+                runAct(ctx, resource, block)
             } finally {
                 mutations.end()
-                if (epoch.isCurrent(snap)) _state.value = _state.value.copy(mutating = false)
+                if (stillValid(ctx)) commit(ctx) { it.copy(mutating = false) }
             }
         }
     }
 
-    private fun act(resource: ConflictResource = ConflictResource.None, block: suspend () -> Unit) {
-        viewModelScope.launch { runAct(resource, block) }
+    private fun act(resource: ConflictResource = ConflictResource.None, block: suspend (AuthContext) -> Unit) {
+        workScope.launch {
+            val ctx = captureAuth() ?: return@launch
+            runAct(ctx, resource, block)
+        }
     }
 
-    private suspend fun runAct(resource: ConflictResource, block: suspend () -> Unit) {
-        val snap = epoch.current()
-        try {
-            if (refreshToken(skipCache = true) == null && _state.value.householdOk) {
-                if (epoch.isCurrent(snap)) {
-                    epoch.bump()
-                    _state.value = signedOut(message = "Sign in again. The parent session is missing or expired.")
-                }
-                return
-            }
-            if (!epoch.isCurrent(snap)) return
-            block()
+    private suspend fun captureAuth(): AuthContext? {
+        val existing = session
+        if (existing == null || !epoch.isCurrent(existing.epoch)) return null
+        val sessionId = try {
+            identity.sessionId()
+        } catch (error: CancellationException) {
+            throw error
+        }
+        if (sessionId == null || sessionId != existing.sessionId) {
+            fence()
+            session = null
+            _state.value = signedOut(message = "Sign in again. The parent session is missing or expired.")
+            return null
+        }
+        val token = try {
+            identity.sessionToken(skipCache = true)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
-            if (!epoch.isCurrent(snap)) return
+            _state.value = _state.value.copy(message = controlMessage(error))
+            return null
+        }
+        if (token.isNullOrBlank()) {
+            fence()
+            session = null
+            _state.value = signedOut(signedIn = true, message = "Sign in again. The parent session is missing or expired.")
+            return null
+        }
+        if (!epoch.isCurrent(existing.epoch) || session?.sessionId != sessionId) return null
+        val ctx = AuthContext(sessionId = sessionId, epoch = existing.epoch, token = token)
+        session = ctx
+        return ctx
+    }
+
+    private suspend fun runAct(ctx: AuthContext, resource: ConflictResource, block: suspend (AuthContext) -> Unit) {
+        try {
+            if (!stillValid(ctx)) return
+            block(ctx)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!stillValid(ctx)) return
             if (error is TasksHttpException && (error.statusCode == 401 || error.statusCode == 403)) {
-                epoch.bump()
-                cachedToken = null
+                fence()
+                session = null
                 _state.value = signedOut(signedIn = true, message = controlMessage(error))
                 return
             }
             if (error is TasksHttpException && error.statusCode == 409) {
-                handleConflict(resource, error)
+                handleConflict(ctx, resource, error)
                 return
             }
-            _state.value = _state.value.copy(message = controlMessage(error))
+            commit(ctx) { it.copy(message = controlMessage(error)) }
         }
     }
 
-    private suspend fun handleConflict(resource: ConflictResource, error: TasksHttpException) {
+    private suspend fun handleConflict(ctx: AuthContext, resource: ConflictResource, error: TasksHttpException) {
         val message = controlMessage(error)
         when {
             ConflictRefresh.shouldRefreshOccurrence(resource) -> {
                 val id = _state.value.selectedOccurrence?.id
                 if (id != null) {
-                    runCatching { tasks.getOccurrence(id) }.onSuccess { occurrence ->
-                        _state.value = _state.value.copy(selectedOccurrence = occurrence, message = message)
+                    runCatching { tasksFor(ctx).getOccurrence(id) }.onSuccess { occurrence ->
+                        commit(ctx) { it.copy(selectedOccurrence = occurrence, message = message) }
                         return
                     }
                 }
             }
-            ConflictRefresh.shouldRefreshSchedule(resource) -> refreshSchedules()
+            ConflictRefresh.shouldRefreshSchedule(resource) -> refreshSchedules(ctx)
             ConflictRefresh.shouldRefreshDevice(resource) -> {
                 val device = _state.value.selectedDevice
-                if (device != null) reloadDevice(device)
+                if (device != null) reloadDevice(ctx, device.id)
             }
         }
-        _state.value = _state.value.copy(message = message)
+        commit(ctx) { it.copy(message = message) }
     }
 }

@@ -9,22 +9,32 @@ import com.aleksclark.primertasks.client.PolicyUpdateInput
 import com.aleksclark.primertasks.client.Release
 import com.aleksclark.primertasks.client.ReleaseTarget
 
-enum class DeviceSyncStatus { Applied, Pending, Partial, Stale }
+enum class DeviceSyncStatus { NoPolicy, Unknown, Pending, Partial, Stale, Failed, Applied }
 
 object DeviceSync {
     fun status(desiredRevision: Long, appliedRevision: Long, report: PolicyReport?): DeviceSyncStatus {
-        if (report?.stale == true) return DeviceSyncStatus.Stale
-        val reportStatus = report?.status?.lowercase()
+        if (desiredRevision <= 0L && appliedRevision <= 0L && report == null) return DeviceSyncStatus.NoPolicy
+        if (report == null) {
+            return if (appliedRevision < desiredRevision) DeviceSyncStatus.Pending else DeviceSyncStatus.Unknown
+        }
+        if (report.stale) return DeviceSyncStatus.Stale
+        val reportStatus = report.status.lowercase()
         if (reportStatus == "partial") return DeviceSyncStatus.Partial
+        if (reportStatus == "failed" || reportStatus == "error") return DeviceSyncStatus.Failed
         if (appliedRevision < desiredRevision) return DeviceSyncStatus.Pending
-        return DeviceSyncStatus.Applied
+        val appliedReport = reportStatus == "applied" || reportStatus == "ok" || reportStatus == "success"
+        val sameRevision = desiredRevision > 0L && appliedRevision == desiredRevision && report.policyRevision == desiredRevision
+        return if (appliedReport && sameRevision) DeviceSyncStatus.Applied else DeviceSyncStatus.Unknown
     }
 
     fun label(status: DeviceSyncStatus): String = when (status) {
-        DeviceSyncStatus.Applied -> "applied"
+        DeviceSyncStatus.NoPolicy -> "no policy"
+        DeviceSyncStatus.Unknown -> "unknown"
         DeviceSyncStatus.Pending -> "pending"
         DeviceSyncStatus.Partial -> "partial"
         DeviceSyncStatus.Stale -> "stale"
+        DeviceSyncStatus.Failed -> "failed"
+        DeviceSyncStatus.Applied -> "applied"
     }
 }
 

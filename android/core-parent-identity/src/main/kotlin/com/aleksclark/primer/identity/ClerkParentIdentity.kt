@@ -6,6 +6,7 @@ import com.clerk.api.network.serialization.ClerkResult
 import com.clerk.api.session.GetTokenOptions
 import com.clerk.api.session.fetchToken
 import com.clerk.api.signin.SignIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,14 +26,24 @@ class ClerkParentIdentity(
 
     fun initialize() {
         if (!configured || !initialized.compareAndSet(false, true)) return
-        Clerk.initialize(application, publishableKey)
+        try {
+            Clerk.initialize(application, publishableKey)
+        } catch (error: CancellationException) {
+            initialized.set(false)
+            throw error
+        } catch (error: Exception) {
+            initialized.set(false)
+            throw error
+        }
     }
 
     override suspend fun ready(): Boolean {
         if (!configured) return true
-        initialize()
         return try {
+            if (!initialized.get()) initialize()
             withTimeout(READY_TIMEOUT_MS) { Clerk.isInitialized.first { it } }
+        } catch (error: CancellationException) {
+            throw error
         } catch (_: Exception) {
             false
         }
@@ -49,9 +60,13 @@ class ClerkParentIdentity(
     override suspend fun sessionToken(skipCache: Boolean): String? {
         val session = Clerk.session ?: return null
         val options = GetTokenOptions(skipCache = skipCache, expirationBuffer = TOKEN_BUFFER_MS)
-        return when (val result = session.fetchToken(options)) {
-            is ClerkResult.Success -> result.value.jwt
-            is ClerkResult.Failure -> null
+        return try {
+            when (val result = session.fetchToken(options)) {
+                is ClerkResult.Success -> result.value.jwt
+                is ClerkResult.Failure -> null
+            }
+        } catch (error: CancellationException) {
+            throw error
         }
     }
 
@@ -59,16 +74,24 @@ class ClerkParentIdentity(
         if (!configured) return SignInOutcome.Failed("Clerk publishable key is not set on this build.")
         if (!ready()) return SignInOutcome.Failed("Clerk did not become ready. Check the network and try again.")
         val signIn = when (
-            val result = runCatching {
+            val result = try {
                 SignIn.create(SignIn.CreateParams.Strategy.Password(identifier = email, password = password))
-            }.getOrElse { return SignInOutcome.Failed("Unable to reach Clerk. Check your connection and try again.") }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return SignInOutcome.Failed("Unable to reach Clerk. Check your connection and try again.")
+            }
         ) {
             is ClerkResult.Success -> result.value
             is ClerkResult.Failure -> return SignInOutcome.Failed(clerkFailure(result, "Clerk sign-in failed. Check the account and try again."))
         }
         val sessionId = ClerkSignInPolicy.completedSessionId(signIn.status.name, signIn.createdSessionId)
             ?: return SignInOutcome.Incomplete(ClerkSignInPolicy.incompleteMessage(signIn.status.name))
-        val activated = when (val result = runCatching { Clerk.setActive(sessionId) }.getOrElse {
+        val activated = when (val result = try {
+            Clerk.setActive(sessionId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
             return SignInOutcome.Failed("Unable to activate the Clerk session. Try again.")
         }) {
             is ClerkResult.Success -> result.value.id
@@ -83,7 +106,11 @@ class ClerkParentIdentity(
 
     override suspend fun signOutProvider(): SignOutOutcome {
         if (!configured) return SignOutOutcome.SignedOut
-        return when (val result = runCatching { Clerk.signOut() }.getOrElse {
+        return when (val result = try {
+            Clerk.signOut()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
             return SignOutOutcome.Failed("Unable to sign out of Clerk. Try again.")
         }) {
             is ClerkResult.Success -> SignOutOutcome.SignedOut

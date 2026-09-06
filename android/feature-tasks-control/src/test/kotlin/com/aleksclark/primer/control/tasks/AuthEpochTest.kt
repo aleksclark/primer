@@ -29,13 +29,16 @@ class AuthEpochTest {
     fun logoutStopsWhenServerRevocationFails() {
         val decision = FailClosedLogout.decide(serverRevoked = false, providerSignedOut = true, serverError = "Tasks down", providerError = null)
         assertTrue(decision is LogoutDecision.Incomplete)
-        assertEquals("Tasks down", (decision as LogoutDecision.Incomplete).message)
+        val incomplete = decision as LogoutDecision.Incomplete
+        assertEquals("Tasks down", incomplete.message)
+        assertFalse(incomplete.serverRevoked)
     }
 
     @Test
     fun logoutStopsWhenProviderSignOutFailsAfterServerRevoke() {
         val decision = FailClosedLogout.decide(serverRevoked = true, providerSignedOut = false, serverError = null, providerError = "Clerk down")
         assertTrue(decision is LogoutDecision.Incomplete)
+        assertTrue((decision as LogoutDecision.Incomplete).serverRevoked)
     }
 
     @Test

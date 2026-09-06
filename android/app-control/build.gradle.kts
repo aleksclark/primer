@@ -31,6 +31,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 kotlin { jvmToolchain(17) }
@@ -67,6 +68,8 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 }
 
 private fun String.quoteForBuildConfig(): String = "\"${replace("\"", "\\\\\"")}\""
