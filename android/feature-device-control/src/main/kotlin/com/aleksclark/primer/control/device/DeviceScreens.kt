@@ -34,6 +34,8 @@ fun DevicesScreen(
     selfUpdate: ControlSelfUpdateUi = ControlSelfUpdateUi(),
     onIssue: () -> Unit,
     onOpen: (ManagedDevice) -> Unit,
+    onInstallUpdate: () -> Unit = {},
+    onOpenInstallSettings: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PrimerSectionHeader(
@@ -47,7 +49,7 @@ fun DevicesScreen(
             PrimerRecordRow(label = "Enrollment code", value = enrollment.code)
             androidx.compose.material3.Text(enrollment.qrPayload, style = com.aleksclark.primer.ui.PrimerTheme.typography.mono)
         }
-        ControlSelfUpdateScreen(update = selfUpdate)
+        ControlSelfUpdateScreen(update = selfUpdate, onInstall = onInstallUpdate, onOpenSettings = onOpenInstallSettings)
         if (devices.isEmpty()) PrimerEmptyState(title = "No managed devices", message = "Issue an enrollment QR for Student. Control never becomes device admin.")
         LazyColumn {
             items(devices, key = { it.id }) { device ->
@@ -138,14 +140,18 @@ fun DeviceDetailScreen(
 }
 
 @Composable
-fun ControlSelfUpdateScreen(update: ControlSelfUpdateUi) {
+fun ControlSelfUpdateScreen(
+    update: ControlSelfUpdateUi,
+    onInstall: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+) {
     PrimerSectionHeader(
         label = "Control app",
         title = "Self-update",
-        description = "Control is not a device owner. Production install stays held until the shared adapter validates APK hash, signer, and version from bytes — not filename.",
+        description = "Control is not a device owner. The shared adapter verifies APK hash, signer, ABI, and version from bytes. Confirmation, settings, or a notification fallback if Android requires user action.",
     )
     PrimerStatus(update.status, tone = when (update.phase) {
-        ControlSelfUpdatePhase.Held, ControlSelfUpdatePhase.Idle -> PrimerStatusTone.Neutral
+        ControlSelfUpdatePhase.Idle -> PrimerStatusTone.Neutral
         ControlSelfUpdatePhase.Failed -> PrimerStatusTone.Attention
         else -> PrimerStatusTone.Accent
     })
@@ -159,6 +165,6 @@ fun ControlSelfUpdateScreen(update: ControlSelfUpdateUi) {
         if (plan.settingsRequired) PrimerStatus("Open system install settings, then confirm the update.", tone = PrimerStatusTone.Attention)
         PrimerStatus(plan.reason, tone = PrimerStatusTone.Neutral)
     }
-    PrimerButton(text = "Install Control update", onClick = {}, enabled = false)
-    PrimerButton(text = "Open install settings", onClick = {}, enabled = false, variant = PrimerButtonVariant.Secondary)
+    PrimerButton(text = "Install Control update", onClick = onInstall, enabled = update.canInstall)
+    PrimerButton(text = "Open install settings", onClick = onOpenSettings, enabled = update.canOpenSettings, variant = PrimerButtonVariant.Secondary)
 }

@@ -59,6 +59,8 @@ class ParentTasksRepository(
     suspend fun retry(id: String) = client.retryOccurrence(id)
     suspend fun skip(id: String) = client.skipOccurrence(id)
     suspend fun cancel(id: String) = client.cancelOccurrence(id)
+    suspend fun downloadReleaseArtifact(id: String, sink: java.io.OutputStream): Long =
+        client.downloadManagedReleaseArtifact(id, sink)
 
     companion object {
         const val PAGE = 20L

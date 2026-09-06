@@ -10,18 +10,22 @@ val configuredApiOrigin = providers.gradleProperty("primerApiOrigin")
 val clerkPublishableKey = providers.gradleProperty("primerClerkPublishableKey")
     .orElse(providers.environmentVariable("PRIMER_CLERK_PUBLISHABLE_KEY"))
     .getOrElse("")
+val releaseTrustRoot = providers.gradleProperty("primerReleaseTrustRoot")
+    .orElse(providers.environmentVariable("PRIMER_RELEASE_TRUST_ROOT"))
+    .getOrElse("")
 
 android {
     namespace = "com.aleksclark.primer.control"
     compileSdk = 35
     defaultConfig {
         applicationId = "com.aleksclark.primer.control"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "CONFIGURED_API_ORIGIN", configuredApiOrigin.quoteForBuildConfig())
         buildConfigField("String", "CLERK_PUBLISHABLE_KEY", clerkPublishableKey.quoteForBuildConfig())
+        buildConfigField("String", "RELEASE_TRUST_ROOT", releaseTrustRoot.quoteForBuildConfig())
     }
     buildFeatures {
         compose = true
@@ -57,6 +61,7 @@ dependencies {
     implementation(project(":core-parent-identity"))
     implementation(project(":feature-tasks-control"))
     implementation(project(":feature-device-control"))
+    implementation(project(":core-updates"))
     implementation(project(":tasks-client"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

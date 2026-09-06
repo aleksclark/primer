@@ -369,10 +369,13 @@ class ControlViewModelTest {
             if (model.state.value.mutating) return@repeat
             delay(25)
         }
-        assertTrue("mutation never started: ${model.state.value}", model.state.value.mutating)
-        model.signIn()
-        assertEquals("Wait for the current change to finish.", model.state.value.message)
-        hold.countDown()
+        try {
+            assertTrue("mutation never started: ${model.state.value}", model.state.value.mutating)
+            model.signIn()
+            assertEquals("Wait for the current change to finish.", model.state.value.message)
+        } finally {
+            hold.countDown()
+        }
     }
 
     private fun model(identity: FakeIdentity): ControlViewModel {

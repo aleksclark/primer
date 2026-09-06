@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.aleksclark.primer.control.tasks"
     compileSdk = 35
-    defaultConfig { minSdk = 26 }
+    defaultConfig { minSdk = 28 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -94,6 +94,8 @@ class ControlViewModel(
     private val identity: ParentIdentity,
     private val apiBase: String?,
     private val http: OkHttpClient = OkHttpClient(),
+    private val updater: ControlSelfUpdateCoordinator? = null,
+    private val downloadDir: java.io.File? = null,
     private val tasksFactory: (CredentialProvider) -> ParentTasksRepository = { token ->
         ParentTasksRepository(requireNotNull(apiBase), token, http)
     },
@@ -407,7 +409,33 @@ class ControlViewModel(
         }
     }
 
-    fun loadDevices() = act { ctx -> refreshDevices(ctx) }
+    fun loadDevices() = act { ctx ->
+        refreshDevices(ctx)
+        refreshSelfUpdate(ctx)
+    }
+
+    fun installControlUpdate() {
+        val releaseId = _state.value.selectedReleaseId.ifBlank {
+            _state.value.releases.firstOrNull { it.packageName == com.aleksclark.primer.control.device.ControlSelfUpdate.CONTROL_PACKAGE }?.id.orEmpty()
+        }
+        mutate { ctx ->
+            val coordinator = updater ?: error("Release trust root is not configured.")
+            val release = _state.value.releases.firstOrNull { it.id == releaseId }
+                ?: error("Choose a published Control release.")
+            coordinator.verify(release)
+            val dir = downloadDir ?: error("Download directory is not available.")
+            val download = java.io.File.createTempFile("control-", ".apk", dir)
+            try {
+                download.outputStream().use { sink -> tasksFor(ctx).downloadReleaseArtifact(release.id, sink) }
+                coordinator.install(download, release)
+            } finally {
+                download.delete()
+            }
+            refreshSelfUpdate(ctx)
+        }
+    }
+
+    fun openInstallSettings(): android.content.Intent? = updater?.settingsIntent()
 
     fun openDevice(device: ManagedDevice) = act { ctx -> reloadDevice(ctx, device.id) }
 
@@ -571,6 +599,17 @@ class ControlViewModel(
                 syncStatus = DeviceSync.status(latest.desiredRevision, latest.appliedRevision, latest.latestReport),
             )
         }
+    }
+
+    private fun refreshSelfUpdate(ctx: AuthContext) {
+        val candidate = _state.value.releases.firstOrNull {
+            it.packageName == com.aleksclark.primer.control.device.ControlSelfUpdate.CONTROL_PACKAGE
+        }
+        val ui = updater?.ui(candidate) ?: ControlSelfUpdateUi(
+            phase = com.aleksclark.primer.control.device.ControlSelfUpdatePhase.Failed,
+            status = "Release trust root is not configured.",
+        )
+        commit(ctx) { it.copy(selfUpdate = ui) }
     }
 
     private suspend fun refreshAuth() {
