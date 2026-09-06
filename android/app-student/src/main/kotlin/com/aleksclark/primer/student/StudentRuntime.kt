@@ -13,6 +13,7 @@ import com.aleksclark.primer.devicepolicy.RecoveryStore
 import com.aleksclark.primer.student.admin.MaintenanceExpiryReceiver
 import com.aleksclark.primer.student.admin.PrimerDeviceAdminReceiver
 import com.aleksclark.primer.student.management.DataStoreManagementOutbox
+import com.aleksclark.primer.student.management.ManagementAuthorization
 import com.aleksclark.primer.student.management.ManagementCredentialStore
 import com.aleksclark.primer.student.management.ManagementSession
 import com.aleksclark.primer.student.management.ManagementSyncResult
@@ -150,20 +151,35 @@ class StudentRuntime(private val context: Context) {
         return policy.reconcile()
     }
 
-    suspend fun enrollManagement(rawQr: String, replace: Boolean = false): ManagementSyncResult = lock.withLock {
-        check(policy.isOwner && (policy.inMaintenance || !policy.store.configured)) { "Parent setup or maintenance required" }
-        val result = managementSession().enroll(rawQr, replace)
-        val scheduled = ManagementSyncWorker.schedule(context)
-        if (!scheduled) policy.store.record("WorkManager catch-up could not be scheduled")
-        policy.applyLastKnownRemote()
-        result
+    suspend fun enrollManagement(rawQr: String, replace: Boolean = false): ManagementSyncResult {
+        if (replace) ManagementAuthorization.revoke()
+        return try {
+            lock.withLock {
+                check(policy.isOwner && (policy.inMaintenance || !policy.store.configured)) { "Parent setup or maintenance required" }
+                val result = managementSession().enroll(rawQr, replace)
+                val scheduled = ManagementSyncWorker.schedule(context)
+                if (!scheduled) policy.store.record("WorkManager catch-up could not be scheduled")
+                policy.applyLastKnownRemote()
+                result
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            ManagementAuthorization.revoke()
+            throw cancelled
+        }
     }
 
-    suspend fun syncManagement(): ManagementSyncResult = lock.withLock {
-        if (!policy.isOwner || !policy.store.configured) {
-            ManagementSyncResult("Managed parent setup required")
-        } else {
-            managementSession().sync()
+    suspend fun syncManagement(): ManagementSyncResult {
+        return try {
+            lock.withLock {
+                if (!policy.isOwner || !policy.store.configured) {
+                    ManagementSyncResult("Managed parent setup required")
+                } else {
+                    managementSession().sync()
+                }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            ManagementAuthorization.revoke()
+            throw cancelled
         }
     }
 

@@ -10,9 +10,13 @@ import com.aleksclark.primertasks.client.TasksClient
 import com.google.crypto.tink.KeysetHandle
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,6 +37,7 @@ class InMemoryManagementSecrets : ManagementSecrets {
     override suspend fun clearTokenOnly() { binding = binding?.copy(token = ""); tokenCleared++ }
     override suspend fun stableDeviceKey(): String = stable
     override suspend fun expectedToken(): String? = binding?.token
+    override fun snapshot(): ManagementBinding? = binding
 }
 
 class ManagementSessionTest {
@@ -176,15 +181,82 @@ class ManagementSessionTest {
     }
 
     @Test
-    fun authorizationLeaseDoesNotSnapshotABoolean() {
+    fun authorizationLeaseTracksPersistedBindingAndGeneration() {
         val first = ManagementBinding("token-a", "https://example.invalid", "device-a", "a".repeat(64))
         val second = ManagementBinding("token-b", "https://example.invalid", "device-a", "a".repeat(64))
-        val lease = ManagementAuthorization.issue(first)
+        secrets.binding = first
+        val lease = ManagementAuthorization.capture(first) { secrets.snapshot() }
         assertTrue(lease.authorized())
-        ManagementAuthorization.issue(second)
+        secrets.binding = second
         assertTrue(!lease.authorized())
+        secrets.binding = first
+        assertTrue(lease.authorized())
         ManagementAuthorization.revoke()
         assertTrue(!lease.authorized())
+        secrets.binding = first
+        assertTrue(!lease.authorized())
+    }
+
+    @Test
+    fun cancelDuringDelayedDesiredDoesNotDispatchPolicyOrInstall() = runBlocking {
+        val deviceId = "11111111-1111-1111-1111-111111111111"
+        secrets.binding = ManagementBinding("mgmt-token", server.url("/").toString().trimEnd('/'), deviceId, "a".repeat(64))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val applied = mutableListOf<Long>()
+        var installs = 0
+        val sink = object : RemoteReleaseSink {
+            override val studentVersion: Long = 1
+            override val installActive: Boolean = false
+            override val pendingTargetId: String = ""
+            override val pendingTargetVersion: Long = 0
+            override fun stagingDir(): File = temp.newFolder()
+            override fun installedVersion(packageName: String): Long? = 1
+            override fun approvedPackage(packageName: String) = ApprovedPackage(packageName, setOf("aa"), 1)
+            override fun installVerified(
+                file: File,
+                manifest: SignedManifest,
+                authorized: () -> Boolean,
+                approved: ApprovedPackage?,
+                targetId: String?,
+                targetVersion: Long?,
+            ): InstallOutcome {
+                installs += 1
+                return InstallOutcome("failed", 1, "should not run")
+            }
+        }
+        val job = async { session(applied = applied, sink = sink).sync() }
+        delay(50)
+        job.cancelAndJoin()
+        assertEquals(0, applied.size)
+        assertEquals(0, installs)
+        assertTrue(outbox.pending(secrets.binding!!.origin, deviceId).isEmpty())
+        val first = ManagementAuthorization.capture(secrets.binding!!) { secrets.snapshot() }
+        ManagementAuthorization.revoke()
+        assertTrue(!first.authorized())
+    }
+
+    @Test
+    fun replaceRevokesPriorLeaseBeforeNewEnrollmentHttp() = runBlocking {
+        val origin = server.url("/").toString().trimEnd('/')
+        val host = java.net.URI(origin).let { "${it.host}:${it.port}" }
+        val previous = ManagementBinding("old-token", origin, "11111111-1111-1111-1111-111111111111", "a".repeat(64))
+        secrets.binding = previous
+        val prior = ManagementAuthorization.capture(previous) { secrets.snapshot() }
+        assertTrue(prior.authorized())
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val applied = mutableListOf<Long>()
+        val job = async {
+            session(applied = applied).enroll(
+                "primer-management:v1:http://$host/management-device/enroll#00112233445566778899AABBCCDDEEFF",
+                replace = true,
+            )
+        }
+        delay(50)
+        assertTrue(!prior.authorized())
+        job.cancelAndJoin()
+        assertEquals(0, applied.size)
+        assertEquals("old-token", secrets.binding?.token)
+        assertTrue(!prior.authorized())
     }
 
     @Test

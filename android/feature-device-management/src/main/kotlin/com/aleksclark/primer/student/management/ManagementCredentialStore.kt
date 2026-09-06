@@ -34,9 +34,11 @@ interface ManagementSecrets {
     suspend fun clearTokenOnly()
     suspend fun stableDeviceKey(): String
     suspend fun expectedToken(): String?
+    fun snapshot(): ManagementBinding?
 }
 
 class ManagementCredentialStore(private val context: Context) : ManagementSecrets {
+    @Volatile private var cached: ManagementBinding? = null
     private val tokenKey = stringPreferencesKey("encrypted_bearer")
     private val originKey = stringPreferencesKey("origin")
     private val deviceIdKey = stringPreferencesKey("device_id")
@@ -46,23 +48,35 @@ class ManagementCredentialStore(private val context: Context) : ManagementSecret
     private val wrapping = AndroidKeystoreKeyset()
 
     override suspend fun save(binding: ManagementBinding) {
+        val previous = cached
+        if (previous != null && (previous.token != binding.token || previous.origin != binding.origin || previous.deviceId != binding.deviceId || previous.keyId != binding.keyId)) {
+            ManagementAuthorization.revoke()
+        }
         context.managementDataStore.edit {
             it[tokenKey] = encrypt(binding.token)
             it[originKey] = binding.origin
             it[deviceIdKey] = binding.deviceId
             it[keyIdKey] = binding.keyId
         }
+        cached = binding
     }
 
     override suspend fun read(): ManagementBinding? {
         val values = context.managementDataStore.data.first()
-        val encoded = values[tokenKey] ?: return null
-        val token = runCatching { decrypt(encoded) }.getOrNull() ?: return null
+        val encoded = values[tokenKey]
+        if (encoded == null) {
+            if (cached?.token?.isNotBlank() == true) cached = cached?.copy(token = "")
+            return cached?.takeIf { it.origin.isNotBlank() && it.deviceId.isNotBlank() }
+        }
+        val token = runCatching { decrypt(encoded) }.getOrNull() ?: return null.also { cached = null }
         val origin = values[originKey].orEmpty()
         val deviceId = values[deviceIdKey].orEmpty()
         val keyId = values[keyIdKey].orEmpty()
-        if (origin.isBlank() || deviceId.isBlank() || keyId.isBlank()) return null
-        return ManagementBinding(token, origin, deviceId, keyId)
+        if (origin.isBlank() || deviceId.isBlank() || keyId.isBlank()) {
+            cached = null
+            return null
+        }
+        return ManagementBinding(token, origin, deviceId, keyId).also { cached = it }
     }
 
     suspend fun savePrivateHandle(handle: KeysetHandle) {
@@ -89,9 +103,13 @@ class ManagementCredentialStore(private val context: Context) : ManagementSecret
         context.managementDataStore.edit {
             it.remove(tokenKey)
         }
+        cached = cached?.copy(token = "")
+        ManagementAuthorization.revoke()
     }
 
-    override suspend fun expectedToken(): String? = read()?.token
+    override suspend fun expectedToken(): String? = snapshot()?.token
+
+    override fun snapshot(): ManagementBinding? = cached
 
     override suspend fun stableDeviceKey(): String {
         val existing = context.managementDataStore.data.first()[stableKey]
