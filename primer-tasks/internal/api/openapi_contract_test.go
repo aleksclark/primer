@@ -95,6 +95,11 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 		"/management-device/reports",
 		"/management-device/recovery/{id}/confirm",
 		"/managed-devices/enrollments/{id}/abandon",
+		"/managed-releases",
+		"/managed-releases/{id}",
+		"/managed-devices/{id}/releases",
+		"/management-device/release-receipts",
+		"/management-device/artifacts/{id}",
 	} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("management contract omitted %s", path)
@@ -158,8 +163,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 55 {
-		t.Fatalf("registered %d operations, want 55", operationCount)
+	if operationCount != 60 {
+		t.Fatalf("registered %d operations, want 60", operationCount)
 	}
 	for path, item := range registered {
 		if item.Get == nil && item.Post == nil && item.Patch == nil && item.Delete == nil {

@@ -14,6 +14,10 @@ check(signingValues.all { it != null } || signingValues.all { it == null }) {
     "Set all four PRIMER_STUDENT signing variables, or none."
 }
 
+val configuredApiOrigin = providers.gradleProperty("primerApiOrigin")
+    .orElse(providers.environmentVariable("PRIMER_API_ORIGIN"))
+    .getOrElse("")
+
 android {
     namespace = "com.aleksclark.primer.student"
     compileSdk = 35
@@ -25,6 +29,8 @@ android {
             require(it > 0)
         }
         versionName = providers.gradleProperty("studentVersionName").orElse("0.1.0-qualification").get()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "CONFIGURED_API_ORIGIN", "\"${configuredApiOrigin.replace("\"", "\\\"")}\"")
     }
     signingConfigs {
         if (signingValues.all { it != null }) {
@@ -42,7 +48,10 @@ android {
             isMinifyEnabled = false
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -70,6 +79,7 @@ dependencies {
     implementation(project(":core-ui"))
     implementation(project(":core-device-policy"))
     implementation(project(":core-updates"))
+    implementation(project(":feature-tasks-student"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

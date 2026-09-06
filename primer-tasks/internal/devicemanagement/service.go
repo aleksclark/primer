@@ -515,7 +515,11 @@ func (s *Service) DesiredState(ctx context.Context, sc DeviceScope) (DesiredStat
 	if err != nil {
 		return DesiredState{}, err
 	}
-	return DesiredState{Device: d, PolicyRevision: policy, Recovery: recovery, ReleaseTargets: []ReleaseTarget{}}, nil
+	targets, err := s.DeviceReleaseTargets(ctx, sc.TenantID, sc.DeviceID)
+	if err != nil {
+		return DesiredState{}, err
+	}
+	return DesiredState{Device: d, PolicyRevision: policy, Recovery: recovery, ReleaseTargets: targets}, nil
 }
 
 func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyReportInput) (PolicyReport, error) {
@@ -746,7 +750,7 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 	}
 	if in.Kind == RecoveryRotateCode {
 		if in.Envelope == nil || in.Envelope.Alg != "X25519-ChaCha20Poly1305" || in.Envelope.KeyID == "" || in.Envelope.Nonce == "" || in.Envelope.Ciphertext == "" {
-			return RecoveryIntent{}, fmt.Errorf("%w: rotation requires X25519-ChaCha20Poly1305 envelope", ErrInvalid)
+			return RecoveryIntent{}, fmt.Errorf("%w: rotation requires provisional recovery envelope", ErrInvalid)
 		}
 		if !in.ParentAcknowledged {
 			return RecoveryIntent{}, fmt.Errorf("%w: parent must acknowledge one-time custody before rotation", ErrInvalid)
@@ -772,8 +776,13 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 	if state != string(DeviceActive) {
 		return RecoveryIntent{}, ErrForbidden
 	}
-	if in.Kind == RecoveryRotateCode && keyID != "" && in.Envelope.KeyID != keyID {
-		return RecoveryIntent{}, fmt.Errorf("%w: envelope keyId does not match enrolled device key", ErrInvalid)
+	if in.Kind == RecoveryRotateCode {
+		if keyID == "" {
+			return RecoveryIntent{}, fmt.Errorf("%w: device has no enrolled recovery encryption key", ErrInvalid)
+		}
+		if in.Envelope.KeyID != keyID {
+			return RecoveryIntent{}, fmt.Errorf("%w: envelope keyId does not match enrolled device key", ErrInvalid)
+		}
 	}
 	intentID := uuid.New()
 	delivery := s.now().Add(time.Duration(deliveryMins) * time.Minute)
@@ -898,6 +907,10 @@ func (s *Service) ConfirmRecoveryIntent(ctx context.Context, sc DeviceScope, int
 }
 
 func insertAudit(ctx context.Context, tx txIface, tenantID uuid.UUID, deviceID *uuid.UUID, actorKind, actorRef, action string, metadata []byte) error {
-	_, err := tx.Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,$3,$4,$5,$6)`, tenantID, deviceID, actorKind, actorRef, action, metadata)
+	var tenant any
+	if tenantID != uuid.Nil {
+		tenant = tenantID
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,$3,$4,$5,$6)`, tenant, deviceID, actorKind, actorRef, action, metadata)
 	return err
 }

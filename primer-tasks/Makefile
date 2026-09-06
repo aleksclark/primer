@@ -71,6 +71,8 @@ browser-test:
 kotlin-client: clients
 	cd ../android && ./gradlew :tasks-client:test --no-daemon --max-workers=1
 
+# Compatibility wrapper for the retired prototype APK. Student now lives in
+# ../android/:feature-tasks-student; keep this target until that flow is proven.
 android: kotlin-client
 	cd android && ./gradlew test assembleDebug --no-daemon --max-workers=1
 
