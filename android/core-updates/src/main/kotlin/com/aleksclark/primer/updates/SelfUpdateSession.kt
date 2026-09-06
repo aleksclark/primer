@@ -35,20 +35,26 @@ class SelfUpdateSession(
     )
 
     fun install(apk: File, expected: SignedManifest): InstallAttempt = synchronized(lock) {
-        check(!active || pendingConfirmation) { "An installation is already in progress" }
+        reconcile()
+        check(!active) { "An installation is already in progress" }
         var sessionId: Int? = null
+        val directory = File(context.cacheDir, "self-updates").apply { check(mkdirs() || isDirectory) }
+        val snapshot = File(directory, "candidate.apk")
         return try {
-            val installed = identity(installedInfo())
-            val archive = inspect(apk)
             ArchiveChecks.validateExpected(expected.byteSize, expected.sha256)
-            check(apk.length() == expected.byteSize) { "APK is incomplete" }
+            apk.inputStream().use { input ->
+                snapshot.outputStream().use { output -> ArchiveChecks.copyVerified(input, output, expected.byteSize, expected.sha256) }
+            }
+            val installed = identity(installedInfo())
+            val archive = inspect(snapshot)
             val eligibility = SelfUpdatePolicy.decide(
                 runningPackage = context.packageName,
                 installed = installed,
                 archive = archive,
                 expected = expected,
                 sdk = Build.VERSION.SDK_INT,
-                targetSdk = context.applicationInfo.targetSdkVersion,
+                deviceAbis = Build.SUPPORTED_ABIS.toSet(),
+                candidateTargetSdk = archiveTargetSdk(snapshot),
                 canUpdateWithoutUserAction = context.packageManager.checkPermission(
                     "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
                     context.packageName,
@@ -57,7 +63,7 @@ class SelfUpdateSession(
             )
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                 setAppPackageName(context.packageName)
-                setSize(apk.length())
+                setSize(snapshot.length())
                 if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE)
                 if (Build.VERSION.SDK_INT >= 31) {
                     setRequireUserAction(
@@ -68,8 +74,8 @@ class SelfUpdateSession(
             }
             sessionId = installer.createSession(params)
             installer.openSession(sessionId).use { session ->
-                apk.inputStream().use { input ->
-                    session.openWrite("base.apk", 0, apk.length()).use { output ->
+                snapshot.inputStream().use { input ->
+                    session.openWrite("base.apk", 0, snapshot.length()).use { output ->
                         input.copyTo(output)
                         session.fsync(output)
                     }
@@ -86,6 +92,7 @@ class SelfUpdateSession(
             fail("failed", sanitized(error))
             lastOutcome
         } finally {
+            snapshot.delete()
             apk.delete()
         }
     }
@@ -188,6 +195,11 @@ class SelfUpdateSession(
         context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
 
     @Suppress("DEPRECATION")
+    private fun archiveTargetSdk(apk: File): Int {
+        val archive = context.packageManager.getPackageArchiveInfo(apk.path, 0) ?: error("Invalid Android APK archive")
+        return archive.applicationInfo?.targetSdkVersion ?: 0
+    }
+
     private fun inspect(apk: File): ArchiveIdentity {
         val archive = context.packageManager.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: error("Invalid Android APK archive")

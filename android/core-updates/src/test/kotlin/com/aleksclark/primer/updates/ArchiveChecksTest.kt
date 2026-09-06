@@ -72,6 +72,14 @@ class ArchiveChecksTest {
             ArchiveChecks.copyVerified(ByteArrayInputStream(bytes), ByteArrayOutputStream(), bytes.size.toLong(), "0".repeat(64))
         }
     }
+    @Test fun `same-size substituted bytes fail digest`() {
+        val original = "test bytes".toByteArray()
+        val substitute = "xxxx bytes".toByteArray()
+        assertEquals(original.size, substitute.size)
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.copyVerified(ByteArrayInputStream(substitute), ByteArrayOutputStream(), original.size.toLong(), digest(original))
+        }
+    }
     @Test fun `over-limit chunk is not written`() {
         val bytes = ByteArray(100)
         val output = ByteArrayOutputStream()
