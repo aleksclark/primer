@@ -765,6 +765,9 @@ class ControlViewModel(
                 } catch (_: CancellationException) {
                     // Auth fence cancelled an in-flight catalog tick; the next period retries.
                 }
+                // Failure does not advance lastCatalogCheckAtMs. Rate-limit every
+                // completed attempt so an overdue success timestamp cannot hot-loop.
+                delay(catalogPeriodMs)
             }
         }
     }
