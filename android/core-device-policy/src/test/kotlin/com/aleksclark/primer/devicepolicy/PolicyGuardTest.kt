@@ -1,0 +1,32 @@
+package com.aleksclark.primer.devicepolicy
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PolicyGuardTest {
+    private val student = ApprovedApp("com.aleksclark.primer.student", "Primer Student", setOf("aa"))
+
+    @Test
+    fun remotePolicyCannotDropStudent() {
+        val (apps, controls) = PolicyGuard.sanitizeRemoteApps(
+            requested = listOf(ApprovedApp("com.example.calc", "Calc", setOf("bb"))),
+            studentSigners = student.signers,
+            installedSigners = { emptySet() },
+        )
+        assertTrue(apps.any { it.packageName == student.packageName })
+        assertEquals("applied", controls.first { it.name == "student-home" }.status)
+    }
+
+    @Test
+    fun mismatchedInstalledSignerIsReportedNotSilentlyApplied() {
+        val (apps, controls) = PolicyGuard.sanitizeRemoteApps(
+            requested = listOf(student, ApprovedApp("com.example.calc", "Calc", setOf("bb"))),
+            studentSigners = student.signers,
+            installedSigners = { if (it == "com.example.calc") setOf("cc") else emptySet() },
+        )
+        assertTrue(apps.none { it.packageName == "com.example.calc" })
+        assertEquals("failed", controls.first { it.name == "approved:com.example.calc" }.status)
+        assertEquals("failed", PolicyGuard.overallStatus(controls))
+    }
+}
