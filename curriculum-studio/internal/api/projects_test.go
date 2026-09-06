@@ -60,6 +60,10 @@ func TestP16GraphPhasesJSONRoundTripPreservesOffScreenActivity(t *testing.T) {
 	var graph map[string]any
 	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &graph))
 	before := decodePhasesJSON(t, graphProjectAttrs(t, graph)["phasesJSON"])
+	beforeCodes := outcomeStandardCodes(t, graph)
+	require.Contains(t, beforeCodes, "MATH.6.G")
+	require.Contains(t, beforeCodes, "SCI.6.PS")
+	require.Contains(t, beforeCodes, "MATH.6.RP")
 
 	replaced := doJSON(t, handler, http.MethodPut, "/studio/v1/revisions/"+fixture.RevisionID+"/graph", writeGraph(t, graph), token)
 	require.Equal(t, http.StatusOK, replaced.Code, replaced.Body.String())
@@ -68,6 +72,10 @@ func TestP16GraphPhasesJSONRoundTripPreservesOffScreenActivity(t *testing.T) {
 	require.Equal(t, before, after)
 	require.True(t, after[1].OffScreen)
 	require.Equal(t, "Cut the lumber", after[1].Activities[0].Title)
+	assert.Equal(t, beforeCodes, outcomeStandardCodes(t, graph))
+
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
 }
 
 func TestP16E2PhaseMaterializationSnapshotAndItems(t *testing.T) {
@@ -194,6 +202,37 @@ func TestP16E3OffScreenToolsAndPortfolioEvidence(t *testing.T) {
 	assert.NotContains(t, items.Body.String(), "mastery_records")
 }
 
+func TestP16UnsupportedParentChildEdgeFailsClosed(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/curricula", map[string]any{
+		"name": "Unsupported edge", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+	left := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{"kind": "outcome", "title": "Left"}, token)
+	right := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{"kind": "outcome", "title": "Right"}, token)
+	require.Equal(t, http.StatusCreated, left.Code, left.Body.String())
+	require.Equal(t, http.StatusCreated, right.Code, right.Body.String())
+	var from, to struct{ ID string }
+	require.NoError(t, json.Unmarshal(left.Body.Bytes(), &from))
+	require.NoError(t, json.Unmarshal(right.Body.Bytes(), &to))
+	denied := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/edges", map[string]any{
+		"kind": "parent_child", "fromNodeId": from.ID, "toNodeId": to.ID, "note": "target",
+	}, token)
+	assert.Equal(t, http.StatusBadRequest, denied.Code, denied.Body.String())
+	assert.NotContains(t, denied.Body.String(), `"id":"edge_`)
+}
+
 func TestP16AuthoringJourneyCreatePublishMaterializePhase(t *testing.T) {
 	t.Parallel()
 	handler, key, now := newStubMaterializationHandler(t, false)
@@ -246,15 +285,23 @@ func authorProjectViaAPI(t *testing.T, handler http.Handler, token, workspaceID 
 	var revision struct{ ID string }
 	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
 
-	catalog := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", map[string]any{
-		"source": "custom", "title": "Shop standards",
-		"standards": []map[string]any{
-			{"code": "MATH.6.G", "source": "custom", "description": "Scale drawings"},
-			{"code": "SCI.6.PS", "source": "custom", "description": "Load paths"},
-			{"code": "MATH.6.RP", "source": "custom", "description": "Ratios"},
-		},
-	}, token)
-	require.Equal(t, http.StatusCreated, catalog.Code, catalog.Body.String())
+	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", nil, token)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	var catalogs struct {
+		Items []struct{ ID string } `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &catalogs))
+	if len(catalogs.Items) == 0 {
+		catalog := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", map[string]any{
+			"source": "custom", "title": "Project standards",
+			"standards": []map[string]any{
+				{"code": "MATH.6.G", "source": "custom", "description": "Scale drawings"},
+				{"code": "SCI.6.PS", "source": "custom", "description": "Load paths"},
+				{"code": "MATH.6.RP", "source": "custom", "description": "Ratios"},
+			},
+		}, token)
+		require.Equal(t, http.StatusCreated, catalog.Code, catalog.Body.String())
+	}
 
 	math := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
 		"kind": "outcome", "title": "Scale drawings", "standardCodes": []string{"MATH.6.G"}, "attributes": map[string]string{"code": "MATH.6.G", "evidenceKind": "portfolio", "evidenceDescription": "photo essay"},
@@ -312,6 +359,7 @@ func authorProjectViaAPI(t *testing.T, handler http.Handler, token, workspaceID 
 type graphView struct {
 	Nodes []struct {
 		ID, Kind, Title string
+		StandardCodes   []string
 		Attributes      map[string]string
 	}
 	Edges []struct {
@@ -328,6 +376,7 @@ func decodeGraph(t *testing.T, raw []byte) graphView {
 
 func (g graphView) project() *struct {
 	ID, Kind, Title string
+	StandardCodes   []string
 	Attributes      map[string]string
 } {
 	for i := range g.Nodes {
@@ -367,6 +416,9 @@ func writeGraph(t *testing.T, graph map[string]any) map[string]any {
 		if attrs, ok := node["attributes"]; ok {
 			item["attributes"] = attrs
 		}
+		if codes, ok := node["standardCodes"]; ok {
+			item["standardCodes"] = codes
+		}
 		nodes = append(nodes, item)
 	}
 	index := map[string]string{}
@@ -388,6 +440,31 @@ func writeGraph(t *testing.T, graph map[string]any) map[string]any {
 		})
 	}
 	return map[string]any{"nodes": nodes, "edges": edges}
+}
+
+func outcomeStandardCodes(t *testing.T, graph map[string]any) []string {
+	t.Helper()
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, raw := range graph["nodes"].([]any) {
+		node := raw.(map[string]any)
+		if node["kind"] != "outcome" {
+			continue
+		}
+		codes, _ := node["standardCodes"].([]any)
+		for _, code := range codes {
+			s, _ := code.(string)
+			if s == "" {
+				continue
+			}
+			if _, ok := seen[s]; ok {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func graphProjectAttrs(t *testing.T, graph map[string]any) map[string]string {

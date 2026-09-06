@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BookOpen, Compass, FolderKanban, LogIn, Moon, Settings2, Sun } from "lucide-react";
-import { createCurriculum, createPlanEdge, createPlanNode, createResource, currentSession, createRevision, downloadExport, exportRevision, getRevisionGraph, listCurricula, listMaterializedItems, listRevisions, materializeRevision, publishRevision, validateRevision } from "./api/client";
+import { createCurriculum, createPlanEdge, createPlanNode, createResource, currentSession, createRevision, downloadExport, exportRevision, getRevisionGraph, importStandardsCatalog, listCatalogStandards, listCurricula, listMaterializedItems, listRevisions, listStandardsCatalogs, materializeRevision, publishRevision, validateRevision } from "./api/client";
 import type { ExportFormat } from "./api/client";
 
 type Theme = "dark" | "light";
@@ -38,6 +38,9 @@ export default function App() {
   const [priorOutcome, setPriorOutcome] = useState("Load paths");
   const [stretchOutcome, setStretchOutcome] = useState("Cost estimate");
   const [toolName, setToolName] = useState("Circular saw");
+  const [targetStandard, setTargetStandard] = useState("MATH.6.G");
+  const [priorStandard, setPriorStandard] = useState("SCI.6.PS");
+  const [stretchStandard, setStretchStandard] = useState("MATH.6.RP");
   const [projectNodes, setProjectNodes] = useState<{ id: string; title: string; phases: ProjectPhase[] }[]>([]);
   const [selectedProject, setSelectedProject] = useState("");
   const [selectedPhase, setSelectedPhase] = useState("");
@@ -104,6 +107,36 @@ export default function App() {
     }
   }
   function slug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-"); }
+  async function ensureProjectStandards(workspaceId: string, codes: string[]) {
+    const unique = [...new Set(codes.map((code) => code.trim()).filter(Boolean))];
+    if (unique.length === 0) return [] as string[];
+    const listed = await listStandardsCatalogs(workspaceId);
+    const catalogs = listed.data && "items" in listed.data ? listed.data.items as { id: string }[] : [];
+    let catalogId = catalogs[0]?.id ?? "";
+    if (!catalogId) {
+      const created = await importStandardsCatalog(workspaceId, {
+        source: "custom",
+        title: "Project standards",
+        standards: unique.map((code) => ({ code, source: "custom", description: code })),
+      });
+      if (!created.data || !("id" in created.data)) return [];
+      catalogId = String(created.data.id);
+    }
+    const page = await listCatalogStandards(catalogId);
+    const existing = new Set((page.data && "items" in page.data ? page.data.items as { code: string }[] : []).map((item) => item.code));
+    const missing = unique.filter((code) => !existing.has(code));
+    if (missing.length) {
+      const created = await importStandardsCatalog(workspaceId, {
+        source: "custom",
+        title: "Project standards",
+        standards: missing.map((code) => ({ code, source: "custom", description: code })),
+      });
+      if (created.data && "id" in created.data) catalogId = String(created.data.id);
+    }
+    const refreshed = await listCatalogStandards(catalogId);
+    const available = new Set((refreshed.data && "items" in refreshed.data ? refreshed.data.items as { code: string }[] : []).map((item) => item.code));
+    return unique.filter((code) => available.has(code));
+  }
   async function addProject(event: FormEvent) {
     event.preventDefault();
     if (!revision || !workspace || !projectName.trim()) return;
@@ -114,13 +147,21 @@ export default function App() {
     const project = await createPlanNode(revision.id, { kind: "project", title: projectName.trim(), body: "Multi-subject project blueprint", attributes: { phasesJSON: JSON.stringify(phases) } });
     if (!project.data || !("id" in project.data)) { setMessage("The Studio API could not save that project blueprint."); return; }
     const roles = [
-      { title: targetOutcome, role: "target", evidenceKind: "portfolio", evidenceDescription: "photo essay" },
-      { title: priorOutcome, role: "prior" },
-      { title: stretchOutcome, role: "stretch" },
+      { title: targetOutcome, role: "target", standard: targetStandard, evidenceKind: "portfolio", evidenceDescription: "photo essay" },
+      { title: priorOutcome, role: "prior", standard: priorStandard },
+      { title: stretchOutcome, role: "stretch", standard: stretchStandard },
     ];
+    const mapped = await ensureProjectStandards(workspace.workspaceId, roles.map((entry) => entry.standard));
+    if (mapped.length === 0) { setMessage("Create or import a standards catalog before saving a project blueprint."); return; }
     for (const entry of roles) {
       if (!entry.title.trim()) continue;
-      const outcome = await createPlanNode(revision.id, { kind: "outcome", title: entry.title.trim(), attributes: entry.evidenceKind ? { evidenceKind: entry.evidenceKind, evidenceDescription: entry.evidenceDescription ?? "" } : {} });
+      const code = entry.standard.trim();
+      const outcome = await createPlanNode(revision.id, {
+        kind: "outcome",
+        title: entry.title.trim(),
+        standardCodes: code ? [code] : [],
+        attributes: entry.evidenceKind ? { evidenceKind: entry.evidenceKind, evidenceDescription: entry.evidenceDescription ?? "" } : {},
+      });
       if (outcome.data && "id" in outcome.data) await createPlanEdge(revision.id, { kind: "parent_child", fromNodeId: String(project.data.id), toNodeId: String(outcome.data.id), note: entry.role });
     }
     if (toolName.trim()) {
@@ -185,7 +226,7 @@ export default function App() {
         {message && <p className="feedback" role="status">{message}</p>}
         {curricula.length === 0 ? <div className="empty-state"><div className="empty-mark">01</div><div><span className="eyebrow">No curricula found</span><h3>Start with a brief.</h3><p>Create a draft above. The server owns search, pagination, and durable identity; this view never filters a bulk client-side collection.</p></div></div> : <div className="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Updated</th><th>ID</th></tr></thead><tbody>{curricula.map((item) => <tr key={item.id} onClick={() => openCurriculum(item)}><th scope="row">{item.name}</th><td><span className="status-text">● {item.status}</span></td><td>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "—"}</td><td><code>{item.id}</code></td></tr>)}</tbody></table></div>}
         {selected && <div className="plan-panel"><div><span className="eyebrow">Configure / {selected.name}</span><h3>{revision ? `Revision ${revision.revisionNumber ?? "draft"}` : "No revision"}</h3><p>{message}</p></div><div className="plan-actions"><button className="secondary" type="button" onClick={newDraft}>New draft</button>{revision && <><button className="secondary" type="button" onClick={() => revisionAction("validate")}>Validate</button><button className="primary" type="button" onClick={() => revisionAction("publish")}>Publish</button><select className="secondary" aria-label="Export format" value={exportFormat} disabled={exporting} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}><option value="markdown">Markdown</option><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="csv_coverage">CSV coverage</option><option value="json_bundle">JSON download subset</option><option value="ical">iCal schedule</option></select><button className="plain-button" type="button" disabled={exporting} onClick={exportPlan}>{exporting ? "Exporting…" : "Export and download"}</button></>}</div></div>}
-        {selected && revision && <section className="project-designer" aria-labelledby="project-designer-title"><div className="section-heading"><div><span className="eyebrow">Configure / Projects</span><h3 id="project-designer-title">Project designer</h3></div></div><form className="create-form project-form" onSubmit={addProject}><label htmlFor="project-name">Project name</label><input id="project-name" value={projectName} onChange={(event) => setProjectName(event.target.value)} /><label htmlFor="phase-design">Design phase</label><input id="phase-design" value={phaseDesign} onChange={(event) => setPhaseDesign(event.target.value)} /><label htmlFor="phase-build">Build phase</label><input id="phase-build" value={phaseBuild} onChange={(event) => setPhaseBuild(event.target.value)} /><label htmlFor="target-outcome">Target outcome</label><input id="target-outcome" value={targetOutcome} onChange={(event) => setTargetOutcome(event.target.value)} /><label htmlFor="prior-outcome">Prior outcome</label><input id="prior-outcome" value={priorOutcome} onChange={(event) => setPriorOutcome(event.target.value)} /><label htmlFor="stretch-outcome">Stretch outcome</label><input id="stretch-outcome" value={stretchOutcome} onChange={(event) => setStretchOutcome(event.target.value)} /><label htmlFor="tool-name">Required tool</label><input id="tool-name" value={toolName} onChange={(event) => setToolName(event.target.value)} /><label className="plain-button" htmlFor="off-screen"><input id="off-screen" type="checkbox" checked={offScreen} onChange={(event) => setOffScreen(event.target.checked)} /> Off-screen build task</label><button className="secondary" type="submit">Save blueprint</button></form>{projectNodes.length > 0 && <div className="project-operate"><label htmlFor="operate-project">Operate phase</label><select id="operate-project" className="secondary" value={selectedProject} onChange={(event) => { setSelectedProject(event.target.value); const next = projectNodes.find((node) => node.id === event.target.value); setSelectedPhase(next?.phases[0]?.id ?? ""); }}>{projectNodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}</select><label htmlFor="operate-phase">Phase</label><select id="operate-phase" className="secondary" value={selectedPhase} onChange={(event) => setSelectedPhase(event.target.value)}>{(projectNodes.find((node) => node.id === selectedProject)?.phases ?? []).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}{phase.offScreen ? " (off-screen)" : ""}</option>)}</select><button className="primary" type="button" onClick={materializePhase}>Materialize phase</button></div>}{phaseItems.length > 0 && <ul className="project-list">{phaseItems.map((item) => <li key={item.title}><strong>{item.title}</strong><span>{item.kind}</span></li>)}</ul>}</section>}
+        {selected && revision && <section className="project-designer" aria-labelledby="project-designer-title"><div className="section-heading"><div><span className="eyebrow">Configure / Projects</span><h3 id="project-designer-title">Project designer</h3></div></div><form className="create-form project-form" onSubmit={addProject}><label htmlFor="project-name">Project name</label><input id="project-name" value={projectName} onChange={(event) => setProjectName(event.target.value)} /><label htmlFor="phase-design">Design phase</label><input id="phase-design" value={phaseDesign} onChange={(event) => setPhaseDesign(event.target.value)} /><label htmlFor="phase-build">Build phase</label><input id="phase-build" value={phaseBuild} onChange={(event) => setPhaseBuild(event.target.value)} /><label htmlFor="target-outcome">Target outcome</label><input id="target-outcome" value={targetOutcome} onChange={(event) => setTargetOutcome(event.target.value)} /><label htmlFor="target-standard">Target standard</label><input id="target-standard" value={targetStandard} onChange={(event) => setTargetStandard(event.target.value)} /><label htmlFor="prior-outcome">Prior outcome</label><input id="prior-outcome" value={priorOutcome} onChange={(event) => setPriorOutcome(event.target.value)} /><label htmlFor="prior-standard">Prior standard</label><input id="prior-standard" value={priorStandard} onChange={(event) => setPriorStandard(event.target.value)} /><label htmlFor="stretch-outcome">Stretch outcome</label><input id="stretch-outcome" value={stretchOutcome} onChange={(event) => setStretchOutcome(event.target.value)} /><label htmlFor="stretch-standard">Stretch standard</label><input id="stretch-standard" value={stretchStandard} onChange={(event) => setStretchStandard(event.target.value)} /><label htmlFor="tool-name">Required tool</label><input id="tool-name" value={toolName} onChange={(event) => setToolName(event.target.value)} /><label className="plain-button" htmlFor="off-screen"><input id="off-screen" type="checkbox" checked={offScreen} onChange={(event) => setOffScreen(event.target.checked)} /> Off-screen build task</label><button className="secondary" type="submit">Save blueprint</button></form>{projectNodes.length > 0 && <div className="project-operate"><label htmlFor="operate-project">Operate phase</label><select id="operate-project" className="secondary" value={selectedProject} onChange={(event) => { setSelectedProject(event.target.value); const next = projectNodes.find((node) => node.id === event.target.value); setSelectedPhase(next?.phases[0]?.id ?? ""); }}>{projectNodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}</select><label htmlFor="operate-phase">Phase</label><select id="operate-phase" className="secondary" value={selectedPhase} onChange={(event) => setSelectedPhase(event.target.value)}>{(projectNodes.find((node) => node.id === selectedProject)?.phases ?? []).map((phase) => <option key={phase.id} value={phase.id}>{phase.name}{phase.offScreen ? " (off-screen)" : ""}</option>)}</select><button className="primary" type="button" onClick={materializePhase}>Materialize phase</button></div>}{phaseItems.length > 0 && <ul className="project-list">{phaseItems.map((item) => <li key={item.title}><strong>{item.title}</strong><span>{item.kind}</span></li>)}</ul>}</section>}
       </section>
       <footer className="footer"><span>Studio shell · dark-first Editorial Instrument</span><span>Bearer tokens stay server-side · host-only session cookie</span></footer>
     </main>

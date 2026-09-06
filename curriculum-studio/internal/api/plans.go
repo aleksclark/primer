@@ -493,13 +493,20 @@ func graphView(g *domain.PlanGraph) PlanGraph {
 			evidenceByOutcome[e.OutcomeID] = e
 		}
 	}
+	codesByOutcome := map[uuid.UUID][]string{}
+	for _, m := range g.OutcomeStandardMappings {
+		if m.StandardCode == "" {
+			continue
+		}
+		codesByOutcome[m.OutcomeID] = append(codesByOutcome[m.OutcomeID], m.StandardCode)
+	}
 	for _, v := range g.Outcomes {
 		attrs := map[string]string{"code": v.Code, "masteryCriteria": v.MasteryCriteria}
 		if e, ok := evidenceByOutcome[v.ID]; ok {
 			attrs["evidenceKind"] = e.Kind
 			attrs["evidenceDescription"] = e.Description
 		}
-		out.Nodes = append(out.Nodes, PlanNode{ID: encodePlanID(outcomeIDPrefix, v.ID), RevisionID: out.RevisionID, Kind: "outcome", Title: v.Title, Body: v.Description, Position: v.Position, Attributes: attrs})
+		out.Nodes = append(out.Nodes, PlanNode{ID: encodePlanID(outcomeIDPrefix, v.ID), RevisionID: out.RevisionID, Kind: "outcome", Title: v.Title, Body: v.Description, Position: v.Position, StandardCodes: codesByOutcome[v.ID], Attributes: attrs})
 	}
 	for _, v := range g.LearningArcs {
 		out.Nodes = append(out.Nodes, PlanNode{ID: encodePlanID(arcIDPrefix, v.ID), RevisionID: out.RevisionID, Kind: "learning_arc", Title: v.Title, Body: v.Description, Position: v.Position, Attributes: map[string]string{"code": v.Code}})
@@ -644,7 +651,7 @@ func createParentChildEdge(ctx context.Context, r *repo.PlanGraphRepo, ws uuid.U
 		_, err = r.CreateUnitOutcome(ctx, ws, &domain.UnitOutcome{UnitID: unitID, OutcomeID: outcomeID, Role: role})
 		return err
 	default:
-		return nil
+		return fmt.Errorf("%w: unsupported parent_child endpoints", repo.ErrCheckViolation)
 	}
 }
 
@@ -722,7 +729,7 @@ func (s *Server) createNodeWithRepo(ctx context.Context, r *repo.PlanGraphRepo, 
 				return PlanNode{}, e
 			}
 		}
-		return PlanNode{ID: encodePlanID(outcomeIDPrefix, v.ID), RevisionID: revisionID(rev), Kind: in.Kind, Title: v.Title, Body: v.Description, Position: v.Position, Attributes: map[string]string{"code": v.Code}}, nil
+		return PlanNode{ID: encodePlanID(outcomeIDPrefix, v.ID), RevisionID: revisionID(rev), Kind: in.Kind, Title: v.Title, Body: v.Description, Position: v.Position, StandardCodes: append([]string{}, in.StandardCodes...), Attributes: map[string]string{"code": v.Code}}, nil
 	case "learning_arc":
 		v, e := r.CreateArc(ctx, ws, &domain.LearningArc{PlanRevisionID: rev, Code: code, Title: in.Title, Description: in.Body, Position: in.Position})
 		if e != nil {

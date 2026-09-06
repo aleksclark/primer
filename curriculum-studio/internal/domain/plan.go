@@ -69,12 +69,13 @@ type Outcome struct {
 
 // OutcomeStandardMapping maps an outcome to a catalog standard.
 type OutcomeStandardMapping struct {
-	ID         uuid.UUID
-	OutcomeID  uuid.UUID
-	StandardID uuid.UUID
-	Alignment  string
-	Notes      string
-	CreatedAt  time.Time
+	ID           uuid.UUID
+	OutcomeID    uuid.UUID
+	StandardID   uuid.UUID
+	Alignment    string
+	Notes        string
+	CreatedAt    time.Time
+	StandardCode string
 }
 
 // OutcomePrerequisite is a directed prerequisite edge among outcomes.

@@ -347,7 +347,7 @@ func (r *PlanGraphRepo) CreateOutcomeStandardMapping(ctx context.Context, ws uui
 		return nil, fmt.Errorf("mapping is required")
 	}
 	const q = `INSERT INTO curriculum_studio.outcome_standard_mappings(outcome_id,standard_id,alignment,notes) SELECT o.id,s.id,$3,$4 FROM curriculum_studio.outcomes o JOIN curriculum_studio.plan_revisions r ON r.id=o.plan_revision_id JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.catalog_standards s ON s.id=$2 JOIN curriculum_studio.standard_frameworks f ON f.id=s.framework_id WHERE o.id=$1 AND c.workspace_id=$5 AND (f.workspace_id IS NULL OR f.workspace_id=$5) RETURNING id,outcome_id,standard_id,alignment,notes,created_at`
-	v, e := scanMapping(r.Q.QueryRow(ctx, q, in.OutcomeID, in.StandardID, in.Alignment, in.Notes, ws))
+	v, e := scanMappingInsert(r.Q.QueryRow(ctx, q, in.OutcomeID, in.StandardID, in.Alignment, in.Notes, ws))
 	if e != nil {
 		return nil, MapError(e)
 	}
@@ -648,9 +648,14 @@ func scanOutcome(s scanner) (*domain.Outcome, error) {
 	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.ObjectiveID, &v.Code, &v.Title, &v.Description, &v.MasteryCriteria, &v.Position, &v.CreatedAt, &v.UpdatedAt)
 	return v, e
 }
-func scanMapping(s scanner) (*domain.OutcomeStandardMapping, error) {
+func scanMappingInsert(s scanner) (*domain.OutcomeStandardMapping, error) {
 	v := new(domain.OutcomeStandardMapping)
 	e := s.Scan(&v.ID, &v.OutcomeID, &v.StandardID, &v.Alignment, &v.Notes, &v.CreatedAt)
+	return v, e
+}
+func scanMapping(s scanner) (*domain.OutcomeStandardMapping, error) {
+	v := new(domain.OutcomeStandardMapping)
+	e := s.Scan(&v.ID, &v.OutcomeID, &v.StandardID, &v.Alignment, &v.Notes, &v.CreatedAt, &v.StandardCode)
 	return v, e
 }
 func scanOutcomePrereq(s scanner) (*domain.OutcomePrerequisite, error) {
@@ -723,7 +728,7 @@ func listOutcomes(c context.Context, q Querier, id uuid.UUID) ([]domain.Outcome,
 	return listRows(c, q, `SELECT id,plan_revision_id,objective_id,code,title,description,mastery_criteria,position,created_at,updated_at FROM curriculum_studio.outcomes WHERE plan_revision_id=$1 ORDER BY position,code`, []any{id}, scanOutcome)
 }
 func listMappings(c context.Context, q Querier, id uuid.UUID) ([]domain.OutcomeStandardMapping, error) {
-	return listRows(c, q, `SELECT m.id,m.outcome_id,m.standard_id,m.alignment,m.notes,m.created_at FROM curriculum_studio.outcome_standard_mappings m JOIN curriculum_studio.outcomes o ON o.id=m.outcome_id WHERE o.plan_revision_id=$1 ORDER BY m.id`, []any{id}, scanMapping)
+	return listRows(c, q, `SELECT m.id,m.outcome_id,m.standard_id,m.alignment,m.notes,m.created_at,s.code FROM curriculum_studio.outcome_standard_mappings m JOIN curriculum_studio.outcomes o ON o.id=m.outcome_id JOIN curriculum_studio.catalog_standards s ON s.id=m.standard_id WHERE o.plan_revision_id=$1 ORDER BY m.id`, []any{id}, scanMapping)
 }
 func listOutcomePrereqs(c context.Context, q Querier, id uuid.UUID) ([]domain.OutcomePrerequisite, error) {
 	return listRows(c, q, `SELECT id,plan_revision_id,outcome_id,prerequisite_id,requirement FROM curriculum_studio.outcome_prerequisites WHERE plan_revision_id=$1 ORDER BY id`, []any{id}, scanOutcomePrereq)
