@@ -67,16 +67,16 @@ export async function listMaterializedItems(materializationId: string) {
   return studioClient.GET("/studio/v1/materializations/{materializationId}/items", { credentials: "include", params: { path: { materializationId }, query: { limit: 50, offset: 0 } } });
 }
 
-export async function listStandardsCatalogs(workspaceId: string) {
-  return studioClient.GET("/studio/v1/workspaces/{workspaceID}/standards-catalogs", { credentials: "include", params: { path: { workspaceID: workspaceId }, query: { limit: 25, offset: 0 } } });
+export async function listStandardsCatalogs(workspaceId: string, offset = 0, limit = 100) {
+  return studioClient.GET("/studio/v1/workspaces/{workspaceID}/standards-catalogs", { credentials: "include", params: { path: { workspaceID: workspaceId }, query: { limit, offset } } });
 }
 
 export async function importStandardsCatalog(workspaceId: string, body: { source: string; title: string; standards: { code: string; source: string; description: string }[] }) {
   return studioClient.POST("/studio/v1/workspaces/{workspaceID}/standards-catalogs", { credentials: "include", params: { path: { workspaceID: workspaceId } }, body: body as never });
 }
 
-export async function listCatalogStandards(catalogId: string) {
-  return studioClient.GET("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId }, query: { limit: 50, offset: 0 } } });
+export async function listCatalogStandards(catalogId: string, offset = 0, limit = 100, q = "") {
+  return studioClient.GET("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId }, query: { limit, offset, q } } });
 }
 
 export async function createCatalogStandard(catalogId: string, body: { code: string; source: string; description: string }) {

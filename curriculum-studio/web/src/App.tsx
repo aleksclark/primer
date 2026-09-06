@@ -107,12 +107,35 @@ export default function App() {
     }
   }
   function slug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-"); }
+  async function findProjectStandardsCatalog(workspaceId: string) {
+    for (let offset = 0; ;) {
+      const listed = await listStandardsCatalogs(workspaceId, offset, 100);
+      const page = listed.data && "items" in listed.data ? listed.data.items as { id: string; title?: string }[] : [];
+      const match = page.find((item) => item.title === "Project standards");
+      if (match) return match.id;
+      const total = listed.data && "totalCount" in listed.data ? Number(listed.data.totalCount) : page.length;
+      offset += page.length;
+      if (page.length === 0 || offset >= total) return page[0]?.id ?? "";
+    }
+  }
+  async function catalogHasCode(catalogId: string, code: string) {
+    const exact = await listCatalogStandards(catalogId, 0, 100, code);
+    const hits = exact.data && "items" in exact.data ? exact.data.items as { code: string }[] : [];
+    if (hits.some((item) => item.code === code)) return true;
+    for (let offset = 0; ;) {
+      const listed = await listCatalogStandards(catalogId, offset, 100);
+      const page = listed.data && "items" in listed.data ? listed.data.items as { code: string }[] : [];
+      if (page.some((item) => item.code === code)) return true;
+      const total = listed.data && "totalCount" in listed.data ? Number(listed.data.totalCount) : page.length;
+      offset += page.length;
+      if (page.length === 0 || offset >= total) return false;
+    }
+  }
   async function ensureProjectStandards(workspaceId: string, codes: string[]) {
-    const unique = [...new Set(codes.map((code) => code.trim()).filter(Boolean))];
-    if (unique.length === 0) return { codes: [] as string[], error: "Each outcome needs a standard code." };
-    const listed = await listStandardsCatalogs(workspaceId);
-    const catalogs = listed.data && "items" in listed.data ? listed.data.items as { id: string; title?: string }[] : [];
-    let catalogId = catalogs.find((item) => item.title === "Project standards")?.id ?? catalogs[0]?.id ?? "";
+    const needed = codes.map((code) => code.trim());
+    if (needed.some((code) => !code)) return { codes: [] as string[], error: "Each outcome needs a standard code." };
+    const unique = [...new Set(needed)];
+    let catalogId = await findProjectStandardsCatalog(workspaceId);
     if (!catalogId) {
       const created = await importStandardsCatalog(workspaceId, {
         source: "custom",
@@ -122,16 +145,29 @@ export default function App() {
       if (!created.data || !("id" in created.data)) return { codes: [] as string[], error: "Could not create a Project standards catalog." };
       catalogId = String(created.data.id);
     }
-    const page = await listCatalogStandards(catalogId);
-    const existing = new Set((page.data && "items" in page.data ? page.data.items as { code: string }[] : []).map((item) => item.code));
-    for (const code of unique.filter((value) => !existing.has(value))) {
+    for (const code of unique) {
+      if (await catalogHasCode(catalogId, code)) continue;
       const created = await createCatalogStandard(catalogId, { code, source: "custom", description: code });
-      if (!created.data || !("id" in created.data)) return { codes: [] as string[], error: `Could not add standard ${code} to the existing catalog.` };
-      existing.add(code);
+      if (created.data && "id" in created.data) continue;
+      if (created.error && /already exists/i.test(String(created.error.detail ?? created.error.title ?? "")) && await catalogHasCode(catalogId, code)) continue;
+      return { codes: [] as string[], error: `Could not add standard ${code} to the existing catalog.` };
     }
-    const missing = unique.filter((code) => !existing.has(code));
+    const missing: string[] = [];
+    for (const code of unique) {
+      if (!(await catalogHasCode(catalogId, code))) missing.push(code);
+    }
     if (missing.length) return { codes: [] as string[], error: `Missing standards: ${missing.join(", ")}.` };
     return { codes: unique, error: "" };
+  }
+  async function rollbackCreatedNodes(revisionId: string, ids: string[]) {
+    for (const id of [...ids].reverse()) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const deleted = await deletePlanNode(revisionId, id);
+        if (!deleted.error || deleted.response?.status === 404) break;
+        if (attempt === 2) return false;
+      }
+    }
+    return true;
   }
   async function addProject(event: FormEvent) {
     event.preventDefault();
@@ -141,8 +177,12 @@ export default function App() {
       { title: priorOutcome, role: "prior", standard: priorStandard },
       { title: stretchOutcome, role: "stretch", standard: stretchStandard },
     ].filter((entry) => entry.title.trim());
+    if (roles.some((entry) => !entry.standard.trim())) {
+      setMessage("Every outcome needs a mapped standard before the project can be saved.");
+      return;
+    }
     const mapped = await ensureProjectStandards(workspace.workspaceId, roles.map((entry) => entry.standard));
-    if (mapped.error || mapped.codes.length !== roles.length) {
+    if (mapped.error || roles.some((entry) => !mapped.codes.includes(entry.standard.trim()))) {
       setMessage(mapped.error || "Every outcome needs a mapped standard before the project can be saved.");
       return;
     }
@@ -174,8 +214,10 @@ export default function App() {
         if (edge.error) throw new Error("Could not attach the required tool.");
       }
     } catch (cause) {
-      await Promise.all(createdIds.map((id) => deletePlanNode(revision.id, id)));
-      setMessage(cause instanceof Error ? cause.message : "Project mapping failed; the incomplete blueprint was removed.");
+      const removed = await rollbackCreatedNodes(revision.id, createdIds);
+      setMessage(removed
+        ? (cause instanceof Error ? cause.message : "Project mapping failed; the incomplete blueprint was removed.")
+        : "Project mapping failed and the incomplete blueprint could not be removed. Retry before publishing.");
       return;
     }
     setSelectedProject(String(project.data.id));
