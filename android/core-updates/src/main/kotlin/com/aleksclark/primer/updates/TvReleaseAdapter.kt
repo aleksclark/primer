@@ -44,27 +44,27 @@ object TvReleaseAdapter {
                 "TV release metadata is missing mandatory trust fields (${missing.joinToString()}). Upgrade the TV server; verification will not be weakened.",
             )
         }
-        val key = runCatching { ReleaseTrust.decodePinnedKey(trustRoot) }.getOrElse {
-            return TvReleaseDecision.Rejected("Release trust root is not configured")
+        val manifest = runCatching {
+            SignedManifestCodec.verifyEnvelope(
+                trustRoot = trustRoot,
+                payloadBase64 = release.manifestPayloadBase64!!,
+                signature = release.manifestSignature!!,
+                signingKeyId = release.signingKeyId!!,
+            )
+        }.getOrElse { return TvReleaseDecision.Rejected(it.message ?: "Release manifest is invalid") }
+        return try {
+            check(manifest.packageName == TV_PACKAGE) { "APK belongs to another application" }
+            check(manifest.packageName == release.packageName || release.packageName.isBlank()) { "APK belongs to another application" }
+            check(manifest.versionCode == release.versionCode) { "APK version differs from target" }
+            if (!release.versionName.isNullOrBlank()) check(manifest.versionName == release.versionName) { "APK version name differs from target" }
+            check(manifest.sha256.equals(release.sha256, true)) { "APK checksum mismatch" }
+            check(manifest.byteSize == release.sizeBytes) { "APK is incomplete" }
+            check(manifest.signerSha256.equals(release.signerSha256, true)) { "APK signing identity differs" }
+            check(manifest.minSdk == release.minSdk) { "APK minSdk differs from target" }
+            if (!release.channel.isNullOrBlank()) check(manifest.channel == release.channel) { "Release channel differs" }
+            TvReleaseDecision.Ready(manifest, release.downloadPath)
+        } catch (error: IllegalStateException) {
+            TvReleaseDecision.Rejected(error.message ?: "TV release metadata does not match signed payload")
         }
-        val payload = runCatching { java.util.Base64.getUrlDecoder().decode(release.manifestPayloadBase64) }.getOrNull()
-            ?: return TvReleaseDecision.Rejected("Release manifest is missing")
-        if (!ReleaseTrust.verifyEd25519(key, payload, release.manifestSignature!!)) {
-            return TvReleaseDecision.Rejected("Release manifest signature is invalid")
-        }
-        return TvReleaseDecision.Ready(
-            SignedManifest(
-                packageName = TV_PACKAGE,
-                channel = release.channel ?: "stable",
-                versionCode = release.versionCode,
-                versionName = release.versionName.orEmpty(),
-                minSdk = release.minSdk!!,
-                supportedAbis = emptyList(),
-                signerSha256 = release.signerSha256!!,
-                sha256 = release.sha256,
-                byteSize = release.sizeBytes,
-            ),
-            downloadPath = release.downloadPath,
-        )
     }
 }

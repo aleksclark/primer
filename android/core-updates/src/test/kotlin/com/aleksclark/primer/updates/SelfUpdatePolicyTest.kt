@@ -1,6 +1,5 @@
 package com.aleksclark.primer.updates
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,49 +7,59 @@ import org.junit.Test
 class SelfUpdatePolicyTest {
     private val installed = ArchiveIdentity("com.aleksclark.primer.control", 1, setOf("key-a"), 26, emptySet())
     private val newer = installed.copy(version = 2)
+    private val expected = SignedManifest(
+        packageName = "com.aleksclark.primer.control",
+        channel = "stable",
+        versionCode = 2,
+        versionName = "0.2.0",
+        minSdk = 26,
+        supportedAbis = emptyList(),
+        signerSha256 = "key-a",
+        sha256 = "b".repeat(64),
+        byteSize = 12,
+    )
+
+    private fun decide(
+        archive: ArchiveIdentity = newer,
+        sdk: Int = 35,
+        targetSdk: Int = 35,
+        unattended: Boolean = true,
+        expectedManifest: SignedManifest = expected,
+    ) = SelfUpdatePolicy.decide(
+        runningPackage = "com.aleksclark.primer.control",
+        installed = installed,
+        archive = archive,
+        expected = expectedManifest,
+        sdk = sdk,
+        targetSdk = targetSdk,
+        canUpdateWithoutUserAction = unattended,
+        unknownSourcesAllowed = true,
+    )
 
     @Test
-    fun ordinaryAppMayBeUnattendedWhenSamePackageSignerAndSdk31() {
-        val eligibility = SelfUpdatePolicy.decide(
-            installed = installed,
-            archive = newer,
-            sdk = 35,
-            canRequestUnattended = true,
-            unknownSourcesAllowed = true,
-            deviceOwner = false,
-        )
-        assertTrue(eligibility.canAttempt)
+    fun ordinaryAppMayBeUnattendedWhenSamePackageSignerSdkAndPermission() {
+        val eligibility = decide()
         assertTrue(eligibility.unattendedEligible)
         assertFalse(eligibility.userActionRequired)
     }
 
     @Test
-    fun unattendedIsNeverAssumedFromDeviceOwnerForControl() {
-        val eligibility = SelfUpdatePolicy.decide(
-            installed = installed,
-            archive = newer,
-            sdk = 28,
-            canRequestUnattended = false,
-            unknownSourcesAllowed = true,
-            deviceOwner = false,
-        )
-        assertTrue(eligibility.canAttempt)
+    fun olderSdkRequiresUserActionEvenWithPermissionFlag() {
+        val eligibility = decide(sdk = 28, targetSdk = 28, unattended = true)
         assertFalse(eligibility.unattendedEligible)
         assertTrue(eligibility.userActionRequired)
-        assertTrue(eligibility.reason.contains("system install confirmation"))
     }
 
     @Test
     fun foreignPackageOrSignerCannotSelfUpdate() {
-        assertFalse(
-            SelfUpdatePolicy.decide(installed, newer.copy(packageName = "other"), 35, true, true, false).canAttempt,
-        )
-        assertFalse(
-            SelfUpdatePolicy.decide(installed, newer.copy(signers = setOf("key-b")), 35, true, true, false).canAttempt,
-        )
-        assertEquals(
-            "Self-update can only replace the running package",
-            SelfUpdatePolicy.decide(installed, newer.copy(packageName = "other"), 35, true, true, false).reason,
-        )
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            decide(archive = newer.copy(packageName = "other"))
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            decide(archive = newer.copy(signers = setOf("key-b")))
+        }
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            decide(expectedManifest = expected.copy(packageName = "other"))
+        }
     }
 }

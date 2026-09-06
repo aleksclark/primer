@@ -4,14 +4,18 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import com.aleksclark.primer.updates.ArchiveChecks.hex
 import java.io.File
+import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 /**
  * Unprivileged same-package PackageInstaller path for Control (and TV self-update).
- * Never assumes device-owner silent install. Student must keep [ManagedUpdater].
+ * Inspects the APK itself. Never assumes device-owner silent install.
  */
 class SelfUpdateSession(
     private val context: Context,
@@ -22,22 +26,38 @@ class SelfUpdateSession(
     private val installer = context.packageManager.packageInstaller
     val status: String get() = prefs.getString("status", "No self-update attempted")!!
     val active: Boolean get() = prefs.getBoolean("active", false)
+    val pendingConfirmation: Boolean get() = prefs.getBoolean("pendingConfirmation", false)
+    val desiredVersion: Long get() = prefs.getLong("desiredVersion", 0)
     val lastOutcome: InstallAttempt get() = InstallAttempt(
         status = prefs.getString("outcomeStatus", "queued") ?: "queued",
         versionCode = prefs.getLong("outcomeVersion", -1).takeIf { it >= 0 },
         error = prefs.getString("outcomeError", null),
     )
-    val pendingConfirmation: Boolean get() = prefs.getBoolean("pendingConfirmation", false)
 
-    fun install(verified: File, expected: SignedManifest, eligibility: SelfUpdateEligibility): InstallAttempt = synchronized(lock) {
-        check(eligibility.canAttempt) { eligibility.reason }
-        check(expected.packageName == context.packageName) { "Self-update can only replace the running package" }
-        check(!active) { "An installation is already in progress" }
+    fun install(apk: File, expected: SignedManifest): InstallAttempt = synchronized(lock) {
+        check(!active || pendingConfirmation) { "An installation is already in progress" }
         var sessionId: Int? = null
         return try {
+            val installed = identity(installedInfo())
+            val archive = inspect(apk)
+            ArchiveChecks.validateExpected(expected.byteSize, expected.sha256)
+            check(apk.length() == expected.byteSize) { "APK is incomplete" }
+            val eligibility = SelfUpdatePolicy.decide(
+                runningPackage = context.packageName,
+                installed = installed,
+                archive = archive,
+                expected = expected,
+                sdk = Build.VERSION.SDK_INT,
+                targetSdk = context.applicationInfo.targetSdkVersion,
+                canUpdateWithoutUserAction = context.packageManager.checkPermission(
+                    "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
+                    context.packageName,
+                ) == PackageManager.PERMISSION_GRANTED,
+                unknownSourcesAllowed = context.packageManager.canRequestPackageInstalls(),
+            )
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                 setAppPackageName(context.packageName)
-                setSize(verified.length())
+                setSize(apk.length())
                 if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE)
                 if (Build.VERSION.SDK_INT >= 31) {
                     setRequireUserAction(
@@ -48,13 +68,13 @@ class SelfUpdateSession(
             }
             sessionId = installer.createSession(params)
             installer.openSession(sessionId).use { session ->
-                verified.inputStream().use { input ->
-                    session.openWrite("base.apk", 0, verified.length()).use { output ->
+                apk.inputStream().use { input ->
+                    session.openWrite("base.apk", 0, apk.length()).use { output ->
                         input.copyTo(output)
                         session.fsync(output)
                     }
                 }
-                persist(sessionId!!, expected.versionCode, "installing")
+                persist(sessionId!!, expected.versionCode)
                 val intent = Intent(ACTION_RESULT).setComponent(resultReceiver)
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                     if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
@@ -63,10 +83,10 @@ class SelfUpdateSession(
             lastOutcome
         } catch (error: Exception) {
             sessionId?.let { runCatching { installer.abandonSession(it) } }
-            fail("failed", error.message?.take(200) ?: error.javaClass.simpleName)
+            fail("failed", sanitized(error))
             lastOutcome
         } finally {
-            verified.delete()
+            apk.delete()
         }
     }
 
@@ -75,18 +95,26 @@ class SelfUpdateSession(
         if (intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1) != prefs.getInt("session", -2)) return lastOutcome
         when (val code = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_SUCCESS -> {
-                record("Installer accepted; checking running package", active = true, outcome = "installing")
-                reconcile(context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode)
+                record("Installer accepted; checking running package", active = true, outcome = "installing", installed = null)
+                reconcile()
             }
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val confirmation = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                val presented = confirmation != null && onUserAction?.invoke(confirmation) == true
+                val presented = try {
+                    confirmation != null && onUserAction?.invoke(confirmation) == true
+                } catch (_: RuntimeException) {
+                    false
+                }
                 if (presented) {
-                    prefs.edit().putBoolean("pendingConfirmation", true)
-                        .putString("status", "Waiting for system install confirmation")
-                        .putString("outcomeStatus", "blocked")
-                        .commit()
+                    check(
+                        prefs.edit()
+                            .putBoolean("pendingConfirmation", true)
+                            .putString("status", "Waiting for system install confirmation")
+                            .putString("outcomeStatus", "blocked")
+                            .remove("outcomeVersion")
+                            .commit(),
+                    ) { "Cannot persist self-update confirmation" }
                 } else {
                     runCatching { installer.abandonSession(prefs.getInt("session", -1)) }
                     fail("blocked", "Android requires a system install confirmation")
@@ -97,34 +125,48 @@ class SelfUpdateSession(
         lastOutcome
     }
 
-    fun reconcile(installedVersion: Long): InstallAttempt = synchronized(lock) {
-        val target = prefs.getLong("target", 0)
+    fun reconcile(): InstallAttempt = synchronized(lock) {
+        val installed = runCatching { installedInfo().longVersionCode }.getOrDefault(-1L)
+        val desired = prefs.getLong("desiredVersion", 0)
+        val sessionId = prefs.getInt("session", -1)
+        val info = if (sessionId >= 0) installer.getSessionInfo(sessionId) else null
         when {
-            target > 0 && installedVersion == target -> record("Confirmed installed version $target", false, "confirmed", installedVersion)
-            target > 0 && installedVersion > target -> fail("failed", "Observed version $installedVersion; previous update target $target superseded")
-            active && installer.getSessionInfo(prefs.getInt("session", -1)) == null && !pendingConfirmation ->
-                fail("failed", "Installation interrupted or rejected; installed version is $installedVersion")
+            desired > 0 && installed == desired -> {
+                record("Confirmed installed version $installed", false, "confirmed", installed)
+            }
+            desired > 0 && installed > desired -> fail("failed", "Observed version $installed; previous update target superseded")
+            info != null && !info.isSealed -> {
+                runCatching { installer.abandonSession(info.sessionId) }
+                fail("failed", "Installation interrupted before commit")
+            }
+            active && info == null -> fail("failed", "Installation interrupted or rejected")
         }
         lastOutcome
     }
 
-    private fun persist(sessionId: Int, versionCode: Long, outcome: String) {
+    private fun persist(sessionId: Int, desiredVersion: Long) {
         check(
             prefs.edit()
                 .putBoolean("active", true)
                 .putBoolean("pendingConfirmation", false)
                 .putInt("session", sessionId)
-                .putLong("target", versionCode)
-                .putLong("outcomeVersion", versionCode)
-                .putString("status", "Installing version $versionCode")
-                .putString("outcomeStatus", outcome)
+                .putLong("desiredVersion", desiredVersion)
+                .remove("outcomeVersion")
+                .putString("status", "Installing version $desiredVersion")
+                .putString("outcomeStatus", "installing")
+                .remove("outcomeError")
                 .commit(),
         ) { "Could not persist self-update attempt" }
     }
 
-    private fun record(status: String, active: Boolean, outcome: String, versionCode: Long? = null) {
-        val editor = prefs.edit().putString("status", status).putBoolean("active", active).putString("outcomeStatus", outcome)
-        if (versionCode != null) editor.putLong("outcomeVersion", versionCode)
+    private fun record(status: String, active: Boolean, outcome: String, installed: Long?) {
+        val editor = prefs.edit()
+            .putString("status", status)
+            .putBoolean("active", active)
+            .putBoolean("pendingConfirmation", if (active) pendingConfirmation else false)
+            .putString("outcomeStatus", outcome)
+        if (installed != null) editor.putLong("outcomeVersion", installed) else editor.remove("outcomeVersion")
+        if (!active) editor.remove("outcomeError")
         check(editor.commit()) { "Cannot persist self-update status" }
     }
 
@@ -135,9 +177,38 @@ class SelfUpdateSession(
                 .putBoolean("pendingConfirmation", false)
                 .putString("status", "Update failed: $reason")
                 .putString("outcomeStatus", outcome)
+                .remove("outcomeVersion")
                 .putString("outcomeError", reason.take(200))
                 .commit(),
         ) { "Cannot persist self-update status" }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedInfo(): PackageInfo =
+        context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+
+    @Suppress("DEPRECATION")
+    private fun inspect(apk: File): ArchiveIdentity {
+        val archive = context.packageManager.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
+            ?: error("Invalid Android APK archive")
+        val nativeAbis = ZipFile(apk).use { zip ->
+            zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }
+                .map { it.split('/')[1] }.toSet()
+        }
+        return identity(archive, nativeAbis)
+    }
+
+    private fun identity(info: PackageInfo, abis: Set<String> = emptySet()) = ArchiveIdentity(
+        info.packageName,
+        info.longVersionCode,
+        info.signingInfo?.apkContentsSigners?.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).hex() }?.toSet() ?: emptySet(),
+        info.applicationInfo?.minSdkVersion ?: Int.MAX_VALUE,
+        abis,
+    )
+
+    private fun sanitized(error: Exception): String {
+        val message = if (error is ArchiveRejected) error.message else error.javaClass.simpleName
+        return message?.take(200)?.replace(Regex("(/|[A-Za-z]:\\\\)[^\\s]+"), "") ?: "Update failed"
     }
 
     companion object {

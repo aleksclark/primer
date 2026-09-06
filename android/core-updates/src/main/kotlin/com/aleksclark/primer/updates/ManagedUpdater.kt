@@ -235,7 +235,7 @@ class ManagedUpdater(
             .putLong("target", versionCode)
             .putString("status", "Installing version $versionCode")
             .putString("outcomeStatus", "installing")
-            .putLong("outcomeVersion", versionCode)
+            .remove("outcomeVersion")
         if (expected != null) {
             editor.putString("expectedSha256", expected.sha256)
                 .putLong("expectedSize", expected.byteSize)
