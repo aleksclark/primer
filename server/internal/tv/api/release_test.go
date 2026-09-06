@@ -127,6 +127,33 @@ func TestAppReleaseSidecarIsOptionalAndDoesNotShareTasksCredentials(t *testing.T
 	assert.Equal(t, minSdk, *signed.MinSdk)
 }
 
+func TestAppReleaseMalformedSidecarIsNotSilentAbsence(t *testing.T) {
+	t.Parallel()
+	apk := []byte("apk-bytes")
+	dir := publishRelease(t, apk, "5")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "release-manifest.json"), []byte("{not json"), 0o600))
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{ReleaseDir: dir})
+	_, token := factory.PairedDevice(t, q)
+
+	body := decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.True(t, body.Available)
+	assert.Nil(t, body.ManifestPayloadBase64, "malformed sidecar must not look signed")
+	assert.Empty(t, body.PackageName)
+}
+
+func TestAppReleaseOversizedSidecarIsRejected(t *testing.T) {
+	t.Parallel()
+	apk := []byte("apk-bytes")
+	dir := publishRelease(t, apk, "6")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "release-manifest.json"), make([]byte, 24*1024+1), 0o600))
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{ReleaseDir: dir})
+	_, token := factory.PairedDevice(t, q)
+
+	body := decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.True(t, body.Available)
+	assert.Nil(t, body.ManifestPayloadBase64)
+}
+
 func TestAppReleaseRequiresAPairedDevice(t *testing.T) {
 	t.Parallel()
 	h, _, _ := tvtestutil.API(t, tvtestutil.Options{

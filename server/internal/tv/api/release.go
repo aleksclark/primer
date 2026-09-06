@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +34,11 @@ const versionFilename = "version"
 // or credential. Missing sidecar is a normal current-server state and the
 // client must fail closed rather than install on unsigned metadata.
 const sidecarFilename = "release-manifest.json"
+
+// maxSidecarBytes bounds the operator sidecar. The Android envelope cap is
+// 16KiB of base64url payload; this leaves room for the JSON wrapper without
+// an unbounded ReadFile.
+const maxSidecarBytes = 24 * 1024
 
 // AppRelease describes the APK currently published for sideloading.
 type AppRelease struct {
@@ -165,21 +171,55 @@ func (s *Server) readRelease() (*AppRelease, error) {
 		SHA256:      sum,
 		DownloadURL: "/api/v1/app/release/apk",
 	}
-	applySidecar(release, filepath.Join(s.releaseDir, sidecarFilename))
+	if err := applySidecar(release, filepath.Join(s.releaseDir, sidecarFilename)); err != nil {
+		slog.Error("tv release sidecar is present but unusable; serving unsigned metadata", "error", err)
+	}
 	return release, nil
 }
 
 // applySidecar copies operator-authored signed-manifest fields when present.
-// Absence, empty, or unreadable sidecar leaves the unsigned current-server
-// shape; the Android client must then report UpgradeRequired rather than install.
-func applySidecar(release *AppRelease, path string) {
-	raw, err := os.ReadFile(path)
+// A missing file is the normal legacy state. A present but oversized,
+// unreadable, or malformed sidecar is logged and left unsigned so it is not
+// silently indistinguishable from absence. The Android client still refuses
+// to install unsigned metadata.
+func applySidecar(release *AppRelease, path string) error {
+	info, err := os.Stat(path)
 	if err != nil {
-		return
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", sidecarFilename, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", sidecarFilename)
+	}
+	if info.Size() <= 0 {
+		return fmt.Errorf("%s is empty", sidecarFilename)
+	}
+	if info.Size() > maxSidecarBytes {
+		return fmt.Errorf("%s exceeds %d bytes", sidecarFilename, maxSidecarBytes)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", sidecarFilename, err)
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxSidecarBytes+1))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", sidecarFilename, err)
+	}
+	if int64(len(raw)) > maxSidecarBytes {
+		return fmt.Errorf("%s exceeds %d bytes", sidecarFilename, maxSidecarBytes)
 	}
 	var side releaseSidecar
-	if json.Unmarshal(raw, &side) != nil {
-		return
+	if err := json.Unmarshal(raw, &side); err != nil {
+		return fmt.Errorf("parse %s: %w", sidecarFilename, err)
+	}
+	if strings.TrimSpace(side.ManifestPayloadBase64) == "" || strings.TrimSpace(side.ManifestSignature) == "" || strings.TrimSpace(side.SigningKeyID) == "" {
+		return fmt.Errorf("%s is missing signed-manifest fields", sidecarFilename)
+	}
+	if len(side.ManifestPayloadBase64) > 16_384 {
+		return fmt.Errorf("%s payload exceeds 16384 base64url characters", sidecarFilename)
 	}
 	release.PackageName = strings.TrimSpace(side.PackageName)
 	if v := strings.TrimSpace(side.VersionName); v != "" {
@@ -195,15 +235,13 @@ func applySidecar(release *AppRelease, path string) {
 	if v := strings.TrimSpace(side.Channel); v != "" {
 		release.Channel = &v
 	}
-	if v := strings.TrimSpace(side.ManifestPayloadBase64); v != "" {
-		release.ManifestPayloadBase64 = &v
-	}
-	if v := strings.TrimSpace(side.ManifestSignature); v != "" {
-		release.ManifestSignature = &v
-	}
-	if v := strings.TrimSpace(side.SigningKeyID); v != "" {
-		release.SigningKeyID = &v
-	}
+	payload := strings.TrimSpace(side.ManifestPayloadBase64)
+	sig := strings.TrimSpace(side.ManifestSignature)
+	keyID := strings.TrimSpace(side.SigningKeyID)
+	release.ManifestPayloadBase64 = &payload
+	release.ManifestSignature = &sig
+	release.SigningKeyID = &keyID
+	return nil
 }
 
 // readVersionCode reads the published version code. It is kept in a plain file
