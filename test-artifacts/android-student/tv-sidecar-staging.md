@@ -93,3 +93,36 @@ Operator-safety acceptance still remains open for these precise findings:
 
 Follow-up was sent to the implementation lane. No live paths or physical
 Android devices were touched by these checks.
+
+## Finalization and executable gate: `3089eb98` plus parent test correction
+
+A's `5adba778` was integrated as `3089eb98`. Linux finalization now uses
+`renameat2(RENAME_NOREPLACE)` without an unsafe fallback. APK snapshot opening
+uses `O_NOFOLLOW | O_NONBLOCK` before checking the descriptor's file type.
+Whole-path symlink resolution and explicit temporary-link/rename publication
+instructions address the path issues above.
+
+Parent corrected the required acceptance test to **build and execute** the CLI
+inside `t.TempDir()`. Merely building a binary and then calling `run(...)` did
+not exercise the executable boundary. The test now passes an ephemeral key via
+the subprocess environment, checks real signed APK output, and observes exit
+code 2 from a second invocation against the existing destination. No shared
+`/tmp` executable is used. The rename regression covers both empty and populated
+existing destinations and verifies their inode is preserved.
+
+Passed:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk ANDROID_HOME=/opt/android-sdk \
+  make tv-release-sidecar-acceptance
+go test ./server/internal/tv/api -run TestAppRelease -count=1
+```
+
+The unit run includes the FIFO deadline and no-replace regressions. The second,
+explicit acceptance run invokes the real binary and does not skip. A separate
+negative invocation with `TV_RELEASE_SIDECAR_ACCEPTANCE=1` and an explicit
+nonexistent `TV_RELEASE_SIDECAR_APK` **failed with exit 1, not a skip**, as required.
+
+These checks close the reported filesystem and executable-test gaps on this
+Linux host. They do not establish live operator publication, TV playback,
+real APK replacement, production signing custody, or A16 silent updates.
