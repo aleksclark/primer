@@ -24,6 +24,8 @@ import java.io.File
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 data class ManagementSyncResult(
@@ -58,8 +60,15 @@ class ManagementSession(
     private val elapsedMs: () -> Long,
     private val boot: () -> Int,
     private val json: Json = Json { encodeDefaults = false; ignoreUnknownKeys = true },
+    private val mutex: Mutex = Mutex(),
 ) {
-    suspend fun enroll(rawQr: String, replace: Boolean = false): ManagementSyncResult {
+    suspend fun enroll(rawQr: String, replace: Boolean = false): ManagementSyncResult = mutex.withLock {
+        enrollLocked(rawQr, replace)
+    }
+
+    suspend fun sync(): ManagementSyncResult = mutex.withLock { syncLocked() }
+
+    private suspend fun enrollLocked(rawQr: String, replace: Boolean): ManagementSyncResult {
         val qr = ManagementEnrollmentQrParser.parse(rawQr, configuredHttpsOrigin, allowEmulatorOrigin)
             ?: return ManagementSyncResult("That QR is not a trusted Primer management enrollment code")
         val origin = qr.origin + qr.mount.ifBlank { "" }
@@ -109,7 +118,7 @@ class ManagementSession(
         }
     }
 
-    suspend fun sync(): ManagementSyncResult {
+    private suspend fun syncLocked(): ManagementSyncResult {
         val binding = credentials.read() ?: return ManagementSyncResult("Management is not enrolled")
         if (binding.token.isBlank()) {
             return ManagementSyncResult("Management credential was revoked. Last-known policy remains; local recovery still works.")
@@ -131,8 +140,22 @@ class ManagementSession(
         }
     }
 
+    private fun sameBinding(expected: ManagementBinding, live: ManagementBinding?): Boolean =
+        live != null &&
+            live.token == expected.token &&
+            live.origin == expected.origin &&
+            live.deviceId == expected.deviceId &&
+            live.keyId == expected.keyId &&
+            live.token.isNotBlank()
+
+    private suspend fun requireLiveBinding(expected: ManagementBinding): ManagementBinding? {
+        val live = credentials.read()
+        return live.takeIf { sameBinding(expected, it) }
+    }
+
     private suspend fun applyDesired(desired: DesiredState, requestElapsedMs: Long, requestBoot: Int): ManagementSyncResult {
-        val binding = credentials.read() ?: return ManagementSyncResult("Management is not enrolled")
+        val binding = requireLiveBinding(credentials.read() ?: return ManagementSyncResult("Management is not enrolled"))
+            ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         if (desired.device.id != binding.deviceId) {
             return ManagementSyncResult("Desired state is for a different device. Local recovery still works.")
         }
@@ -140,7 +163,11 @@ class ManagementSession(
             ?: return ManagementSyncResult("Management desired state is missing a valid serverTime.")
         val responseElapsed = elapsedMs()
         val responseBoot = boot()
-        desired.recovery.forEach { intent -> applyRecovery(intent, serverNow, binding, requestElapsedMs, requestBoot, responseElapsed, responseBoot) }
+        val boundForRecovery = requireLiveBinding(binding)
+            ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+        desired.recovery.forEach { intent -> applyRecovery(intent, serverNow, boundForRecovery, requestElapsedMs, requestBoot, responseElapsed, responseBoot) }
+        val boundForPolicy = requireLiveBinding(boundForRecovery)
+            ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         val revision = desired.policyRevision
         val application = if (revision != null) {
             val extras = RemotePolicyProjection.extraControls(
@@ -158,15 +185,19 @@ class ManagementSession(
             val apps = revision.policy.approvedApps.map { app ->
                 ApprovedApp(app.packageName, app.label ?: app.packageName, setOf(app.signerSha256))
             }
-            applyPolicy(revision.revision, apps, extras, binding.origin, binding.deviceId)
+            applyPolicy(revision.revision, apps, extras, boundForPolicy.origin, boundForPolicy.deviceId)
         } else {
             PolicyApplication(0, "requested", emptyList(), "No remote policy yet")
         }
-        enqueuePolicyReport(binding, application)
-        val reports = flushOutbox(binding)
-        applyReleases(desired.releaseTargets, binding)
-        val receipts = flushOutbox(binding)
-        val retryable = reports.retryable || receipts.retryable || outbox.hasRetryable(binding.origin, binding.deviceId)
+        val boundForReport = requireLiveBinding(boundForPolicy)
+            ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+        enqueuePolicyReport(boundForReport, application)
+        val reports = flushOutbox(boundForReport)
+        val boundForReleases = requireLiveBinding(boundForReport)
+            ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+        applyReleases(desired.releaseTargets, boundForReleases)
+        val receipts = flushOutbox(boundForReleases)
+        val retryable = reports.retryable || receipts.retryable || outbox.hasRetryable(boundForReleases.origin, boundForReleases.deviceId)
         val dead = outbox.hasDeadLetter(binding.origin, binding.deviceId)
         val suffix = when {
             retryable -> " Durable reports remain undelivered."
@@ -339,55 +370,91 @@ class ManagementSession(
     private suspend fun applyReleases(targets: List<ReleaseTarget>, binding: ManagementBinding) {
         val sink = releaseSink ?: return
         for (target in targets) {
+            val liveStart = requireLiveBinding(binding) ?: return
             val trusted = runCatching { ReleaseDelivery.verify(target, trustRoot) }
             val manifest = trusted.getOrNull()
             if (manifest == null) {
-                enqueueReceipt(binding, target, "failed", null, trusted.exceptionOrNull()?.message?.take(200) ?: "untrusted")
-                continue
-            }
-            val approved = sink.approvedPackage(target.packageName)
-            if (approved == null) {
-                enqueueReceipt(binding, target, "blocked", null, "Package is not an approved Student or allowlisted app")
-                continue
-            }
-            if (approved.signers.isNotEmpty() && manifest.signerSha256 !in approved.signers) {
-                enqueueReceipt(binding, target, "blocked", null, "APK signing identity differs")
+                enqueueReceipt(liveStart, target, "failed", sink.installedVersion(target.packageName), trusted.exceptionOrNull()?.message?.take(200) ?: "untrusted")
                 continue
             }
             if (target.status in setOf("confirmed", "blocked", "failed")) continue
-            if (sink.installActive) continue
-            val installedVersion = sink.installedVersion(target.packageName) ?: if (target.packageName == ReleaseDelivery.STUDENT_PACKAGE) sink.studentVersion else null
+            if (sink.installActive && (sink.pendingTargetId != target.id || sink.pendingTargetVersion != target.targetVersion)) {
+                enqueueReceipt(liveStart, target, "blocked", sink.installedVersion(target.packageName), "Another installation is already in progress")
+                continue
+            }
+            if (sink.installActive && sink.pendingTargetId == target.id && sink.pendingTargetVersion == target.targetVersion) {
+                val observed = sink.installedVersion(target.packageName)
+                if (observed != null && observed == target.versionCode) {
+                    enqueueReceipt(liveStart, target, "confirmed", observed, null)
+                }
+                continue
+            }
+            val approvedAtDispatch = sink.approvedPackage(target.packageName)
+            if (approvedAtDispatch == null) {
+                enqueueReceipt(liveStart, target, "blocked", sink.installedVersion(target.packageName), "Package is not an approved Student or allowlisted app")
+                continue
+            }
+            if (approvedAtDispatch.signers.isNotEmpty() && manifest.signerSha256 !in approvedAtDispatch.signers) {
+                enqueueReceipt(liveStart, target, "blocked", sink.installedVersion(target.packageName), "APK signing identity differs")
+                continue
+            }
+            val installedVersion = sink.installedVersion(target.packageName)
             if (installedVersion != null && installedVersion == target.versionCode) {
-                enqueueReceipt(binding, target, "confirmed", installedVersion, null)
+                enqueueReceipt(liveStart, target, "confirmed", installedVersion, null)
                 continue
             }
             if (installedVersion != null && installedVersion > target.versionCode) {
-                enqueueReceipt(binding, target, "failed", installedVersion, "Installed version superseded this target")
+                enqueueReceipt(liveStart, target, "failed", installedVersion, "Installed version superseded this target")
                 continue
             }
-            enqueueReceipt(binding, target, "downloading", installedVersion, null)
+            enqueueReceipt(liveStart, target, "downloading", installedVersion, null)
             val directory = sink.stagingDir().apply { check(mkdirs() || isDirectory) }
-            val partial = File(directory, "${target.id}.partial")
-            val verified = File(directory, "${target.id}.apk")
+            val unique = "${target.id}-${target.targetVersion}-${target.releaseId}"
+            val partial = File(directory, "$unique.partial")
+            val verified = File(directory, "$unique.apk")
             try {
-                val client = clientFactory(binding.origin) { binding.token }
-                val current = credentials.read()
-                check(current?.token == binding.token && current.origin == binding.origin && current.deviceId == binding.deviceId) {
-                    "Management enrollment changed before install"
-                }
+                val liveBeforeDownload = requireLiveBinding(liveStart)
+                    ?: error("Management enrollment changed before download")
+                val client = clientFactory(liveBeforeDownload.origin) { liveBeforeDownload.token }
+                if (partial.exists()) check(partial.delete())
+                if (verified.exists()) check(verified.delete())
                 partial.outputStream().use { raw ->
                     ArchiveChecks.digestingSink(raw, manifest.byteSize, manifest.sha256).use { digesting ->
                         client.managementDeviceArtifact(target.releaseId, digesting)
                     }
                 }
-                enqueueReceipt(binding, target, "verifying", installedVersion, null)
-                if (verified.exists()) check(verified.delete())
+                val liveBeforeVerify = requireLiveBinding(liveBeforeDownload)
+                    ?: error("Management enrollment changed before verify")
+                enqueueReceipt(liveBeforeVerify, target, "verifying", sink.installedVersion(target.packageName), null)
                 check(partial.renameTo(verified)) { "Cannot stage verified APK" }
-                enqueueReceipt(binding, target, "installing", installedVersion, null)
-                val live = credentials.read()
-                val authorized = live?.token == binding.token && live.origin == binding.origin && live.deviceId == binding.deviceId
-                val outcome = sink.installVerified(verified, manifest, { authorized }, approved)
-                enqueueReceipt(binding, target, outcome.status, outcome.versionCode, outcome.error)
+                val liveBeforeInstall = requireLiveBinding(liveBeforeVerify)
+                    ?: error("Management enrollment changed before install")
+                val approvedAtInstall = sink.approvedPackage(target.packageName)
+                if (approvedAtInstall == null || (approvedAtInstall.signers.isNotEmpty() && manifest.signerSha256 !in approvedAtInstall.signers)) {
+                    enqueueReceipt(liveBeforeInstall, target, "blocked", sink.installedVersion(target.packageName), "Package is not an approved Student or allowlisted app")
+                    continue
+                }
+                enqueueReceipt(liveBeforeInstall, target, "installing", sink.installedVersion(target.packageName), null)
+                val outcome = sink.installVerified(
+                    verified,
+                    manifest,
+                    { requireLiveBinding(liveBeforeInstall) != null },
+                    approvedAtInstall,
+                    target.id,
+                    target.targetVersion,
+                )
+                val observed = sink.installedVersion(target.packageName) ?: outcome.versionCode
+                val status = when {
+                    outcome.status == "confirmed" && observed != target.versionCode -> "failed"
+                    outcome.status == "confirmed" -> "confirmed"
+                    else -> outcome.status
+                }
+                val error = if (status == "failed" && outcome.status == "confirmed") {
+                    "Observed installed version $observed; target ${target.versionCode} was not confirmed"
+                } else {
+                    outcome.error
+                }
+                enqueueReceipt(liveBeforeInstall, target, status, observed, error)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: TasksHttpException) {
@@ -395,11 +462,12 @@ class ManagementSession(
                     credentials.clearTokenOnly()
                     throw error
                 }
-                enqueueReceipt(binding, target, "failed", sink.studentVersion, "Unable to download release")
+                enqueueReceipt(binding, target, "failed", sink.installedVersion(target.packageName), "Unable to download release")
             } catch (error: Exception) {
-                enqueueReceipt(binding, target, "failed", sink.studentVersion, error.message?.take(200) ?: error.javaClass.simpleName)
+                enqueueReceipt(binding, target, "failed", sink.installedVersion(target.packageName), error.message?.take(200) ?: error.javaClass.simpleName)
             } finally {
                 partial.delete()
+                if (verified.exists() && !sink.installActive) verified.delete()
             }
         }
     }
