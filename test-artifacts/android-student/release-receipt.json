@@ -1,0 +1,22 @@
+{
+  "observedAt": "2026-09-06T13:08:34.132614+00:00",
+  "sourceBase": "34a4f5c2 (working-tree implementation, not committed)",
+  "package": "com.aleksclark.primer.student",
+  "versionCode": 13,
+  "versionName": "0.1.0-qualification.13",
+  "apkBytes": 18224975,
+  "apkSha256": "bd5edbb4068eaefdabde1d752b37c72bc53a31ee891165c88974654fe10aa56a",
+  "installedApkMatchesBuild": true,
+  "signingCertificateSha256": "558ee9828bfe8a282023354a9ab065ea54bcf4aaebe5aaabc0d96ecdfb2ce524",
+  "signingIdentity": "local qualification, not approved production custody",
+  "privacyProbe": {
+    "observedAt": "2026-09-06T12:54:21.079593+00:00",
+    "afterRealRecoveryEntry": true,
+    "logcatRecoveryMatches": 0,
+    "remainingParentHeldCodes": 4,
+    "testedVersionCode": 12
+  },
+  "finalPasswordImeTypeVerified": true,
+  "finalBootAfterNormalUnlock": "PASS",
+  "silentUpdate": "BLOCKED: same-key 9 -> 10 required Play Protect review with supported permission/reason/source metadata"
+}

@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "observedAt": "2026-09-06T13:08:32.869243+00:00",
+  "scope": "owner, installed version/release flags, persistent home, actual managed lock-task state and exact allowlist",
+  "model": "SM-S166V",
+  "android": "16",
+  "build": "BP2A.250605.031.A3.S166VUDS6CZB6",
+  "package": "com.aleksclark.primer.student",
+  "versionCode": 13,
+  "approvedPackages": [
+    "com.aleksclark.primer.student",
+    "com.sec.android.app.clockpackage",
+    "com.sec.android.app.popupcalculator"
+  ],
+  "notAsserted": [
+    "silent update",
+    "recovery",
+    "all escape paths",
+    "setup-time QR provisioning"
+  ]
+}

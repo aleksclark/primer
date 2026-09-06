@@ -1,5 +1,12 @@
 # Primer TV — Android client
 
+This Gradle build also includes the initial **Primer Student device-owner
+qualification** target (`:app-student`), with `:core-device-policy` and
+`:core-updates`. See the [A16 qualification runbook](../agent_docs/runbooks/android-a16-provisioning.md)
+and [physical-device evidence](../test-artifacts/android-student/device-owner-qualification.md).
+It is not yet the full Student/Control platform, and silent Student updates remain
+an open verification gate on the tested handset/signing configuration.
+
 The student-facing half of [Video As Instruction](../agent_docs/plans/video-as-instruction.md).
 One APK runs on the tablet and on the living-room Android TV box; the shell is
 chosen at runtime from `UiModeManager.currentModeType`.
