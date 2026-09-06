@@ -149,6 +149,39 @@ class ControlSelfUpdateCoordinatorTest {
     }
 
     @Test
+    fun preparingSameVersionTwiceKeepsTheSecondApk() {
+        val dir = kotlin.io.path.createTempDirectory("control-repeat-prepare-").toFile()
+        try {
+            val coordinator = coordinator()
+            val first = File(dir, "first.apk").apply { writeBytes(ByteArray(12) { 1 }) }
+            coordinator.prepare(first, manifest())
+            val second = File(dir, "second.apk").apply { writeBytes(ByteArray(12) { 1 }) }
+            val prepared = coordinator.prepare(second, manifest())
+            assertTrue("Replacing a prepared update must not delete its replacement", prepared.apk.isFile)
+            assertTrue(coordinator.ui(release()).canInstall)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun failedSessionBlocksDirectInstallPreparedDispatch() {
+        val dir = kotlin.io.path.createTempDirectory("control-failed-prepare-").toFile()
+        try {
+            val session = FakeSession()
+            val coordinator = coordinator(session = session)
+            val apk = File(dir, "candidate.apk").apply { writeBytes(ByteArray(12) { 1 }) }
+            coordinator.prepare(apk, manifest())
+            session.outcome = "failed"
+            assertEquals(ControlSelfUpdatePhase.Failed, coordinator.ui(release()).phase)
+            runCatching { coordinator.installPrepared() }
+            assertEquals("A failed state must be guarded at the install boundary", 0, session.installs)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun missingInstallerSessionFailsClosedOnContinue() {
         val session = FakeSession(pending = true, live = false, hasConfirmation = true)
         session.failOnResume = true
