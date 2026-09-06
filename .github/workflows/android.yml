@@ -6,11 +6,17 @@ on:
     paths:
       - "android/**"
       - "design-system/**"
+      - "primer-tasks/clients/kotlin/**"
+      - "primer-tasks/internal/api/**"
+      - "primer-tasks/cmd/openapi-gen/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
       - "android/**"
       - "design-system/**"
+      - "primer-tasks/clients/kotlin/**"
+      - "primer-tasks/internal/api/**"
+      - "primer-tasks/cmd/openapi-gen/**"
       - ".github/workflows/android.yml"
   workflow_dispatch: {}
 
@@ -32,6 +38,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: primer-tasks/go.mod
+          cache-dependency-path: primer-tasks/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - uses: android-actions/setup-android@v3
 
       - uses: gradle/actions/setup-gradle@v4
@@ -40,14 +55,18 @@ jobs:
         working-directory: .
         run: make design-system
 
+      - name: Generate Tasks Kotlin client
+        working-directory: .
+        run: make tasks-clients
+
       - name: Unit tests
-        run: ./gradlew test --no-daemon
+        run: ./gradlew test --no-daemon --max-workers=1
 
       - name: Student release lint
-        run: ./gradlew :app-student:lintRelease --no-daemon
+        run: ./gradlew :app-student:lintRelease --no-daemon --max-workers=1
 
       - name: Assemble debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --max-workers=1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

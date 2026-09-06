@@ -18,7 +18,7 @@ import (
 )
 
 type TaskPage2 struct {
-	Items      []TaskRevision `json:"items"`
+	Items      []TaskRevision `json:"items" nullable:"false"`
 	TotalCount int            `json:"totalCount"`
 	Limit      int            `json:"limit"`
 	Offset     int            `json:"offset"`
@@ -49,7 +49,7 @@ type TaskInput2 struct {
 	Requirements []Requirement `json:"requirements"`
 }
 type SchedulePage2 struct {
-	Items      []Schedule2 `json:"items"`
+	Items      []Schedule2 `json:"items" nullable:"false"`
 	TotalCount int         `json:"totalCount"`
 	Limit      int         `json:"limit"`
 	Offset     int         `json:"offset"`
@@ -100,7 +100,7 @@ type Occurrence2 struct {
 	AttemptNumber       int       `json:"attemptNumber"`
 }
 type OccurrencePage2 struct {
-	Items      []Occurrence2 `json:"items"`
+	Items      []Occurrence2 `json:"items" nullable:"false"`
 	TotalCount int           `json:"totalCount"`
 	Limit      int           `json:"limit"`
 	Offset     int           `json:"offset"`
@@ -109,6 +109,25 @@ type DecisionInput2 struct {
 	Accepted bool   `json:"accepted"`
 	Reason   string `json:"reason"`
 }
+
+type OccurrenceAction2 struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+type OccurrenceDecision2 struct {
+	OccurrenceID string `json:"occurrenceId"`
+	DecisionID   string `json:"decisionId"`
+	Accepted     bool   `json:"accepted"`
+	Status       string `json:"status"`
+}
+
+type OccurrenceRetry2 struct {
+	OccurrenceID  string `json:"occurrenceId"`
+	AttemptNumber int    `json:"attemptNumber"`
+	Status        string `json:"status"`
+}
+
 type IDInput2 struct {
 	ID string `path:"id"`
 }
@@ -151,11 +170,12 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	}
 	defer tx.Rollback(ctx)
 	tid, rid := uuid.New(), uuid.New()
+	var created time.Time
 	if e = tx.QueryRow(ctx, `INSERT INTO task_templates(id,tenant_id,title) VALUES($1,$2,$3) RETURNING id`, tid, sc.Tenant, strings.TrimSpace(in.Title)).Scan(&tid); e != nil {
 		problem(w, 409, "conflict", "task could not be created")
 		return
 	}
-	if e = tx.QueryRow(ctx, `INSERT INTO task_revisions(id,tenant_id,template_id,version,title,instructions) VALUES($1,$2,$3,1,$4,$5) RETURNING created_at`, rid, sc.Tenant, tid, in.Title, in.Instructions).Scan(new(time.Time)); e != nil {
+	if e = tx.QueryRow(ctx, `INSERT INTO task_revisions(id,tenant_id,template_id,version,title,instructions) VALUES($1,$2,$3,1,$4,$5) RETURNING created_at`, rid, sc.Tenant, tid, in.Title, in.Instructions).Scan(&created); e != nil {
 		problem(w, 500, "internal", "revision could not be created")
 		return
 	}
@@ -169,7 +189,7 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 		problem(w, 500, "internal", "unable to commit task")
 		return
 	}
-	jsonStatus(w, map[string]any{"id": rid.String(), "templateId": tid.String(), "version": 1, "title": in.Title, "instructions": in.Instructions, "status": "draft", "requirements": rs}, 201)
+	jsonStatus(w, TaskRevision{ID: rid.String(), TemplateID: tid.String(), Version: 1, Title: in.Title, Instructions: in.Instructions, Status: "draft", Requirements: rs, CreatedAt: created}, 201)
 }
 func (s *Server) listTasks2(w http.ResponseWriter, r *http.Request, sc scope) {
 	limit, offset := parsePage(r)
@@ -273,7 +293,7 @@ func (s *Server) createSchedule2(w http.ResponseWriter, r *http.Request, sc scop
 		problem(w, 500, "internal", err.Error())
 		return
 	}
-	jsonStatus(w, map[string]any{"id": id.String(), "studentId": in.StudentID, "templateId": in.TemplateID, "revisionId": in.RevisionID, "kind": in.Kind, "timezone": in.Timezone, "startAt": in.StartAt, "rrule": in.RRULE, "dueOffsetMinutes": in.DueOffsetMinutes, "enabled": true, "version": 1}, 201)
+	jsonStatus(w, Schedule2{ID: id.String(), StudentID: in.StudentID, TemplateID: in.TemplateID, RevisionID: in.RevisionID, Kind: in.Kind, Timezone: in.Timezone, StartAt: in.StartAt, EndAt: in.EndAt, RRULE: in.RRULE, DueOffsetMinutes: in.DueOffsetMinutes, Enabled: true, Version: 1}, 201)
 }
 func (s *Server) materializeSchedule(ctx context.Context, tenant, id, owner string) error {
 	var student, rev, kind, zone, rule string
@@ -373,7 +393,7 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 			problem(w, 500, "internal", e.Error())
 			return
 		}
-		jsonOK(w, map[string]string{"id": oid, "status": current})
+		jsonOK(w, OccurrenceAction2{ID: oid, Status: current})
 		return
 	}
 	if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceInProgress) {
@@ -389,7 +409,7 @@ func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uui
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]string{"id": oid, "status": "in_progress"})
+	jsonOK(w, OccurrenceAction2{ID: oid, Status: "in_progress"})
 }
 
 func (s *Server) submitOccurrence2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -410,7 +430,7 @@ func (s *Server) submitOccurrence2(w http.ResponseWriter, r *http.Request, id uu
 			problem(w, 500, "internal", e.Error())
 			return
 		}
-		jsonOK(w, map[string]string{"id": oid, "status": current})
+		jsonOK(w, OccurrenceAction2{ID: oid, Status: current})
 		return
 	}
 	if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceAwaitingVerification) {
@@ -440,7 +460,7 @@ func (s *Server) submitOccurrence2(w http.ResponseWriter, r *http.Request, id uu
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]string{"id": oid, "status": "awaiting_verification"})
+	jsonOK(w, OccurrenceAction2{ID: oid, Status: "awaiting_verification"})
 }
 
 func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -477,7 +497,7 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 			problem(w, 500, "internal", e.Error())
 			return
 		}
-		jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": current})
+		jsonOK(w, OccurrenceDecision2{OccurrenceID: oid, DecisionID: decisionID, Accepted: accepted, Status: current})
 		return
 	}
 	if current != string(domain.DecisionExpectedStatus()) || errors.Is(e, pgx.ErrNoRows) || attemptStatus != "open" {
@@ -517,7 +537,7 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]any{"occurrenceId": oid, "decisionId": decisionID, "accepted": accepted, "status": string(next)})
+	jsonOK(w, OccurrenceDecision2{OccurrenceID: oid, DecisionID: decisionID, Accepted: accepted, Status: string(next)})
 }
 func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	oid := chi.URLParam(r, "id")
@@ -564,7 +584,7 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]any{"occurrenceId": oid, "attemptNumber": n, "status": "awaiting_verification"})
+	jsonOK(w, OccurrenceRetry2{OccurrenceID: oid, AttemptNumber: n, Status: "awaiting_verification"})
 }
 func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc scope, status string) {
 	oid := chi.URLParam(r, "id")
@@ -601,7 +621,7 @@ func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	jsonOK(w, map[string]string{"id": oid, "status": status})
+	jsonOK(w, OccurrenceAction2{ID: oid, Status: status})
 }
 func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	var x Occurrence2

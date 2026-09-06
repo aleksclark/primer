@@ -24,3 +24,5 @@ rootProject.name = "primer-tv"
 include(":core")
 include(":app")
 include(":app-student", ":core-device-policy", ":core-updates")
+include(":tasks-client")
+project(":tasks-client").projectDir = file("../primer-tasks/clients/kotlin")
