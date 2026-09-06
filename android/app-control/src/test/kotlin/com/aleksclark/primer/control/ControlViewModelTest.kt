@@ -15,6 +15,7 @@ import com.aleksclark.primertasks.client.Student
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -470,16 +471,84 @@ class ControlViewModelTest {
         }
         val identity = FakeIdentity()
         identity.signInAs("sid-a", "token-a")
-        val model = model(identity, catalogPeriodMs = 40)
+        val now = AtomicLong(1_000)
+        val model = model(identity, catalogPeriodMs = 40, clock = { now.get() })
         awaitHousehold(model)
+        model.update { it.copy(discovery = it.discovery.copy(lastCatalogCheckAtMs = 1)) }
+        now.set(1_000)
         model.setDiscovery(periodicEnabled = true, checkOnResume = false)
-        delay(90)
+        delay(40)
         val before = catalogs.get()
         assertTrue("catalog never ticked: $before", before >= 1)
         model.signOut()
         awaitSignedOut(model)
-        delay(90)
+        now.addAndGet(80)
+        delay(40)
         assertEquals(before, catalogs.get())
+    }
+
+    @Test
+    fun periodicCatalogTickDoesNotDownloadApks() = runBlocking {
+        val catalogs = AtomicInteger(0)
+        val apks = AtomicInteger(0)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path == "/api/managed-releases") catalogs.incrementAndGet()
+                if (request.path?.endsWith("/apk") == true) apks.incrementAndGet()
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val now = AtomicLong(1_000)
+        val model = model(identity, catalogPeriodMs = 40, clock = { now.get() })
+        awaitHousehold(model)
+        model.update { it.copy(discovery = it.discovery.copy(lastCatalogCheckAtMs = 1)) }
+        now.set(1_000)
+        model.setDiscovery(periodicEnabled = true, checkOnResume = false, unattendedCatchUp = false)
+        delay(40)
+        assertTrue("catalog never ticked: ${catalogs.get()}", catalogs.get() >= 1)
+        assertEquals(0, apks.get())
+    }
+
+    @Test
+    fun periodicCatalogNetworkFailureIsObservableAndDoesNotCrash() = runBlocking {
+        val catalogs = AtomicInteger(0)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path == "/api/managed-releases") {
+                    catalogs.incrementAndGet()
+                    return MockResponse().setResponseCode(500).setBody("""{"error":"down"}""")
+                }
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val now = AtomicLong(1_000)
+        val model = model(identity, catalogPeriodMs = 40, clock = { now.get() })
+        awaitHousehold(model)
+        model.update { it.copy(discovery = it.discovery.copy(lastCatalogCheckAtMs = 1)) }
+        now.set(1_000)
+        model.setDiscovery(periodicEnabled = true, checkOnResume = false)
+        repeat(40) {
+            if (model.state.value.message != null) return@repeat
+            delay(25)
+        }
+        assertTrue(catalogs.get() >= 1)
+        assertTrue("catalog failure was silent: ${model.state.value}", model.state.value.message != null)
+        assertTrue(model.state.value.householdOk)
     }
 
     private fun model(
@@ -487,6 +556,7 @@ class ControlViewModelTest {
         updater: ControlSelfUpdateCoordinator? = null,
         downloadDir: java.io.File? = null,
         catalogPeriodMs: Long = 15L * 60L * 1000L,
+        clock: () -> Long = { System.currentTimeMillis() },
     ): ControlViewModel {
         val http = OkHttpClient()
         val origin = server.url("/").toString()
@@ -498,6 +568,7 @@ class ControlViewModelTest {
             downloadDir = downloadDir,
             io = dispatcher,
             catalogPeriodMs = catalogPeriodMs,
+            clock = clock,
             tasksFactory = { token -> ParentTasksRepository(origin, token, http) },
             devicesFactory = { token -> DeviceRepository(origin, token, http) },
         )

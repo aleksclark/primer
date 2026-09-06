@@ -20,13 +20,17 @@ enum class ControlDiscoveryAction {
 object ControlUpdateDiscovery {
     const val MIN_PERIOD_MS = 15L * 60L * 1000L
 
-    fun shouldRefreshCatalog(settings: ControlUpdateDiscoverySettings, nowMs: Long): Boolean {
+    fun shouldRefreshCatalog(
+        settings: ControlUpdateDiscoverySettings,
+        nowMs: Long,
+        periodMs: Long = MIN_PERIOD_MS,
+    ): Boolean {
         if (nowMs < 0) return false
         val elapsed = nowMs - settings.lastCatalogCheckAtMs
         if (settings.lastCatalogCheckAtMs <= 0) {
             return settings.checkOnResume || settings.periodicEnabled
         }
-        if (elapsed < MIN_PERIOD_MS) return false
+        if (elapsed < periodMs) return false
         return settings.checkOnResume || settings.periodicEnabled
     }
 

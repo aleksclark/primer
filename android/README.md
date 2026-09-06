@@ -78,10 +78,12 @@ uses `selectedReleaseId`; Control self-update does not.
 Catalog discovery downloads and `evaluate`s a candidate APK through the shared
 adapter (hash, signer, ABI, targetSdk vs running OS) **without** opening
 PackageInstaller. `EligibleUnattended` / `EligibleConfirm` are only shown after
-that prepare step. Install is a separate `installPrepared` call and is blocked
-from Failed, Deferred, WaitingConfirmation, and NeedsSettings. Parent APK bytes
-use `/managed-releases/{id}/apk` with the parent JWT, not the management artifact
-route.
+that prepare step. Prepared files are uniquely named and swapped under a lock;
+`ui()` never deletes a live prepared APK. Install is a separate `installPrepared`
+call, runs on IO, and is blocked from Failed, Deferred, WaitingConfirmation, and
+NeedsSettings at the coordinator snapshot — not only the ViewModel cache. Parent
+APK bytes use `/managed-releases/{id}/apk` with the parent JWT, not the
+management artifact route.
 
 Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
 Parent settings may enable catalog checks on resume and a 15-minute-floor in-process
@@ -172,6 +174,10 @@ Gradle properties are `primerSigningStoreFile`, `primerSigningStorePassword`,
 Devices must be provisioned initially with that same production signing identity;
 Android will reject later APKs signed with another key.
 
+Self-update from `GET /app/release` requires a signed sidecar. Unsigned
+metadata (no `release-manifest.json`) is a normal legacy server and the client
+fails closed rather than installing. See [operator publication](#operator-publication-signed-tv-sidecar).
+
 If Gradle cannot find the SDK, create `android/local.properties`:
 
 ```
@@ -223,6 +229,64 @@ replacement. Downloads are size/checksum checked and must contain the same
 package, a newer published version, and a compatible signing certificate.
 Unmanaged devices, and device-owner ROMs that reject silent sessions, use the
 interactive system installer fallback.
+
+## Operator publication (signed TV sidecar)
+
+Do not publish anything live from this checkout. The TV server never talks to
+Tasks for this path: no Tasks DB, no Tasks token, no shared credential.
+
+The Android client accepts an update only after `TvReleaseAdapter` verifies a
+canonical `ReleaseManifest` with Tink Ed25519 over the pinned
+`PRIMER_RELEASE_TRUST_ROOT` (`ed25519-v1`). Outer `/app/release` fields that do
+not match the verified payload are rejected.
+
+1. Build and sign the TV APK with the same production identity already on the box.
+2. Set `TV_RELEASE_SIGNING_KEY` to the 64-byte Ed25519 private key whose public
+   32 bytes are the pinned trust root (hex or base64url). Optional:
+   `TV_AAPT2` / `TV_APKSIGNER` if those tools are not on `PATH`.
+3. Write a **new empty staging directory** on the **same filesystem** as
+   `TV_RELEASE_DIR`. `-out` is refused if it already exists, is nonempty, is
+   the source APK, or is the live release path. The tool snapshots the APK
+   first, then inspects/hashes/signs those exact bytes:
+
+   ```bash
+   make tv-release-sidecar SIDECAR_ARGS='-apk path/to/app-release.apk -out /srv/tv-releases/rel-$(date +%s)'
+   ```
+
+   The command inspects the snapshot with `aapt2`/`apksigner`, signs canonical
+   `ReleaseManifest` JSON with Go `crypto/ed25519` (same field order as the
+   Tasks publisher, without opening Tasks), and refuses to talk to a database.
+   No native libraries is `[]` (universal), not invented ARM ABIs. Multi-signer
+   APKs and `versionCodeMajor` are rejected.
+4. Confirm `packageName` is `com.aleksclark.primer.tv`, `version` matches the
+   APK `versionCode`, `sha256`/`byteSize`/`signerSha256`/`minSdk` match the
+   APK, and `signingKeyId` is `ed25519-v1`. Payload base64url is capped at 16KiB.
+5. Point `TV_RELEASE_DIR` at a **symlink** whose target is an immutable
+   directory (`primer-tv.apk`, `version`, `release-manifest.json`). Replace it
+   with an explicit same-directory temp symlink plus `rename` (do not assume
+   every `ln -sfn` implementation does this; GNU coreutils 9.11 on this host
+   uses a temp symlink + `renameat`, but that is not a portable contract).
+   `mv current prev && mv staging current` is not atomic and must not be used.
+   One-time migration if the current path is a real directory:
+
+   ```bash
+   # example only; do not run against a live household from this lane
+   mv "$TV_RELEASE_DIR" "$TV_RELEASE_DIR.legacy"
+   ln -s "$TV_RELEASE_DIR.legacy" "$TV_RELEASE_DIR"
+   tmp="$(dirname "$TV_RELEASE_DIR")/.current.$$"
+   ln -s /srv/tv-releases/rel-NEW "$tmp"
+   mv -T "$tmp" "$TV_RELEASE_DIR"
+   ```
+
+The server resolves that symlink once per metadata or download request so one
+call sees a coherent set. A later swap can still race a following download;
+the Android client must fail integrity and retry, not install mixed bytes.
+
+A missing sidecar stays the unsigned legacy shape. A present but malformed,
+empty, or oversized sidecar is logged and still served unsigned; the client
+will not install it. Configure `PRIMER_RELEASE_TRUST_ROOT` on the TV APK before
+expecting a signed update to be offered. Full streaming/update acceptance on
+hardware remains open.
 
 ## Pairing
 
