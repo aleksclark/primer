@@ -6,7 +6,7 @@ DEV := ./scripts/dev
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi agent-protocol clients clients-typescript tasks-client tasks-agent-compat kotlin-client tasks-typecheck tasks-lint \
 	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof \
-	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
+	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e tasks-release
 
 check:
 	$(DEV) check
@@ -31,6 +31,9 @@ proof:
 
 build:
 	go build ./...
+
+tasks-release:
+	go build -o ../bin/tasks-release ./cmd/tasks-release
 
 test:
 	go test ./... -count=1
