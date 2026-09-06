@@ -49,6 +49,7 @@ import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
+import com.aleksclark.primer.student.management.ManagementEnrollmentQrParser
 import com.aleksclark.primer.student.tasks.StudentTasksRoute
 import com.aleksclark.primer.student.tasks.TasksDeepLinkRouting
 import com.aleksclark.primer.student.tasks.TasksNavState
@@ -161,6 +162,7 @@ private fun StudentScreen(
     var digest by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
+    var enrollmentQr by remember { mutableStateOf("") }
     var tasksNav by remember { mutableStateOf(TasksDeepLinkRouting.incoming(TasksNavState(), deepLink)) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -440,6 +442,26 @@ private fun StudentScreen(
                         codes = null
                         editing = false
                         confirmRemoval = false
+                    }
+                },
+            )
+            PrimerTextField(
+                value = enrollmentQr,
+                onValueChange = { enrollmentQr = it },
+                label = "Management enrollment QR",
+            )
+            PrimerButton(
+                text = "Enroll management (parent only)",
+                onClick = {
+                    action {
+                        check(runtime.policy.inMaintenance)
+                        val parsed = ManagementEnrollmentQrParser.parse(
+                            enrollmentQr,
+                            configuredHttpsOrigin = BuildConfig.CONFIGURED_API_ORIGIN,
+                            allowEmulatorOrigin = BuildConfig.DEBUG,
+                        ) ?: error("That QR is not a trusted Primer management enrollment code")
+                        enrollmentQr = ""
+                        message = "Parsed management enrollment for ${parsed.origin}${parsed.mount}. HTTP enroll waits on :tasks-client artifact contract."
                     }
                 },
             )

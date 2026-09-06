@@ -91,6 +91,66 @@ class DevicePolicyController(
         return report
     }
 
+    fun applyLastKnownRemote(): String {
+        if (!isOwner || !store.configured) return reconcile()
+        val remote = store.remoteApps()
+        if (remote.isEmpty()) return reconcile()
+        val studentSigners = PackageIdentity.signers(context.packageManager, context.packageName)
+        val (apps, _) = PolicyGuard.sanitizeRemoteApps(
+            requested = remote,
+            studentPackage = context.packageName,
+            studentSigners = studentSigners,
+            installedSigners = { pkg ->
+                runCatching { PackageIdentity.signers(context.packageManager, pkg) }.getOrDefault(emptySet())
+            },
+        )
+        if (apps.isNotEmpty()) store.configure(apps)
+        return reconcile()
+    }
+
+    fun rememberRemotePolicy(revision: Long, apps: List<ApprovedApp>): PolicyApplication {
+        val studentSigners = PackageIdentity.signers(context.packageManager, context.packageName)
+        val (sanitized, controls) = PolicyGuard.sanitizeRemoteApps(
+            requested = apps,
+            studentPackage = context.packageName,
+            studentSigners = studentSigners,
+            installedSigners = { pkg ->
+                runCatching { PackageIdentity.signers(context.packageManager, pkg) }.getOrDefault(emptySet())
+            },
+        )
+        val status = PolicyGuard.overallStatus(controls)
+        if (sanitized.isNotEmpty() && status != "failed") {
+            store.rememberRemote(revision, sanitized)
+            store.configure(sanitized)
+        }
+        val summary = reconcile()
+        return PolicyApplication(revision, status, controls, summary)
+    }
+
+    fun inventory(): List<InventoriedApp> {
+        val student = runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            InventoriedApp(
+                packageName = context.packageName,
+                label = "Primer Student",
+                versionName = info.versionName.orEmpty(),
+                versionCode = info.longVersionCode,
+                signerSha256 = PackageIdentity.signers(context.packageManager, context.packageName).firstOrNull().orEmpty(),
+            )
+        }.getOrNull()
+        val launchable = availableApps().map { app ->
+            val info = runCatching { context.packageManager.getPackageInfo(app.packageName, 0) }.getOrNull()
+            InventoriedApp(
+                packageName = app.packageName,
+                label = app.label,
+                versionName = info?.versionName.orEmpty(),
+                versionCode = info?.longVersionCode ?: 0,
+                signerSha256 = app.signers.firstOrNull().orEmpty(),
+            )
+        }
+        return listOfNotNull(student) + launchable
+    }
+
     fun enterLockTask(activity: Activity): Boolean {
         if (!isOwner || !store.configured || context.getSystemService(KeyguardManager::class.java).isKeyguardLocked) return false
         reconcile()

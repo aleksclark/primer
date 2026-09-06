@@ -35,5 +35,29 @@ class PolicyStore(context: Context) {
         // Avoid rewriting flash on every resume/status refresh when the readback is unchanged.
         if (report != this.report) check(prefs.edit().putString("report", report).commit()) { "Unable to persist policy report" }
     }
+
+    fun lastRemoteRevision(): Long = prefs.getLong("remoteRevision", 0)
+
+    fun rememberRemote(revision: Long, apps: List<ApprovedApp>) {
+        check(revision >= lastRemoteRevision()) { "Stale policy revision cannot overwrite last-known policy" }
+        val json = JSONArray(apps.map {
+            JSONObject().put("package", it.packageName).put("label", it.label).put("signers", JSONArray(it.signers.toList()))
+        })
+        check(
+            prefs.edit().putLong("remoteRevision", revision).putString("remoteApps", json.toString()).commit(),
+        ) { "Unable to persist last-known remote policy" }
+    }
+
+    fun remoteApps(): List<ApprovedApp> {
+        val raw = prefs.getString("remoteApps", null) ?: return emptyList()
+        val array = JSONArray(raw)
+        return (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            val certs = item.getJSONArray("signers")
+            ApprovedApp(item.getString("package"), item.getString("label"),
+                (0 until certs.length()).map { certs.getString(it) }.toSet())
+        }
+    }
+
     fun reset() { check(prefs.edit().clear().commit()) }
 }
