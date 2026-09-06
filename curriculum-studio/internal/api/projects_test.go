@@ -431,6 +431,60 @@ func TestP16ReplaceGraphRejectsUnsupportedEdgeKind(t *testing.T) {
 	assert.Equal(t, "Keep me", kept.project().Title)
 }
 
+func TestP16ForkCopiesProjectOutcomesAndTools(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+	var published struct {
+		ID, CurriculumID string
+	}
+	require.NoError(t, json.Unmarshal(publish.Body.Bytes(), &published))
+
+	forked := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+published.CurriculumID+"/revisions", map[string]any{
+		"forkFromRevisionId": fixture.RevisionID,
+	}, token)
+	require.Equal(t, http.StatusCreated, forked.Code, forked.Body.String())
+	var draft struct{ ID, State string }
+	require.NoError(t, json.Unmarshal(forked.Body.Bytes(), &draft))
+	assert.Equal(t, "draft", draft.State)
+
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+draft.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	graph := decodeGraph(t, got.Body.Bytes())
+	project := graph.project()
+	require.NotNil(t, project)
+	roles := graph.rolesFor(project.ID)
+	assert.NotEmpty(t, roles["target"])
+	assert.NotEmpty(t, roles["prior"])
+	assert.NotEmpty(t, roles["stretch"])
+	hasTool := false
+	for _, edge := range graph.Edges {
+		if edge.Kind == "uses_resource" && edge.FromNodeID == project.ID {
+			hasTool = true
+		}
+	}
+	assert.True(t, hasTool)
+
+	publishDraft := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+draft.ID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publishDraft.Code, publishDraft.Body.String())
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+draft.ID+"/materializations", map[string]any{
+		"window":     map[string]any{"availableMinutes": 30},
+		"attributes": map[string]string{"projectId": project.ID, "projectPhaseId": "build"},
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var run struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &run))
+	items := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID+"/items", nil, token)
+	require.Equal(t, http.StatusOK, items.Code, items.Body.String())
+	assert.Contains(t, items.Body.String(), "tool: Circular saw")
+}
+
 func TestP16AuthoringJourneyCreatePublishMaterializePhase(t *testing.T) {
 	t.Parallel()
 	handler, key, now := newStubMaterializationHandler(t, false)
