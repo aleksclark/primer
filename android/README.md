@@ -119,25 +119,39 @@ not match the verified payload are rejected.
 2. Set `TV_RELEASE_SIGNING_KEY` to the 64-byte Ed25519 private key whose public
    32 bytes are the pinned trust root (hex or base64url). Optional:
    `TV_AAPT2` / `TV_APKSIGNER` if those tools are not on `PATH`.
-3. Write a **staging** directory (APK + `version` + `release-manifest.json`):
+3. Write a **new empty staging directory** on the **same filesystem** as
+   `TV_RELEASE_DIR`. `-out` is refused if it already exists, is nonempty, is
+   the source APK, or is the live release path. The tool snapshots the APK
+   first, then inspects/hashes/signs those exact bytes:
 
    ```bash
-   make tv-release-sidecar SIDECAR_ARGS='-apk path/to/app-release.apk -out /tmp/tv-release-staging'
+   make tv-release-sidecar SIDECAR_ARGS='-apk path/to/app-release.apk -out /srv/tv-releases/rel-$(date +%s)'
    ```
 
-   The command inspects the APK with `aapt2`/`apksigner`, signs canonical
+   The command inspects the snapshot with `aapt2`/`apksigner`, signs canonical
    `ReleaseManifest` JSON with Go `crypto/ed25519` (same field order as the
    Tasks publisher, without opening Tasks), and refuses to talk to a database.
+   No native libraries is `[]` (universal), not invented ARM ABIs. Multi-signer
+   APKs and `versionCodeMajor` are rejected.
 4. Confirm `packageName` is `com.aleksclark.primer.tv`, `version` matches the
    APK `versionCode`, `sha256`/`byteSize`/`signerSha256`/`minSdk` match the
    APK, and `signingKeyId` is `ed25519-v1`. Payload base64url is capped at 16KiB.
-5. Atomic directory swap onto `TV_RELEASE_DIR` so readers never see a partial
-   set (`primer-tv.apk`, `version`, `release-manifest.json` together):
+5. Point `TV_RELEASE_DIR` at a **symlink** whose target is an immutable
+   directory (`primer-tv.apk`, `version`, `release-manifest.json`). Replace the
+   symlink atomically on the same filesystem (`ln -sfn`). `mv current prev &&
+   mv staging current` is not atomic and must not be used. One-time migration
+   if the current path is a real directory:
 
    ```bash
    # example only; do not run against a live household from this lane
-   mv "$TV_RELEASE_DIR" "$TV_RELEASE_DIR.prev" && mv /tmp/tv-release-staging "$TV_RELEASE_DIR"
+   mv "$TV_RELEASE_DIR" "$TV_RELEASE_DIR.legacy"
+   ln -s "$TV_RELEASE_DIR.legacy" "$TV_RELEASE_DIR"
+   ln -sfn /srv/tv-releases/rel-NEW "$TV_RELEASE_DIR"
    ```
+
+The server resolves that symlink once per metadata or download request so one
+call sees a coherent set. A later swap can still race a following download;
+the Android client must fail integrity and retry, not install mixed bytes.
 
 A missing sidecar stays the unsigned legacy shape. A present but malformed,
 empty, or oversized sidecar is logged and still served unsigned; the client
