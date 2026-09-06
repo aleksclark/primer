@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 android {
     namespace = "com.aleksclark.primer.updates"
@@ -12,4 +13,7 @@ android {
     }
 }
 kotlin { jvmToolchain(17) }
-dependencies { testImplementation(libs.junit) }
+dependencies {
+    implementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.junit)
+}
