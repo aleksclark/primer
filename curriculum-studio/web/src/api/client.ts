@@ -1,9 +1,11 @@
-import createClient from "openapi-fetch";
-import type { components, paths } from "../../../clients/ts-rest/generated/schema";
+import { createClient } from "../../../clients/ts-rest/src/client";
+import type { components, paths } from "../../../clients/ts-rest/src/client";
+type JSONBody<P extends keyof paths> = NonNullable<paths[P]['post']> extends {requestBody: {content: {'application/json': infer B}}} ? B : never;
+export type { components } from "../../../clients/ts-rest/src/client";
 
 export type ExportFormat = components["schemas"]["ExportFormat"];
 
-export const studioClient = createClient<paths>({ baseUrl: "/" });
+export const studioClient = createClient({ baseUrl: "/" });
 
 export async function currentSession() {
   return studioClient.GET("/studio/v1/auth/me", { credentials: "include" });
@@ -47,20 +49,20 @@ export async function getRevisionGraph(revisionId: string) {
   return studioClient.GET("/studio/v1/revisions/{revisionId}/graph", { credentials: "include", params: { path: { revisionId } } });
 }
 
-export async function createPlanNode(revisionId: string, body: { kind: string; title: string; body?: string; standardCodes?: string[]; attributes?: Record<string, string> }) {
-  return studioClient.POST("/studio/v1/revisions/{revisionId}/nodes", { credentials: "include", params: { path: { revisionId } }, body: body as never });
+export async function createPlanNode(revisionId: string, body: JSONBody<'/studio/v1/revisions/{revisionId}/nodes'>) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/nodes", { credentials: "include", params: { path: { revisionId } }, body });
 }
 
-export async function createPlanEdge(revisionId: string, body: { kind: string; fromNodeId: string; toNodeId: string; note?: string }) {
-  return studioClient.POST("/studio/v1/revisions/{revisionId}/edges", { credentials: "include", params: { path: { revisionId } }, body: body as never });
+export async function createPlanEdge(revisionId: string, body: JSONBody<'/studio/v1/revisions/{revisionId}/edges'>) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/edges", { credentials: "include", params: { path: { revisionId } }, body });
 }
 
-export async function createResource(workspaceId: string, body: { kind: string; title: string }) {
-  return studioClient.POST("/studio/v1/workspaces/{workspaceId}/resources", { credentials: "include", params: { path: { workspaceId } }, body: body as never });
+export async function createResource(workspaceId: string, body: JSONBody<'/studio/v1/workspaces/{workspaceId}/resources'>) {
+  return studioClient.POST("/studio/v1/workspaces/{workspaceId}/resources", { credentials: "include", params: { path: { workspaceId } }, body });
 }
 
-export async function materializeRevision(revisionId: string, body: { window: { availableMinutes: number }; attributes?: Record<string, string> }) {
-  return studioClient.POST("/studio/v1/revisions/{revisionId}/materializations", { credentials: "include", params: { path: { revisionId } }, body: body as never });
+export async function materializeRevision(revisionId: string, body: JSONBody<'/studio/v1/revisions/{revisionId}/materializations'>) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/materializations", { credentials: "include", params: { path: { revisionId } }, body });
 }
 
 export async function listMaterializedItems(materializationId: string) {
@@ -71,16 +73,16 @@ export async function listStandardsCatalogs(workspaceId: string, offset = 0, lim
   return studioClient.GET("/studio/v1/workspaces/{workspaceID}/standards-catalogs", { credentials: "include", params: { path: { workspaceID: workspaceId }, query: { limit, offset } } });
 }
 
-export async function importStandardsCatalog(workspaceId: string, body: { source: string; title: string; standards: { code: string; source: string; description: string }[] }) {
-  return studioClient.POST("/studio/v1/workspaces/{workspaceID}/standards-catalogs", { credentials: "include", params: { path: { workspaceID: workspaceId } }, body: body as never });
+export async function importStandardsCatalog(workspaceId: string, body: JSONBody<'/studio/v1/workspaces/{workspaceID}/standards-catalogs'>) {
+  return studioClient.POST("/studio/v1/workspaces/{workspaceID}/standards-catalogs", { credentials: "include", params: { path: { workspaceID: workspaceId } }, body });
 }
 
 export async function listCatalogStandards(catalogId: string, offset = 0, limit = 100, q = "") {
   return studioClient.GET("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId }, query: { limit, offset, q } } });
 }
 
-export async function createCatalogStandard(catalogId: string, body: { code: string; source: string; description: string }) {
-  return studioClient.POST("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId } }, body: body as never });
+export async function createCatalogStandard(catalogId: string, body: JSONBody<'/studio/v1/standards-catalogs/{catalogId}/standards'>) {
+  return studioClient.POST("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId } }, body });
 }
 
 export async function deletePlanNode(revisionId: string, nodeId: string) {

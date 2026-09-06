@@ -29,6 +29,7 @@ type TokenValidator interface {
 type MembershipView struct {
 	WorkspaceID   uuid.UUID `json:"workspaceId"`
 	WorkspaceName string    `json:"workspaceName"`
+	DisplayName   string    `json:"displayName"`
 	Role          string    `json:"role"`
 	Status        string    `json:"status"`
 }
@@ -164,6 +165,7 @@ func (s *Server) loadMemberships(ctx context.Context, subjectRef string) ([]Memb
 		out = append(out, MembershipView{
 			WorkspaceID:   m.WorkspaceID,
 			WorkspaceName: name,
+			DisplayName:   m.DisplayName,
 			Role:          m.Role,
 			Status:        m.Status,
 		})

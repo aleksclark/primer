@@ -8,16 +8,19 @@
     "generate:client": "npm --prefix ../clients/ts-rest run generate",
     "build": "tsc -b && vite build",
     "lint": "oxlint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pretest:e2e:s17": "npm run build",
+    "test:e2e:s17": "playwright test -c playwright.s17.config.mjs"
   },
   "dependencies": {
+    "lucide-react": "^1.27.0",
     "openapi-fetch": "^0.17.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1",
-    "lucide-react": "^1.27.0"
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

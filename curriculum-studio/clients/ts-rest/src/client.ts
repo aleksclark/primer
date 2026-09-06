@@ -2,6 +2,7 @@
 // Consumers must use this client rather than constructing raw /studio/v1 URLs.
 import createOpenAPIClient from "openapi-fetch";
 import type { paths } from "../generated/schema";
+export type { components, paths, operations } from "../generated/schema";
 
 export interface ClientOptions {
   baseUrl: string;

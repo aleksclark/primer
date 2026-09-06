@@ -26,6 +26,54 @@ duplicate SQL).
   visible to every requested workspace; tenant-global resources are likewise
   visible only through an explicit workspace-scoped read.
 
+## Collaborative authoring (migration 00013)
+
+Comments and approvals remain private to the owning workspace. Shared access is
+limited to explicit curriculum/revision/graph/diff reads, not comments, reviews,
+exports, materializations, library saves, or any mutation. Grants never become
+workspace memberships.
+
+Approval writes hold transaction row locks in revision → reviewer membership →
+existing approval order, then compare the supplied content fingerprint and
+recheck draft status and local human reviewer authority in a new statement.
+`Current` also checks that the reviewer is still active with the reviewer role.
+Publication and content writes cannot commit during the approval's lock waits.
+The protocol requires a real READ COMMITTED transaction; unsupported/autocommit
+queriers and higher isolation levels fail closed instead of reusing an old
+snapshot. Later graph/brief edits or membership revocation/demotion make the
+decision obsolete; API reads return `pending` until a fresh decision. Approval
+is recorded separately from publication (it does not bypass graph validation or
+change the existing publication policy).
+
+Migration 00013 adds `a_studio_lock_content` triggers to graph tables. They lock
+revision rows with `FOR NO KEY UPDATE` before existing immutability/prerequisite
+guards and check state in a post-wait statement. Updates/reparenting check both
+old and new revisions in UUID order. Library imports hold the same revision lock
+through the complete copy transaction. Older migration bytes remain unchanged.
+Comments are bounded to 10,000 Unicode code points in HTTP, domain/repo validation
+and a PostgreSQL `char_length` CHECK; this is not a UTF-8 byte limit.
+
+Library snapshots keep unit content, linked outcomes/objectives/arcs, internal
+prerequisites, mappings/evidence, projects and resource links. Copying uses fresh
+plan IDs/codes while preserving names and remapping relationships. Missing
+catalog/resource dependencies fail the whole transaction. Only workspace-owned
+or visible global references can be attached through existing graph repos.
+
+Migration 00014 makes the policy configurable through the collaboration-policy
+API. Its closed keys are `requireApprovalForPublish` (default false) and
+`sharingEnabled` (default true). Only an active local owner/admin can update it.
+Policy locks precede publication's curriculum/revision and membership locks;
+publication checks current fingerprint-bound reviewer approval when required.
+Disabling sharing atomically revokes every outgoing grant and prevents new ones;
+re-enabling does not recreate grants. Revocation is always allowed for authors.
+Unknown knobs and non-boolean values are rejected by HTTP and database checks.
+
+Materialized-item comments use the same bounded comment table plus an `item_id`
+FK. Their revision/workspace comes from item → run → revision → curriculum, with
+an additional database ownership trigger. Shared curriculum grants do not
+permit item or plan commenting. The API's `itemId` field identifies these notes;
+`nodeId` contains the same canonical `mit_` target key for common pagination.
+
 ## Subject and external identity conventions
 
 | Field | Canonical form | Owner |
@@ -159,6 +207,12 @@ closed sets below are the contract:
 | `webhook_endpoints` / `webhook_deliveries` | Delivery + idempotency + DB lease state |
 | `idempotency_keys` | Inbound API / callback idempotency |
 | `audit_events` | Authoring and integration audit trail |
+| `plan_comments` | Workspace/revision/node-scoped notes with server-derived author identity and name |
+| `plan_approvals` | Latest reviewer decision and reviewed content fingerprint per revision |
+| `curriculum_shares` | Explicit read-only curriculum grants to another workspace |
+| `unit_library_entries` | Workspace-owned durable unit snapshots, copied with remapped graph IDs |
+| `plan_templates` | Global and workspace-owned named template seeds |
+| `workspace_policies` | Workspace-local JSON policy storage (no Identity dependency) |
 
 ## Invariant enforcement map
 

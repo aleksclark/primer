@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/aleksclark/primer/identity/internal/api"
 	"github.com/aleksclark/primer/identity/internal/broker"
 	"github.com/aleksclark/primer/identity/internal/brokerprovider"
 	"github.com/aleksclark/primer/identity/internal/config"
@@ -79,13 +80,20 @@ func issueProcessCode(t *testing.T, srv *processServer, clientID, redirect, reso
 	cookie := cookieFrom(authz)
 	_ = authz.Body.Close()
 	require.NotEmpty(t, cookie)
+	// Private, per-request capture: never inspect callback bodies or dump the
+	// service log buffer. The diagnostic contains only closed classes/counts.
+	requestID := uuid.NewString()
+	capture, release := api.CaptureBrokerCallbackForTest(strings.TrimPrefix(srv.baseURL, "http://"), requestID)
+	defer release()
 	cbReq, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=discovery_magic_link", nil)
 	require.NoError(t, err)
 	cbReq.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
+	cbReq.Header.Set("X-Request-ID", requestID)
 	cb, err := client.Do(cbReq)
 	require.NoError(t, err)
 	_ = cb.Body.Close()
-	require.Equal(t, http.StatusSeeOther, cb.StatusCode)
+	diagnostic, captured := capture.Snapshot()
+	require.Equal(t, http.StatusSeeOther, cb.StatusCode, "callback diagnostic captured=%t %s", captured, diagnostic.String())
 	loc, err := url.Parse(cb.Header.Get("Location"))
 	require.NoError(t, err)
 	code := loc.Query().Get("code")
@@ -479,6 +487,36 @@ func TestProcessTokenMetadataPublishesRevokeAndReadyRequiresKeyBootstrap(t *test
 
 	assert.NotContains(t, strings.ToLower(srv.logs.String()), "live stytch")
 	assert.NotContains(t, srv.logs.String(), e2eSecret)
+}
+
+// A real app.Run request proves the out-of-band projection is available to the
+// process harness without parsing a response body or any process log buffer.
+func TestProcessCallbackFailureAttributionIsPrivate(t *testing.T) {
+	artifact := uniqueLabel("diagnostic-artifact")
+	srv := startTokenProcessWithArtifact(t, artifact)
+	requestID := uuid.NewString()
+	capture, release := api.CaptureBrokerCallbackForTest(strings.TrimPrefix(srv.baseURL, "http://"), requestID)
+	defer release()
+	cookie := uniqueLabel("unbound-cookie")
+	req, err := http.NewRequest(http.MethodGet, srv.baseURL+"/broker/stytch/callback?token="+url.QueryEscape(artifact)+"&type=discovery_magic_link", nil)
+	require.NoError(t, err)
+	req.Header.Set("Cookie", broker.BrokerCookieName+"="+cookie)
+	req.Header.Set("X-Request-ID", requestID)
+	response, err := noFollowClient().Do(req)
+	require.NoError(t, err)
+	response.Body.Close()
+	require.Equal(t, http.StatusBadRequest, response.StatusCode)
+	d, ok := capture.Snapshot()
+	require.True(t, ok)
+	require.Equal(t, "binding", d.Stage())
+	require.Equal(t, "not_found", d.Class())
+	for _, private := range []string{cookie, artifact, requestID, srv.baseURL} {
+		if strings.Contains(d.String(), private) {
+			t.Fatal("unsafe callback attribution")
+		}
+	}
+	require.Empty(t, response.Header.Get("Location"))
+	require.Empty(t, response.Header.Get("Set-Cookie"))
 }
 
 func TestProcessTokenHighCountPublicExchanges(t *testing.T) {
