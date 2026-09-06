@@ -72,11 +72,29 @@ object ArchiveChecks {
             if (!digest.digest().hex().equals(expectedSha256, true)) throw ArchiveRejected("APK checksum mismatch")
         }
     }
-    fun validateArchive(installed: ArchiveIdentity, archive: ArchiveIdentity, sdk: Int, abis: Set<String>) {
-        validate(archive.packageName == installed.packageName) { "APK belongs to another application" }
-        validate(archive.version > installed.version) { "APK must have a newer version code" }
-        // v1 deliberately requires the exact current signer set, not intersecting history.
-        validate(installed.signers.isNotEmpty() && archive.signers == installed.signers) { "APK signing identity differs" }
+    fun validateArchive(
+        installed: ArchiveIdentity?,
+        archive: ArchiveIdentity,
+        sdk: Int,
+        abis: Set<String>,
+        expectedPackage: String? = installed?.packageName,
+        expectedSigners: Set<String>? = installed?.signers,
+        allowFirstInstall: Boolean = false,
+    ) {
+        if (expectedPackage != null) validate(archive.packageName == expectedPackage) { "APK belongs to another application" }
+        if (installed != null) {
+            validate(archive.packageName == installed.packageName) { "APK belongs to another application" }
+            validate(archive.version > installed.version) { "APK must have a newer version code" }
+            validate(installed.signers.isNotEmpty() && archive.signers == installed.signers) { "APK signing identity differs" }
+        } else {
+            validate(allowFirstInstall) { "APK is not already installed" }
+            validate(expectedSigners != null && expectedSigners.isNotEmpty() && archive.signers == expectedSigners) {
+                "APK signing identity differs"
+            }
+        }
+        if (expectedSigners != null && expectedSigners.isNotEmpty()) {
+            validate(archive.signers == expectedSigners) { "APK signing identity differs" }
+        }
         validate(archive.minSdk <= sdk) { "APK requires a newer Android version" }
         validate(archive.abis.isEmpty() || archive.abis.intersect(abis).isNotEmpty()) { "APK has no compatible native ABI" }
     }

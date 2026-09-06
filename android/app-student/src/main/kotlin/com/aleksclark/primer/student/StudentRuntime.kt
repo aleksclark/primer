@@ -17,8 +17,10 @@ import com.aleksclark.primer.student.management.ManagementCredentialStore
 import com.aleksclark.primer.student.management.ManagementSession
 import com.aleksclark.primer.student.management.ManagementSyncResult
 import com.aleksclark.primer.student.management.ManagementSyncWorker
+import com.aleksclark.primer.student.management.ApprovedPackage
 import com.aleksclark.primer.student.management.InstallOutcome
 import com.aleksclark.primer.student.management.RemoteReleaseSink
+import com.aleksclark.primer.student.management.ReleaseDelivery
 import com.aleksclark.primer.student.update.InstallResultReceiver
 import com.aleksclark.primer.updates.ManagedUpdater
 import com.aleksclark.primer.updates.SignedManifest
@@ -59,10 +61,30 @@ class StudentRuntime(private val context: Context) {
             override val pendingTargetId: String get() = updater.pendingTargetId
             override val pendingTargetVersion: Long get() = updater.pendingTargetVersion
             override fun stagingDir(): File = File(context.cacheDir, "managed-updates")
-            override fun installVerified(file: File, manifest: SignedManifest, authorized: () -> Boolean): InstallOutcome {
-                val attempt = updater.installVerifiedFile(file, manifest) {
-                    authorized() && policy.isOwner && policy.store.configured
+            override fun installedVersion(packageName: String): Long? =
+                runCatching { context.packageManager.getPackageInfo(packageName, 0).longVersionCode }.getOrNull()
+            override fun approvedPackage(packageName: String): ApprovedPackage? {
+                if (packageName == ReleaseDelivery.STUDENT_PACKAGE) {
+                    val signers = com.aleksclark.primer.devicepolicy.PackageIdentity.signers(context.packageManager, packageName)
+                    return ApprovedPackage(packageName, signers, installedVersion(packageName))
                 }
+                val app = policy.store.apps().firstOrNull { it.packageName == packageName } ?: return null
+                return ApprovedPackage(app.packageName, app.signers, installedVersion(packageName))
+            }
+            override fun installVerified(
+                file: File,
+                manifest: SignedManifest,
+                authorized: () -> Boolean,
+                approved: ApprovedPackage?,
+            ): InstallOutcome {
+                if (approved == null) return InstallOutcome("blocked", null, "Package is not approved")
+                val attempt = updater.installVerifiedFile(
+                    file,
+                    manifest,
+                    authorized = { authorized() && policy.isOwner && policy.store.configured },
+                    approvedSigners = approved.signers,
+                    allowFirstInstall = approved.installedVersion == null && manifest.packageName != ReleaseDelivery.STUDENT_PACKAGE,
+                )
                 return InstallOutcome(attempt.status, attempt.versionCode, attempt.error)
             }
         },

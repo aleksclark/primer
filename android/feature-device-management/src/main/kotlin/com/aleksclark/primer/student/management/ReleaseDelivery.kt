@@ -4,6 +4,7 @@ import com.aleksclark.primer.updates.ArchiveChecks
 import com.aleksclark.primer.updates.ArchiveIdentity
 import com.aleksclark.primer.updates.ReleaseTrust
 import com.aleksclark.primer.updates.SignedManifest
+import com.aleksclark.primertasks.client.ReleaseManifest
 import com.aleksclark.primertasks.client.ReleaseTarget
 import com.aleksclark.primertasks.client.ReleaseManifest
 import java.io.File
@@ -16,17 +17,31 @@ data class InstallOutcome(
     val error: String? = null,
 )
 
+data class ApprovedPackage(
+    val packageName: String,
+    val signers: Set<String>,
+    val installedVersion: Long?,
+)
+
 interface RemoteReleaseSink {
     val studentVersion: Long
     val installActive: Boolean
     val pendingTargetId: String
     val pendingTargetVersion: Long
     fun stagingDir(): File
-    fun installVerified(file: File, manifest: SignedManifest, authorized: () -> Boolean): InstallOutcome
+    fun installedVersion(packageName: String): Long?
+    fun approvedPackage(packageName: String): ApprovedPackage?
+    fun installVerified(
+        file: File,
+        manifest: SignedManifest,
+        authorized: () -> Boolean,
+        approved: ApprovedPackage?,
+    ): InstallOutcome
 }
 
 object ReleaseDelivery {
     const val STUDENT_PACKAGE = "com.aleksclark.primer.student"
+    const val TV_PACKAGE = "com.aleksclark.primer.tv"
     const val SIGNING_ALG = "ed25519-v1"
     private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
 
@@ -53,7 +68,6 @@ object ReleaseDelivery {
             byteSize = decoded.byteSize,
         )
         ArchiveChecks.validateExpected(manifest.byteSize, manifest.sha256)
-        check(manifest.packageName == STUDENT_PACKAGE) { "APK belongs to another application" }
         check(manifest.packageName == target.packageName) { "APK belongs to another application" }
         check(manifest.channel == target.channel) { "Release channel differs" }
         check(manifest.versionCode == target.versionCode) { "APK version differs from target" }

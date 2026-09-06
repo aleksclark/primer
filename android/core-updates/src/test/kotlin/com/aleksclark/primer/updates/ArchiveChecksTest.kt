@@ -13,6 +13,28 @@ class ArchiveChecksTest {
     private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test fun `accepts newer same-package same-current-signer compatible archive`() { validate(newer) }
+    @Test fun `first install of approved package requires exact signer`() {
+        ArchiveChecks.validateArchive(
+            installed = null,
+            archive = newer.copy(packageName = "com.aleksclark.primer.tv"),
+            sdk = 36,
+            abis = setOf("arm64-v8a"),
+            expectedPackage = "com.aleksclark.primer.tv",
+            expectedSigners = setOf("key-a"),
+            allowFirstInstall = true,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.validateArchive(
+                installed = null,
+                archive = newer.copy(packageName = "com.aleksclark.primer.tv"),
+                sdk = 36,
+                abis = setOf("arm64-v8a"),
+                expectedPackage = "com.aleksclark.primer.tv",
+                expectedSigners = setOf("key-a"),
+                allowFirstInstall = false,
+            )
+        }
+    }
     @Test fun `wrong package rejected`() { assertThrows(IllegalArgumentException::class.java) { validate(newer.copy(packageName = "other")) } }
     @Test fun `same version and downgrade rejected`() {
         for (version in listOf(0L, 1L)) assertThrows(IllegalArgumentException::class.java) { validate(newer.copy(version = version)) }
