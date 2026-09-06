@@ -33,10 +33,10 @@ these packaging files.
 - **Registry selector:** `ghcr.io/aleksclark/primer-tasks@sha256:8697f84d9d0bbffe1c11490aab55b845fb252ba2e2d29f2f939975d5e5ff93e9`
 - **Publication:** [successful run 34007201476](https://github.com/aleksclark/primer/actions/runs/34007201476), artifact `9981341528`
 - **Receipt:** [`tasks-image-receipt.json`](tasks-image-receipt.json), recording the
-  source revision, immutable registry selector, trace tag, publication run and
-  artifact ID observed in the downloaded publication artifact. Detailed
-  platform/config/attestation/SBOM and runtime-smoked `/app` file metadata from
-  the previous image are intentionally not claimed for this digest.
+  source revision, immutable registry selector, trace tag, publication run,
+  artifact ID, and freshly verified platform/build-input metadata. Detailed
+  configuration, attestation/SBOM and runtime-smoked `/app` file metadata are
+  intentionally not claimed for this digest.
 
 **RELEASE-MANIFEST** is the later commit containing this lock/receipt, not the
 image source. Deployment-artifact/documentation-only changes do not cause a
@@ -46,10 +46,11 @@ IMAGE-SOURCE. Actual image build-input changes require a new image and receipt;
 never relabel this image as built from the lock commit.
 
 The downloaded publication artifact verifies this source-bound immutable image
-selector and trace tag only. No platform/configuration, attestation, SBOM,
+selector and trace tag; the receipt separately records freshly observed
+platform and build-input metadata. No configuration, attestation, SBOM,
 application-file hash, runtime-smoke, real public Clerk login or bootstrap claim
-is made for this digest. Those details must be observed from this publication
-before being added to the receipt.
+is made for this digest. Those remaining details must be observed from this
+publication before being added to the receipt.
 
 ## Build contract
 
@@ -205,10 +206,11 @@ Terraform-only `regex`. Driver configuration must still be validated by the
 approved operator's Nomad agent; local validation did not contact a live agent.
 
 Do not report static checks or an intermediate builder stage as a completed
-production image. For this lock, the receipt records only the source-bound
-publication metadata observed in the downloaded artifact; it intentionally does
-not claim platform/configuration, attestation, SBOM, application-file hashes or
-runtime smoke for this digest. Then the approved operator verifies the real
+production image. For this lock, the receipt records the source-bound
+publication metadata observed in the downloaded artifact plus freshly verified
+platform/build-input metadata; it intentionally does not claim
+configuration, attestation, SBOM, application-file hashes or runtime smoke for
+this digest. Then the approved operator verifies the real
 public login/bootstrap, student pairing and one manual task completion. Existing
 internal LMS health is the non-regression control; public `/api/v1/health` is not
 a Tasks endpoint and may still 404. No fixture issuer may be called public
