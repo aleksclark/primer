@@ -201,7 +201,7 @@ func init() {
 type humaContextKey struct{}
 
 func register[I, O any](api huma.API, op huma.Operation, handler func(context.Context, *I) (*O, error)) {
-	if op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") {
+	if op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") && !strings.HasPrefix(op.Path, "/management-device/") {
 		op.Security = []map[string][]string{{"parentSession": {}}}
 		op.Errors = append(op.Errors, 401, 403, 503)
 	}
@@ -312,6 +312,7 @@ func (s *Server) humaAPI() huma.API {
 	})
 
 	s.registerPhase2(api)
+	s.registerManagement(api)
 	return api
 }
 
@@ -334,12 +335,16 @@ func (r *capturedResponse) Write(p []byte) (int, error) {
 	return r.body.Write(p)
 }
 
+func humachiRequest(hctx huma.Context) (*http.Request, http.ResponseWriter) {
+	return humachi.Unwrap(hctx)
+}
+
 func legacyResponse(ctx context.Context, handler http.Handler, body any) (*capturedResponse, error) {
 	hctx, ok := ctx.Value(humaContextKey{}).(huma.Context)
 	if !ok {
 		return nil, huma.Error500InternalServerError("Huma request context missing")
 	}
-	req, _ := humachi.Unwrap(hctx)
+	req, _ := humachiRequest(hctx)
 	if raw, ok := body.(json.RawMessage); ok {
 		req = req.Clone(ctx)
 		req.Body = io.NopCloser(bytes.NewReader(raw))

@@ -61,7 +61,7 @@ func TestRoutesExposeCallbackAndGeneratedContract(t *testing.T) {
 		}
 	}
 	paths := New(nil, "test").humaAPI().OpenAPI().Paths
-	for _, path := range []string{"/auth/callback", "/students/{id}/pairing", "/device/pair"} {
+	for _, path := range []string{"/auth/callback", "/students/{id}/pairing", "/device/pair", "/managed-devices/enrollments", "/management-device/enroll"} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("contract omitted %s", path)
 		}
