@@ -4,10 +4,10 @@ import com.aleksclark.primer.updates.ArchiveChecks
 import com.aleksclark.primer.updates.ArchiveIdentity
 import com.aleksclark.primer.updates.ReleaseTrust
 import com.aleksclark.primer.updates.SignedManifest
+import com.aleksclark.primertasks.client.ReleaseManifest
 import com.aleksclark.primertasks.client.ReleaseTarget
 import java.io.File
 import java.util.Base64
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 data class InstallOutcome(
@@ -16,30 +16,31 @@ data class InstallOutcome(
     val error: String? = null,
 )
 
+data class ApprovedPackage(
+    val packageName: String,
+    val signers: Set<String>,
+    val installedVersion: Long?,
+)
+
 interface RemoteReleaseSink {
     val studentVersion: Long
     val installActive: Boolean
     val pendingTargetId: String
     val pendingTargetVersion: Long
     fun stagingDir(): File
-    fun installVerified(file: File, manifest: SignedManifest, authorized: () -> Boolean): InstallOutcome
+    fun installedVersion(packageName: String): Long?
+    fun approvedPackage(packageName: String): ApprovedPackage?
+    fun installVerified(
+        file: File,
+        manifest: SignedManifest,
+        authorized: () -> Boolean,
+        approved: ApprovedPackage?,
+    ): InstallOutcome
 }
-
-@Serializable
-internal data class SignedReleaseManifestWire(
-    val packageName: String,
-    val channel: String,
-    val versionCode: Long,
-    val versionName: String,
-    val minSdk: Long,
-    val supportedAbis: List<String>,
-    val signerSha256: String,
-    val sha256: String,
-    val byteSize: Long,
-)
 
 object ReleaseDelivery {
     const val STUDENT_PACKAGE = "com.aleksclark.primer.student"
+    const val TV_PACKAGE = "com.aleksclark.primer.tv"
     const val SIGNING_ALG = "ed25519-v1"
     private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
 
@@ -52,7 +53,7 @@ object ReleaseDelivery {
         val payload = runCatching { Base64.getUrlDecoder().decode(payloadB64) }
             .getOrElse { error("Release manifest is missing") }
         check(ReleaseTrust.verifyEd25519(key, payload, signature)) { "Release manifest signature is invalid" }
-        val decoded = json.decodeFromString(SignedReleaseManifestWire.serializer(), payload.decodeToString())
+        val decoded = json.decodeFromString(ReleaseManifest.serializer(), payload.decodeToString())
         check(decoded.minSdk in 1..Int.MAX_VALUE) { "APK minSdk is out of bounds" }
         val manifest = SignedManifest(
             packageName = decoded.packageName,
@@ -66,7 +67,6 @@ object ReleaseDelivery {
             byteSize = decoded.byteSize,
         )
         ArchiveChecks.validateExpected(manifest.byteSize, manifest.sha256)
-        check(manifest.packageName == STUDENT_PACKAGE) { "APK belongs to another application" }
         check(manifest.packageName == target.packageName) { "APK belongs to another application" }
         check(manifest.channel == target.channel) { "Release channel differs" }
         check(manifest.versionCode == target.versionCode) { "APK version differs from target" }

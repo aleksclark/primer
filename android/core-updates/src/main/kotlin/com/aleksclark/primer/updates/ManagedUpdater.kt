@@ -39,7 +39,11 @@ class ManagedUpdater(
     )
 
     @Suppress("DEPRECATION")
-    private fun installed(): PackageInfo = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+    private fun installed(): PackageInfo = installedFor(context.packageName)
+
+    @Suppress("DEPRECATION")
+    private fun installedFor(packageName: String): PackageInfo =
+        context.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
 
     fun install(uri: Uri, size: Long, checksum: String, authorized: () -> Boolean): String = synchronized(lock) {
         check(authorized()) { "Parent maintenance required" }
@@ -71,8 +75,14 @@ class ManagedUpdater(
         } finally { partial.delete(); verified.delete() }
     }
 
-    fun installVerifiedFile(verified: File, expected: SignedManifest, authorized: () -> Boolean): InstallAttempt = synchronized(lock) {
-        check(authorized()) { "Device ownership required" }
+    fun installVerifiedFile(
+        verified: File,
+        expected: SignedManifest,
+        authorized: () -> Boolean,
+        approvedSigners: Set<String>? = null,
+        allowFirstInstall: Boolean = false,
+    ): InstallAttempt = synchronized(lock) {
+        check(authorized()) { "Authorization required" }
         check(context.getSystemService(DevicePolicyManager::class.java).isDeviceOwnerApp(context.packageName)) {
             "Silent install requires Student device ownership"
         }
@@ -80,7 +90,7 @@ class ManagedUpdater(
         check(!active) { "An installation is already in progress" }
         var sessionId: Int? = null
         return try {
-            sessionId = commitVerified(verified, expected, authorized)
+            sessionId = commitVerified(verified, expected, authorized, approvedSigners, allowFirstInstall)
             lastOutcome
         } catch (e: Exception) {
             sessionId?.let { id -> runCatching { installer.abandonSession(id) } }
@@ -92,7 +102,13 @@ class ManagedUpdater(
         }
     }
 
-    private fun commitVerified(verified: File, expected: SignedManifest?, authorized: () -> Boolean): Int {
+    private fun commitVerified(
+        verified: File,
+        expected: SignedManifest?,
+        authorized: () -> Boolean,
+        approvedSigners: Set<String>? = null,
+        allowFirstInstall: Boolean = false,
+    ): Int {
         @Suppress("DEPRECATION")
         val archive = context.packageManager.getPackageArchiveInfo(verified.path, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: error("Invalid Android APK archive")
@@ -101,7 +117,16 @@ class ManagedUpdater(
                 .map { it.split('/')[1] }.toSet()
         }
         val candidate = identity(archive, nativeAbis)
-        ArchiveChecks.validateArchive(identity(installed(), emptySet()), candidate, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toSet())
+        val installedIdentity = runCatching { identity(installedFor(expected?.packageName ?: context.packageName), emptySet()) }.getOrNull()
+        ArchiveChecks.validateArchive(
+            installed = installedIdentity,
+            archive = candidate,
+            sdk = Build.VERSION.SDK_INT,
+            abis = Build.SUPPORTED_ABIS.toSet(),
+            expectedPackage = expected?.packageName ?: context.packageName,
+            expectedSigners = approvedSigners ?: expected?.let { setOf(it.signerSha256) } ?: installedIdentity?.signers,
+            allowFirstInstall = allowFirstInstall,
+        )
         if (expected != null) {
             check(candidate.packageName == expected.packageName) { "APK belongs to another application" }
             check(candidate.version == expected.versionCode) { "APK version differs from target" }
@@ -112,7 +137,7 @@ class ManagedUpdater(
         }
         check(authorized()) { "Authorization expired before installation" }
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(context.packageName)
+            setAppPackageName(expected?.packageName ?: context.packageName)
             setSize(verified.length())
             setInstallReason(PackageManager.INSTALL_REASON_POLICY)
             if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE)

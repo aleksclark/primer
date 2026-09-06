@@ -59,9 +59,9 @@ class ReleaseDeliveryTest {
     fun currentVersionShortcutStillRequiresTrust() {
         val payload = """{"packageName":"com.other","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":28,"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}"""
             .toByteArray(Charsets.UTF_8)
-        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
-            ReleaseDelivery.verify(target(payload).copy(packageName = "com.other"), trust)
-        }
+        val verified = ReleaseDelivery.verify(target(payload).copy(packageName = "com.other"), trust)
+        assertEquals("com.other", verified.packageName)
+        assertTrue(verified.packageName != ReleaseDelivery.STUDENT_PACKAGE)
     }
 
     @Test

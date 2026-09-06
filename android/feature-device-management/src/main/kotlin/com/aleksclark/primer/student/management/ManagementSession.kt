@@ -345,21 +345,27 @@ class ManagementSession(
                 enqueueReceipt(binding, target, "failed", null, trusted.exceptionOrNull()?.message?.take(200) ?: "untrusted")
                 continue
             }
-            if (target.packageName != ReleaseDelivery.STUDENT_PACKAGE) {
-                enqueueReceipt(binding, target, "blocked", null, "Package is not Student")
+            val approved = sink.approvedPackage(target.packageName)
+            if (approved == null) {
+                enqueueReceipt(binding, target, "blocked", null, "Package is not an approved Student or allowlisted app")
+                continue
+            }
+            if (approved.signers.isNotEmpty() && manifest.signerSha256 !in approved.signers) {
+                enqueueReceipt(binding, target, "blocked", null, "APK signing identity differs")
                 continue
             }
             if (target.status in setOf("confirmed", "blocked", "failed")) continue
             if (sink.installActive) continue
-            if (sink.studentVersion == target.versionCode) {
-                enqueueReceipt(binding, target, "confirmed", sink.studentVersion, null)
+            val installedVersion = sink.installedVersion(target.packageName) ?: if (target.packageName == ReleaseDelivery.STUDENT_PACKAGE) sink.studentVersion else null
+            if (installedVersion != null && installedVersion == target.versionCode) {
+                enqueueReceipt(binding, target, "confirmed", installedVersion, null)
                 continue
             }
-            if (sink.studentVersion > target.versionCode) {
-                enqueueReceipt(binding, target, "failed", sink.studentVersion, "Installed version superseded this target")
+            if (installedVersion != null && installedVersion > target.versionCode) {
+                enqueueReceipt(binding, target, "failed", installedVersion, "Installed version superseded this target")
                 continue
             }
-            enqueueReceipt(binding, target, "downloading", sink.studentVersion, null)
+            enqueueReceipt(binding, target, "downloading", installedVersion, null)
             val directory = sink.stagingDir().apply { check(mkdirs() || isDirectory) }
             val partial = File(directory, "${target.id}.partial")
             val verified = File(directory, "${target.id}.apk")
@@ -374,13 +380,13 @@ class ManagementSession(
                         client.managementDeviceArtifact(target.releaseId, digesting)
                     }
                 }
-                enqueueReceipt(binding, target, "verifying", sink.studentVersion, null)
+                enqueueReceipt(binding, target, "verifying", installedVersion, null)
                 if (verified.exists()) check(verified.delete())
                 check(partial.renameTo(verified)) { "Cannot stage verified APK" }
-                enqueueReceipt(binding, target, "installing", sink.studentVersion, null)
+                enqueueReceipt(binding, target, "installing", installedVersion, null)
                 val live = credentials.read()
                 val authorized = live?.token == binding.token && live.origin == binding.origin && live.deviceId == binding.deviceId
-                val outcome = sink.installVerified(verified, manifest) { authorized }
+                val outcome = sink.installVerified(verified, manifest, { authorized }, approved)
                 enqueueReceipt(binding, target, outcome.status, outcome.versionCode, outcome.error)
             } catch (cancelled: CancellationException) {
                 throw cancelled
