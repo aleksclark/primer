@@ -212,7 +212,11 @@ func init() {
 type humaContextKey struct{}
 
 func register[I, O any](api huma.API, op huma.Operation, handler func(context.Context, *I) (*O, error)) {
-	if op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") {
+	switch {
+	case strings.HasPrefix(op.Path, "/management-device/") && op.Path != "/management-device/enroll":
+		op.Security = []map[string][]string{{"managementDevice": {}}}
+		op.Errors = append(op.Errors, 401, 403, 503)
+	case op.Path != "/health" && op.Path != "/auth/login" && op.Path != "/auth/callback" && !strings.HasPrefix(op.Path, "/student/") && !strings.HasPrefix(op.Path, "/device/") && op.Path != "/management-device/enroll":
 		op.Security = []map[string][]string{{"parentSession": {}}}
 		op.Errors = append(op.Errors, 401, 403, 503)
 	}
@@ -234,6 +238,23 @@ func register[I, O any](api huma.API, op huma.Operation, handler func(context.Co
 	}
 	if registered != nil {
 		delete(registered.Responses, "422")
+		if op.Path == "/management-device/artifacts/{id}" || op.Path == "/managed-releases/{id}/apk" {
+			advertiseAPKBody(registered)
+		}
+	}
+}
+
+func advertiseAPKBody(op *huma.Operation) {
+	if op == nil || op.Responses == nil {
+		return
+	}
+	resp := op.Responses["200"]
+	if resp == nil {
+		return
+	}
+	delete(resp.Content, "application/json")
+	resp.Content["application/vnd.android.package-archive"] = &huma.MediaType{
+		Schema: &huma.Schema{Type: huma.TypeString, Format: "binary"},
 	}
 }
 
@@ -245,7 +266,10 @@ func (s *Server) humaAPI() huma.API {
 	config.DocsPath = ""
 	config.SchemasPath = ""
 	config.OpenAPIPath = "/openapi"
-	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{"parentSession": {Type: "http", Scheme: "bearer", BearerFormat: "JWT", Description: "Clerk session JWT; local household membership is required. Student credentials are separate."}}
+	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"parentSession":    {Type: "http", Scheme: "bearer", BearerFormat: "JWT", Description: "Clerk session JWT; local household membership is required. Student credentials are separate."},
+		"managementDevice": {Type: "http", Scheme: "bearer", BearerFormat: "opaque", Description: "Hashed management-device credential. Never accepted by Tasks /device or parent routes."},
+	}
 	api := humachi.New(r, config)
 	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
 		next(huma.WithValue(ctx, humaContextKey{}, ctx))
@@ -327,6 +351,8 @@ func (s *Server) humaAPI() huma.API {
 		return &AgentConversationOutput{ResponseHeaders: headers, Body: body}, err
 	})
 	s.registerPhase2(api)
+	s.registerManagement(api)
+	s.registerReleases(api)
 	s.registerDialogueRoutes(api)
 	// WebSockets use the same production router and actual Go wire boundaries.
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
@@ -353,12 +379,16 @@ func (r *capturedResponse) Write(p []byte) (int, error) {
 	return r.body.Write(p)
 }
 
+func humachiRequest(hctx huma.Context) (*http.Request, http.ResponseWriter) {
+	return humachi.Unwrap(hctx)
+}
+
 func legacyResponse(ctx context.Context, handler http.Handler, body any) (*capturedResponse, error) {
 	hctx, ok := ctx.Value(humaContextKey{}).(huma.Context)
 	if !ok {
 		return nil, huma.Error500InternalServerError("Huma request context missing")
 	}
-	req, _ := humachi.Unwrap(hctx)
+	req, _ := humachiRequest(hctx)
 	if raw, ok := body.(json.RawMessage); ok {
 		req = req.Clone(ctx)
 		req.Body = io.NopCloser(bytes.NewReader(raw))
