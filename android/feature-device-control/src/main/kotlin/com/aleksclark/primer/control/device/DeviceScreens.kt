@@ -36,6 +36,9 @@ fun DevicesScreen(
     onOpen: (ManagedDevice) -> Unit,
     onInstallUpdate: () -> Unit = {},
     onContinueUpdate: () -> Unit = {},
+    onDiscoveryCheckOnResume: (Boolean) -> Unit = {},
+    onDiscoveryPeriodic: (Boolean) -> Unit = {},
+    onDiscoveryUnattended: (Boolean) -> Unit = {},
     onOpenInstallSettings: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -55,6 +58,9 @@ fun DevicesScreen(
             onInstall = onInstallUpdate,
             onContinue = onContinueUpdate,
             onOpenSettings = onOpenInstallSettings,
+            onCheckOnResume = onDiscoveryCheckOnResume,
+            onPeriodic = onDiscoveryPeriodic,
+            onUnattended = onDiscoveryUnattended,
         )
         if (devices.isEmpty()) PrimerEmptyState(title = "No managed devices", message = "Issue an enrollment QR for Student. Control never becomes device admin.")
         LazyColumn {
@@ -151,11 +157,14 @@ fun ControlSelfUpdateScreen(
     onInstall: () -> Unit = {},
     onContinue: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onCheckOnResume: (Boolean) -> Unit = {},
+    onPeriodic: (Boolean) -> Unit = {},
+    onUnattended: (Boolean) -> Unit = {},
 ) {
     PrimerSectionHeader(
         label = "Control app",
         title = "Self-update",
-        description = "Control is not a device owner. The shared adapter verifies APK hash, signer, ABI, and version from bytes. Confirmation, settings, or a notification fallback if Android requires user action. Catch-up is manual or on resume; automatic discovery is not claimed.",
+        description = "Control is not a device owner. The shared adapter verifies APK hash, signer, ABI, and version from bytes. Catalog checks never skip verification. Unattended catch-up is opt-in and only when Android permits USER_ACTION_NOT_REQUIRED.",
     )
     PrimerStatus(update.status, tone = when (update.phase) {
         ControlSelfUpdatePhase.Idle -> PrimerStatusTone.Neutral
@@ -176,4 +185,19 @@ fun ControlSelfUpdateScreen(
     PrimerButton(text = "Install Control update", onClick = onInstall, enabled = update.canInstall)
     PrimerButton(text = "Continue confirmation", onClick = onContinue, enabled = update.canContinueConfirmation, variant = PrimerButtonVariant.Secondary)
     PrimerButton(text = "Open install settings", onClick = onOpenSettings, enabled = update.canOpenSettings, variant = PrimerButtonVariant.Secondary)
+    PrimerCheckboxRow(
+        text = "Check for Control updates on resume (15-minute floor)",
+        checked = update.discovery.checkOnResume,
+        onCheckedChange = onCheckOnResume,
+    )
+    PrimerCheckboxRow(
+        text = "Periodic catalog check while Control is open",
+        checked = update.discovery.periodicEnabled,
+        onCheckedChange = onPeriodic,
+    )
+    PrimerCheckboxRow(
+        text = "Unattended catch-up when Android permits it (never a silent guarantee)",
+        checked = update.discovery.unattendedCatchUp,
+        onCheckedChange = onUnattended,
+    )
 }

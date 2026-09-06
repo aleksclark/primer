@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
                                 apiBase = apiBase,
                                 updater = app.updater,
                                 downloadDir = cacheDir,
+                                discoveryStore = PrefsControlDiscoveryStore(app),
                             ) as T
                         }
                     },
@@ -286,6 +287,9 @@ private fun ControlAppScreen(
                         onOpen = model::openDevice,
                         onInstallUpdate = model::installControlUpdate,
                         onContinueUpdate = model::continueControlUpdate,
+                        onDiscoveryCheckOnResume = { model.setDiscovery(checkOnResume = it) },
+                        onDiscoveryPeriodic = { model.setDiscovery(periodicEnabled = it) },
+                        onDiscoveryUnattended = { model.setDiscovery(unattendedCatchUp = it) },
                         onOpenInstallSettings = {
                             model.openInstallSettings()?.let(startSettings)
                         },

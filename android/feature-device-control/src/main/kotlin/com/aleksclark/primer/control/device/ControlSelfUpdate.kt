@@ -38,6 +38,7 @@ data class ControlSelfUpdateUi(
     val canOpenSettings: Boolean = false,
     val canContinueConfirmation: Boolean = false,
     val presentation: String? = null,
+    val discovery: ControlUpdateDiscoverySettings = ControlUpdateDiscoverySettings(),
 )
 
 object ControlSelfUpdate {

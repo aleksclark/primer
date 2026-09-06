@@ -3,8 +3,12 @@ package com.aleksclark.primer.control
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aleksclark.primer.control.device.ApprovedAppDraft
+import com.aleksclark.primer.control.device.ControlDiscoveryAction
 import com.aleksclark.primer.control.device.ControlSelfUpdate
+import com.aleksclark.primer.control.device.ControlSelfUpdatePhase
 import com.aleksclark.primer.control.device.ControlSelfUpdateUi
+import com.aleksclark.primer.control.device.ControlUpdateDiscovery
+import com.aleksclark.primer.control.device.ControlUpdateDiscoverySettings
 import com.aleksclark.primer.control.device.DeviceRepository
 import com.aleksclark.primer.control.device.DeviceSync
 import com.aleksclark.primer.control.device.DeviceSyncStatus
@@ -93,6 +97,7 @@ data class ControlUiState(
     val schedulesHasMore: Boolean = false,
     val occurrencesHasMore: Boolean = false,
     val selfUpdate: ControlSelfUpdateUi = ControlSelfUpdateUi(),
+    val discovery: ControlUpdateDiscoverySettings = ControlUpdateDiscoverySettings(),
 )
 
 class ControlViewModel(
@@ -102,6 +107,8 @@ class ControlViewModel(
     private val updater: ControlSelfUpdateCoordinator? = null,
     private val downloadDir: java.io.File? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    private val discoveryStore: ControlDiscoveryStore? = null,
     private val tasksFactory: (CredentialProvider) -> ParentTasksRepository = { token ->
         ParentTasksRepository(requireNotNull(apiBase), token, http)
     },
@@ -124,6 +131,7 @@ class ControlViewModel(
     val state: StateFlow<ControlUiState> = _state
 
     init {
+        discoveryStore?.load()?.let { loaded -> _state.value = _state.value.copy(discovery = loaded) }
         viewModelScope.launch { refreshAuth() }
     }
 
@@ -133,13 +141,30 @@ class ControlViewModel(
                 updater?.continueConfirmation()
                 refreshAuth()
                 val ctx = session
-                if (ctx != null && stillValid(ctx)) refreshSelfUpdate(ctx)
+                if (ctx != null && stillValid(ctx)) {
+                    refreshSelfUpdate(ctx)
+                    applyDiscovery(ctx)
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 _state.value = _state.value.copy(message = controlMessage(error))
             }
         }
+    }
+
+    fun setDiscovery(checkOnResume: Boolean? = null, periodicEnabled: Boolean? = null, unattendedCatchUp: Boolean? = null) {
+        val current = _state.value.discovery
+        val next = current.copy(
+            checkOnResume = checkOnResume ?: current.checkOnResume,
+            periodicEnabled = periodicEnabled ?: current.periodicEnabled,
+            unattendedCatchUp = unattendedCatchUp ?: current.unattendedCatchUp,
+        )
+        _state.value = _state.value.copy(
+            discovery = next,
+            selfUpdate = _state.value.selfUpdate.copy(discovery = next),
+        )
+        discoveryStore?.save(next)
     }
 
     fun clearPassword() {
@@ -421,6 +446,7 @@ class ControlViewModel(
     fun loadDevices() = act { ctx ->
         refreshDevices(ctx)
         refreshSelfUpdate(ctx)
+        applyDiscovery(ctx)
     }
 
     fun installControlUpdate() {
@@ -629,11 +655,40 @@ class ControlViewModel(
     private fun refreshSelfUpdate(ctx: AuthContext) {
         val installed = updater?.ui()?.installedVersion ?: _state.value.selfUpdate.installedVersion
         val candidate = ControlSelfUpdate.selectCandidate(_state.value.releases, installed)
-        val ui = updater?.ui(candidate) ?: ControlSelfUpdateUi(
-            phase = com.aleksclark.primer.control.device.ControlSelfUpdatePhase.Failed,
+        val ui = (updater?.ui(candidate) ?: ControlSelfUpdateUi(
+            phase = ControlSelfUpdatePhase.Failed,
             status = "Release trust root is not configured.",
-        )
+        )).copy(discovery = _state.value.discovery)
         commit(ctx) { it.copy(selfUpdate = ui) }
+    }
+
+    private suspend fun applyDiscovery(ctx: AuthContext) {
+        val snapshot = _state.value
+        when (
+            ControlUpdateDiscovery.action(
+                settings = snapshot.discovery,
+                nowMs = clock(),
+                phase = snapshot.selfUpdate.phase,
+                canInstall = snapshot.selfUpdate.canInstall,
+                pendingConfirmation = snapshot.selfUpdate.canContinueConfirmation,
+            )
+        ) {
+            ControlDiscoveryAction.None -> Unit
+            ControlDiscoveryAction.RefreshCatalog -> {
+                refreshDevices(ctx)
+                if (stillValid(ctx)) {
+                    val next = _state.value.discovery.copy(lastCatalogCheckAtMs = clock())
+                    commit(ctx) { it.copy(discovery = next) }
+                    discoveryStore?.save(next)
+                    refreshSelfUpdate(ctx)
+                }
+            }
+            ControlDiscoveryAction.RequestUnattendedInstall -> {
+                if (snapshot.selfUpdate.phase != ControlSelfUpdatePhase.EligibleUnattended) return
+                if (mutations.isBusy()) return
+                installControlUpdate()
+            }
+        }
     }
 
     private suspend fun refreshAuth() {
@@ -721,6 +776,8 @@ class ControlViewModel(
         householdOk = false,
         email = _state.value.email,
         message = message,
+        discovery = _state.value.discovery,
+        selfUpdate = _state.value.selfUpdate.copy(discovery = _state.value.discovery),
     )
 
     private fun commit(ctx: AuthContext, transform: (ControlUiState) -> ControlUiState) {
