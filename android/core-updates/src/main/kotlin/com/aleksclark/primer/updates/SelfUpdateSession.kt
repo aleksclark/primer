@@ -39,7 +39,7 @@ class SelfUpdateSession(
         check(!active) { "An installation is already in progress" }
         var sessionId: Int? = null
         val directory = File(context.cacheDir, "self-updates").apply { check(mkdirs() || isDirectory) }
-        val snapshot = File(directory, "candidate.apk")
+        val snapshot = File.createTempFile("candidate-", ".apk", directory)
         return try {
             ArchiveChecks.validateExpected(expected.byteSize, expected.sha256)
             apk.inputStream().use { input ->
@@ -92,8 +92,8 @@ class SelfUpdateSession(
             fail("failed", sanitized(error))
             lastOutcome
         } finally {
+            // This session owns the snapshot; callers retain ownership of their input.
             snapshot.delete()
-            apk.delete()
         }
     }
 

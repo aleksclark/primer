@@ -4,18 +4,22 @@ data class SelfUpdateEligibility(
     val unattendedEligible: Boolean,
     val userActionRequired: Boolean,
     val reason: String,
+    // A platform/verifier may still demand consent even when an unattended request is eligible.
+    val mustHandlePendingUserAction: Boolean = true,
 )
 
 object SelfUpdatePolicy {
     const val CONTROL_PACKAGE = "com.aleksclark.primer.control"
     const val TV_PACKAGE = "com.aleksclark.primer.tv"
 
-    fun unattendedFloor(candidateTargetSdk: Int): Int = when {
-        candidateTargetSdk >= 36 -> 34
-        candidateTargetSdk >= 35 -> 33
-        candidateTargetSdk >= 34 -> 31
-        candidateTargetSdk >= 33 -> 30
-        candidateTargetSdk >= 31 -> 29
+    /** Minimum APK target SDK for the running platform's unattended-update contract. */
+    fun unattendedFloor(osSdk: Int): Int = when (osSdk) {
+        31, 32 -> 29
+        33 -> 30
+        34 -> 31
+        35 -> 33
+        36 -> 34
+        // Future platforms may raise this requirement; fail conservatively to consent.
         else -> Int.MAX_VALUE
     }
 
@@ -50,8 +54,9 @@ object SelfUpdatePolicy {
                 "APK native ABI differs from target"
             }
         }
-        val floor = unattendedFloor(candidateTargetSdk)
-        val unattended = unknownSourcesAllowed && canUpdateWithoutUserAction && sdk >= floor && floor != Int.MAX_VALUE
+        val floor = unattendedFloor(sdk)
+        val unattended = unknownSourcesAllowed && canUpdateWithoutUserAction &&
+            floor != Int.MAX_VALUE && candidateTargetSdk >= floor
         val reason = when {
             unattended -> "Android may replace this package without a prompt"
             !unknownSourcesAllowed -> "Unknown-source installs are not permitted; system confirmation is required"
@@ -59,7 +64,7 @@ object SelfUpdatePolicy {
         }
         return SelfUpdateEligibility(
             unattendedEligible = unattended,
-            userActionRequired = true,
+            userActionRequired = !unattended,
             reason = reason,
         )
     }
