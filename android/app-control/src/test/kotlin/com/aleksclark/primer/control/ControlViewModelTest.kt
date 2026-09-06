@@ -546,9 +546,17 @@ class ControlViewModelTest {
             if (model.state.value.message != null) return@repeat
             delay(25)
         }
-        assertTrue(catalogs.get() >= 1)
-        assertTrue("catalog failure was silent: ${model.state.value}", model.state.value.message != null)
-        assertTrue(model.state.value.householdOk)
+        try {
+            assertTrue(catalogs.get() >= 1)
+            assertTrue("catalog failure was silent: ${model.state.value}", model.state.value.message != null)
+            assertTrue(model.state.value.householdOk)
+            // Neither the injected clock nor the test scheduler has advanced:
+            // a failed due tick must not immediately loop while last-success is stale.
+            delay(100)
+            assertEquals("A failed tick must back off rather than spin on an overdue success timestamp", 1, catalogs.get())
+        } finally {
+            model.setDiscovery(periodicEnabled = false)
+        }
     }
 
     private fun model(
