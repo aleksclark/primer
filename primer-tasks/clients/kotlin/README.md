@@ -31,7 +31,12 @@ accepted `0e8cc6d6` / `296b4e17…`. CP4 WIP notice `39c…` is not adopted.
 Final verification rebinds to a reviewed P4 successor bundle that preserves
 optional verification/studentName fields.
 
-The canonical Android graph on this branch is TV-only (`:core`/`:app`) and
-cannot compile `:tasks-client` without native `settings.gradle.kts` edits,
-which this lane does not make. Qualify the generator and constraint matcher
-here; façade HTTP tests require the Android include graph owned elsewhere.
+Standalone JVM compile is proven in this directory:
+
+```bash
+cd primer-tasks/clients/kotlin
+./gradlew test --no-daemon --max-workers=1
+```
+
+That runs `compileKotlin` plus façade HTTP and constraint tests. Generated
+internals stay gitignored. The TV Android graph is not used and is not edited.
