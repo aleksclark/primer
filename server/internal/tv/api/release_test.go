@@ -154,6 +154,37 @@ func TestAppReleaseOversizedSidecarIsRejected(t *testing.T) {
 	assert.Nil(t, body.ManifestPayloadBase64)
 }
 
+func TestAppReleaseResolvesSymlinkToImmutableDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	v1 := filepath.Join(root, "rel-1")
+	v2 := filepath.Join(root, "rel-2")
+	require.NoError(t, os.Mkdir(v1, 0o700))
+	require.NoError(t, os.Mkdir(v2, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(v1, "primer-tv.apk"), []byte("apk-v1"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(v1, "version"), []byte("1\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(v2, "primer-tv.apk"), []byte("apk-v2"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(v2, "version"), []byte("2\n"), 0o600))
+	link := filepath.Join(root, "current")
+	require.NoError(t, os.Symlink(v1, link))
+
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{ReleaseDir: link})
+	_, token := factory.PairedDevice(t, q)
+	body := decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.Equal(t, 1, body.VersionCode)
+	apk := h.Get("/app/release/apk", "Authorization: Bearer "+token)
+	require.Equal(t, http.StatusOK, apk.Code)
+	assert.Equal(t, []byte("apk-v1"), apk.Body.Bytes())
+
+	require.NoError(t, os.Remove(link))
+	require.NoError(t, os.Symlink(v2, link))
+	body = decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.Equal(t, 2, body.VersionCode)
+	apk = h.Get("/app/release/apk", "Authorization: Bearer "+token)
+	require.Equal(t, http.StatusOK, apk.Code)
+	assert.Equal(t, []byte("apk-v2"), apk.Body.Bytes())
+}
+
 func TestAppReleaseRequiresAPairedDevice(t *testing.T) {
 	t.Parallel()
 	h, _, _ := tvtestutil.API(t, tvtestutil.Options{

@@ -115,11 +115,11 @@ func (s *Server) getAppRelease(ctx context.Context, _ *struct{}) (*releaseOutput
 }
 
 func (s *Server) downloadAPK(ctx context.Context, _ *struct{}) (*apkOutput, error) {
-	path, err := s.apkPath()
+	dir, err := s.resolvedReleaseDir()
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(dir, apkFilename))
 	if err != nil {
 		return nil, huma.Error404NotFound("no app release is published")
 	}
@@ -130,22 +130,48 @@ func (s *Server) downloadAPK(ctx context.Context, _ *struct{}) (*apkOutput, erro
 	}, nil
 }
 
-// apkPath resolves the published APK, refusing when releases are switched off.
-func (s *Server) apkPath() (string, error) {
+// resolvedReleaseDir follows TV_RELEASE_DIR once so metadata and the APK of
+// one request come from the same immutable directory. A later symlink swap
+// may still race a subsequent download; the Android client must then fail
+// integrity and retry rather than install mixed bytes.
+func (s *Server) resolvedReleaseDir() (string, error) {
 	if s.releaseDir == "" {
 		return "", huma.Error404NotFound("app releases are not configured on this server")
 	}
-	return filepath.Join(s.releaseDir, apkFilename), nil
+	info, err := os.Lstat(s.releaseDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", huma.Error404NotFound("app releases are not configured on this server")
+		}
+		return "", huma.Error500InternalServerError("cannot read the published release")
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return s.releaseDir, nil
+	}
+	target, err := filepath.EvalSymlinks(s.releaseDir)
+	if err != nil {
+		return "", huma.Error500InternalServerError("cannot read the published release")
+	}
+	return target, nil
+}
+
+func isNotFound(err error) bool {
+	var humaErr huma.StatusError
+	return errors.As(err, &humaErr) && humaErr.GetStatus() == http.StatusNotFound
 }
 
 // readRelease describes the published APK. A missing release is reported as
 // "none available" rather than an error: a server that has never had an APK
 // uploaded is a normal state, and the client should simply not offer an update.
 func (s *Server) readRelease() (*AppRelease, error) {
-	if s.releaseDir == "" {
-		return &AppRelease{Available: false}, nil
+	dir, err := s.resolvedReleaseDir()
+	if err != nil {
+		if isNotFound(err) {
+			return &AppRelease{Available: false}, nil
+		}
+		return nil, err
 	}
-	path := filepath.Join(s.releaseDir, apkFilename)
+	path := filepath.Join(dir, apkFilename)
 	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -154,7 +180,7 @@ func (s *Server) readRelease() (*AppRelease, error) {
 		return nil, huma.Error500InternalServerError("cannot read the published release")
 	}
 
-	version, err := s.readVersionCode()
+	version, err := readVersionCode(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +197,7 @@ func (s *Server) readRelease() (*AppRelease, error) {
 		SHA256:      sum,
 		DownloadURL: "/api/v1/app/release/apk",
 	}
-	if err := applySidecar(release, filepath.Join(s.releaseDir, sidecarFilename)); err != nil {
+	if err := applySidecar(release, filepath.Join(dir, sidecarFilename)); err != nil {
 		slog.Error("tv release sidecar is present but unusable; serving unsigned metadata", "error", err)
 	}
 	return release, nil
@@ -247,8 +273,8 @@ func applySidecar(release *AppRelease, path string) error {
 // readVersionCode reads the published version code. It is kept in a plain file
 // beside the APK so publishing is a copy and a write, with no build tooling on
 // the server.
-func (s *Server) readVersionCode() (int, error) {
-	raw, err := os.ReadFile(filepath.Join(s.releaseDir, versionFilename))
+func readVersionCode(dir string) (int, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, versionFilename))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return 0, nil
