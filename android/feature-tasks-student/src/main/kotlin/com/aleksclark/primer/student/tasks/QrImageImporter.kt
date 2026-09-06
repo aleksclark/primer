@@ -11,7 +11,7 @@ import java.io.InputStream
  * decoded bitmap. The bounds pass is important: Photo Picker can return images
  * from outside the app with dimensions much larger than a QR needs.
  */
-class QrImageImporter(private val source: QrImageSource) {
+class QrImageImporter internal constructor(private val source: QrImageSource) {
     constructor(resolver: ContentResolver) : this(QrImageSource { uri -> uri?.let(resolver::openInputStream) })
 
     fun decode(uri: Uri?): Result = decodeFromSource { source.open(uri) }
