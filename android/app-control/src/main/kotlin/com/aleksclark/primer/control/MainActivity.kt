@@ -137,7 +137,9 @@ private fun ControlAppScreen(
                         message = state.message,
                         onOpen = model::openStudent,
                         onCreate = { model.update { it.copy(selectedStudent = null, studentName = "", pairing = null, creatingStudent = true) } },
-                        onRetry = model::loadStudents,
+                        onRetry = { model.loadStudents() },
+                        hasMore = state.studentsHasMore,
+                        onMore = { model.loadStudents(reset = false) },
                     )
                 } else {
                     StudentDetailScreen(
@@ -175,6 +177,8 @@ private fun ControlAppScreen(
                         onPublish = model::publish,
                         onArchive = model::retire,
                         onEdit = { task -> model.update { it.copy(editingTask = task, taskTitle = task.title, taskInstructions = task.instructions) } },
+                        hasMore = state.tasksHasMore,
+                        onMore = { model.loadTasks(reset = false) },
                     )
                 }
             }
@@ -204,6 +208,8 @@ private fun ControlAppScreen(
                         onCreate = { model.update { it.copy(creatingSchedule = true, editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "") } },
                         onEdit = { schedule -> model.update { it.copy(editingSchedule = schedule, scheduleStudentId = schedule.studentId, scheduleTaskId = schedule.revisionId, creatingSchedule = false) } },
                         onCancel = model::cancelSchedule,
+                        hasMore = state.schedulesHasMore,
+                        onMore = { model.loadSchedules(reset = false) },
                     )
                 }
             }
@@ -217,6 +223,8 @@ private fun ControlAppScreen(
                         onReject = { item -> model.update { it.copy(selectedOccurrence = item) }; model.decide(false) },
                         onRetry = { item -> model.update { it.copy(selectedOccurrence = item) }; model.retryOccurrence() },
                         onOpen = { item -> model.update { it.copy(selectedOccurrence = item) } },
+                        hasMore = state.occurrencesHasMore,
+                        onMore = { model.loadOccurrences(reset = false) },
                     )
                 } else {
                     OccurrenceDetailScreen(

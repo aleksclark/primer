@@ -31,6 +31,27 @@ scheduled linear stream with a fully locked player) is a later phase.
 Keeping the interesting logic in `core` is deliberate: the grant lifecycle,
 heartbeat cadence, and watch-once rules are tested without an emulator.
 
+## Primer Control
+
+Unprivileged parent app (`:app-control`, package `com.aleksclark.primer.control`).
+It is not a device owner. Screens talk only through `:tasks-client` with a parent JWT.
+
+```bash
+cd android
+PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+PRIMER_API_ORIGIN=https://api.primerlms.com/tasks/api \
+./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
+```
+
+External Clerk setup is parent-owned. This tree does not claim live JWT azp or
+physical acceptance. Needed configuration, without changing canonical auth here:
+
+- Register Android application ID `com.aleksclark.primer.control` in the Clerk dashboard.
+- Publishable key only in the APK (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secrets stay out of the binary.
+- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control uses official password `SignIn.create` then `Clerk.setActive`.
+- Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
+
+
 ## Build
 
 Requires JDK 17 (AGP 8.7 rejects newer JDKs) and the Android SDK.

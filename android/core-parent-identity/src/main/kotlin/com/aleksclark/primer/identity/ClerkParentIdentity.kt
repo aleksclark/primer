@@ -57,10 +57,15 @@ class ClerkParentIdentity(
     override suspend fun signIn(email: String, password: String): Boolean {
         if (!configured) return false
         ready()
-        return when (
+        val signIn = when (
             val result = SignIn.create(SignIn.CreateParams.Strategy.Password(identifier = email, password = password))
         ) {
-            is ClerkResult.Success -> true
+            is ClerkResult.Success -> result.value
+            is ClerkResult.Failure -> return false
+        }
+        val sessionId = signIn.createdSessionId ?: return Clerk.session != null
+        return when (Clerk.setActive(sessionId)) {
+            is ClerkResult.Success -> Clerk.session != null
             is ClerkResult.Failure -> false
         }
     }
