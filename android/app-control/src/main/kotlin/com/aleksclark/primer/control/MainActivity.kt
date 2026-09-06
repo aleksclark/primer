@@ -58,7 +58,12 @@ class MainActivity : ComponentActivity() {
                     factory = object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                            return ControlViewModel(app.identity, apiBase) as T
+                            return ControlViewModel(
+                                identity = app.identity,
+                                apiBase = apiBase,
+                                updater = app.updater,
+                                downloadDir = cacheDir,
+                            ) as T
                         }
                     },
                 )
@@ -67,6 +72,7 @@ class MainActivity : ComponentActivity() {
                     apiBase = apiBase,
                     clerkConfigured = BuildConfig.CLERK_PUBLISHABLE_KEY.isNotBlank(),
                     originConfigured = apiBase != null,
+                    startSettings = { intent -> startActivity(intent) },
                 )
             }
         }
@@ -79,6 +85,7 @@ private fun ControlAppScreen(
     apiBase: String?,
     clerkConfigured: Boolean,
     originConfigured: Boolean,
+    startSettings: (android.content.Intent) -> Unit = {},
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -266,6 +273,10 @@ private fun ControlAppScreen(
                         selfUpdate = state.selfUpdate,
                         onIssue = model::issueEnrollment,
                         onOpen = model::openDevice,
+                        onInstallUpdate = model::installControlUpdate,
+                        onOpenInstallSettings = {
+                            model.openInstallSettings()?.let(startSettings)
+                        },
                     )
                 } else {
                     DeviceDetailScreen(

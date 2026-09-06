@@ -1,5 +1,6 @@
 package com.aleksclark.primer.control.device
 
+import com.aleksclark.primer.updates.SelfUpdateEligibility
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,44 +8,76 @@ import org.junit.Test
 
 class ControlSelfUpdateTest {
     @Test
-    fun presentationMapsAdapterUnattendedWithoutDuplicatingValidators() {
+    fun userActionRequiredMeansNotUnattended() {
         val plan = ControlSelfUpdate.present(
-            AdapterEligibility(unattendedEligible = true, userActionRequired = false, reason = "Android may replace this package without a prompt"),
+            SelfUpdateEligibility(
+                unattendedEligible = false,
+                userActionRequired = true,
+                reason = "Android requires a system install confirmation",
+                mustHandlePendingUserAction = true,
+            ),
+            unknownSourcesAllowed = true,
+        )
+        assertTrue(plan.confirmationRequired)
+        assertTrue(plan.mustHandlePendingUserAction)
+        assertFalse(plan.unattendedEligible)
+        assertEquals(
+            ControlSelfUpdatePhase.EligibleConfirm,
+            ControlSelfUpdate.phase(plan, pendingConfirmation = false, sessionExists = false, failed = false),
+        )
+    }
+
+    @Test
+    fun unattendedStillRequiresPendingUserActionHandler() {
+        val plan = ControlSelfUpdate.present(
+            SelfUpdateEligibility(
+                unattendedEligible = true,
+                userActionRequired = false,
+                reason = "Android may replace this package without a prompt",
+                mustHandlePendingUserAction = true,
+            ),
             unknownSourcesAllowed = true,
         )
         assertTrue(plan.unattendedEligible)
-        assertFalse(plan.confirmationRequired)
-        assertEquals(ControlSelfUpdatePhase.Held, ControlSelfUpdate.phase(plan, productionTrusted = false))
-        assertEquals(ControlSelfUpdatePhase.EligibleUnattended, ControlSelfUpdate.phase(plan, productionTrusted = true))
+        assertTrue(plan.mustHandlePendingUserAction)
+        assertTrue(plan.notificationFallback)
+        assertEquals(
+            ControlSelfUpdatePhase.EligibleUnattended,
+            ControlSelfUpdate.phase(plan, pendingConfirmation = false, sessionExists = true, failed = false),
+        )
     }
 
     @Test
-    fun confirmationAndSettingsFallbacksComeFromAdapterUserAction() {
-        val confirm = ControlSelfUpdate.present(
-            AdapterEligibility(unattendedEligible = false, userActionRequired = true, reason = "Android requires a system install confirmation"),
-            unknownSourcesAllowed = true,
-        )
-        assertTrue(confirm.confirmationRequired)
-        assertTrue(confirm.notificationFallback)
-        assertFalse(confirm.settingsRequired)
-        assertEquals(ControlSelfUpdatePhase.EligibleConfirm, ControlSelfUpdate.phase(confirm, true))
-
-        val settings = ControlSelfUpdate.present(
-            AdapterEligibility(unattendedEligible = false, userActionRequired = true, reason = "Unknown-source installs are not permitted; system confirmation is required"),
+    fun settingsFallbackWhenUnknownSourcesDisallowed() {
+        val plan = ControlSelfUpdate.present(
+            SelfUpdateEligibility(
+                unattendedEligible = false,
+                userActionRequired = true,
+                reason = "Unknown-source installs are not permitted; system confirmation is required",
+                mustHandlePendingUserAction = true,
+            ),
             unknownSourcesAllowed = false,
         )
-        assertTrue(settings.settingsRequired)
-        assertEquals(ControlSelfUpdatePhase.NeedsSettings, ControlSelfUpdate.phase(settings, true))
+        assertTrue(plan.settingsRequired)
+        assertEquals(
+            ControlSelfUpdatePhase.NeedsSettings,
+            ControlSelfUpdate.phase(plan, pendingConfirmation = false, sessionExists = false, failed = false),
+        )
     }
 
     @Test
-    fun pendingConfirmationWithoutSessionMustNotWedge() {
-        assertFalse(ControlSelfUpdate.pendingConfirmationStillLive(pendingConfirmation = true, sessionExists = false))
-        assertTrue(ControlSelfUpdate.pendingConfirmationStillLive(pendingConfirmation = true, sessionExists = true))
-    }
-
-    @Test
-    fun productionPhaseStaysHeldUntilSharedAdapterIsTrusted() {
-        assertEquals(ControlSelfUpdatePhase.Held, ControlSelfUpdate.phase(null, productionTrusted = false))
+    fun pendingConfirmationWithoutSessionFailsClosed() {
+        val plan = ControlSelfUpdate.present(
+            SelfUpdateEligibility(false, true, "confirm", true),
+            unknownSourcesAllowed = true,
+        )
+        assertEquals(
+            ControlSelfUpdatePhase.Failed,
+            ControlSelfUpdate.phase(plan, pendingConfirmation = true, sessionExists = false, failed = false),
+        )
+        assertEquals(
+            ControlSelfUpdatePhase.WaitingConfirmation,
+            ControlSelfUpdate.phase(plan, pendingConfirmation = true, sessionExists = true, failed = false),
+        )
     }
 }

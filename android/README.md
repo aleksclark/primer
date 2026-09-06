@@ -35,6 +35,8 @@ heartbeat cadence, and watch-once rules are tested without an emulator.
 
 Unprivileged parent app (`:app-control`, package `com.aleksclark.primer.control`).
 It is not a device owner. Screens talk only through `:tasks-client` with a parent JWT.
+**minSdk is 28** so Control can consume `:core-updates` `SelfUpdateSession`. There is no
+accepted API 26 Control deployment; do not `overrideLibrary` or duplicate the installer.
 
 ```bash
 cd android
@@ -52,26 +54,22 @@ physical acceptance. Needed configuration, without changing canonical auth here:
 - Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set. Live Clerk JWT claims are unmeasured here.
 - Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
 
-### Control self-update (held)
+### Control self-update
 
-Control is unprivileged and must not become a device owner. Student's
-`ManagedUpdater` is device-owner silent install; do not copy it. A's
-`SelfUpdateSession` candidate (03707623) is **not** production-trusted: it
-currently trusts caller eligibility instead of validating the actual APK hash,
-signer, and version, and `pendingConfirmation` can wedge when the installer
-session is missing. Do not copy those validators or treat a filename as proof.
+Control consumes `:core-updates` `SelfUpdateSession.install(File, SignedManifest)`,
+`handleResult(Intent, onUserAction)`, and `reconcile()`. The adapter snapshots APK
+bytes (`copyVerified`), checks device ABIs, and compares candidate targetSdk to the
+running OS floor. Callers retain the download temp file and delete it in `finally`.
 
-`SignedManifestCodec` now decodes the generated OpenAPI `ReleaseManifest` wire
-(`android/core-updates/build/generated`, gitignored) rather than a handwritten
-Go-field copy. `client.ReleaseManifest` remains the Tasks façade alias.
-Control UI maps [AdapterEligibility] from the shared adapter and does not
-duplicate APK/hash/signer/ABI validators. Production PackageInstaller stays
-held. Unattended is allowed only for ordinary Android eligibility; otherwise
-confirmation, settings, or a notification fallback. Not every Control update is
-a prompted install. Control minSdk 26 does not depend on `:core-updates` (28).
+`userActionRequired` means `!unattendedEligible`. `mustHandlePendingUserAction` is a
+separate mandatory handler even when unattended is eligible. Control starts the
+system confirmation activity and posts a notification fallback. Missing
+`PRIMER_RELEASE_TRUST_ROOT` / unsigned release metadata fails closed — there is no
+`productionTrusted` flag that authorizes unchecked bytes.
 
-TV `TvReleaseAdapter` must not copy unsigned outer fields into a verified
-manifest after checking an unrelated payload. That fix belongs in A's adapter.
+minSdk **28** is explicit on Control app/consumers. No `overrideLibrary`. No
+duplicate installer. Ed25519 at API 28 remains A's runtime gate; live install
+acceptance is not claimed.
 
 ### Exact Clerk identity acceptance (external; not the test issuer)
 
