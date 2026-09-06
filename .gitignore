@@ -14,6 +14,7 @@ bin/
 # content-ingest working artifacts (manifest + review stay tracked)
 curriculum/ingest-reports/
 tmp/
+.paseo-e2e/
 server/tmp/
 curriculum/ytdlp-archive.txt
 

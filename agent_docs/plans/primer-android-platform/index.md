@@ -9,13 +9,50 @@ A16 5G; parents manage it from Control. All three apps can be distributed outsid
 Google Play. Student updates silently on the certified handset; Control attempts
 supported unattended self-updates and otherwise requests system confirmation.
 
-**Status: Phase 1 implementation started; supervised device-owner qualification
-partially verified, not accepted as complete.** See the
-[physical-device evidence](../../../test-artifacts/android-student/device-owner-qualification.md)
-and [A16 runbook](../../runbooks/android-a16-provisioning.md). Student now has a
-signed DPC/launcher build, approved-app policy, bounded one-use recovery, and
-verified local-APK installation. Silent updates remain blocked by Play Protect
-review in the tested configuration; reset-time QR and full hardening are untested.
+**Status: implementation spans Phases 1–5; no full-plan acceptance is claimed.**
+See the [physical-device evidence](../../../test-artifacts/android-student/device-owner-qualification.md),
+[A16 runbook](../../runbooks/android-a16-provisioning.md), and
+[managed-emulator Tasks exploration](../../../test-artifacts/android-student/tasks-emulator-exploration.md).
+The physical A16 remains on qualification build 13. New native code is being
+integrated and tested separately; silent updates remain blocked by Play Protect
+for the tested configuration. The current [completion audit](completion-audit.md)
+records concrete Student/Control gaps, assigned remediation, and required closure
+evidence; passing component tests is not a completed native product loop.
+
+| Phase | Current implementation / evidence | Still open |
+|---|---|---|
+| 1 | Signed Student DPC/launcher, approved apps, bounded local recovery and reviewed APK replacement on A16 | Silent updates, reset-time QR, full hardening |
+| 2 | Shared `core-ui`, generated `tasks-client`, Student Tasks migration and Control target | Physical TV/mobile matrix, CameraX decoding, complete visual/connected promotion |
+| 3 | Native Control Tasks/auth code; selected-image Student → real API → parent **web** approval loop, warm-link isolation, reboot and revocation tested in emulator | Native Control/live Clerk and SDK runtime compatibility; canonical-producer replay |
+| 4 | Separate management credentials, typed API/policy/recovery contracts and native synchronization code | Reliability review and full public-API/device apply/readback acceptance |
+| 5 | Signed artifact publication/targets/receipts, API-28 verifier proof, Control adapter and isolated TV sidecar CLI checks | Prepared-install ownership/manual retry, real remote replacement/confirmation, live TV delivery and A16 silent gate |
+| 6 | Qualification diagnostics and provisional evidence | Canonical full regression, physical-device matrix and full-day/operations acceptance |
+
+### Coordinated producer merge boundary
+
+The original-roadmap lane owns canonical P3/P4 producer integration. Canonical
+`2383669e` already has immutable migrations `00001`–`00009`; P4 reserves `00010`/
+`00011`. **P4 lands first.** The four unmerged Android management migrations must
+be appended as `00012`–`00015` in their existing order, not overlaid on canonical
+names. Recreate only disposable local test databases; do not rewrite applied
+canonical ledgers. Any additional slots or merge-order change needs coordination.
+
+Canonical CP3 input `0e8cc6d6` / normalized digest `296b4e17…` was accepted only
+for isolated pre-merge coordination. Dedicated additive producer `7a83b074` /
+`535077f1…` preserves canonical `00001`–`00011` and appends management `00012`–
+`00015`; it remains provisional and is not merged into this native branch.
+Its assigned-workspace generated-client/public-process and focused race checks
+passed. Kotlin producer/facade work is separate; standalone compilation now
+passes, while constraint wiring and native consumer qualification remain open.
+
+P4 candidate `89f3a593` / `940992aa…` is independently BLOCKED for requirement-
+selection behavior. Do not adopt it or a newer unreviewed branch tip. Final
+reconciliation must use the eventual exact reviewed P4 successor and preserve
+capability/name fields, selected-requirement request semantics, workers,
+auth/admin/CSRF checks, DB abstraction, requirement envelopes and transactions.
+Never import either lane wholesale. SAME150's Kotlin/legacy-Android hold remains
+until the specific consolidated handoff; no full producer/native/CI/merge
+acceptance follows from the current provisional milestones.
 
 The planning-base inventory below was performed at `34a4f5c2` before implementation.
 It records historical starting points, not the status of the new qualification code.
