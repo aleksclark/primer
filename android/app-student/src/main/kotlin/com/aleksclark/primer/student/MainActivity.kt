@@ -63,22 +63,30 @@ open class MainActivity : ComponentActivity() {
     protected open val enforceKiosk = true
     private var lifecycleFailure by mutableStateOf<String?>(null)
     private var lockVerification: Job? = null
+    private var deepLink by mutableStateOf<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Recovery material must never appear in screenshots, recents thumbnails or recordings.
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        deepLink = intent?.data
         setContent {
             StudentTheme {
                 StudentScreen(
                     activity = this,
                     runtime = runtime,
                     lifecycleFailure = lifecycleFailure,
-                    deepLink = intent?.data,
+                    deepLink = deepLink,
                     onConfigured = { onParentSetupComplete() },
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        deepLink = intent.data
     }
     override fun onResume() {
         super.onResume()
