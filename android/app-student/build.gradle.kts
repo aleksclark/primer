@@ -47,8 +47,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    // One generated source, never a copied palette. Phase 2 moves consumption to core-ui.
-    sourceSets["main"].java.srcDir("../../design-system/generated")
 }
 kotlin { jvmToolchain(17) }
 
@@ -69,6 +67,7 @@ tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.con
 }
 
 dependencies {
+    implementation(project(":core-ui"))
     implementation(project(":core-device-policy"))
     implementation(project(":core-updates"))
     implementation(libs.androidx.core.ktx)

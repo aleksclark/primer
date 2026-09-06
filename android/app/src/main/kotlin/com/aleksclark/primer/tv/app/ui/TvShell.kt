@@ -86,7 +86,7 @@ fun TvShell(
         if (!viewModel.back()) onExit()
     }
 
-    PrimerTvTheme(formFactor = formFactor) {
+    PrimerTvTheme(formFactor = formFactor, darkTheme = settings.darkTheme) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -195,6 +195,7 @@ fun TvShell(
                                         when (event) {
                                             SettingsEvent.CheckForUpdate -> viewModel.checkForUpdate()
                                             SettingsEvent.InstallUpdate -> viewModel.installUpdate()
+                                            is SettingsEvent.SetDarkTheme -> viewModel.setDarkTheme(event.darkTheme)
                                             SettingsEvent.Unpair -> viewModel.unpair()
                                         }
                                     },

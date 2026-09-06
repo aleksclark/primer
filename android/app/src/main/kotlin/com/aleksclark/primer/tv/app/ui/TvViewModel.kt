@@ -221,6 +221,10 @@ class TvViewModel(
         }
     }
 
+    fun setDarkTheme(darkTheme: Boolean) {
+        scope.launch { container.settingsStore.setDarkTheme(darkTheme) }
+    }
+
     fun unpair() {
         scope.launch {
             // Keep the server address on the form so re-pairing is one field.

@@ -22,6 +22,7 @@ dependencyResolutionManagement {
 rootProject.name = "primer-tv"
 
 include(":core")
+include(":core-ui")
 include(":app")
 include(":app-student", ":core-device-policy", ":core-updates")
 include(":tasks-client")
