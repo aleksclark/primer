@@ -29,7 +29,7 @@ IDENTITY_COVER_MIN := 80
 	identity-e2e identity-live-stytch dev-db-identity migrate-identity \
 	tasks-client tasks-web tasks-typecheck tasks-lint \
 	tasks-check tasks-up tasks-dev tasks-status tasks-endpoints tasks-logs tasks-down \
-	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients \
+	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients tasks-agent-compat \
 	tasks-android tasks-e2e tasks-browser-test tasks-proof \
 	tasks-host-up tasks-host-down tasks-host-proof
 
@@ -525,6 +525,9 @@ tasks-destroy:
 
 tasks-build:
 	$(MAKE) -C primer-tasks build
+
+tasks-agent-compat:
+	$(MAKE) -C primer-tasks tasks-agent-compat
 
 tasks-test:
 	$(MAKE) -C primer-tasks test

@@ -79,6 +79,17 @@ type Checklist struct {
 	Items []ChecklistItem `json:"items" nullable:"false"`
 }
 
+type AgentConversation struct {
+	ID            string    `json:"id"`
+	TenantID      string    `json:"tenantId"`
+	PolicyVersion string    `json:"policyVersion"`
+	CreatedAt     time.Time `json:"createdAt" format:"date-time"`
+}
+type AgentConversationOutput struct {
+	ResponseHeaders
+	Body AgentConversation
+}
+
 type AuthLoginInput struct {
 	ReturnTo  string `query:"return_to"`
 	Principal string `query:"principal"`
@@ -311,7 +322,13 @@ func (s *Server) humaAPI() huma.API {
 		return &ChecklistOutput{ResponseHeaders: headers, Body: body}, err
 	})
 
+	register(api, huma.Operation{OperationID: "agent-conversation-create", Method: http.MethodPost, Path: "/agent/conversations", DefaultStatus: http.StatusCreated, Errors: []int{401, 500}}, func(ctx context.Context, _ *struct{}) (*AgentConversationOutput, error) {
+		body, headers, err := legacyJSON[AgentConversation](ctx, s.requireParent(s.createAgentConversation), nil)
+		return &AgentConversationOutput{ResponseHeaders: headers, Body: body}, err
+	})
 	s.registerPhase2(api)
+	// WebSocket uses the same production router, with its own generated protocol.
+	r.Handle("/ws", http.HandlerFunc(s.agentWS))
 	return api
 }
 

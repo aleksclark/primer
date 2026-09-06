@@ -4,7 +4,7 @@
 DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
-	build test cover openapi clients tasks-client tasks-typecheck tasks-lint \
+	build test cover openapi agent-protocol clients tasks-client tasks-agent-compat tasks-typecheck tasks-lint \
 	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof \
 	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
 
@@ -44,12 +44,20 @@ openapi:
 	mkdir -p build
 	go run ./cmd/openapi-gen -out build/openapi.yaml
 
-clients: openapi
+agent-protocol:
+	go run ./cmd/agent-protocol-gen -out build/agent-protocol.schema.json
+
+clients: openapi agent-protocol
 	npm --prefix clients/typescript ci --no-audit --no-fund
 	npm --prefix clients/typescript run generate
 	node clients/kotlin/generate-client.mjs
 
 tasks-client: clients
+
+tasks-agent-compat: agent-protocol
+	@test "$(shell grep -F 'charm.land/fantasy v0.41.1' go.mod | wc -l)" = "1"
+	@test "$$(grep -R -n 'fantasy/internal\|server/internal/agent\|internal/maf' internal/agent cmd/agent-protocol-gen 2>/dev/null || true)" = ""
+	@go test ./internal/agent/... ./internal/jobs/... ./internal/domain/parent
 
 tasks-typecheck: clients
 	npm --prefix web ci --no-audit --no-fund

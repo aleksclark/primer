@@ -10,6 +10,7 @@ const forbidden = [
   /\/api\//,
   /localStorage/,
   /sessionStorage/,
+  /\bWebSocket\b/,
 ];
 
 async function walk(directory) {

@@ -12,7 +12,9 @@ export default defineConfig({
   use: {
     baseURL,
     ...devices["Desktop Chrome"],
-    trace: "retain-on-failure",
+    // Authenticated qualification can opt out of traces entirely: traces may
+    // contain cookies/WS input protocols. This changes no behavioral assertion.
+    trace: process.env.PRIMER_TASKS_E2E_NO_TRACE === "1" ? "off" : "retain-on-failure",
     screenshot: "only-on-failure",
     launchOptions: process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : undefined,
   },

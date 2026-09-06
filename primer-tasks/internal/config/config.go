@@ -38,8 +38,11 @@ func (c Config) Validate() error {
 	if c.BasePath != "" && c.BasePath != "/tasks" {
 		return fmt.Errorf("TASKS_BASE_PATH must be empty or /tasks")
 	}
-	if c.ModelProvider != "" && c.ModelProvider != "disabled" {
-		return fmt.Errorf("TASKS_MODEL_PROVIDER must be disabled in Phase 2")
+	if c.ModelProvider != "" && c.ModelProvider != "disabled" && c.ModelProvider != "scripted" && c.ModelProvider != "bedrock" && c.ModelProvider != "openrouter" {
+		return fmt.Errorf("TASKS_MODEL_PROVIDER must be disabled, scripted, bedrock, or openrouter")
+	}
+	if c.Env == "production" && (c.ModelProvider == "scripted" || os.Getenv("TASKS_AGENT_MODE") == "scripted") {
+		return fmt.Errorf("scripted model provider is forbidden in production")
 	}
 	if c.AuthMode == "clerk" {
 		for name, raw := range map[string]string{"TASKS_CLERK_ISSUER": c.ClerkIssuer, "TASKS_CLERK_JWKS_URL": c.ClerkJWKSURL, "TASKS_PUBLIC_ORIGIN": c.PublicOrigin} {

@@ -27,7 +27,7 @@ jobs:
   tasks:
     name: tasks-module
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +68,13 @@ jobs:
       - name: coverage gate
         run: make tasks-cover
 
+      - name: Fantasy compatibility and public import audit
+        run: make tasks-agent-compat
+
+      - name: parent agent race and lifecycle regression (10 repeats)
+        working-directory: primer-tasks
+        run: go test -race ./internal/agent/... ./internal/jobs/... ./internal/api/... -count=10 -timeout=40m
+
       - name: generated clients
         run: make tasks-clients
 
@@ -89,4 +96,17 @@ jobs:
       - name: live host-stack Playwright
         run: |
           set +m
-          make tasks-e2e
+          chrome_executable="$(cd primer-tasks/web && node -e 'const { chromium } = require("@playwright/test"); console.log(chromium.executablePath())')"
+          if [[ -z "$chrome_executable" || ! -x "$chrome_executable" ]]; then
+            echo "Full Playwright Chromium executable is missing or not executable" >&2
+            exit 1
+          fi
+          case "$chrome_executable" in
+            *headless-shell*|*headless_shell*)
+              echo "Full Chromium is required; headless-shell is not permitted" >&2
+              exit 1
+              ;;
+          esac
+          "$chrome_executable" --version
+          CHROME_EXECUTABLE="$chrome_executable" PRIMER_TASKS_E2E_NO_TRACE=1 \
+            TASKS_MODEL_PROVIDER=scripted TASKS_AGENT_MODE=scripted make tasks-e2e

@@ -35,29 +35,40 @@ owned_leader() {
   [[ "$pgid" == "$pid" && "$sid" == "$pid" ]]
 }
 
+session_members() {
+  # Air gives its child a separate process group, but keeps it in our session.
+  # Group-only termination can leave that old server serving the same port.
+  ps -eo pid=,sid=,stat= | awk -v sid="$1" '$2 == sid && $3 !~ /^Z/ {print $1}'
+}
+
+signal_session() {
+  local sid=$1 signal=$2
+  local -a members=()
+  mapfile -t members < <(session_members "$sid")
+  if ((${#members[@]})); then kill -"$signal" -- "${members[@]}" 2>/dev/null || true; fi
+}
+
 stop_leader() {
   local file=$1
   [[ -f "$file" ]] || return 0
-  local pid
+  local pid i
   pid=$(tr -d '[:space:]' <"$file" || true)
   rm -f "$file"
   [[ "$pid" =~ ^[0-9]+$ ]] || return 0
-  if owned_leader "$pid"; then
-    kill -TERM -"$pid" 2>/dev/null || true
-    local i
-    for i in $(seq 1 20); do
-      kill -0 "$pid" 2>/dev/null || return 0
-      sleep 0.1
-    done
-    kill -KILL -"$pid" 2>/dev/null || true
-    for i in $(seq 1 10); do
-      kill -0 "$pid" 2>/dev/null || return 0
-      sleep 0.1
-    done
-  else
-    # Stale or foreign pidfile: never signal the caller's process group.
-    return 0
-  fi
+  # Prove ownership before signalling any member of this session.
+  owned_leader "$pid" || return 0
+  signal_session "$pid" TERM
+  for i in $(seq 1 20); do
+    [[ -z "$(session_members "$pid")" ]] && return 0
+    sleep 0.1
+  done
+  signal_session "$pid" KILL
+  for i in $(seq 1 10); do
+    [[ -z "$(session_members "$pid")" ]] && return 0
+    sleep 0.1
+  done
+  echo "host-stack: session $pid did not stop" >&2
+  return 1
 }
 
 down() {
@@ -65,7 +76,7 @@ down() {
   stop_leader "$STATE_DIR/issuer.pid"
   stop_leader "$STATE_DIR/web.pid"
   docker rm -f "$pg_name" "$issuer_pg_name" >/dev/null 2>&1 || true
-  rm -f "$STATE_DIR/endpoints.env"
+  rm -f "$STATE_DIR/endpoints.env" "$STATE_DIR/api.env"
 }
 
 wait_http() {
@@ -146,17 +157,16 @@ up() {
   export TASKS_TEST_ISSUER_URL="http://127.0.0.1:${web_port}/issuer"
   export TASKS_SESSION_SECRET="primer-tasks-host-session-secret-change-me"
   export TASKS_MODEL_PROVIDER="${TASKS_MODEL_PROVIDER:-disabled}"
+  export TASKS_AGENT_MODE="${TASKS_AGENT_MODE:-$TASKS_MODEL_PROVIDER}"
+  export TASKS_AGENT_SCRIPTED_DELAY_MS="${TASKS_AGENT_SCRIPTED_DELAY_MS:-0}"
+  export TASKS_AGENT_ACTIVE_TOOLS="${TASKS_AGENT_ACTIVE_TOOLS:-list_students,list_tasks,get_task,draft_task,update_task,publish_task,preview_action,confirm_action,list_schedules,create_schedule,update_schedule,list_occurrences}"
   export TASKS_SCHEDULE_HORIZON_DAYS="${TASKS_SCHEDULE_HORIZON_DAYS:-365}"
   export DEV_API_PROXY_TARGET="http://127.0.0.1:${api_port}"
   export DEV_ISSUER_PROXY_TARGET="http://127.0.0.1:${issuer_port}"
   export DEV_SERVER_HOST=127.0.0.1
   export DEV_SERVER_PORT=$web_port
   start_session "$STATE_DIR/issuer.pid" "$STATE_DIR/issuer.log" bash -c "cd \"$ROOT\" && exec go run ./cmd/tasks-test-issuer"
-  local api_cmd='exec go run ./cmd/tasks-server'
-  if command -v air >/dev/null 2>&1; then
-    api_cmd='exec air -c .air.host.toml'
-  fi
-  start_session "$STATE_DIR/api.pid" "$STATE_DIR/api.log" bash -c "cd \"$ROOT\" && $api_cmd"
+  start_api
   start_session "$STATE_DIR/web.pid" "$STATE_DIR/web.log" bash -c "cd \"$ROOT\" && mkdir -p build && go run ./cmd/openapi-gen -out build/openapi.yaml >/dev/null && cd web && npm ci --no-audit --no-fund >/dev/null && npm --prefix \"$ROOT/clients/typescript\" ci --no-audit --no-fund >/dev/null && npm run generate:client >/dev/null && exec npm run dev -- --host 127.0.0.1 --port \"$web_port\" --strictPort"
   wait_http "http://127.0.0.1:${issuer_port}/health"
   wait_http "http://127.0.0.1:${api_port}/health"
@@ -166,14 +176,63 @@ PRIMER_TASKS_BASE_URL=http://127.0.0.1:${web_port}/
 PRIMER_TASKS_API_URL=http://127.0.0.1:${api_port}/
 PRIMER_TASKS_ISSUER_URL=http://127.0.0.1:${issuer_port}/
 EOF
+  save_api_env
   echo "host-stack: web http://127.0.0.1:${web_port}/"
   echo "host-stack: api http://127.0.0.1:${api_port}/"
   echo "host-stack: issuer http://127.0.0.1:${issuer_port}/"
 }
 
+start_api() {
+  local api_cmd='exec go run ./cmd/tasks-server'
+  if command -v air >/dev/null 2>&1; then
+    api_cmd='exec air -c .air.host.toml'
+  fi
+  start_session "$STATE_DIR/api.pid" "$STATE_DIR/api.log" bash -c "cd \"$ROOT\" && $api_cmd"
+}
+
+load_api_env() {
+  [[ -f "$STATE_DIR/api.env" ]] || { echo "host-stack: api.env missing" >&2; return 1; }
+  set -a
+  # shellcheck disable=SC1091
+  source "$STATE_DIR/api.env"
+  set +a
+}
+
+save_api_env() {
+  (umask 077
+    local key
+    for key in TASKS_ENV TASKS_AUTH_MODE TASKS_HOST TASKS_PORT TASKS_DATABASE_URL TASKS_ISSUER_URL TASKS_PUBLIC_ISSUER_URL TASKS_PUBLIC_ORIGIN TASKS_OIDC_REDIRECT_URL TASKS_SESSION_SECRET TASKS_MODEL_PROVIDER TASKS_AGENT_MODE TASKS_AGENT_SCRIPTED_DELAY_MS TASKS_AGENT_ACTIVE_TOOLS TASKS_SCHEDULE_HORIZON_DAYS; do
+      printf '%s=%q\n' "$key" "${!key}"
+    done >"$STATE_DIR/api.env"
+  )
+}
+
+restart_api() {
+  local key pid
+  local -A overrides=()
+  for key in TASKS_MODEL_PROVIDER TASKS_AGENT_MODE TASKS_AGENT_SCRIPTED_DELAY_MS TASKS_AGENT_ACTIVE_TOOLS; do
+    if [[ -v "$key" ]]; then overrides[$key]=${!key}; fi
+  done
+  load_api_env
+  for key in "${!overrides[@]}"; do export "$key=${overrides[$key]}"; done
+  if [[ -v overrides[TASKS_MODEL_PROVIDER] && ! -v overrides[TASKS_AGENT_MODE] ]]; then export TASKS_AGENT_MODE=$TASKS_MODEL_PROVIDER; fi
+  if [[ "$ACTION" == crash-api ]]; then
+    pid=$(tr -d '[:space:]' <"$STATE_DIR/api.pid")
+    owned_leader "$pid" || { echo 'host-stack: refusing to kill a foreign process' >&2; return 1; }
+    signal_session "$pid" KILL
+    rm -f "$STATE_DIR/api.pid"
+  else
+    stop_leader "$STATE_DIR/api.pid"
+  fi
+  save_api_env
+  start_api
+  wait_http "http://127.0.0.1:${TASKS_PORT}/health"
+}
+
 case "$ACTION" in
   up) up ;;
   down) down ;;
+  restart-api|crash-api) restart_api ;;
   endpoints)
     if [[ -f "$STATE_DIR/endpoints.env" ]]; then
       cat "$STATE_DIR/endpoints.env"
@@ -183,7 +242,7 @@ case "$ACTION" in
     fi
     ;;
   *)
-    echo "usage: $0 {up|down|endpoints}" >&2
+    echo "usage: $0 {up|down|restart-api|crash-api|endpoints}" >&2
     exit 2
     ;;
 esac

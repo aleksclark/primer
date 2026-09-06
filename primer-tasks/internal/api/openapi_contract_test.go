@@ -118,8 +118,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 42 {
-		t.Fatalf("registered %d operations, want 42", operationCount)
+	if operationCount != 43 {
+		t.Fatalf("registered %d operations, want 43", operationCount)
 	}
 	for path, item := range registered {
 		if item.Get == nil && item.Post == nil && item.Patch == nil && item.Delete == nil {

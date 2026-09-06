@@ -26,7 +26,8 @@ func TestValidateRejectsInvalidProductionConfiguration(t *testing.T) {
 		{"origin query", func(c *Config) { c.PublicOrigin = "https://api.primerlms.com?x=y" }},
 		{"development issuer", func(c *Config) { c.ClerkIssuer = "https://test-issuer" }},
 		{"bad base", func(c *Config) { c.BasePath = "//tasks" }},
-		{"model", func(c *Config) { c.ModelProvider = "bedrock" }},
+		{"unknown model", func(c *Config) { c.ModelProvider = "unknown" }},
+		{"scripted production", func(c *Config) { c.ModelProvider = "scripted" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,6 +71,26 @@ func TestLoadDefaultsAndClerk(t *testing.T) {
 		t.Fatal("Clerk release config mismatch")
 	}
 }
+func TestParentAgentProviderConfiguration(t *testing.T) {
+	for _, provider := range []string{"disabled", "bedrock", "openrouter"} {
+		c := validConfig()
+		c.ModelProvider = provider
+		if err := c.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := validConfig()
+	c.Env, c.ModelProvider = "test", "scripted"
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TASKS_AGENT_MODE", "scripted")
+	c = validConfig()
+	if c.Validate() == nil {
+		t.Fatal("scripted override bypassed production guard")
+	}
+}
+
 func TestDevelopmentOIDCCompatibility(t *testing.T) {
 	c := Config{Env: "development", DatabaseURL: "postgres://tasks@db/primer_tasks", AuthMode: "oidc", IssuerURL: "http://issuer", ClientID: "tasks", RedirectURL: "http://tasks/auth/callback"}
 	if err := c.Validate(); err != nil {
