@@ -64,33 +64,31 @@ object ManagementAuth {
 class ManagementAuthorization private constructor(
     private val generation: Long,
     val binding: ManagementBinding,
+    private val snapshot: () -> ManagementBinding?,
 ) {
     fun authorized(): Boolean {
-        val current = currentBinding
-        return generation == currentGeneration &&
-            current != null &&
-            current.token == binding.token &&
-            current.origin == binding.origin &&
-            current.deviceId == binding.deviceId &&
-            current.keyId == binding.keyId &&
-            current.token.isNotBlank()
+        if (generation != currentGeneration) return false
+        val live = snapshot()
+        return live != null &&
+            live.token == binding.token &&
+            live.origin == binding.origin &&
+            live.deviceId == binding.deviceId &&
+            live.keyId == binding.keyId &&
+            live.token.isNotBlank()
     }
 
     companion object {
         @Volatile private var currentGeneration = 0L
-        @Volatile private var currentBinding: ManagementBinding? = null
 
         @Synchronized
-        fun issue(binding: ManagementBinding): ManagementAuthorization {
-            currentGeneration += 1
-            currentBinding = binding
-            return ManagementAuthorization(currentGeneration, binding)
+        fun capture(binding: ManagementBinding, snapshot: () -> ManagementBinding?): ManagementAuthorization {
+            check(binding.token.isNotBlank()) { "Cannot authorize a blank management credential" }
+            return ManagementAuthorization(currentGeneration, binding, snapshot)
         }
 
         @Synchronized
         fun revoke() {
             currentGeneration += 1
-            currentBinding = null
         }
     }
 }

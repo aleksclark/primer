@@ -62,8 +62,9 @@ class ManagementSession(
     private val json: Json = Json { encodeDefaults = false; ignoreUnknownKeys = true },
     private val mutex: Mutex = Mutex(),
 ) {
-    suspend fun enroll(rawQr: String, replace: Boolean = false): ManagementSyncResult = mutex.withLock {
-        enrollLocked(rawQr, replace)
+    suspend fun enroll(rawQr: String, replace: Boolean = false): ManagementSyncResult {
+        if (replace) ManagementAuthorization.revoke()
+        return mutex.withLock { enrollLocked(rawQr, replace) }
     }
 
     suspend fun sync(): ManagementSyncResult = mutex.withLock { syncLocked() }
@@ -76,6 +77,7 @@ class ManagementSession(
         if (existing != null && existing.token.isNotBlank() && !replace) {
             return ManagementSyncResult("Management is already enrolled. Parent must explicitly replace this enrollment.")
         }
+        if (replace) ManagementAuthorization.revoke()
         val (publicKey, keyId) = credentials.publicEnrollment()
         val client = clientFactory(origin) { null }
         return try {
@@ -95,17 +97,17 @@ class ManagementSession(
                     ),
                 ),
             )
-            credentials.save(
-                ManagementBinding(
-                    token = result.token,
-                    origin = origin,
-                    deviceId = result.device.id,
-                    keyId = keyId,
-                ),
+            val binding = ManagementBinding(
+                token = result.token,
+                origin = origin,
+                deviceId = result.device.id,
+                keyId = keyId,
             )
-            val binding = credentials.read() ?: return ManagementSyncResult("Management enrollment did not persist.")
-            applyDesired(result.desired, elapsedMs(), boot(), binding)
+            credentials.save(binding)
+            val lease = ManagementAuthorization.capture(binding) { credentials.snapshot() }
+            applyDesired(result.desired, elapsedMs(), boot(), binding, lease)
         } catch (cancelled: CancellationException) {
+            ManagementAuthorization.revoke()
             throw cancelled
         } catch (error: TasksHttpException) {
             ManagementSyncResult(
@@ -126,13 +128,15 @@ class ManagementSession(
         }
         val requestElapsed = elapsedMs()
         val requestBoot = boot()
+        val lease = ManagementAuthorization.capture(binding) { credentials.snapshot() }
         val client = clientFactory(binding.origin) { binding.token }
         return try {
             val flush = flushOutbox(binding)
-            val desired = applyDesired(client.managementDeviceDesired(), requestElapsed, requestBoot, binding)
+            val desired = applyDesired(client.managementDeviceDesired(), requestElapsed, requestBoot, binding, lease)
             val retryable = flush.retryable || desired.retryable || outbox.hasRetryable(binding.origin, binding.deviceId)
             if (retryable) desired.copy(retryable = true) else desired
         } catch (cancelled: CancellationException) {
+            ManagementAuthorization.revoke()
             throw cancelled
         } catch (error: TasksHttpException) {
             authFailure(binding, error)
@@ -159,6 +163,7 @@ class ManagementSession(
         requestElapsedMs: Long,
         requestBoot: Int,
         requestBinding: ManagementBinding,
+        lease: ManagementAuthorization,
     ): ManagementSyncResult {
         val binding = requireLiveBinding(requestBinding)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
@@ -201,7 +206,7 @@ class ManagementSession(
         val reports = flushOutbox(boundForReport)
         val boundForReleases = requireLiveBinding(boundForReport)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
-        applyReleases(desired.releaseTargets, boundForReleases)
+        applyReleases(desired.releaseTargets, boundForReleases, lease)
         val receipts = flushOutbox(boundForReleases)
         val retryable = reports.retryable || receipts.retryable || outbox.hasRetryable(boundForReleases.origin, boundForReleases.deviceId)
         val dead = outbox.hasDeadLetter(binding.origin, binding.deviceId)
@@ -374,7 +379,7 @@ class ManagementSession(
         return ManagementSyncResult("ok", retryable = retryable || outbox.hasRetryable(binding.origin, binding.deviceId))
     }
 
-    private suspend fun applyReleases(targets: List<ReleaseTarget>, binding: ManagementBinding) {
+    private suspend fun applyReleases(targets: List<ReleaseTarget>, binding: ManagementBinding, lease: ManagementAuthorization) {
         val sink = releaseSink ?: return
         for (target in targets) {
             val liveStart = requireLiveBinding(binding) ?: return
@@ -441,11 +446,11 @@ class ManagementSession(
                     continue
                 }
                 enqueueReceipt(liveBeforeInstall, target, "installing", sink.installedVersion(target.packageName), null)
-                val generation = ManagementAuthorization.issue(liveBeforeInstall)
+                if (!lease.authorized()) error("Management enrollment changed before install")
                 val outcome = sink.installVerified(
                     verified,
                     manifest,
-                    { generation.authorized() },
+                    { lease.authorized() },
                     approvedAtInstall,
                     target.id,
                     target.targetVersion,
