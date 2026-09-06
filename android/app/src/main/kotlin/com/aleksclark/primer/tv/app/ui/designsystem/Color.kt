@@ -3,6 +3,7 @@ package com.aleksclark.primer.tv.app.ui.designsystem
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.aleksclark.primer.ui.tokens.PrimerTokens
 
 /**
  * Semantic color roles for Primer TV, mapped from System C ([PrimerTokens]).

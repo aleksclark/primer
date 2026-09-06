@@ -221,6 +221,10 @@ class TvViewModel(
         }
     }
 
+    fun setDarkTheme(darkTheme: Boolean) {
+        scope.launch { container.settingsStore.setDarkTheme(darkTheme) }
+    }
+
     fun unpair() {
         scope.launch {
             // Keep the server address on the form so re-pairing is one field.
@@ -656,6 +660,7 @@ class TvViewModel(
                             "Version ${next.release.versionCode} is available.",
                         )
                         UpdateState.UpToDate -> showStatus("This device is up to date.")
+                        is UpdateState.Failed -> showStatus(next.message, isError = true)
                         else -> Unit
                     }
                 }

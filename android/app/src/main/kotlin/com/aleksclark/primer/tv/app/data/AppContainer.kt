@@ -1,6 +1,7 @@
 package com.aleksclark.primer.tv.app.data
 
 import android.content.Context
+import com.aleksclark.primer.tv.BuildConfig
 import com.aleksclark.primer.tv.app.update.AppUpdater
 import com.aleksclark.primer.tv.core.data.GrantStore
 import com.aleksclark.primer.tv.core.data.SettingsStore
@@ -23,7 +24,7 @@ class AppContainer(
         settingsStore = DataStoreSettingsStore(context),
         grantStore = DataStoreGrantStore(context),
     ) {
-        updater = AppUpdater(context.applicationContext, httpClient)
+        updater = AppUpdater(context.applicationContext, httpClient, BuildConfig.RELEASE_TRUST_ROOT)
     }
 
     /**

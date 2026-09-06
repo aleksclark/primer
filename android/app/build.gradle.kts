@@ -4,62 +4,15 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-// Bridge System C tokens into the app package. Source of truth is
-// design-system/generated/PrimerTokens.kt — never edit the generated output.
-abstract class GeneratePrimerTokensTask : DefaultTask() {
-    @get:InputFile
-    abstract val sourceFile: RegularFileProperty
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @get:Input
-    abstract val targetPackage: Property<String>
-
-    @TaskAction
-    fun generate() {
-        val source = sourceFile.get().asFile
-        check(source.exists()) {
-            "Missing ${source.absolutePath}. Run `make design-system` from the repo root."
-        }
-        val pkg = targetPackage.get()
-        val packagePath = pkg.replace('.', '/')
-        val outFile = outputDir.get().asFile.resolve("$packagePath/PrimerTokens.kt")
-        outFile.parentFile.mkdirs()
-        val rewritten = source.readText()
-            .replace(
-                Regex("""^package\s+[\w.]+""", RegexOption.MULTILINE),
-                "package $pkg",
-            )
-        outFile.writeText(
-            buildString {
-                appendLine("// GENERATED from design-system/generated/PrimerTokens.kt — do not edit.")
-                appendLine("// Regenerate via the generatePrimerTokens Gradle task (runs on preBuild).")
-                appendLine()
-                append(rewritten.trimStart())
-                if (!rewritten.endsWith("\n")) appendLine()
-            },
-        )
-    }
-}
-
-val primerTokensOutDir = layout.buildDirectory.dir("generated/primerTokens")
-val generatePrimerTokens by tasks.registering(GeneratePrimerTokensTask::class) {
-    group = "design system"
-    description = "Copy PrimerTokens.kt into the app package from design-system/generated"
-    sourceFile.set(
-        rootProject.layout.projectDirectory.file("../design-system/generated/PrimerTokens.kt"),
-    )
-    outputDir.set(primerTokensOutDir)
-    targetPackage.set("com.aleksclark.primer.tv.app.ui.designsystem")
-}
-
 val primerVersionCode = providers.gradleProperty("primerVersionCode")
     .orElse(providers.environmentVariable("PRIMER_ANDROID_VERSION_CODE"))
     .orElse("1")
 val primerVersionName = providers.gradleProperty("primerVersionName")
     .orElse(providers.environmentVariable("PRIMER_ANDROID_VERSION_NAME"))
     .orElse("0.1.0")
+val releaseTrustRoot = providers.gradleProperty("primerReleaseTrustRoot")
+    .orElse(providers.environmentVariable("PRIMER_RELEASE_TRUST_ROOT"))
+    .getOrElse("")
 val releaseStoreFile = providers.gradleProperty("primerSigningStoreFile")
     .orElse(providers.environmentVariable("PRIMER_ANDROID_KEYSTORE"))
 val releaseStorePassword = providers.gradleProperty("primerSigningStorePassword")
@@ -95,6 +48,7 @@ android {
         versionName = primerVersionName.get().also {
             require(it.isNotBlank()) { "primerVersionName must not be blank" }
         }
+        buildConfigField("String", "RELEASE_TRUST_ROOT", "\"${releaseTrustRoot.replace("\"", "\\\"")}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -129,6 +83,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -143,20 +98,7 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
-
-    sourceSets {
-        getByName("main") {
-            kotlin.srcDir(primerTokensOutDir)
-        }
-    }
-}
-
-tasks.named("preBuild").configure {
-    dependsOn(generatePrimerTokens)
-}
-// Unit tests / IDE sync can compile without a full preBuild.
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    dependsOn(generatePrimerTokens)
+    sourceSets.getByName("test").java.srcDir(project(":core-updates").file("src/testShared/kotlin"))
 }
 
 kotlin {
@@ -165,6 +107,8 @@ kotlin {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":core-ui"))
+    implementation(project(":core-updates"))
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)

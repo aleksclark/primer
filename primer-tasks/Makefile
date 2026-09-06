@@ -4,7 +4,7 @@
 DEV := ./scripts/dev
 
 .PHONY: check up dev status endpoints logs down destroy proof \
-	build test cover openapi agent-protocol clients clients-typescript tasks-client tasks-agent-compat tasks-typecheck tasks-lint \
+	build test cover openapi agent-protocol clients clients-typescript tasks-client tasks-agent-compat kotlin-client tasks-typecheck tasks-lint \
 	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof \
 	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e
 
@@ -85,8 +85,13 @@ tasks-web: web
 browser-test:
 	npm --prefix web run browser:test
 
-android: clients
-	cd android && ./gradlew test assembleDebug
+kotlin-client: clients
+	cd ../android && ./gradlew :tasks-client:test --no-daemon --max-workers=1
+
+# Compatibility wrapper for the retired prototype APK. Student now lives in
+# ../android/:feature-tasks-student; keep this target until that flow is proven.
+android: kotlin-client
+	cd android && ./gradlew test assembleDebug --no-daemon --max-workers=1
 
 tasks-test: test
 tasks-cover: cover

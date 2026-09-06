@@ -12,6 +12,8 @@ data class DeviceSettings(
     val deviceId: String? = null,
     val deviceName: String? = null,
     val deviceKind: String? = null,
+    /** Dark is the System C default; light is a persisted full-parity selection. */
+    val darkTheme: Boolean = true,
 ) {
     /** Whether the app has both an address and a token, and can talk to the server. */
     val isPaired: Boolean get() = !baseUrl.isNullOrBlank() && !token.isNullOrBlank()
@@ -33,6 +35,9 @@ interface SettingsStore {
 
     /** Forgets the token and device identity, keeping the server address. */
     suspend fun clearPairing()
+
+    /** Persists the System C appearance. Unpairing must not reset it. */
+    suspend fun setDarkTheme(darkTheme: Boolean)
 }
 
 /**

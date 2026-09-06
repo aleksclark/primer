@@ -49,6 +49,20 @@ class DataStoreMappingTest {
         assertEquals("secret", settings.token)
         assertEquals("Playroom", settings.deviceName)
         assertEquals("tv_box", settings.deviceKind)
+        assertTrue(settings.darkTheme)
+    }
+
+    @Test
+    fun `light theme selection is persisted independently of pairing`() {
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("base_url") to "http://tv.local/",
+            booleanPreferencesKey("dark_theme") to false,
+        )
+
+        val settings = DataStoreSettingsStore.toSettings(prefs)
+
+        assertFalse(settings.isPaired)
+        assertFalse(settings.darkTheme)
     }
 
     @Test

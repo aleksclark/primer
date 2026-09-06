@@ -1,5 +1,12 @@
 # Primer TV — Android client
 
+This Gradle build also includes the initial **Primer Student device-owner
+qualification** target (`:app-student`), with `:core-device-policy` and
+`:core-updates`. See the [A16 qualification runbook](../agent_docs/runbooks/android-a16-provisioning.md)
+and [physical-device evidence](../test-artifacts/android-student/device-owner-qualification.md).
+It is not yet the full Student/Control platform, and silent Student updates remain
+an open verification gate on the tested handset/signing configuration.
+
 The student-facing half of [Video As Instruction](../agent_docs/plans/video-as-instruction.md).
 One APK runs on the tablet and on the living-room Android TV box; the shell is
 chosen at runtime from `UiModeManager.currentModeType`.
@@ -12,10 +19,138 @@ scheduled linear stream with a fully locked player) is a later phase.
 | Module | Contents |
 |--------|----------|
 | `core` | Pure Kotlin/JVM: API client, domain model, playback session state machine, watch-time accounting. No Android dependencies, so all of it is unit-testable on the JVM. |
+| `core-ui` | Shared System C Compose theme, fonts, and primitives (`com.aleksclark.primer.ui`). Consumed by TV and Student; Control must use this library, not a copy. |
 | `app`  | Android: Compose UI (tablet + leanback), ExoPlayer host, DataStore persistence. |
+| `feature-tasks-student` | Migrated Tasks pairing/checklist/start/submit for Student. Entry: `StudentTasksRoute`. |
+| `app-student` | Device-owner launcher. Tasks, approved apps, and parent maintenance; recovery stays in `StudentRuntime`. |
+| `core-parent-identity` | Official Clerk Android SDK 0.1.31 password sign-in adapter (Kotlin 2.0.21 pin). Publishable key only. Live Clerk acceptance is not claimed. |
+| `feature-tasks-control` | Native parent roster/tasks/schedules/review using `:tasks-client`. |
+| `feature-device-control` | Unprivileged parent device/release surfaces using generated parent JWT calls. |
+| `app-control` | Primer Control (`com.aleksclark.primer.control`). Not a device owner. |
 
 Keeping the interesting logic in `core` is deliberate: the grant lifecycle,
 heartbeat cadence, and watch-once rules are tested without an emulator.
+
+## Primer Control
+
+Unprivileged parent app (`:app-control`, package `com.aleksclark.primer.control`).
+It is not a device owner. Screens talk only through `:tasks-client` with a parent JWT.
+**minSdk is 28** so Control can consume `:core-updates` `SelfUpdateSession`. There is no
+accepted API 26 Control deployment; do not `overrideLibrary` or duplicate the installer.
+
+```bash
+cd android
+PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+PRIMER_API_ORIGIN=https://api.primerlms.com/tasks/api \
+./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
+```
+
+External Clerk setup is parent-owned. This tree does not claim live JWT azp or
+physical acceptance. Needed configuration, without changing canonical auth here:
+
+- Publishable key only in the APK (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secrets stay out of the binary.
+- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control currently implements official `SignIn.create` password then `Clerk.setActive` of the **new** session ID only. If the live instance requires another factor, extend that native flow — do not weaken server policy.
+- Declared 0.1.31 coordinates (POM, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0, coroutines 1.10.2, androidx.browser 1.9.0. Those artifacts ship Kotlin 2.2 metadata. `:core-parent-identity` and `:app-control` force stdlib 2.0.21 / serialization 1.7.3 / coroutines 1.9.0 / browser 1.8.0 so Kotlin 2.0.21 / AGP 8.7.3 can compile. Compile success is not runtime-compatibility evidence. There is no root-wide force and no `-Xskip-metadata-version-check`. Unit tests do not initialize a live Clerk backend.
+- Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set. Live Clerk JWT claims are unmeasured here.
+- Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
+
+### Control self-update
+
+Control consumes `:core-updates` `SelfUpdateSession` through `SelfUpdateCommands`
+(`install`, `handleResult`, `resumeUserAction`, `reconcile`, `snapshot`, `cancel`).
+Callers do not read the adapter's SharedPreferences layout. The adapter snapshots
+APK bytes (`copyVerified`), checks device ABIs, and compares candidate targetSdk
+to the running OS floor. Callers delete their download temp in `finally`.
+Verifier is Tink `Ed25519Verify` only — host digest||zeros is not accepted.
+
+Foreground confirmation is dispatched only through a resumed Activity. A silent
+`startActivity` return is not presentation. Otherwise Control checks
+`POST_NOTIFICATIONS`, `areNotificationsEnabled`, and the update channel, then
+posts a real notification or records **Deferred**. Continue Confirmation / onResume
+re-dispatches through `resumeUserAction`. Missing session, cancel, and denied
+notifications are observable; they are not `presented=true`.
+
+Control candidates are selected by running package **and** the stable channel,
+newer than the installed version. The decoded signed manifest must match outer
+package/channel/version/signer/size/hash before download. Device rollout still
+uses `selectedReleaseId`; Control self-update does not.
+
+Catalog discovery downloads and `evaluate`s a candidate APK through the shared
+adapter (hash, signer, ABI, targetSdk vs running OS) **without** opening
+PackageInstaller. `EligibleUnattended` / `EligibleConfirm` are only shown after
+that prepare step. Prepared files are uniquely named and swapped under a lock;
+`ui()` never deletes a live prepared APK. Install is a separate `installPrepared`
+call, runs on IO, and is blocked from Failed, Deferred, WaitingConfirmation, and
+NeedsSettings at the coordinator snapshot — not only the ViewModel cache. Parent
+APK bytes use `/managed-releases/{id}/apk` with the parent JWT, not the
+management artifact route.
+
+Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
+Parent settings may enable catalog checks on resume and a 15-minute-floor in-process
+periodic refresh while Control is open (auth-fenced; not WorkManager, not a wake-up
+guarantee). Unattended catch-up is opt-in and only when prepare reported
+`EligibleUnattended`. Discovery never skips signed-manifest verification. This is
+not a silent-install guarantee and not live Clerk/self-update acceptance. Missing
+`PRIMER_RELEASE_TRUST_ROOT` fails closed. minSdk **28**; no `overrideLibrary`; no
+duplicate installer. Production `ReleaseTrust` verifies only; fixture sign helpers
+are not on the production type.
+
+### Exact Clerk identity acceptance (external; not the test issuer)
+
+The local Tasks test issuer is **not** Clerk. Native Control acceptance must use
+the real Clerk instance that already serves the Tasks web parent. Do not paste
+JWTs, scrape cookies, or revive `/auth/callback`. Do not put production secrets
+in source or APKs. Creating test users and household memberships needs **operator
+approval**. Actual Clerk policy and JWT claims are **external measurements** —
+this README does not assert observed native `azp` or that password is enabled /
+MFA is disabled on the live instance.
+
+Control 0.1.31 implements official `SignIn.create` password strategy because
+hosted Account Portal is not in that SDK. If the configured instance requires an
+unsupported factor (MFA, magic link, SSO, new password), **extend the native
+flow** to that Clerk-supported method. Do not weaken server authorized-party,
+issuer, or membership policy to make login work.
+
+**Operator checklist (approval required; do not change instance policy here):**
+
+1. Confirm whether Android application ID `com.aleksclark.primer.control` is
+   registered on the Clerk instance. Measure the resulting session `azp` from a
+   real Control login; do not assume it.
+2. Confirm which first factors the instance actually allows. Do not enable
+   password or disable MFA from this tree.
+3. After operator approval, provision two parent users and two household
+   memberships (A and B). Do not reuse browser test-issuer principals.
+4. Publishable key only on the device (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secret
+   keys stay in operator env.
+
+**Tasks host (operator env, parent L0 owns the port; Control does not edit these files):**
+
+```text
+TASKS_AUTH_MODE=clerk
+TASKS_CLERK_ISSUER=https://<clerk-frontend-api>
+TASKS_CLERK_JWKS_URL=https://<clerk-frontend-api>/.well-known/jwks.json
+TASKS_PUBLIC_ORIGIN=https://<tasks-web-origin>   # remains required
+TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control
+```
+
+`TASKS_CLERK_AUTHORIZED_PARTIES` is proposed additive config. PublicOrigin must
+stay required. Optional `TASKS_CLERK_AUDIENCE` only if this Clerk instance emits
+`aud`. Household membership remains the local Tasks ledger, not Clerk orgs.
+
+**Control debug build (no production mutation):**
+
+```bash
+cd android
+PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+PRIMER_API_ORIGIN=https://<tasks-host>/tasks/api \
+./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
+```
+
+Acceptance measurements after a real Control login (not claimed): issuer matches
+`TASKS_CLERK_ISSUER`, session id present, authorized-party matches whatever Clerk
+emits for this app, no-membership denial, household B isolation, Tasks logout
+before Clerk.signOut.
+
 
 ## Build
 
@@ -38,6 +173,10 @@ Gradle properties are `primerSigningStoreFile`, `primerSigningStorePassword`,
 `keystore.properties` file and pass `-PprimerSigning...` when building locally.
 Devices must be provisioned initially with that same production signing identity;
 Android will reject later APKs signed with another key.
+
+Self-update from `GET /app/release` requires a signed sidecar. Unsigned
+metadata (no `release-manifest.json`) is a normal legacy server and the client
+fails closed rather than installing. See [operator publication](#operator-publication-signed-tv-sidecar).
 
 If Gradle cannot find the SDK, create `android/local.properties`:
 
@@ -90,6 +229,64 @@ replacement. Downloads are size/checksum checked and must contain the same
 package, a newer published version, and a compatible signing certificate.
 Unmanaged devices, and device-owner ROMs that reject silent sessions, use the
 interactive system installer fallback.
+
+## Operator publication (signed TV sidecar)
+
+Do not publish anything live from this checkout. The TV server never talks to
+Tasks for this path: no Tasks DB, no Tasks token, no shared credential.
+
+The Android client accepts an update only after `TvReleaseAdapter` verifies a
+canonical `ReleaseManifest` with Tink Ed25519 over the pinned
+`PRIMER_RELEASE_TRUST_ROOT` (`ed25519-v1`). Outer `/app/release` fields that do
+not match the verified payload are rejected.
+
+1. Build and sign the TV APK with the same production identity already on the box.
+2. Set `TV_RELEASE_SIGNING_KEY` to the 64-byte Ed25519 private key whose public
+   32 bytes are the pinned trust root (hex or base64url). Optional:
+   `TV_AAPT2` / `TV_APKSIGNER` if those tools are not on `PATH`.
+3. Write a **new empty staging directory** on the **same filesystem** as
+   `TV_RELEASE_DIR`. `-out` is refused if it already exists, is nonempty, is
+   the source APK, or is the live release path. The tool snapshots the APK
+   first, then inspects/hashes/signs those exact bytes:
+
+   ```bash
+   make tv-release-sidecar SIDECAR_ARGS='-apk path/to/app-release.apk -out /srv/tv-releases/rel-$(date +%s)'
+   ```
+
+   The command inspects the snapshot with `aapt2`/`apksigner`, signs canonical
+   `ReleaseManifest` JSON with Go `crypto/ed25519` (same field order as the
+   Tasks publisher, without opening Tasks), and refuses to talk to a database.
+   No native libraries is `[]` (universal), not invented ARM ABIs. Multi-signer
+   APKs and `versionCodeMajor` are rejected.
+4. Confirm `packageName` is `com.aleksclark.primer.tv`, `version` matches the
+   APK `versionCode`, `sha256`/`byteSize`/`signerSha256`/`minSdk` match the
+   APK, and `signingKeyId` is `ed25519-v1`. Payload base64url is capped at 16KiB.
+5. Point `TV_RELEASE_DIR` at a **symlink** whose target is an immutable
+   directory (`primer-tv.apk`, `version`, `release-manifest.json`). Replace it
+   with an explicit same-directory temp symlink plus `rename` (do not assume
+   every `ln -sfn` implementation does this; GNU coreutils 9.11 on this host
+   uses a temp symlink + `renameat`, but that is not a portable contract).
+   `mv current prev && mv staging current` is not atomic and must not be used.
+   One-time migration if the current path is a real directory:
+
+   ```bash
+   # example only; do not run against a live household from this lane
+   mv "$TV_RELEASE_DIR" "$TV_RELEASE_DIR.legacy"
+   ln -s "$TV_RELEASE_DIR.legacy" "$TV_RELEASE_DIR"
+   tmp="$(dirname "$TV_RELEASE_DIR")/.current.$$"
+   ln -s /srv/tv-releases/rel-NEW "$tmp"
+   mv -T "$tmp" "$TV_RELEASE_DIR"
+   ```
+
+The server resolves that symlink once per metadata or download request so one
+call sees a coherent set. A later swap can still race a following download;
+the Android client must fail integrity and retry, not install mixed bytes.
+
+A missing sidecar stays the unsigned legacy shape. A present but malformed,
+empty, or oversized sidecar is logged and still served unsigned; the client
+will not install it. Configure `PRIMER_RELEASE_TRUST_ROOT` on the TV APK before
+expecting a signed update to be offered. Full streaming/update acceptance on
+hardware remains open.
 
 ## Pairing
 

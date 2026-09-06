@@ -12,7 +12,7 @@ STUDIO_COVER_MIN := 85
 IDENTITY_COVER_MIN := 80
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
-	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server \
+	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server tv-release-sidecar tv-release-sidecar-acceptance \
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
 	activity-validate activity-publish student-build student-deploy student-acceptance \
 	student-stub student-harness \
@@ -138,6 +138,19 @@ tv-test:
 ## Run the TV server locally.
 tv-server:
 	cd server && go run ./cmd/tv-server
+
+## Write a staging directory of primer-tv.apk + version + signed sidecar.
+## Requires TV_RELEASE_SIGNING_KEY. Does not publish live or talk to Tasks.
+tv-release-sidecar:
+	cd server && go run ./cmd/tv-release-sidecar $(SIDECAR_ARGS)
+
+## Required executable CLI acceptance for tv-release-sidecar.
+## The test builds and executes the binary in its private temporary directory.
+## Requires aapt2/apksigner and a signed TV APK; missing prerequisites fail.
+## Ordinary server unit runs leave this explicit acceptance case disabled.
+tv-release-sidecar-acceptance:
+	cd server && go test ./cmd/tv-release-sidecar -count=1
+	cd server && TV_RELEASE_SIDECAR_ACCEPTANCE=1 go test ./cmd/tv-release-sidecar -count=1 -run TestStageCLIProducesSignedSidecarFromInspectableAPK
 
 ## Generate the TV TypeScript client from the TV OpenAPI spec.
 tv-client: openapi-tv

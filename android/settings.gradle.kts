@@ -22,4 +22,9 @@ dependencyResolutionManagement {
 rootProject.name = "primer-tv"
 
 include(":core")
+include(":core-ui")
 include(":app")
+include(":app-student", ":core-device-policy", ":core-updates", ":core-security", ":feature-tasks-student", ":feature-device-management")
+include(":core-parent-identity", ":feature-tasks-control", ":feature-device-control", ":app-control")
+include(":tasks-client")
+project(":tasks-client").projectDir = file("../primer-tasks/clients/kotlin")
