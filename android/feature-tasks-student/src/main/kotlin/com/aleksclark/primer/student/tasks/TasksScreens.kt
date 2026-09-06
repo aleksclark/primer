@@ -263,7 +263,8 @@ fun StudentTasksApp(
                 onOpen = { selectedOccurrence = it },
                 onBack = onLeave,
             )
-            scanning -> PairingScanner(
+            scanning -> PayloadQrScanner(
+                title = "Scan pairing QR",
                 onQr = ::pair,
                 onCancel = { scanning = false },
                 pairing = pairing,
@@ -339,7 +340,8 @@ internal fun PairingScreen(
 }
 
 @Composable
-private fun PairingScanner(
+fun PayloadQrScanner(
+    title: String,
     onQr: (String) -> Unit,
     onCancel: () -> Unit,
     pairing: com.aleksclark.primer.devicepolicy.PairingCapability? = null,
@@ -349,7 +351,7 @@ private fun PairingScanner(
     val granted = pairing?.canScan
         ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        PrimerSectionHeader(label = "Primer Tasks", title = "Scan pairing QR")
+        PrimerSectionHeader(label = "Primer", title = title)
         if (granted) {
             CameraQrScanner(onQr = onQr, modifier = Modifier.fillMaxWidth().weight(1f))
         } else {

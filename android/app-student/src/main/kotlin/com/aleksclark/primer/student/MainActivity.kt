@@ -10,6 +10,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,6 +50,8 @@ import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
+import com.aleksclark.primer.student.tasks.PayloadQrScanner
+import com.aleksclark.primer.student.tasks.QrImageImporter
 import com.aleksclark.primer.student.tasks.StudentTasksRoute
 import com.aleksclark.primer.student.tasks.TasksDeepLinkRouting
 import com.aleksclark.primer.student.tasks.TasksNavState
@@ -163,6 +166,7 @@ private fun StudentScreen(
     var confirmRemoval by remember { mutableStateOf(false) }
     var enrollmentQr by remember { mutableStateOf("") }
     var replaceEnrollment by remember { mutableStateOf(false) }
+    var scanningEnrollment by remember { mutableStateOf(false) }
     var tasksNav by remember { mutableStateOf(TasksDeepLinkRouting.incoming(TasksNavState(), deepLink)) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -204,6 +208,37 @@ private fun StudentScreen(
     val configured = runtime.policy.store.configured
     val maintenance = owner && runtime.policy.inMaintenance
     val setup = owner && !configured
+    val enrollmentImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val pairing = runtime.policy.pairingCapability()
+        if (!pairing.canImportImage) {
+            message = pairing.importMessage
+            return@rememberLauncherForActivityResult
+        }
+        busy = true
+        scope.launch {
+            try {
+                when (val decoded = QrImageImporter(activity.contentResolver).decode(uri)) {
+                    is QrImageImporter.Result.Decoded -> {
+                        message = runtime.enrollManagement(decoded.payload, replaceEnrollment).message
+                        replaceEnrollment = false
+                    }
+                    is QrImageImporter.Result.Failure -> message = when (decoded.reason) {
+                        QrImageImporter.Failure.UNREADABLE -> "Couldn't read that image. Choose another QR image."
+                        QrImageImporter.Failure.TOO_LARGE -> "That image is too large to scan safely. Choose a smaller QR image."
+                        QrImageImporter.Failure.NO_QR -> "No valid Primer management QR code was found in that image."
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = "Management enrollment failed: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                busy = false
+                tick++
+            }
+        }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             busy = true
@@ -239,6 +274,35 @@ private fun StudentScreen(
                 }
             },
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+        )
+        return
+    }
+    if (scanningEnrollment && (setup || maintenance)) {
+        val pairing = runtime.policy.pairingCapability()
+        PayloadQrScanner(
+            title = "Scan management enrollment QR",
+            onQr = { raw ->
+                scanningEnrollment = false
+                busy = true
+                scope.launch {
+                    try {
+                        message = runtime.enrollManagement(raw, replaceEnrollment).message
+                        replaceEnrollment = false
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        message = "Management enrollment failed: ${e.message ?: e.javaClass.simpleName}"
+                    } finally {
+                        busy = false
+                        tick++
+                    }
+                }
+            },
+            onCancel = { scanningEnrollment = false },
+            pairing = pairing,
+            onRequestParentCameraGrant = {
+                action { message = runtime.policy.grantCameraForPairing() }
+            },
         )
         return
     }
@@ -322,13 +386,42 @@ private fun StudentScreen(
                     }
                 },
             )
+            Text(
+                "Parent-only enrollment. Scan or import the management QR during setup. Pasting the payload is a fallback, not a scan.",
+                style = PrimerTheme.typography.body,
+                color = PrimerTheme.colors.textMuted,
+            )
+            PrimerButton(
+                text = "Scan management QR",
+                enabled = !busy,
+                onClick = {
+                    val pairing = runtime.policy.pairingCapability()
+                    if (!pairing.canScan) {
+                        message = pairing.message
+                    } else {
+                        scanningEnrollment = true
+                    }
+                },
+            )
+            PrimerButton(
+                text = "Import management QR image",
+                enabled = !busy,
+                onClick = {
+                    val pairing = runtime.policy.pairingCapability()
+                    if (!pairing.canImportImage) {
+                        message = pairing.importMessage
+                    } else {
+                        enrollmentImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
+                },
+            )
             PrimerTextField(
                 value = enrollmentQr,
                 onValueChange = { enrollmentQr = it },
-                label = "Management enrollment QR",
+                label = "Paste management enrollment payload (not a scan)",
             )
             PrimerButton(
-                text = "Enroll management (parent only)",
+                text = "Enroll pasted payload (parent only)",
                 enabled = !busy,
                 onClick = {
                     val raw = enrollmentQr
@@ -478,10 +571,10 @@ private fun StudentScreen(
                     }
                 },
             )
-            PrimerTextField(
-                value = enrollmentQr,
-                onValueChange = { enrollmentQr = it },
-                label = "Management enrollment QR",
+            Text(
+                "Parent-only enrollment. Scan or import the management QR during maintenance. Pasting the payload is a fallback, not a scan.",
+                style = PrimerTheme.typography.body,
+                color = PrimerTheme.colors.textMuted,
             )
             PrimerCheckboxRow(
                 text = "Replace existing management enrollment",
@@ -489,7 +582,38 @@ private fun StudentScreen(
                 onCheckedChange = { replaceEnrollment = it },
             )
             PrimerButton(
-                text = "Enroll management (parent only)",
+                text = "Scan management QR",
+                enabled = !busy,
+                onClick = {
+                    check(runtime.policy.inMaintenance)
+                    val pairing = runtime.policy.pairingCapability()
+                    if (!pairing.canScan) {
+                        message = pairing.message
+                    } else {
+                        scanningEnrollment = true
+                    }
+                },
+            )
+            PrimerButton(
+                text = "Import management QR image",
+                enabled = !busy,
+                onClick = {
+                    check(runtime.policy.inMaintenance)
+                    val pairing = runtime.policy.pairingCapability()
+                    if (!pairing.canImportImage) {
+                        message = pairing.importMessage
+                    } else {
+                        enrollmentImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
+                },
+            )
+            PrimerTextField(
+                value = enrollmentQr,
+                onValueChange = { enrollmentQr = it },
+                label = "Paste management enrollment payload (not a scan)",
+            )
+            PrimerButton(
+                text = "Enroll pasted payload (parent only)",
                 enabled = !busy,
                 onClick = {
                     val raw = enrollmentQr
