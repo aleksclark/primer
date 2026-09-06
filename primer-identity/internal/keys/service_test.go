@@ -801,6 +801,36 @@ func TestServiceCloseDestroysOutstandingHolders(t *testing.T) {
 	require.Error(t, err)
 }
 
+// This bounded SQL proof uses synthetic, non-key bytes. It establishes the
+// old overwrite's possible no-op, not the cause of any prior CI failure whose
+// ciphertext byte was never captured. XOR is checked once over all256 values.
+func TestExternalDBTamperSQLZeroOverwriteCanBeNoOp(t *testing.T) {
+	pool := dedicatedPool(t)
+	var zeroOverwriteNoOp, xorAlwaysChanges, onlySelectedByteChanges, zeroFlips bool
+	err := pool.QueryRow(context.Background(), `
+WITH samples AS (
+ SELECT value, set_byte(decode('0102030405060700090a0b0c0d0e0f10','hex'),7,value) AS original
+ FROM generate_series(0,255) AS value
+), changes AS (
+ SELECT value, original,
+        overlay(original placing E'\\x00' from 8 for 1) AS overwritten,
+        set_byte(original,7,get_byte(original,7) # 1) AS flipped
+ FROM samples
+)
+SELECT bool_and(overwritten=original) FILTER (WHERE value=0),
+       bool_and(flipped<>original),
+       bool_and(substring(flipped from 1 for 7)=substring(original from 1 for 7)
+            AND substring(flipped from 9)=substring(original from 9)),
+       bool_and(get_byte(flipped,7)=1) FILTER (WHERE value=0)
+FROM changes`).Scan(&zeroOverwriteNoOp, &xorAlwaysChanges, &onlySelectedByteChanges, &zeroFlips)
+	require.NoError(t, err)
+	require.True(t, zeroOverwriteNoOp)
+	require.True(t, xorAlwaysChanges)
+	require.True(t, onlySelectedByteChanges)
+	require.True(t, zeroFlips)
+	t.Logf("safe SQL booleans: zero_overwrite_noop=%t xor_always_changes=%t only_offset7_changes=%t zero_flips=%t", zeroOverwriteNoOp, xorAlwaysChanges, onlySelectedByteChanges, zeroFlips)
+}
+
 func TestExternalDBMutationFailsClosedOnNextServiceLoad(t *testing.T) {
 	pool := dedicatedPool(t)
 	ctx := context.Background()
@@ -812,8 +842,26 @@ func TestExternalDBMutationFailsClosedOnNextServiceLoad(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, holder)
 
-	_, err = pool.Exec(ctx, `UPDATE signing_keys SET sealed_private_key = overlay(sealed_private_key placing E'\\x00' from 8 for 1) WHERE kid = $1`, created.Kid)
+	// Flip the existing byte, including when it is zero. Return only a safe
+	// boolean from PostgreSQL: no ciphertext/key material enters assertions.
+	rows, err := pool.Query(ctx, `
+WITH original AS MATERIALIZED (
+ SELECT kid, sealed_private_key FROM signing_keys WHERE kid=$1 FOR UPDATE
+)
+UPDATE signing_keys AS k
+SET sealed_private_key=set_byte(original.sealed_private_key,7,get_byte(original.sealed_private_key,7) # 1)
+FROM original WHERE k.kid=original.kid
+RETURNING k.sealed_private_key<>original.sealed_private_key AS changed`, created.Kid)
 	require.NoError(t, err)
+	defer rows.Close()
+	require.True(t, rows.Next())
+	var changed bool
+	require.NoError(t, rows.Scan(&changed))
+	require.False(t, rows.Next())
+	require.NoError(t, rows.Err())
+	require.Equal(t, int64(1), rows.CommandTag().RowsAffected())
+	require.True(t, changed)
+	t.Logf("safe mutation assertions: rows_affected=%d changed=%t", rows.CommandTag().RowsAffected(), changed)
 
 	next := keys.NewService(pool, cfg, "test")
 	_, err = next.PublicJWKS(ctx)

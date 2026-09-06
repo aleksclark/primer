@@ -79,7 +79,7 @@ rubric progress/results without giving the client evaluation authority.
 
 ## End-to-End Test Plan
 
-- Against real Stacklane/PostgreSQL/object storage, exercise camera photo, video,
+- Against the real Tasks API on the default host Make/non-Docker path with PostgreSQL/object storage, exercise camera photo, video,
   audio, and system file picker on a fresh emulator.
 - Author/schedule the poem rubric in parent web; capture/upload a valid image;
   observe no-chat evaluation and completion; parent views authorized derivative.

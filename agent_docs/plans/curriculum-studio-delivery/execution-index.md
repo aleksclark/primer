@@ -10,7 +10,7 @@ source plans; this file maps them 1:N to master waves.
 **Studio platform status:** S1–S4 are merged on current master (S2 PR #29, S3 PR #33, S4 PR #39); S5 is implemented on this branch and ready for review. Residual production-auth promotion and live BFF work remain gated on I8 and applicable I12/I7 milestones; this is not a production BFF claim.
 **Post-merge cursor:** **PROCEED to IB4 / I8 signed webhook and two-plane revocation.** Do not claim production BFF or MCP authorization until the fresh IB4 exact-tip gate passes; full IB8-E10 browser/webhook proof remains **BLOCKED**.
 **Contracts status:** C1–C9 are complete on current master; C4 landed in PR #28 (`db587ed`), C5 in PR #31 (`b35164d`), C6 in PR #36 (`eb2fd8c`), C7 in PR #41 (`656d8a1`), C8 in PR #44 (`2310fcf`), C9 in PR #46 (`2e55dd3`). **Contracts cursor: C10** (compatibility and policy gates).
-**Studio platform cursor:** **PROCEED to S6 Plan Domain Drafts** after S5 resource catalog merge.
+**Studio platform cursor:** S1–S10 + S19 are on master; **S11 materialization domain is implemented on `impl/S11-materialization`**. Next platform wave is S12 (scripted workflow runner).
 
 **Legend**
 
@@ -160,7 +160,7 @@ Focused package commands from detailed phases are **required in addition** when 
 | **S8** | Publish immutability + plan outbox enqueue | Platform | [phase-08](../curriculum-studio-platform/phase-08-publish-immutability.md) | S7, D5, D11 core | PG7d | `impl/S8-publish` | G-studio-test | — |
 | **S9** | SPA/BFF shell (house system) | Platform | [phase-09](../curriculum-studio-platform/phase-09-spa-bff-shell.md); [IB0 BFF contract](../stytch-identity-ib0/02-http-oauth-bff-mcp-contract.md) | S3; credential-free shell may use test Identity; **live BFF** requires I7+I8 | PG5e soft / live BFF hard after I7+I8 | `impl/S9-spa-bff` | G-studio-e2e shell | exact registered redirect/resource/audience; host-only cookie; no browser token |
 | **S10** | Planning MVP UI + MD/PDF export | Platform | [phase-10](../curriculum-studio-platform/phase-10-planning-mvp-ui.md) | S8–S9, S5 | PG8d | `impl/S10-planning-mvp` | G-studio-e2e | — |
-| **S11** | Materialization domain | Platform | [phase-11](../curriculum-studio-platform/phase-11-materialization-domain.md) | S8, D7, D9 | PG9d | `impl/S11-materialization` | G-studio-test | — |
+| **S11** | Materialization domain — **implemented on `impl/S11-materialization`** | Platform | [phase-11](../curriculum-studio-platform/phase-11-materialization-domain.md) | S8, D7, D9 | PG9d | `impl/S11-materialization` | G-studio-test; P11 profile/run/lock/idempotency with real PostgreSQL | — |
 | **S12** | Agent workflow runner (scripted model) | Platform | [phase-12](../curriculum-studio-platform/phase-12-agent-workflow-runner.md) | S11, D8 | PG10d | `impl/S12-workflow` | G-studio-test resume/kill | live models BLOCKED |
 | **S13** | Exports + artifact bytes store | Platform | [phase-13](../curriculum-studio-platform/phase-13-exports-artifacts.md) | S11–S12, D10 | PG10d | `impl/S13-exports` | G-studio-test; object store real | bytes not in PG |
 | **S14** | Outbox worker + signed webhooks | Platform | [phase-14](../curriculum-studio-platform/phase-14-outbox-webhooks.md) | S8, S11, D11, C9 | PG11d | `impl/S14-outbox-webhooks` | G-studio-test delivery | — |

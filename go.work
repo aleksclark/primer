@@ -1,9 +1,10 @@
-go 1.25.7
+go 1.26.6
 
 use (
 	./curriculum-studio
 	./primer-agents
 	./primer-agents/client/go
 	./primer-identity
+	./primer-tasks
 	./server
 )

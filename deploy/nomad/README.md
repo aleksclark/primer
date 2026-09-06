@@ -18,6 +18,14 @@ submit jobs to Nomad from CI or `deploy/deploy.sh`.
 Legacy `deploy/*.nomad.hcl.tmpl` remain during dual-source migration (S0/S1) and
 must not be deleted until S3. `deploy/deploy.sh` refuses production submit.
 
+## Tasks early-release candidate
+
+The standalone Tasks P1/P2 package is documented in
+[`TASKS-RELEASE.md`](TASKS-RELEASE.md). Its jobspec and separate non-secret overlay
+are **not enrolled** in this manifest until a real image digest and an approved
+fleet project-job writer are available. Do not mistake candidate source files
+for deployment authority or alter the existing LMS/TV/ingest release set.
+
 ## Release set
 
 | Job ID | Type | Notes |

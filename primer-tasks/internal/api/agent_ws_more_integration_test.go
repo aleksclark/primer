@@ -1,0 +1,221 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"charm.land/fantasy"
+	"github.com/google/uuid"
+	"primer-tasks/internal/agent"
+	agentprotocol "primer-tasks/internal/agent/protocol"
+	"primer-tasks/internal/domain/parent"
+)
+
+func TestScriptedPreviewInputsChooseActiveRows(t *testing.T) {
+	call := fantasy.Call{Prompt: fantasy.Prompt{
+		{Role: fantasy.MessageRoleAssistant, Content: []fantasy.MessagePart{fantasy.ToolCallPart{ToolCallID: "s", ToolName: "list_schedules"}, fantasy.ToolCallPart{ToolCallID: "t", ToolName: "list_tasks"}}},
+		{Role: fantasy.MessageRoleTool, Content: []fantasy.MessagePart{fantasy.ToolResultPart{ToolCallID: "s", Output: fantasy.ToolResultOutputContentText{Text: `[{"id":"schedule-1","enabled":true,"version":2}]`}}, fantasy.ToolResultPart{ToolCallID: "t", Output: fantasy.ToolResultOutputContentText{Text: `[{"id":"task-1","status":"published","version":3}]`}}}},
+	}}
+	if got := scriptedSchedulePreviewInput(call); !strings.Contains(got, "schedule-1") || !strings.Contains(got, `"expectedVersion":2`) {
+		t.Fatalf("schedule preview=%s", got)
+	}
+	if got := scriptedPreviewInput(call); !strings.Contains(got, "task-1") || !strings.Contains(got, `"expectedVersion":3`) {
+		t.Fatalf("task preview=%s", got)
+	}
+}
+
+func TestScriptedDelayIsBoundedAndContextCancelable(t *testing.T) {
+	for _, raw := range []string{"", "bad", "30001"} {
+		t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", raw)
+		if !scriptedDelay(context.Background()) {
+			t.Fatalf("non-blocking delay %q canceled unexpectedly", raw)
+		}
+	}
+	t.Setenv("TASKS_AGENT_SCRIPTED_DELAY_MS", "1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if scriptedDelay(ctx) {
+		t.Fatal("canceled scripted delay reported success")
+	}
+}
+
+func TestAgentSubscriberSendFillsTimeWithoutSocketWrites(t *testing.T) {
+	s := &Server{agentHub: newAgentHub()}
+	sub := &agentSubscriber{queue: make(chan wireAgentEvent, 1), done: make(chan struct{})}
+	s.agentHub.add(sub)
+	s.sendAgentToSubscriber(sub, wireAgentEvent{Type: "error"})
+	select {
+	case event := <-sub.queue:
+		if event.Time.IsZero() {
+			t.Fatal("subscriber event did not receive a server timestamp")
+		}
+	default:
+		t.Fatal("subscriber event was not queued")
+	}
+	s.agentHub.remove(sub)
+}
+
+func TestParentConfirmationHandleHashIsOpaqueAndDomainSeparated(t *testing.T) {
+	first := parentHandleHash("handle-1")
+	second := parentHandleHash("handle-2")
+	if len(first) != 32 || len(second) != 32 || string(first) == string(second) || string(first) == "handle-1" {
+		t.Fatalf("unsafe handle hashes: %x %x", first, second)
+	}
+}
+
+func TestAgentCommandsCancelConfirmAndWorkerStartupUseDurableState(t *testing.T) {
+	t.Setenv("TASKS_AGENT_MODE", "scripted")
+	t.Setenv("TASKS_AGENT_ACTIVE_TOOLS", strings.Join(defaultToolNames(), ","))
+	pool := integrationPool(t)
+	seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("agent-commands"), IssuerSecret: []byte("agent-commands")})
+	ctx := context.Background()
+	serviceScope := parent.ServiceContext{TenantID: tenantA, ActorID: "parent-a", IdempotencyKey: "command-test"}
+	tools := s.parentTools()
+	toolContext, err := parent.NewContext(tenantA, "parent-a", "command-test", []string{parent.ToolListTasks, parent.ToolDraftTask, parent.ToolPublishTask, parent.ToolPreviewAction, parent.ToolConfirmAction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := tools.DraftTask(ctx, toolContext, parent.TaskDraftInput{Title: "Command confirmation task", Instructions: "Retire after confirmation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tools.PublishTask(ctx, toolContext, draft.ID); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := tools.PreviewRetireTask(ctx, toolContext, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationID, messageID, runID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	repo := agent.NewPostgresRepository(pool)
+	now := time.Now().UTC()
+	if err = repo.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, inserted, e := repo.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenantA, ConversationID: conversationID, ClientMessageID: "confirm-command", Role: agent.RoleUser, Content: "confirm", Sequence: 1, CreatedAt: now}); e != nil || !inserted {
+		t.Fatalf("confirmation message inserted=%v err=%v", inserted, e)
+	}
+	if err = repo.CreateRun(ctx, agent.Run{ID: runID, TenantID: tenantA, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Minute), CreatedAt: now, Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE parent_confirmation_previews SET run_id=$1,tool_step=1 WHERE handle_hash=$2`, runID, parentHandleHash(preview.Handle)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE agent_runs SET status='awaiting_confirmation' WHERE id=$1`, runID); err != nil {
+		t.Fatal(err)
+	}
+	s.agentConfirm(ctx, scope{Tenant: serviceScope.TenantID, Subject: serviceScope.ActorID}, agentCommand{ConversationID: conversationID, RunID: runID, ConfirmationID: preview.Handle})
+	var taskStatus string
+	if err = pool.QueryRow(ctx, `SELECT status FROM task_templates WHERE tenant_id=$1 AND id=$2`, tenantA, draft.TemplateID).Scan(&taskStatus); err != nil {
+		t.Fatal(err)
+	}
+	if taskStatus != "retired" {
+		t.Fatalf("confirmed task status=%s", taskStatus)
+	}
+	var confirmationEvents int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM agent_run_events WHERE run_id=$1 AND event_type='tool_progress'`, runID).Scan(&confirmationEvents); err != nil {
+		t.Fatal(err)
+	}
+	if confirmationEvents != 1 {
+		t.Fatalf("confirmation acknowledgement events=%d", confirmationEvents)
+	}
+
+	cancelConversationID, cancelMessageID, cancelRunID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if err = repo.CreateConversation(ctx, agent.Conversation{ID: cancelConversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, inserted, e := repo.AppendUserMessage(ctx, agent.Message{ID: cancelMessageID, TenantID: tenantA, ConversationID: cancelConversationID, ClientMessageID: "cancel-command", Role: agent.RoleUser, Content: "cancel", Sequence: 1, CreatedAt: now}); e != nil || !inserted {
+		t.Fatalf("message inserted=%v err=%v", inserted, e)
+	}
+	if err = repo.CreateRun(ctx, agent.Run{ID: cancelRunID, TenantID: tenantA, ConversationID: cancelConversationID, UserMessageID: cancelMessageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Minute), CreatedAt: now, Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}}); err != nil {
+		t.Fatal(err)
+	}
+	s.agentCancel(ctx, scope{Tenant: serviceScope.TenantID, Subject: serviceScope.ActorID}, agentCommand{RunID: cancelRunID})
+	run, err := repo.GetRun(ctx, tenantA, cancelRunID)
+	if err != nil || !run.CancelRequested || run.Status != agent.RunCanceled {
+		t.Fatalf("cancelled run=%+v err=%v", run, err)
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	s.StartAgentWorker(workerCtx)
+}
+
+func TestScriptedProviderShapeAndProtocolMappingBranches(t *testing.T) {
+	model := &scriptedParentModel{prompt: "retire this"}
+	if model.Provider() != "scripted" || model.Model() == "" {
+		t.Fatal("scripted provider metadata missing")
+	}
+	if _, err := model.Generate(context.Background(), fantasy.Call{}); err == nil {
+		t.Fatal("Generate unexpectedly enabled")
+	}
+	if _, err := model.GenerateObject(context.Background(), fantasy.ObjectCall{}); err == nil {
+		t.Fatal("GenerateObject unexpectedly enabled")
+	}
+	if _, err := model.StreamObject(context.Background(), fantasy.ObjectCall{}); err == nil {
+		t.Fatal("StreamObject unexpectedly enabled")
+	}
+	if scriptedPreviewInput(fantasy.Call{}) == "" {
+		t.Fatal("preview helper returned empty input")
+	}
+	if _, err := model.Stream(context.Background(), fantasy.Call{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&Server{}).agentModel(context.Background(), parent.ProviderConfig{Mode: parent.ProviderScripted}, "list"); err != nil {
+		t.Fatal(err)
+	}
+	for _, cfg := range []parent.ProviderConfig{
+		{Mode: parent.ProviderOpenRouter, Primary: parent.ProviderOpenRouter, Fallback: parent.ProviderDisabled, OpenRouterModel: ""},
+		{Mode: parent.ProviderBedrock, Primary: parent.ProviderBedrock, Fallback: parent.ProviderDisabled, BedrockRegion: "us-east-1", BedrockModel: ""},
+	} {
+		if _, err := (&Server{}).agentModel(context.Background(), cfg, "list"); err == nil {
+			t.Fatalf("unconfigured live provider %q accepted", cfg.Primary)
+		}
+	}
+	for _, prompt := range []string{"ambiguous Alex", "retire this", "create and schedule", "list students", "inspect"} {
+		fixture := &scriptedParentModel{prompt: prompt}
+		for i := 0; i < 5; i++ {
+			if _, err := fixture.Stream(context.Background(), fantasy.Call{}); err != nil {
+				t.Fatalf("scripted prompt %q: %v", prompt, err)
+			}
+		}
+	}
+	if _, err := (&Server{}).agentModel(context.Background(), parent.ProviderConfig{Mode: parent.ProviderDisabled}, "list"); !errors.Is(err, agent.ErrProviderDisabled) {
+		t.Fatalf("disabled model=%v", err)
+	}
+
+	// Each protocol event maps to the safe transport event kind; the default
+	// branch is intentionally ignored rather than forwarding provider data.
+	pool := integrationPool(t)
+	seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("protocol-map"), IssuerSecret: []byte("protocol-map")})
+	ctx := context.Background()
+	conversationID, messageID, runID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	repo := agent.NewPostgresRepository(pool)
+	now := time.Now().UTC()
+	if err := repo.CreateConversation(ctx, agent.Conversation{ID: conversationID, TenantID: tenantA, ActorID: "parent-a", Status: agent.ConversationActive, PolicyVersion: "p", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, inserted, err := repo.AppendUserMessage(ctx, agent.Message{ID: messageID, TenantID: tenantA, ConversationID: conversationID, ClientMessageID: "protocol-map", Role: agent.RoleUser, Content: "map", Sequence: 1, CreatedAt: now}); err != nil || !inserted {
+		t.Fatalf("message inserted=%v err=%v", inserted, err)
+	}
+	if err := repo.CreateRun(ctx, agent.Run{ID: runID, TenantID: tenantA, ConversationID: conversationID, UserMessageID: messageID, Status: agent.RunQueued, MaxSteps: 1, MaxTokens: 10, Deadline: now.Add(time.Minute), CreatedAt: now, Provenance: agent.Provenance{Provider: "scripted", Model: "test", PolicyVersion: "p", PromptDigest: "d"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []agentprotocol.Event{
+		agentprotocol.TextStart(runID, 1), agentprotocol.TextDelta(runID, 2, "safe"), agentprotocol.TextEnd(runID, 3),
+		agentprotocol.ThinkingStart(runID, 4), agentprotocol.ThinkingEnd(runID, 5), agentprotocol.ToolProgress(runID, 6, "List tasks", "completed"),
+		agentprotocol.Retry(runID, 7, 1, time.Second), agentprotocol.Confirmation(runID, 8, "opaque", "Preview", time.Now().Add(time.Minute)),
+		agentprotocol.Terminal(runID, 9, "completed"), agentprotocol.Error(runID, 10, "provider_unavailable"),
+	} {
+		if err := s.emitProtocolEvent(ctx, tenantA, conversationID, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.emitProtocolEvent(ctx, tenantA, conversationID, agentprotocol.Event{Kind: agentprotocol.EventKind("unknown"), RunID: runID, Sequence: 11}); err != nil {
+		t.Fatal(err)
+	}
+}

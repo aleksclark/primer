@@ -6,9 +6,11 @@ Create the independently runnable Primer Tasks foundation and prove the first
 cross-platform identity slice. A parent signs into the browser through a real
 BFF flow, creates a tenant-scoped student, issues a one-use pairing QR, and a
 student browser plus a fresh Android emulator bind themselves to that student.
-The phase also establishes the Stacklane Compose lifecycle, handler-derived
-client generation, System C shells, and two-tenant authorization pattern that
-all later phases must preserve.
+The phase also establishes handler-derived client generation, System C shells,
+and the two-tenant authorization pattern that all later phases must preserve.
+Host Make / non-Docker targets remain the default development path. An opt-in
+Stacklane-compatible Compose vector is additive only and must be tested when
+this phase introduces or changes it.
 
 This phase deliberately ends with an empty student checklist. Task semantics
 start in phase 2; login, tenant, pairing, and both client shells are real here.
@@ -17,8 +19,9 @@ start in phase 2; login, tenant, pairing, and both client shells are real here.
 
 #### Scenario: Parent signs in and manages a student
 
-- **Given** the dev Compose stack with a protocol-compatible test Identity issuer
-  and a pre-provisioned tenant membership
+- **Given** the default host Make/non-Docker Tasks stack with a
+  protocol-compatible test Identity issuer and a pre-provisioned tenant
+  membership
 - **When** the parent completes the browser authorization-code/PKCE login and
   creates a student through the parent SPA
 - **Then** the browser holds only a host-only, HttpOnly, SameSite BFF cookie
@@ -78,15 +81,21 @@ start in phase 2; login, tenant, pairing, and both client shells are real here.
 - **And** active paired credentials are revoked on archive
 - **And** a foreign tenant cannot perform either action.
 
-#### Scenario: Development stack is isolated and reloadable
+#### Scenario: Default host path and opt-in Compose remain isolated and reloadable
 
-- **Given** two worktrees with distinct `STACKLANE_INSTANCE` values
-- **When** each runs the documented lifecycle
+- **Given** two worktrees using the default host Make/non-Docker Tasks path
+- **When** each starts independently
+- **Then** databases, listen addresses, and generated clients remain distinct
+- **And** stopping one does not affect the other.
+- **Given** this phase also introduces the additive opt-in Compose/Stacklane
+  vector and two worktrees with distinct `STACKLANE_INSTANCE` values
+- **When** each runs that documented opt-in lifecycle
 - **Then** Compose project names, loopback ephemeral ports, Stacklane labels,
   FQDNs, databases, and volumes are distinct
 - **And** a Go source change reloads the server and a React source change HMRs
   the DOM without a full browser reload
-- **And** stopping one stack does not affect the other.
+- **And** stopping one opt-in stack does not affect the other or the default
+  host path.
 
 #### Scenario: Production rejects test identity
 
@@ -113,10 +122,10 @@ start in phase 2; login, tenant, pairing, and both client shells are real here.
    - Archive students rather than deleting referenced history; revoke devices in
      the same transaction.
 4. Implement a product BFF authorization-code + S256 PKCE client matching Primer
-   Identity's public contract. Compose may run a narrow test issuer that emits
-   protocol-compatible signed tokens and fixed test principals; production
-   binaries must reject that issuer/mode. Browser JS never receives provider,
-   access, or refresh tokens.
+   Identity's public contract. Host and opt-in Compose dev/test may run a narrow
+   test issuer that emits protocol-compatible signed tokens and fixed test
+   principals; production binaries must reject that issuer/mode. Browser JS never
+   receives provider, access, or refresh tokens.
 5. Implement explicit parent guards and `Scope{TenantID, SubjectRef}` repository
    inputs. Avoid generic unscoped CRUD. Initial memberships accept only role
    `admin`.
@@ -144,25 +153,32 @@ start in phase 2; login, tenant, pairing, and both client shells are real here.
    TypeScript and Kotlin client packages into ignored build roots, with committed
    façades for base URL, cookie/device auth, typed errors, and cancellation. Add
    source scans banning copied DTOs and ad-hoc REST calls in web/app code.
-10. Add `compose.yaml` and one `scripts/dev` lifecycle vector. Public services
-    (`web`, `api`, test issuer if browser-addressable) use Stacklane labels and
-    loopback ephemeral publishes. Containers communicate by Compose DNS; Vite
-    proxies `/api`, `/auth`, and later `/ws` to `api`. Add healthchecks, named
-    Go/npm/Gradle/Postgres caches, worktree source binds, and pinned Go/Vite
-    watchers. `down` preserves volumes; `destroy` requires exact confirmation.
-11. Add `check`, `up`, `status`, `endpoints`, `logs`, `down`, and guarded
-    `destroy`; `check` renders Compose to a private temp file and fails closed on
-    missing labels, fixed/wildcard ports, host networking, absent healthchecks,
-    missing source binds/named state volumes, or `.local` domains.
-12. Add product-local build/test/coverage/client/web/android/E2E commands and a
-    root forwarding surface only where needed. Do not lower existing gates or
-    commit generated clients/contracts.
+10. Add product-local host Make targets (`make tasks-test`, `tasks-cover`,
+    `tasks-clients`, `tasks-web`, `tasks-android`, `tasks-e2e`) as the default
+    development path. Do not route those targets through Compose. Do not lower
+    existing gates or commit generated clients/contracts.
+11. Add an **opt-in** `compose.yaml` and `scripts/dev` lifecycle vector as an
+    additive Stacklane-compatible path, not the default host command. Public
+    services (`web`, `api`, test issuer if browser-addressable) use Stacklane
+    labels and loopback ephemeral publishes. Containers communicate by Compose
+    DNS; Vite proxies `/api`, `/auth`, and later `/ws` to `api`. Add healthchecks,
+    named Go/npm/Gradle/Postgres caches, worktree source binds, and pinned
+    Go/Vite watchers. `down` preserves volumes; `destroy` requires exact
+    confirmation. Do not treat Compose as the universal/default host lifecycle.
+12. For the opt-in vector only, add `check`, `up`, `status`, `endpoints`, `logs`,
+    `down`, and guarded `destroy`; `check` renders Compose to a private temp file
+    and fails closed on missing labels, fixed/wildcard ports, host networking,
+    absent healthchecks, missing source binds/named state volumes, or `.local`
+    domains. Because this phase introduces that vector, run those proofs in
+    addition to the default host Make gates.
 
 ## End-to-End Test Plan
 
 ### Browser exploratory acceptance
 
-- Start the real Stacklane stack with PostgreSQL and test issuer.
+- Start the real Tasks service through the default host Make/non-Docker path
+  with PostgreSQL and test issuer. Also start the opt-in Compose/Stacklane
+  vector because this phase introduces it.
 - Log in as parent A, create/update a student, render a pairing QR, and verify
   persisted state after server/browser refresh.
 - In a separate context, pair the student web route and assert the empty student
@@ -207,16 +223,19 @@ start in phase 2; login, tenant, pairing, and both client shells are real here.
   poster/webcam injection while the recorded upstream blocker remains.
 - Add process E2E that migrates a fresh Postgres, starts the real binary, and uses
   freshly generated TS/Kotlin clients for successful and typed-error calls.
-- Run the Stacklane hot-reload and two-instance proof with exact source restore.
+- Because this phase introduces the opt-in Compose vector, run its check,
+  hot-reload, and two-instance proof with exact source restore. That proof is
+  additive; host Make remains the default.
 
 Planned commands (implemented in this phase):
 
 ```bash
-primer-tasks/scripts/dev check
-primer-tasks/scripts/dev up
 make tasks-test tasks-cover tasks-clients tasks-web tasks-android
 make tasks-e2e
 cd primer-tasks/android && ./gradlew connectedDebugAndroidTest
+# additive opt-in Compose/Stacklane vector introduced by this phase:
+primer-tasks/scripts/dev check
+primer-tasks/scripts/dev up
 ```
 
 ## Anti-Cheating Audit
@@ -232,8 +251,10 @@ cd primer-tasks/android && ./gradlew connectedDebugAndroidTest
   bearer values or student switching by edited local metadata.
 - Confirm OpenAPI and clients are generated from production registration, are
   untracked, and are actually imported by both consumers.
-- Inspect rendered Compose JSON, not only YAML. Reject fixed ports, ambient
-  project names, fake health, shared worktree volumes, or `down -v` defaults.
+- Confirm host Make targets are the default and do not invoke Compose.
+  Inspect rendered opt-in Compose JSON, not only YAML. Reject fixed ports,
+  ambient project names, fake health, shared worktree volumes, or `down -v`
+  defaults. Reject documentation that treats Compose as the default host path.
 - Prove HMR without reload and Go rebuild without container restart; reject mere
   process restart as hot-reload evidence.
 - Browser/Android E2E must assert persisted rows/revocation through public
@@ -251,7 +272,9 @@ cd primer-tasks/android && ./gradlew connectedDebugAndroidTest
 - [ ] Offline contract emission and clean client generation/build are deterministic.
 - [ ] No generated contract/client source is tracked.
 - [ ] System C dark/mobile/light and axe evidence is reviewed.
-- [ ] Stacklane check, hot reload, and two-instance isolation proofs pass.
+- [ ] Default host Make/testcontainer gates pass. Because this phase introduces
+      the opt-in Compose vector, Stacklane check, hot reload, and two-instance
+      isolation proofs also pass.
 - [ ] Go tests/race/vet/build/coverage, web lint/typecheck/build, Android unit/build/connected tests, and `git diff --check` pass.
 - [ ] The anti-cheating audit finds no auth, tenancy, pairing, client, or
       Compose substitution, and explicitly judges the documented Android image

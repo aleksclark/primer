@@ -1,0 +1,112 @@
+name: primer-tasks
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "primer-tasks/**"
+      - "Makefile"
+      - "go.work"
+      - "go.work.sum"
+      - "scripts/enforce-module-cover.sh"
+      - ".github/workflows/primer-tasks.yml"
+  pull_request:
+    paths:
+      - "primer-tasks/**"
+      - "Makefile"
+      - "go.work"
+      - "go.work.sum"
+      - "scripts/enforce-module-cover.sh"
+      - ".github/workflows/primer-tasks.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tasks:
+    name: tasks-module
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: primer-tasks/go.mod
+          cache-dependency-path: primer-tasks/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: gofmt
+        working-directory: primer-tasks
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt required for:" && echo "$unformatted" && exit 1
+          fi
+
+      - name: go vet
+        working-directory: primer-tasks
+        run: go vet ./...
+
+      - name: build
+        run: make tasks-build
+
+      - name: tests
+        run: make tasks-test
+
+      - name: coverage gate
+        run: make tasks-cover
+
+      - name: Fantasy compatibility and public import audit
+        run: make tasks-agent-compat
+
+      - name: parent agent race and lifecycle regression (10 repeats)
+        working-directory: primer-tasks
+        run: go test -race ./internal/agent/... ./internal/jobs/... ./internal/api/... -count=10 -timeout=40m
+
+      - name: generated clients
+        run: make tasks-clients
+
+      - name: web lint typecheck build
+        run: |
+          make tasks-lint
+          make tasks-typecheck
+          make tasks-web
+
+      - name: Android JVM tests and debug APK
+        run: make tasks-android
+
+      - name: Playwright browsers
+        working-directory: primer-tasks/web
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: live host-stack Playwright
+        run: |
+          set +m
+          chrome_executable="$(cd primer-tasks/web && node -e 'const { chromium } = require("@playwright/test"); console.log(chromium.executablePath())')"
+          if [[ -z "$chrome_executable" || ! -x "$chrome_executable" ]]; then
+            echo "Full Playwright Chromium executable is missing or not executable" >&2
+            exit 1
+          fi
+          case "$chrome_executable" in
+            *headless-shell*|*headless_shell*)
+              echo "Full Chromium is required; headless-shell is not permitted" >&2
+              exit 1
+              ;;
+          esac
+          "$chrome_executable" --version
+          CHROME_EXECUTABLE="$chrome_executable" PRIMER_TASKS_E2E_NO_TRACE=1 \
+            TASKS_MODEL_PROVIDER=scripted TASKS_AGENT_MODE=scripted make tasks-e2e

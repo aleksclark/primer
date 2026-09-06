@@ -1,0 +1,52 @@
+# Air config for Stacklane compose LMS API hot-reload (air-verse/air v1.67.x schema).
+# Binary/tmp live under ./tmp (named volume mounted at /src/server/tmp).
+
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  args_bin = []
+  bin = "./tmp/primer-server"
+  # -buildvcs=false: bind-mounted .git is owned by the host UID; container git
+  # rejects it as "dubious ownership", which otherwise aborts VCS stamping.
+  cmd = "go build -buildvcs=false -o ./tmp/primer-server ./cmd/primer-server"
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", "testdata", ".git"]
+  exclude_file = []
+  exclude_regex = ["_test.go"]
+  exclude_unchanged = false
+  follow_symlink = false
+  full_bin = ""
+  include_dir = ["cmd", "internal"]
+  include_ext = ["go", "tpl", "tmpl", "html", "sql"]
+  include_file = []
+  kill_delay = "2s"
+  log = "build-errors.log"
+  poll = false
+  poll_interval = 0
+  post_cmd = []
+  pre_cmd = []
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = true
+  stop_on_error = false
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[misc]
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

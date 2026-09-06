@@ -1,0 +1,22 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const baseURL = process.env.PRIMER_TASKS_BASE_URL;
+if (!baseURL) throw new Error("PRIMER_TASKS_BASE_URL must point at the real Tasks web origin");
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 30_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  workers: 1,
+  use: {
+    baseURL,
+    ...devices["Desktop Chrome"],
+    // Authenticated qualification can opt out of traces entirely: traces may
+    // contain cookies/WS input protocols. This changes no behavioral assertion.
+    trace: process.env.PRIMER_TASKS_E2E_NO_TRACE === "1" ? "off" : "retain-on-failure",
+    screenshot: "only-on-failure",
+    launchOptions: process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : undefined,
+  },
+  reporter: [["list"], ["json", { outputFile: "test-artifacts/playwright-phase1.json" }]],
+});

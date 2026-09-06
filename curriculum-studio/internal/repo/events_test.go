@@ -12,6 +12,7 @@ import (
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 	"github.com/aleksclark/primer/curriculum-studio/internal/testutil"
+	"github.com/aleksclark/primer/curriculum-studio/internal/testutil/factory"
 )
 
 func TestP11E1PublishEnqueuesOutboxInSameTransaction(t *testing.T) {
@@ -46,6 +47,42 @@ func TestP11E2WebhookDeliveryLeaseAndAtLeastOnce(t *testing.T) {
 	again, err := repo.NewWebhookDeliveryRepo(tx).Schedule(ctx, endpoint.ID, event.ID, "delivery:"+event.ID.String())
 	require.NoError(t, err)
 	require.Equal(t, delivery.ID, again.ID)
+}
+
+func TestWebhookEndpointGetUpdateDeleteAndActiveFanout(t *testing.T) {
+	ctx := context.Background()
+	tx := testutil.Tx(t)
+	ws, _, _ := planFixture(t, tx)
+	foreign := factory.Workspace(t, tx)
+	event, err := repo.NewOutboxRepo(tx).Enqueue(ctx, &domain.OutboxEvent{WorkspaceID: &ws.ID, EventType: domain.EventCurriculumCreated, AggregateKind: "curriculum", AggregateID: uuid.New(), Payload: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	active, err := repo.NewWebhookEndpointRepo(tx).Create(ctx, &domain.WebhookEndpoint{WorkspaceID: ws.ID, URL: "https://example.test/a", EventTypes: []string{domain.EventCurriculumCreated}, Status: "active"})
+	require.NoError(t, err)
+	_, err = repo.NewWebhookEndpointRepo(tx).Create(ctx, &domain.WebhookEndpoint{WorkspaceID: ws.ID, URL: "https://example.test/paused", Status: "paused"})
+	require.NoError(t, err)
+	_, err = repo.NewWebhookEndpointRepo(tx).Create(ctx, &domain.WebhookEndpoint{WorkspaceID: foreign.ID, URL: "https://example.test/other", Status: "active"})
+	require.NoError(t, err)
+	got, err := repo.NewWebhookEndpointRepo(tx).Get(ctx, active.ID)
+	require.NoError(t, err)
+	require.Equal(t, active.URL, got.URL)
+	got.URL = "https://example.test/updated"
+	got.Status = "active"
+	updated, err := repo.NewWebhookEndpointRepo(tx).Update(ctx, got)
+	require.NoError(t, err)
+	require.Equal(t, "https://example.test/updated", updated.URL)
+	matched, err := repo.NewWebhookEndpointRepo(tx).ListActiveForEvent(ctx, ws.ID, domain.EventCurriculumCreated)
+	require.NoError(t, err)
+	require.Len(t, matched, 1)
+	require.Equal(t, active.ID, matched[0].ID)
+	delivery, err := repo.NewWebhookDeliveryRepo(tx).Schedule(ctx, active.ID, event.ID, "delivery:"+event.ID.String())
+	require.NoError(t, err)
+	listed, total, err := repo.NewWebhookDeliveryRepo(tx).ListByEndpoint(ctx, active.ID, 10, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, delivery.ID, listed[0].ID)
+	require.NoError(t, repo.NewWebhookEndpointRepo(tx).Delete(ctx, active.ID))
+	_, err = repo.NewWebhookEndpointRepo(tx).Get(ctx, active.ID)
+	require.ErrorIs(t, err, repo.ErrNotFound)
 }
 
 func TestP11E3InboundIdempotencyScopeAndHash(t *testing.T) {

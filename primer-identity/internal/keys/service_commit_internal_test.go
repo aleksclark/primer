@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -114,27 +113,26 @@ func TestManagedSignerReleasesValidationRowBeforeBlockedRevocation(t *testing.T)
 		UPDATE signing_keys SET created_at = created_at - interval '1 second' WHERE kid = $1`, created.Kid)
 	require.NoError(t, err)
 
-	randomStarted := make(chan struct{})
-	releaseRandom := make(chan struct{})
+	// Hold the read-side material lock that an in-flight signature owns.
+	// Go 1.26 ignores ECDSA's caller-supplied randomness reader, so randomness
+	// is not a synchronization seam. Signer B still executes real signing,
+	// durable validation, and revocation against the same shared material.
+	signerA.state.mat.mu.RLock()
+	var releaseMaterialOnce sync.Once
+	releaseMaterial := func() { releaseMaterialOnce.Do(signerA.state.mat.mu.RUnlock) }
+	t.Cleanup(releaseMaterial)
+
 	digest := sha256.Sum256([]byte("validation-row-release"))
 	type signResult struct {
 		signature []byte
 		err       error
 	}
-	signADone := make(chan signResult, 1)
 	signBDone := make(chan signResult, 1)
-	go func() {
-		signature, signErr := signerA.Sign(&internalBlockingReader{started: randomStarted, release: releaseRandom}, digest[:], crypto.SHA256)
-		signADone <- signResult{signature: signature, err: signErr}
-	}()
-	select {
-	case <-randomStarted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("signer A did not stall in randomness")
-	}
-
 	validationEntered := make(chan struct{})
 	allowRevocation := make(chan struct{})
+	var allowRevocationOnce sync.Once
+	unblockRevocation := func() { allowRevocationOnce.Do(func() { close(allowRevocation) }) }
+	t.Cleanup(unblockRevocation)
 	serviceA.testBeforeSignerValidationFailure = func() {
 		select {
 		case <-validationEntered:
@@ -184,22 +182,24 @@ func TestManagedSignerReleasesValidationRowBeforeBlockedRevocation(t *testing.T)
 	case <-time.After(managedSignerDBTimeout + time.Second):
 		t.Fatal("cross-process row lock remained blocked by signer B revocation")
 	}
-	close(allowRevocation)
+	unblockRevocation()
 	select {
 	case <-signBDone:
-		t.Fatal("signer B destruction completed while signer A still held Material RLock")
+		t.Fatal("signer B destruction completed while shared Material RLock was held")
 	default:
 	}
 
-	close(releaseRandom)
-	signA := <-signADone
-	signB := <-signBDone
-	requireGenericInternalSignerFailure(t, signA.err, signA.signature)
-	requireGenericInternalSignerFailure(t, signB.err, signB.signature)
-	_, err = signerA.Sign(rand.Reader, digest[:], crypto.SHA256)
-	require.ErrorIs(t, err, ErrSignerRevoked)
-	_, err = signerB.Sign(rand.Reader, digest[:], crypto.SHA256)
-	require.ErrorIs(t, err, ErrSignerRevoked)
+	releaseMaterial()
+	select {
+	case signB := <-signBDone:
+		requireGenericInternalSignerFailure(t, signB.err, signB.signature)
+	case <-time.After(managedSignerDBTimeout + time.Second):
+		t.Fatal("signer B revocation did not finish after releasing Material RLock")
+	}
+	signature, err := signerA.Sign(rand.Reader, digest[:], crypto.SHA256)
+	requireGenericInternalSignerFailure(t, err, signature)
+	signature, err = signerB.Sign(rand.Reader, digest[:], crypto.SHA256)
+	requireGenericInternalSignerFailure(t, err, signature)
 }
 
 func TestCreateInitialActiveGeneratesBeforeTransactionAndConverges(t *testing.T) {
@@ -342,18 +342,6 @@ func requireGenericInternalSignerFailure(t *testing.T, err error, sig []byte) {
 	require.Error(t, err)
 	require.Nil(t, sig)
 	require.ErrorIs(t, err, ErrSignerRevoked)
-}
-
-type internalBlockingReader struct {
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
-}
-
-func (r *internalBlockingReader) Read(p []byte) (int, error) {
-	r.once.Do(func() { close(r.started) })
-	<-r.release
-	return io.ReadFull(rand.Reader, p)
 }
 
 func commitErrorConfig(t *testing.T) config.KeyConfig {

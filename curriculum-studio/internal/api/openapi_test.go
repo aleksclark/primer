@@ -23,11 +23,22 @@ func TestOpenAPIEmissionUsesOfflineRegistrationAndAuthoringBoundary(t *testing.T
 		"/studio/v1/workspaces/{workspaceID}/standards-catalogs",
 		"/studio/v1/workspaces/{workspaceId}/resources",
 		"/studio/v1/revisions/{revisionId}/materializations",
+		"/studio/v1/workspaces/{workspaceId}/learner-profiles",
 		"/studio/v1/materializations/{materializationId}/bundle",
 		"/studio/v1/materialized-items/{itemId}/lock",
 		"/studio/v1/revisions/{revisionId}/exports",
+		"/studio/v1/exports/{exportId}",
+		"/studio/v1/exports/{exportId}/download",
+		"/studio/v1/exports/{exportId}/manifest",
 		"/studio/v1/workspaces/{workspaceId}/webhooks",
 		"/studio/v1/workspaces/{workspaceId}/events",
+		"/studio/v1/revisions/{revisionId}/comments",
+		"/studio/v1/revisions/{revisionId}/approval",
+		"/studio/v1/revisions/{revisionId}/diff",
+		"/studio/v1/curricula/{curriculumId}/shares",
+		"/studio/v1/workspaces/{workspaceId}/unit-library",
+		"/studio/v1/revisions/{revisionId}/unit-library/{entryId}",
+		"/studio/v1/workspaces/{workspaceId}/templates",
 	} {
 		require.Contains(t, paths, path, "missing emitted path %s", path)
 	}
@@ -36,6 +47,15 @@ func TestOpenAPIEmissionUsesOfflineRegistrationAndAuthoringBoundary(t *testing.T
 	require.Contains(t, schemas, "MaterializationStatus")
 	require.Contains(t, schemas, "EventTypeName")
 	require.Contains(t, schemas, "ErrorCode")
+	require.Contains(t, schemas["PlanApproval"].Properties, "contentFingerprint")
+	require.Contains(t, schemas["CurriculumCreate"].Properties, "templateCode")
+	require.Contains(t, paths["/studio/v1/revisions/{revisionId}/approval"].Post.RequestBody.Content["application/json"].Schema.Ref, "ApprovalInputBody")
+	require.Len(t, schemas["ExportFormat"].Enum, 6)
+	require.Contains(t, schemas["ExportJob"].Properties, "createdBy")
+	require.Contains(t, schemas["ExportJob"].Properties, "downloadUrl")
+	download := paths["/studio/v1/exports/{exportId}/download"].Get
+	require.NotEmpty(t, download.Security)
+	require.Equal(t, "binary", download.Responses["200"].Content["application/pdf"].Schema.Format)
 	require.NotContains(t, schemas, "MaterializationContext", "Primer integration payload must remain protobuf-only")
 	require.NotContains(t, schemas, "MaterializationBundle", "Primer integration payload must remain protobuf-only")
 	require.NotContains(t, schemas, "SessionSpec", "Primer integration payload must remain protobuf-only")

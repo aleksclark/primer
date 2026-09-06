@@ -188,6 +188,35 @@ func (r *MaterializationRunRepo) Get(ctx context.Context, workspaceID, id uuid.U
 	return out, nil
 }
 
+func (r *MaterializationRunRepo) ListByRevision(ctx context.Context, workspaceID, revisionID uuid.UUID) ([]domain.MaterializationRun, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if workspaceID == uuid.Nil || revisionID == uuid.Nil {
+		return []domain.MaterializationRun{}, nil
+	}
+	rows, err := r.Q.Query(ctx, materializationSelect+` WHERE m.workspace_id=$1 AND m.plan_revision_id=$2 ORDER BY m.created_at,m.id`, workspaceID, revisionID)
+	if err != nil {
+		return nil, MapError(err)
+	}
+	defer rows.Close()
+	var out []domain.MaterializationRun
+	for rows.Next() {
+		v, e := scanMaterializationRun(rows)
+		if e != nil {
+			return nil, MapError(e)
+		}
+		out = append(out, *v)
+	}
+	if e := rows.Err(); e != nil {
+		return nil, MapError(e)
+	}
+	if out == nil {
+		out = []domain.MaterializationRun{}
+	}
+	return out, nil
+}
+
 func (r *MaterializationRunRepo) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.MaterializationRun, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)

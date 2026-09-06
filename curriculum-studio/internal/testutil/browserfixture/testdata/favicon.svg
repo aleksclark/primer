@@ -1,0 +1,4 @@
+<!-- Reuses the i-learn book path from web/public/icons.svg, without external references. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#B98BFF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 5.5C7 4 9.5 4.5 12 6v14c-2.5-1.5-5-2-8-.5zM20 5.5C17 4 14.5 4.5 12 6v14c2.5-1.5 5-2 8-.5z"/>
+</svg>

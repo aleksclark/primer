@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "kind": "assessment",
+      "title": "Scripted assessment",
+      "body": {"questions": ["What did you learn?"]}
+    },
+    {
+      "kind": "rubric",
+      "title": "Scripted assessment rubric",
+      "body": {"criteria": ["accuracy"]}
+    },
+    {
+      "kind": "answer_key",
+      "title": "Scripted assessment answers",
+      "body": {"answers": ["A complete response."]}
+    }
+  ],
+  "findings": []
+}

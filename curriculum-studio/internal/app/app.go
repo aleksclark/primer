@@ -18,11 +18,14 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/api"
+	"github.com/aleksclark/primer/curriculum-studio/internal/artifacts"
 	"github.com/aleksclark/primer/curriculum-studio/internal/authn"
 	"github.com/aleksclark/primer/curriculum-studio/internal/config"
 	studiodb "github.com/aleksclark/primer/curriculum-studio/internal/db"
 	"github.com/aleksclark/primer/curriculum-studio/internal/logging"
 	studiomcp "github.com/aleksclark/primer/curriculum-studio/internal/mcp"
+	"github.com/aleksclark/primer/curriculum-studio/internal/outbox"
+	"github.com/aleksclark/primer/curriculum-studio/internal/workflow"
 )
 
 // Options customizes process bootstrap for tests.
@@ -90,7 +93,32 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("configure auth validator: %w", err)
 		}
 	}
-	_, apiHandler := api.New(pool, api.Options{Validator: validator, AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias})
+	// Keep API-created webhook secrets available to the in-process worker. This
+	// credential-free default is intentionally process-local; production must
+	// replace it with a durable secret manager keyed by secret_ref.
+	secrets := outbox.NewMemorySecrets()
+	var store artifacts.Store
+	switch cfg.ArtifactStore {
+	case "fs":
+		fs, err := artifacts.NewFsStore(cfg.ArtifactStoreDir)
+		if err != nil {
+			return fmt.Errorf("configure artifact store: %w", err)
+		}
+		defer fs.Close()
+		store = fs
+	case "s3":
+		store, err = artifacts.NewS3Store(artifacts.S3Options{Endpoint: cfg.ArtifactS3Endpoint, Bucket: cfg.ArtifactS3Bucket, Region: cfg.ArtifactS3Region, AccessKey: cfg.ArtifactS3AccessKey, SecretKey: cfg.ArtifactS3SecretKey})
+		if err != nil {
+			return fmt.Errorf("configure artifact store: %w", err)
+		}
+	}
+	_, apiHandler := api.New(pool, api.Options{
+		Validator:               validator,
+		AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias,
+		MatStub:                 cfg.MatStub,
+		Secrets:                 secrets,
+		Artifacts:               store,
+	})
 
 	// Mount /mcp Streamable HTTP endpoint when enabled.
 	// The MCP handler is not wrapped by MaxBytesHandler because it applies its
@@ -138,6 +166,36 @@ func Run(ctx context.Context, opts Options) error {
 	addr := ln.Addr().String()
 	logger.Info("listening", "addr", addr, "env", cfg.Env)
 
+	worker, err := outbox.NewWorker(pool, outbox.Config{
+		Owner:           "studio-server-" + addr,
+		PollInterval:    250 * time.Millisecond,
+		DeliveryTimeout: 5 * time.Second,
+		LeaseTTL:        30 * time.Second,
+		Secrets:         secrets,
+		Logger:          logger,
+	})
+	if err != nil {
+		return fmt.Errorf("outbox worker: %w", err)
+	}
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	// The S12 runner is deliberately provider-free. The legacy stub remains a
+	// test-only API escape hatch and is never run alongside the real worker.
+	if !cfg.MatStub {
+		model, err := workflow.NewModel(cfg.ModelProvider)
+		if err != nil {
+			return err
+		}
+		go workflow.NewRunner(pool, model).Run(workerCtx)
+	}
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		if werr := worker.Run(workerCtx); werr != nil && !errors.Is(werr, context.Canceled) {
+			logger.Error("outbox worker stopped", "error", werr)
+		}
+	}()
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -162,8 +220,14 @@ func Run(ctx context.Context, opts Options) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
+	stopWorker()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
+	}
+	stopWorker()
+	select {
+	case <-workerDone:
+	case <-shutdownCtx.Done():
 	}
 	logger.Info("shutdown complete", "addr", addr)
 	return nil

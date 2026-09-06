@@ -1,0 +1,833 @@
+package api_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
+	"github.com/aleksclark/primer/curriculum-studio/internal/testutil"
+	"github.com/aleksclark/primer/curriculum-studio/internal/testutil/factory"
+	"github.com/aleksclark/primer/curriculum-studio/internal/workflow"
+)
+
+func TestP16E1ProjectBlueprintPersistNamesAndRoles(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+fixture.RevisionID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	graph := decodeGraph(t, got.Body.Bytes())
+	project := graph.project()
+	require.NotNil(t, project)
+	assert.Equal(t, "Chicken coop", project.Title)
+	phases := decodePhasesJSON(t, project.Attributes["phasesJSON"])
+	require.Len(t, phases, 2)
+	assert.Equal(t, "design", phases[0].ID)
+	assert.Equal(t, "build", phases[1].ID)
+	assert.True(t, phases[1].OffScreen)
+	require.Len(t, phases[1].Activities, 1)
+	assert.Equal(t, "Cut the lumber", phases[1].Activities[0].Title)
+	roles := graph.rolesFor(project.ID)
+	assert.Equal(t, fixture.MathID, roles["target"])
+	assert.Equal(t, fixture.ScienceID, roles["prior"])
+	assert.Equal(t, fixture.StretchID, roles["stretch"])
+}
+
+func TestP16GraphPhasesJSONRoundTripPreservesOffScreenActivity(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+fixture.RevisionID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	var graph map[string]any
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &graph))
+	before := decodePhasesJSON(t, graphProjectAttrs(t, graph)["phasesJSON"])
+	beforeCodes := outcomeStandardCodes(t, graph)
+	require.Contains(t, beforeCodes, "MATH.6.G")
+	require.Contains(t, beforeCodes, "SCI.6.PS")
+	require.Contains(t, beforeCodes, "MATH.6.RP")
+
+	replaced := doJSON(t, handler, http.MethodPut, "/studio/v1/revisions/"+fixture.RevisionID+"/graph", writeGraph(t, graph), token)
+	require.Equal(t, http.StatusOK, replaced.Code, replaced.Body.String())
+	require.NoError(t, json.Unmarshal(replaced.Body.Bytes(), &graph))
+	after := decodePhasesJSON(t, graphProjectAttrs(t, graph)["phasesJSON"])
+	require.Equal(t, before, after)
+	require.True(t, after[1].OffScreen)
+	require.Equal(t, "Cut the lumber", after[1].Activities[0].Title)
+	assert.Equal(t, beforeCodes, outcomeStandardCodes(t, graph))
+
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+}
+
+func TestP16E2PhaseMaterializationSnapshotAndItems(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, true)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/materializations", map[string]any{
+		"window":     map[string]any{"availableMinutes": 90},
+		"attributes": map[string]string{"projectId": fixture.ProjectID, "projectPhaseId": "build"},
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var run struct{ ID, Status string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &run))
+	assert.Equal(t, "ready", run.Status)
+
+	var snapshot []byte
+	require.NoError(t, testutil.DB(t).QueryRow(t.Context(), `SELECT input_snapshot FROM curriculum_studio.materialization_runs WHERE id=$1`, decodePrefixed(t, run.ID, "mat_")).Scan(&snapshot))
+	var snap map[string]any
+	require.NoError(t, json.Unmarshal(snapshot, &snap))
+	assert.Equal(t, "build", snap["projectPhaseId"])
+	assert.NotEmpty(t, snap["projectId"])
+
+	items := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID+"/items", nil, token)
+	require.Equal(t, http.StatusOK, items.Code, items.Body.String())
+	page := decodeItems(t, items.Body.Bytes())
+	require.NotEmpty(t, page)
+	foundTask, foundTool := false, false
+	for _, item := range page {
+		body := decodeBody(t, item.Body)
+		assert.Equal(t, "build", body["phaseId"])
+		if item.Kind == "project_task" {
+			foundTask = true
+		}
+		for _, tool := range asStrings(body["toolRequirements"]) {
+			if tool == "tool: Circular saw" {
+				foundTool = true
+			}
+		}
+		assert.Equal(t, false, body["writesLmsMastery"])
+	}
+	assert.True(t, foundTask)
+	assert.True(t, foundTool)
+}
+
+func TestP16E2NonStubPhaseRunStaysPhaseScoped(t *testing.T) {
+	t.Parallel()
+	pool := testutil.DB(t)
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, pool)
+	factory.SeedMembership(t, pool, workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/materializations", map[string]any{
+		"window":     map[string]any{"availableMinutes": 45},
+		"attributes": map[string]string{"projectId": fixture.ProjectID, "projectPhaseId": "build"},
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var run struct{ ID, Status string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &run))
+	assert.Equal(t, "ready", run.Status)
+
+	ctx, cancel := contextWithTimeout(t, 2*time.Second)
+	defer cancel()
+	runner := workflow.NewRunner(pool, &workflow.Scripted{Fixture: "default-v1"})
+	_, err := runner.RunOnce(ctx)
+	require.NoError(t, err)
+
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID, nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	var after struct{ Status string }
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &after))
+	assert.Equal(t, "ready", after.Status)
+
+	items := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID+"/items", nil, token)
+	require.Equal(t, http.StatusOK, items.Code, items.Body.String())
+	page := decodeItems(t, items.Body.Bytes())
+	require.NotEmpty(t, page)
+	for _, item := range page {
+		body := decodeBody(t, item.Body)
+		assert.Equal(t, "build", body["phaseId"])
+		assert.NotEqual(t, "lesson", item.Kind)
+		assert.NotEqual(t, "Scripted lesson", item.Title)
+		assert.NotEqual(t, "assessment", item.Kind)
+	}
+	var requested int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM curriculum_studio.outbox_events WHERE aggregate_id=$1 AND event_type='materialization.requested'`, decodePrefixed(t, run.ID, "mat_")).Scan(&requested))
+	assert.Equal(t, 0, requested)
+}
+
+func TestP16E3OffScreenToolsAndPortfolioEvidence(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/materializations", map[string]any{
+		"window":     map[string]any{"availableMinutes": 40},
+		"attributes": map[string]string{"projectId": fixture.ProjectID, "projectPhaseId": "build"},
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var run struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &run))
+	items := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID+"/items?q=kind:project_task", nil, token)
+	require.Equal(t, http.StatusOK, items.Code, items.Body.String())
+	assert.Contains(t, items.Body.String(), `"kind":"project_task"`)
+	assert.Contains(t, items.Body.String(), "tool: Circular saw")
+	assert.Contains(t, items.Body.String(), "portfolio: photo essay")
+	assert.NotContains(t, items.Body.String(), "mastery_records")
+}
+
+func TestP16UnsupportedParentChildEdgeFailsClosed(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/curricula", map[string]any{
+		"name": "Unsupported edge", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+	left := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{"kind": "outcome", "title": "Left"}, token)
+	right := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{"kind": "outcome", "title": "Right"}, token)
+	require.Equal(t, http.StatusCreated, left.Code, left.Body.String())
+	require.Equal(t, http.StatusCreated, right.Code, right.Body.String())
+	var from, to struct{ ID string }
+	require.NoError(t, json.Unmarshal(left.Body.Bytes(), &from))
+	require.NoError(t, json.Unmarshal(right.Body.Bytes(), &to))
+	denied := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/edges", map[string]any{
+		"kind": "parent_child", "fromNodeId": from.ID, "toNodeId": to.ID, "note": "target",
+	}, token)
+	assert.Equal(t, http.StatusBadRequest, denied.Code, denied.Body.String())
+	assert.NotContains(t, denied.Body.String(), `"id":"edge_`)
+}
+
+func TestP16PartialCatalogAddsMissingStandardAndPublishes(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	partial := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/standards-catalogs", map[string]any{
+		"source": "custom", "title": "Project standards",
+		"standards": []map[string]any{
+			{"code": "MATH.6.G", "source": "custom", "description": "Scale drawings"},
+			{"code": "SCI.6.PS", "source": "custom", "description": "Load paths"},
+		},
+	}, token)
+	require.Equal(t, http.StatusCreated, partial.Code, partial.Body.String())
+	var catalog struct{ ID string }
+	require.NoError(t, json.Unmarshal(partial.Body.Bytes(), &catalog))
+
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+fixture.RevisionID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	var graph map[string]any
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &graph))
+	assert.Contains(t, outcomeStandardCodes(t, graph), "MATH.6.RP")
+
+	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalog.ID+"/standards", nil, token)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	assert.Contains(t, listed.Body.String(), "MATH.6.RP")
+
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+}
+
+func TestP16SharedStandardAcrossOutcomesPublishes(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/curricula", map[string]any{
+		"name": "Shared standard shop", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+
+	ensureProjectStandards(t, handler, token, workspace.ID.String(), []string{"MATH.6.G"})
+	target := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "outcome", "title": "Scale drawings", "standardCodes": []string{"MATH.6.G"}, "attributes": map[string]string{"evidenceKind": "portfolio", "evidenceDescription": "photo essay"},
+	}, token)
+	prior := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "outcome", "title": "Also scale drawings", "standardCodes": []string{"MATH.6.G"},
+	}, token)
+	require.Equal(t, http.StatusCreated, target.Code, target.Body.String())
+	require.Equal(t, http.StatusCreated, prior.Code, prior.Body.String())
+	project := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "project", "title": "Shared standard coop", "attributes": map[string]string{"phasesJSON": `[{"id":"design","name":"Design","position":1}]`},
+	}, token)
+	require.Equal(t, http.StatusCreated, project.Code, project.Body.String())
+	var targetNode, priorNode, projectNode struct{ ID string }
+	require.NoError(t, json.Unmarshal(target.Body.Bytes(), &targetNode))
+	require.NoError(t, json.Unmarshal(prior.Body.Bytes(), &priorNode))
+	require.NoError(t, json.Unmarshal(project.Body.Bytes(), &projectNode))
+	for _, edge := range []map[string]any{
+		{"kind": "parent_child", "fromNodeId": projectNode.ID, "toNodeId": targetNode.ID, "note": "target"},
+		{"kind": "parent_child", "fromNodeId": projectNode.ID, "toNodeId": priorNode.ID, "note": "prior"},
+	} {
+		createdEdge := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/edges", edge, token)
+		require.Equal(t, http.StatusCreated, createdEdge.Code, createdEdge.Body.String())
+	}
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+revision.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	var graph map[string]any
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &graph))
+	assert.Equal(t, []string{"MATH.6.G"}, outcomeStandardCodes(t, graph))
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+}
+
+func TestP16CatalogLookupFindsCodeBeyondFirstPage(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	standards := make([]map[string]any, 0, 52)
+	for i := 0; i < 51; i++ {
+		standards = append(standards, map[string]any{"code": fmt.Sprintf("FILL.%02d", i), "source": "custom", "description": "filler"})
+	}
+	standards = append(standards, map[string]any{"code": "ZZ.LATE.1", "source": "custom", "description": "later page"})
+	catalog := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/standards-catalogs", map[string]any{
+		"source": "custom", "title": "Project standards", "standards": standards,
+	}, token)
+	require.Equal(t, http.StatusCreated, catalog.Code, catalog.Body.String())
+	var catalogNode struct{ ID string }
+	require.NoError(t, json.Unmarshal(catalog.Body.Bytes(), &catalogNode))
+
+	page1 := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalogNode.ID+"/standards?limit=50&offset=0", nil, token)
+	require.Equal(t, http.StatusOK, page1.Code, page1.Body.String())
+	assert.NotContains(t, page1.Body.String(), "ZZ.LATE.1")
+	exact := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalogNode.ID+"/standards?q=ZZ.LATE.1", nil, token)
+	require.Equal(t, http.StatusOK, exact.Code, exact.Body.String())
+	assert.Contains(t, exact.Body.String(), "ZZ.LATE.1")
+
+	ensureProjectStandards(t, handler, token, workspace.ID.String(), []string{"ZZ.LATE.1"})
+	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalogNode.ID+"/standards?q=ZZ.LATE.1", nil, token)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	var page struct {
+		Items []struct{ Code string } `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &page))
+	require.Len(t, page.Items, 1)
+}
+
+func TestP16MappingFailureRollsBackProject(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/curricula", map[string]any{
+		"name": "Rollback shop", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+
+	project := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "project", "title": "Incomplete coop", "attributes": map[string]string{"phasesJSON": `[{"id":"design","name":"Design","position":1}]`},
+	}, token)
+	require.Equal(t, http.StatusCreated, project.Code, project.Body.String())
+	var projectNode struct{ ID string }
+	require.NoError(t, json.Unmarshal(project.Body.Bytes(), &projectNode))
+	failed := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "outcome", "title": "Unmapped", "standardCodes": []string{"MISSING.CODE"},
+	}, token)
+	require.NotEqual(t, http.StatusCreated, failed.Code, failed.Body.String())
+	require.True(t, rollbackCreatedNodes(t, handler, token, revision.ID, []string{projectNode.ID}))
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+revision.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	graph := decodeGraph(t, got.Body.Bytes())
+	require.Nil(t, graph.project())
+	for _, node := range graph.Nodes {
+		require.NotEqual(t, "outcome", node.Kind, "failed mapping left residual outcome %s", node.Title)
+		require.NotEqual(t, "Unmapped", node.Title)
+	}
+}
+
+func TestP16ReplaceGraphRejectsUnsupportedEdgeKind(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/curricula", map[string]any{
+		"name": "Unsupported PUT edge", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+	project := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "project", "title": "Keep me", "attributes": map[string]string{"phasesJSON": `[{"id":"design","name":"Design","position":1}]`},
+	}, token)
+	require.Equal(t, http.StatusCreated, project.Code, project.Body.String())
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+revision.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	before := decodeGraph(t, got.Body.Bytes())
+	require.NotNil(t, before.project())
+
+	replaced := doJSON(t, handler, http.MethodPut, "/studio/v1/revisions/"+revision.ID+"/graph", map[string]any{
+		"nodes": []map[string]any{{"kind": "project", "title": "Keep me", "attributes": map[string]string{"phasesJSON": `[{"id":"design","name":"Design","position":1}]`}}},
+		"edges": []map[string]any{{"kind": "addresses_standard", "fromNodeId": "0", "toNodeId": "0"}},
+	}, token)
+	require.Equal(t, http.StatusBadRequest, replaced.Code, replaced.Body.String())
+	after := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+revision.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, after.Code, after.Body.String())
+	kept := decodeGraph(t, after.Body.Bytes())
+	require.NotNil(t, kept.project())
+	assert.Equal(t, "Keep me", kept.project().Title)
+}
+
+func TestP16ForkCopiesProjectOutcomesAndTools(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+	var published struct {
+		ID, CurriculumID string
+	}
+	require.NoError(t, json.Unmarshal(publish.Body.Bytes(), &published))
+
+	forked := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+published.CurriculumID+"/revisions", map[string]any{
+		"forkFromRevisionId": fixture.RevisionID,
+	}, token)
+	require.Equal(t, http.StatusCreated, forked.Code, forked.Body.String())
+	var draft struct{ ID, State string }
+	require.NoError(t, json.Unmarshal(forked.Body.Bytes(), &draft))
+	assert.Equal(t, "draft", draft.State)
+
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+draft.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	graph := decodeGraph(t, got.Body.Bytes())
+	project := graph.project()
+	require.NotNil(t, project)
+	roles := graph.rolesFor(project.ID)
+	assert.NotEmpty(t, roles["target"])
+	assert.NotEmpty(t, roles["prior"])
+	assert.NotEmpty(t, roles["stretch"])
+	hasTool := false
+	for _, edge := range graph.Edges {
+		if edge.Kind == "uses_resource" && edge.FromNodeID == project.ID {
+			hasTool = true
+		}
+	}
+	assert.True(t, hasTool)
+
+	publishDraft := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+draft.ID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publishDraft.Code, publishDraft.Body.String())
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+draft.ID+"/materializations", map[string]any{
+		"window":     map[string]any{"availableMinutes": 30},
+		"attributes": map[string]string{"projectId": project.ID, "projectPhaseId": "build"},
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var run struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &run))
+	items := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID+"/items", nil, token)
+	require.Equal(t, http.StatusOK, items.Code, items.Body.String())
+	assert.Contains(t, items.Body.String(), "tool: Circular saw")
+}
+
+func TestP16AuthoringJourneyCreatePublishMaterializePhase(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/materializations", map[string]any{
+		"window":     map[string]any{"availableMinutes": 30},
+		"attributes": map[string]string{"projectId": fixture.ProjectID, "projectPhaseId": "build"},
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var run struct{ ID, Status string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &run))
+	assert.Equal(t, "ready", run.Status)
+	items := doJSON(t, handler, http.MethodGet, "/studio/v1/materializations/"+run.ID+"/items", nil, token)
+	require.Equal(t, http.StatusOK, items.Code, items.Body.String())
+	page := decodeItems(t, items.Body.Bytes())
+	require.NotEmpty(t, page)
+	foundTask := false
+	for _, item := range page {
+		body := decodeBody(t, item.Body)
+		assert.Equal(t, "build", body["phaseId"])
+		if item.Kind == "project_task" {
+			foundTask = true
+		}
+	}
+	assert.True(t, foundTask)
+}
+
+type authoredProject struct {
+	RevisionID, ProjectID, MathID, ScienceID, StretchID string
+}
+
+func authorProjectViaAPI(t *testing.T, handler http.Handler, token, workspaceID string) authoredProject {
+	t.Helper()
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/curricula", map[string]any{
+		"name": "Grade 6 integrated shop", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+
+	ensureProjectStandards(t, handler, token, workspaceID, []string{"MATH.6.G", "SCI.6.PS", "MATH.6.RP"})
+
+	math := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "outcome", "title": "Scale drawings", "standardCodes": []string{"MATH.6.G"}, "attributes": map[string]string{"code": "MATH.6.G", "evidenceKind": "portfolio", "evidenceDescription": "photo essay"},
+	}, token)
+	require.Equal(t, http.StatusCreated, math.Code, math.Body.String())
+	science := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "outcome", "title": "Load paths", "standardCodes": []string{"SCI.6.PS"}, "attributes": map[string]string{"code": "SCI.6.PS"},
+	}, token)
+	require.Equal(t, http.StatusCreated, science.Code, science.Body.String())
+	stretch := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "outcome", "title": "Cost estimate", "standardCodes": []string{"MATH.6.RP"}, "attributes": map[string]string{"code": "MATH.6.RP"},
+	}, token)
+	require.Equal(t, http.StatusCreated, stretch.Code, stretch.Body.String())
+
+	phasesJSON, err := json.Marshal([]map[string]any{
+		{"id": "design", "name": "Design", "position": 1},
+		{"id": "build", "name": "Build", "position": 2, "offScreen": true, "activities": []map[string]any{{"kind": "off_screen", "title": "Cut the lumber"}}},
+	})
+	require.NoError(t, err)
+	project := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "project", "title": "Chicken coop", "body": "Design and build a backyard coop spanning math and science.",
+		"attributes": map[string]string{"code": "P-COOP", "phasesJSON": string(phasesJSON)},
+	}, token)
+	require.Equal(t, http.StatusCreated, project.Code, project.Body.String())
+
+	var mathNode, scienceNode, stretchNode, projectNode struct{ ID string }
+	require.NoError(t, json.Unmarshal(math.Body.Bytes(), &mathNode))
+	require.NoError(t, json.Unmarshal(science.Body.Bytes(), &scienceNode))
+	require.NoError(t, json.Unmarshal(stretch.Body.Bytes(), &stretchNode))
+	require.NoError(t, json.Unmarshal(project.Body.Bytes(), &projectNode))
+
+	for _, edge := range []map[string]any{
+		{"kind": "parent_child", "fromNodeId": projectNode.ID, "toNodeId": mathNode.ID, "note": "target"},
+		{"kind": "parent_child", "fromNodeId": projectNode.ID, "toNodeId": scienceNode.ID, "note": "prior"},
+		{"kind": "parent_child", "fromNodeId": projectNode.ID, "toNodeId": stretchNode.ID, "note": "stretch"},
+	} {
+		createdEdge := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/edges", edge, token)
+		require.Equal(t, http.StatusCreated, createdEdge.Code, createdEdge.Body.String())
+	}
+
+	tool := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/resources", map[string]any{
+		"kind": "tool", "title": "Circular saw",
+	}, token)
+	require.Equal(t, http.StatusCreated, tool.Code, tool.Body.String())
+	var toolNode struct{ ID string }
+	require.NoError(t, json.Unmarshal(tool.Body.Bytes(), &toolNode))
+	attached := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/edges", map[string]any{
+		"kind": "uses_resource", "fromNodeId": projectNode.ID, "toNodeId": toolNode.ID, "note": "required",
+	}, token)
+	require.Equal(t, http.StatusCreated, attached.Code, attached.Body.String())
+
+	return authoredProject{RevisionID: revision.ID, ProjectID: projectNode.ID, MathID: mathNode.ID, ScienceID: scienceNode.ID, StretchID: stretchNode.ID}
+}
+
+type graphView struct {
+	Nodes []struct {
+		ID, Kind, Title string
+		StandardCodes   []string
+		Attributes      map[string]string
+	}
+	Edges []struct {
+		Kind, FromNodeID, ToNodeID, Note string
+	}
+}
+
+func decodeGraph(t *testing.T, raw []byte) graphView {
+	t.Helper()
+	var g graphView
+	require.NoError(t, json.Unmarshal(raw, &g))
+	return g
+}
+
+func (g graphView) project() *struct {
+	ID, Kind, Title string
+	StandardCodes   []string
+	Attributes      map[string]string
+} {
+	for i := range g.Nodes {
+		if g.Nodes[i].Kind == "project" {
+			return &g.Nodes[i]
+		}
+	}
+	return nil
+}
+
+func (g graphView) rolesFor(projectID string) map[string]string {
+	out := map[string]string{}
+	for _, edge := range g.Edges {
+		if edge.Kind == "parent_child" && edge.FromNodeID == projectID {
+			out[edge.Note] = edge.ToNodeID
+		}
+	}
+	return out
+}
+
+func ensureProjectStandards(t *testing.T, handler http.Handler, token, workspaceID string, codes []string) {
+	t.Helper()
+	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", nil, token)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	var catalogs struct {
+		Items []struct {
+			ID, Title string
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &catalogs))
+	catalogID := ""
+	for _, item := range catalogs.Items {
+		if item.Title == "Project standards" || catalogID == "" {
+			catalogID = item.ID
+			if item.Title == "Project standards" {
+				break
+			}
+		}
+	}
+	if catalogID == "" {
+		standards := make([]map[string]any, 0, len(codes))
+		for _, code := range codes {
+			standards = append(standards, map[string]any{"code": code, "source": "custom", "description": code})
+		}
+		created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", map[string]any{
+			"source": "custom", "title": "Project standards", "standards": standards,
+		}, token)
+		require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+		var catalog struct{ ID string }
+		require.NoError(t, json.Unmarshal(created.Body.Bytes(), &catalog))
+		catalogID = catalog.ID
+	}
+	for _, code := range codes {
+		exact := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalogID+"/standards?q="+code, nil, token)
+		require.Equal(t, http.StatusOK, exact.Code, exact.Body.String())
+		var listedStandards struct {
+			Items []struct{ Code string } `json:"items"`
+		}
+		require.NoError(t, json.Unmarshal(exact.Body.Bytes(), &listedStandards))
+		found := false
+		for _, item := range listedStandards.Items {
+			if item.Code == code {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		created := doJSON(t, handler, http.MethodPost, "/studio/v1/standards-catalogs/"+catalogID+"/standards", map[string]any{
+			"code": code, "source": "custom", "description": code,
+		}, token)
+		if created.Code == http.StatusConflict {
+			continue
+		}
+		require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	}
+}
+
+func rollbackCreatedNodes(t *testing.T, handler http.Handler, token, revisionID string, ids []string) bool {
+	t.Helper()
+	for i := len(ids) - 1; i >= 0; i-- {
+		deleted := false
+		for attempt := 0; attempt < 3; attempt++ {
+			resp := doJSON(t, handler, http.MethodDelete, "/studio/v1/revisions/"+revisionID+"/nodes/"+ids[i], nil, token)
+			if resp.Code == http.StatusNoContent || resp.Code == http.StatusNotFound {
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			return false
+		}
+	}
+	return true
+}
+
+func decodePhasesJSON(t *testing.T, raw string) []domain.ProjectPhase {
+	t.Helper()
+	phases, err := domain.ParseProjectPhases(json.RawMessage(raw))
+	require.NoError(t, err)
+	return phases
+}
+
+func writeGraph(t *testing.T, graph map[string]any) map[string]any {
+	t.Helper()
+	nodes := []map[string]any{}
+	for _, raw := range graph["nodes"].([]any) {
+		node := raw.(map[string]any)
+		item := map[string]any{"kind": node["kind"], "title": node["title"]}
+		if body, ok := node["body"]; ok {
+			item["body"] = body
+		}
+		if attrs, ok := node["attributes"]; ok {
+			item["attributes"] = attrs
+		}
+		if codes, ok := node["standardCodes"]; ok {
+			item["standardCodes"] = codes
+		}
+		nodes = append(nodes, item)
+	}
+	index := map[string]string{}
+	for i, raw := range graph["nodes"].([]any) {
+		node := raw.(map[string]any)
+		index[node["id"].(string)] = strconv.Itoa(i)
+	}
+	edges := []map[string]any{}
+	for _, raw := range graph["edges"].([]any) {
+		edge := raw.(map[string]any)
+		if edge["kind"] == "uses_resource" {
+			continue
+		}
+		edges = append(edges, map[string]any{
+			"kind":       edge["kind"],
+			"fromNodeId": index[edge["fromNodeId"].(string)],
+			"toNodeId":   index[edge["toNodeId"].(string)],
+			"note":       edge["note"],
+		})
+	}
+	return map[string]any{"nodes": nodes, "edges": edges}
+}
+
+func outcomeStandardCodes(t *testing.T, graph map[string]any) []string {
+	t.Helper()
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, raw := range graph["nodes"].([]any) {
+		node := raw.(map[string]any)
+		if node["kind"] != "outcome" {
+			continue
+		}
+		codes, _ := node["standardCodes"].([]any)
+		for _, code := range codes {
+			s, _ := code.(string)
+			if s == "" {
+				continue
+			}
+			if _, ok := seen[s]; ok {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func graphProjectAttrs(t *testing.T, graph map[string]any) map[string]string {
+	t.Helper()
+	nodes, _ := graph["nodes"].([]any)
+	for _, raw := range nodes {
+		node, _ := raw.(map[string]any)
+		if node["kind"] == "project" {
+			attrs, _ := node["attributes"].(map[string]any)
+			out := map[string]string{}
+			for k, v := range attrs {
+				out[k] = v.(string)
+			}
+			return out
+		}
+	}
+	t.Fatal("project node missing")
+	return nil
+}
+
+type itemView struct {
+	Kind, Title, Body string
+}
+
+func decodeItems(t *testing.T, raw []byte) []itemView {
+	t.Helper()
+	var page struct{ Items []itemView }
+	require.NoError(t, json.Unmarshal(raw, &page))
+	return page.Items
+}
+
+func decodeBody(t *testing.T, raw string) map[string]any {
+	t.Helper()
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(raw), &body))
+	return body
+}
+
+func asStrings(v any) []string {
+	items, _ := v.([]any)
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func contextWithTimeout(t *testing.T, d time.Duration) (context.Context, func()) {
+	t.Helper()
+	return context.WithTimeout(t.Context(), d)
+}

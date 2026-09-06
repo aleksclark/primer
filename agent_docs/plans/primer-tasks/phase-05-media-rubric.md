@@ -96,9 +96,12 @@ continuation plan and does not block this phase.
 ## Implementation Instructions
 
 1. Add an object-store interface with filesystem implementation for narrow unit
-   tests and S3-compatible implementation for Compose/deploy. Add MinIO to
-   Compose with a named data volume and internal DNS; expose only the endpoint
-   needed by browser direct upload through Stacklane.
+   tests and S3-compatible implementation for host and opt-in Compose/deploy.
+   Default host/E2E uses real S3-compatible object storage without requiring
+   Compose. Because this phase adds object storage to the opt-in Compose vector,
+   also add MinIO there with a named data volume and internal DNS; expose only
+   the endpoint needed by browser direct upload. Do not make Compose the default
+   host path.
 2. Add artifacts, upload reservations/parts, submission links, derivatives,
    scan/validation status, and retention/tombstone records. PostgreSQL stores no
    artifact bytes. Object keys are server-generated from tenant-scoped opaque

@@ -19,6 +19,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/aleksclark/primer/curriculum-studio/internal/artifacts"
+	"github.com/aleksclark/primer/curriculum-studio/internal/outbox"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 )
 
@@ -35,9 +37,16 @@ type Options struct {
 	// AcceptServiceTokenAlias enables the migration-only X-Service-Token JWT
 	// alias. It is false by default and must never be enabled as an end state.
 	AcceptServiceTokenAlias bool
+	// MatStub marks newly requested runs ready with zero items. Tests only.
+	MatStub bool
 	// Querier supplies the local Studio database authorization projection. New
 	// normally derives it from the pgx pool; this seam supports non-pool tests.
 	Querier repo.Querier
+	// Secrets stores webhook signing secrets by their secret_ref pointer. The
+	// process bootstrap must share this store with the outbox worker.
+	Secrets outbox.SecretStore
+	// Artifacts is required for export creation/download. Nil fails closed.
+	Artifacts artifacts.Store
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -51,6 +60,9 @@ type Server struct {
 	querier                 repo.Querier
 	validator               TokenValidator
 	acceptServiceTokenAlias bool
+	matStub                 bool
+	secrets                 outbox.SecretStore
+	artifacts               artifacts.Store
 	now                     func() time.Time
 	reqTotal                atomic.Int64
 }
@@ -66,7 +78,11 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, now: now}
+	secrets := opts.Secrets
+	if secrets == nil {
+		secrets = outbox.NewMemorySecrets()
+	}
+	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, matStub: opts.MatStub, secrets: secrets, artifacts: opts.Artifacts, now: now}
 	if s.querier == nil {
 		if q, ok := pool.(repo.Querier); ok {
 			s.querier = q
@@ -110,6 +126,9 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	// handlers share /studio/v1/*.
 	s.RegisterRoutes(humaAPI)
 	s.registerPlanRoutes(humaAPI)
+	s.registerMaterializationRoutes(humaAPI)
+	s.registerWebhookRoutes(humaAPI)
+	s.registerCollabRoutes(humaAPI)
 
 	// Prometheus-style metrics outside Huma for simple scraping.
 	router.Get("/metrics", s.handleMetrics)
@@ -256,4 +275,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "# HELP studio_http_requests_total Total HTTP requests handled.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE studio_http_requests_total counter\n")
 	_, _ = fmt.Fprintf(w, "studio_http_requests_total %d\n", s.reqTotal.Load())
+	if s.querier != nil {
+		lag, err := repo.NewMetricsRepo(s.querier).OutboxLag(context.Background(), s.now())
+		if err == nil {
+			_, _ = fmt.Fprintf(w, "# HELP studio_outbox_lag_seconds Age of the oldest unpublished outbox event.\n")
+			_, _ = fmt.Fprintf(w, "# TYPE studio_outbox_lag_seconds gauge\n")
+			_, _ = fmt.Fprintf(w, "studio_outbox_lag_seconds %.3f\n", lag.Seconds())
+		}
+	}
 }

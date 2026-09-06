@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -50,6 +51,55 @@ RETURNING id,run_id,plan_revision_id,unit_id,project_id,outcome_id,kind,title,bo
 	return out, nil
 }
 
+// CreateForStage creates an item exactly once for the (run, stage, kind, title)
+// provenance tuple. The matching partial unique index makes resume safe even if
+// a process dies after writing items and before completing the stage.
+func (r *MaterializedItemRepo) CreateForStage(ctx context.Context, workspaceID, stageID uuid.UUID, in *domain.MaterializedItem) (*domain.MaterializedItem, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	if in == nil || workspaceID == uuid.Nil || stageID == uuid.Nil || in.RunID == uuid.Nil || in.PlanRevisionID == uuid.Nil || strings.TrimSpace(in.Title) == "" {
+		return nil, fmt.Errorf("workspace, stage, run, revision, and title are required")
+	}
+	body, err := materializationObject(in.Body, "body")
+	if err != nil {
+		return nil, err
+	}
+	provenance, err := materializationObject(in.Provenance, "provenance")
+	if err != nil {
+		return nil, err
+	}
+	var provenanceObject map[string]any
+	if err := json.Unmarshal(provenance, &provenanceObject); err != nil || provenanceObject["stage_id"] != stageID.String() {
+		return nil, fmt.Errorf("provenance stage_id must match stage")
+	}
+	status, kind := in.Status, in.Kind
+	if status == "" {
+		status = domain.ItemStatusDraft
+	}
+	if kind == "" {
+		kind = domain.ItemKindLesson
+	}
+	const insert = `INSERT INTO curriculum_studio.materialized_items(run_id,plan_revision_id,unit_id,project_id,outcome_id,kind,title,body,status,supersedes_item_id,provenance)
+SELECT r.id,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 FROM curriculum_studio.materialization_runs r
+JOIN curriculum_studio.curricula c ON c.workspace_id=r.workspace_id AND c.id=(SELECT curriculum_id FROM curriculum_studio.plan_revisions WHERE id=r.plan_revision_id)
+WHERE r.id=$1 AND r.plan_revision_id=$2 AND r.workspace_id=$12
+ON CONFLICT (run_id, (provenance->>'stage_id'), kind, title) WHERE provenance ? 'stage_id' DO NOTHING
+RETURNING id,run_id,plan_revision_id,unit_id,project_id,outcome_id,kind,title,body,status,locked,locked_at,locked_by_subject_ref,supersedes_item_id,provenance,created_at,updated_at`
+	out, err := scanMaterializedItem(r.Q.QueryRow(ctx, insert, in.RunID, in.PlanRevisionID, in.UnitID, in.ProjectID, in.OutcomeID, kind, in.Title, body, status, in.SupersedesItemID, provenance, workspaceID))
+	if err == nil {
+		return out, nil
+	}
+	if !isNoRows(err) {
+		return nil, MapError(err)
+	}
+	out, err = scanMaterializedItem(r.Q.QueryRow(ctx, materializedItemSelect+` WHERE i.run_id=$1 AND m.workspace_id=$2 AND i.kind=$3 AND i.title=$4 AND i.provenance->>'stage_id'=$5`, in.RunID, workspaceID, kind, in.Title, stageID.String()))
+	if err != nil {
+		return nil, MapError(err)
+	}
+	return out, nil
+}
+
 func (r *MaterializedItemRepo) Get(ctx context.Context, workspaceID, itemID uuid.UUID) (*domain.MaterializedItem, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
@@ -64,13 +114,17 @@ func (r *MaterializedItemRepo) Get(ctx context.Context, workspaceID, itemID uuid
 	return out, nil
 }
 func (r *MaterializedItemRepo) ListByRun(ctx context.Context, workspaceID, runID uuid.UUID) ([]domain.MaterializedItem, error) {
+	return r.ListByRunFiltered(ctx, workspaceID, runID, "", "")
+}
+
+func (r *MaterializedItemRepo) ListByRunFiltered(ctx context.Context, workspaceID, runID uuid.UUID, kind, status string) ([]domain.MaterializedItem, error) {
 	if r == nil || r.Q == nil {
 		return nil, fmt.Errorf("%w", ErrClosed)
 	}
 	if workspaceID == uuid.Nil || runID == uuid.Nil {
 		return []domain.MaterializedItem{}, nil
 	}
-	rows, e := r.Q.Query(ctx, materializedItemSelect+` WHERE i.run_id=$1 AND m.workspace_id=$2 ORDER BY i.created_at,i.id`, runID, workspaceID)
+	rows, e := r.Q.Query(ctx, materializedItemSelect+` WHERE i.run_id=$1 AND m.workspace_id=$2 AND ($3='' OR i.kind=$3) AND ($4='' OR i.status=$4) ORDER BY i.created_at,i.id`, runID, workspaceID, strings.TrimSpace(kind), strings.TrimSpace(status))
 	if e != nil {
 		return nil, MapError(e)
 	}
@@ -163,6 +217,29 @@ func (r *MaterializedItemRepo) ListEdits(ctx context.Context, workspaceID, itemI
 	}
 	if out == nil {
 		out = []domain.MaterializedItemEdit{}
+	}
+	return out, nil
+}
+
+func (r *MaterializedItemRepo) UpdateContent(ctx context.Context, workspaceID, itemID uuid.UUID, title string, body json.RawMessage, editor string) (*domain.MaterializedItem, error) {
+	if r == nil || r.Q == nil {
+		return nil, fmt.Errorf("%w", ErrClosed)
+	}
+	body, err := materializationObject(body, "body")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(title) == "" {
+		return nil, fmt.Errorf("title is required")
+	}
+	out, e := scanMaterializedItem(r.Q.QueryRow(ctx, `UPDATE curriculum_studio.materialized_items i SET title=$3,body=$4,updated_at=now() FROM curriculum_studio.materialization_runs m WHERE i.id=$1 AND i.run_id=m.id AND m.workspace_id=$2 RETURNING i.id,i.run_id,i.plan_revision_id,i.unit_id,i.project_id,i.outcome_id,i.kind,i.title,i.body,i.status,i.locked,i.locked_at,i.locked_by_subject_ref,i.supersedes_item_id,i.provenance,i.created_at,i.updated_at`, itemID, workspaceID, strings.TrimSpace(title), body))
+	if e != nil {
+		return nil, MapError(e)
+	}
+	if strings.TrimSpace(editor) != "" {
+		if _, e = r.ApplyEdit(ctx, workspaceID, itemID, &domain.MaterializedItemEdit{EditorSubjectRef: editor, Patch: json.RawMessage(`{"title":true}`)}); e != nil {
+			return nil, e
+		}
 	}
 	return out, nil
 }

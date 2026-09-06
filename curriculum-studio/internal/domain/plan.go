@@ -2,6 +2,9 @@ package domain
 
 import (
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,12 +69,13 @@ type Outcome struct {
 
 // OutcomeStandardMapping maps an outcome to a catalog standard.
 type OutcomeStandardMapping struct {
-	ID         uuid.UUID
-	OutcomeID  uuid.UUID
-	StandardID uuid.UUID
-	Alignment  string
-	Notes      string
-	CreatedAt  time.Time
+	ID           uuid.UUID
+	OutcomeID    uuid.UUID
+	StandardID   uuid.UUID
+	Alignment    string
+	Notes        string
+	CreatedAt    time.Time
+	StandardCode string
 }
 
 // OutcomePrerequisite is a directed prerequisite edge among outcomes.
@@ -125,6 +129,97 @@ type Project struct {
 	UpdatedAt        time.Time
 }
 
+// ProjectPhase is one ordered stage of a multi-subject project blueprint.
+type ProjectPhase struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Position   int               `json:"position"`
+	OffScreen  bool              `json:"offScreen,omitempty"`
+	Activities []ProjectActivity `json:"activities,omitempty"`
+}
+
+// ProjectActivity is a phase-scoped task. Kind off_screen becomes a project_task.
+type ProjectActivity struct {
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
+}
+
+const (
+	ProjectOutcomeRoleTarget  = "target"
+	ProjectOutcomeRolePrior   = "prior"
+	ProjectOutcomeRoleStretch = "stretch"
+	ActivityKindOffScreen     = "off_screen"
+)
+
+// ParseProjectPhases decodes and orders a project's phases JSON. Empty or nil
+// payloads are a valid empty list. Duplicate ids and missing names fail closed.
+func ParseProjectPhases(raw json.RawMessage) ([]ProjectPhase, error) {
+	if len(raw) == 0 {
+		return []ProjectPhase{}, nil
+	}
+	var phases []ProjectPhase
+	if err := json.Unmarshal(raw, &phases); err != nil {
+		return nil, fmt.Errorf("phases must be a JSON array: %w", err)
+	}
+	seen := map[string]struct{}{}
+	for i := range phases {
+		p := &phases[i]
+		p.ID = strings.TrimSpace(p.ID)
+		p.Name = strings.TrimSpace(p.Name)
+		if p.ID == "" {
+			return nil, fmt.Errorf("phase %d is missing id", i)
+		}
+		if p.Name == "" {
+			return nil, fmt.Errorf("phase %q is missing name", p.ID)
+		}
+		if _, ok := seen[p.ID]; ok {
+			return nil, fmt.Errorf("duplicate phase id %q", p.ID)
+		}
+		seen[p.ID] = struct{}{}
+		if p.Position == 0 {
+			p.Position = i + 1
+		}
+	}
+	sort.SliceStable(phases, func(i, j int) bool {
+		if phases[i].Position != phases[j].Position {
+			return phases[i].Position < phases[j].Position
+		}
+		return phases[i].ID < phases[j].ID
+	})
+	return phases, nil
+}
+
+// EncodeProjectPhases stores an ordered phase list as JSONB.
+func EncodeProjectPhases(phases []ProjectPhase) (json.RawMessage, error) {
+	if phases == nil {
+		phases = []ProjectPhase{}
+	}
+	ordered, err := ParseProjectPhases(mustJSON(phases))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(ordered)
+}
+
+func mustJSON(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage(`[]`)
+	}
+	return raw
+}
+
+// PhaseByID returns the named phase or false when the blueprint has no match.
+func PhaseByID(phases []ProjectPhase, id string) (ProjectPhase, bool) {
+	id = strings.TrimSpace(id)
+	for _, p := range phases {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return ProjectPhase{}, false
+}
+
 // UnitOutcome and ProjectOutcome attach outcomes to plan containers.
 type UnitOutcome struct {
 	UnitID    uuid.UUID
@@ -166,6 +261,8 @@ type PlanResource struct {
 	ProjectID      *uuid.UUID
 	Role           string
 	Notes          string
+	ResourceKind   string
+	ResourceTitle  string
 }
 
 // PlanGraph is a consistent, revision-scoped graph snapshot. Each collection is

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Product-local browser test boundary.
+#
+# Exploratory browser acceptance owns the first real-stack qualification. This
+# command intentionally refuses to run a promoted runner until that evidence
+# exists; it does not create a Playwright suite or turn a blocked exploration
+# into a passing test.
+set -Eeuo pipefail
+
+if [[ "${PRIMER_TASKS_EXPLORATORY_BROWSER_PASS:-}" != "1" ]]; then
+  cat >&2 <<'EOF'
+browser-test: BLOCKED — exploratory browser acceptance has not PASSed.
+Run the real-stack exploratory flow first and set
+PRIMER_TASKS_EXPLORATORY_BROWSER_PASS=1 only with its recorded evidence.
+EOF
+  exit 2
+fi
+
+browser_command="${PRIMER_TASKS_BROWSER_COMMAND:-npm run browser:promoted}"
+exec bash -lc "$browser_command"

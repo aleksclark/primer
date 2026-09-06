@@ -1,0 +1,4 @@
+# Android/Gradle build products are reproducible and must never be committed.
+.gradle/
+**/build/
+local.properties

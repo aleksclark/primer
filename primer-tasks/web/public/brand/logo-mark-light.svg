@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title">
+  <title id="title">Primer mark</title>
+  <rect x="10" y="14" width="13" height="76" fill="#0E1013"/>
+  <rect x="33" y="72" width="53" height="11" fill="#0E1013"/>
+  <rect x="33" y="50" width="41" height="11" fill="#0E1013"/>
+  <rect x="33" y="28" width="29" height="11" fill="#0E1013"/>
+  <rect x="70" y="28" width="11" height="11" fill="#2E62D8"/>
+</svg>

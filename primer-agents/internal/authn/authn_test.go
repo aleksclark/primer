@@ -249,3 +249,20 @@ func TestValidateRotatesKeyGracefully(t *testing.T) {
 	_, err = v.Validate(context.Background(), tok2)
 	require.NoError(t, err)
 }
+
+func TestValidateNilAndCancelledContextDenied(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	key := jwttest.GenerateKey(t)
+	srv := serveJWKS(t, key)
+	v := newValidator(t, srv.URL, func() time.Time { return now })
+	tok := jwttest.Mint(t, key, jwttest.ValidHumanClaims(now, "identity:"+uuid.NewString()))
+
+	_, err := v.Validate(nil, tok) //nolint:staticcheck
+	require.ErrorIs(t, err, authn.ErrUnauthorized)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = v.Validate(ctx, tok)
+	require.ErrorIs(t, err, authn.ErrUnauthorized)
+}

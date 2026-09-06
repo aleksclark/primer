@@ -159,6 +159,18 @@ func TestLoadRejectsMalformedPort(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestLoadRejectsMatStubInProduction(t *testing.T) {
+	t.Setenv("STUDIO_ENV", "production")
+	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:x@db.example:5432/curriculum_studio?sslmode=require")
+	t.Setenv("STUDIO_JWKS_URL", "https://id.example/jwks")
+	t.Setenv("STUDIO_ISSUER", "https://id.example")
+	t.Setenv("STUDIO_MCP_ENABLED", "false")
+	t.Setenv("STUDIO_MAT_STUB", "true")
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "stub")
+}
+
 func TestLoadRejectsInvalidEnv(t *testing.T) {
 	t.Setenv("STUDIO_ENV", "staging")
 	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:x@localhost:5432/curriculum_studio?sslmode=disable")
@@ -221,6 +233,19 @@ func TestLoadRejectsDBURLWithoutName(t *testing.T) {
 	t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:x@localhost:5432/")
 	_, err := config.Load()
 	require.Error(t, err)
+}
+
+func TestLoadRejectsNonScriptedModelProvider(t *testing.T) {
+	for _, provider := range []string{"bedrock", "openrouter", "openai"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Setenv("STUDIO_ENV", "development")
+			t.Setenv("STUDIO_DATABASE_URL", "postgres://studio:x@localhost:5432/curriculum_studio?sslmode=disable")
+			t.Setenv("STUDIO_MODEL_PROVIDER", provider)
+			_, err := config.Load()
+			require.Error(t, err)
+			assert.Contains(t, strings.ToLower(err.Error()), "blocked")
+		})
+	}
 }
 
 func TestValidatePortZeroAllowed(t *testing.T) {

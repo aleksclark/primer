@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/text/encoding/charmap"
+
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
 )
 
@@ -39,21 +41,52 @@ func Markdown(g *domain.PlanGraph) []byte {
 	return []byte(b.String())
 }
 
-// PDF emits a deliberately small, valid single-page PDF without adding a
-// heavyweight renderer dependency. The textual stream is escaped and the
-// artifact is sufficient for download/archival; richer typography can land in
-// the later document-export phase.
-func PDF(g *domain.PlanGraph) []byte {
-	text := strings.ReplaceAll(strings.ReplaceAll(string(Markdown(g)), "\\", "\\\\"), "(", "\\(")
-	text = strings.ReplaceAll(text, ")", "\\)")
-	stream := fmt.Sprintf("BT /F1 11 Tf 50 760 Td (%s) Tj ET", strings.ReplaceAll(text, "\n", ") Tj 0 -14 Td ("))
-	objects := []string{"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n", "2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n", "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n", "4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n", fmt.Sprintf("5 0 obj<</Length %d>>stream\n%s\nendstream\nendobj\n", len(stream), stream)}
+// PDF emits a basic paginated Helvetica document with WinAnsi encoding.
+// DOCX/Markdown are preferred for text outside the WinAnsi character set.
+func PDF(g *domain.PlanGraph) []byte { return pdfText(string(Markdown(g))) }
+
+func pdfText(content string) []byte {
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		runes := []rune(strings.ReplaceAll(line, "\t", "    "))
+		for len(runes) > 80 {
+			lines = append(lines, string(runes[:80]))
+			runes = runes[80:]
+		}
+		lines = append(lines, string(runes))
+	}
+	pages := (len(lines) + 47) / 48
+	kids := make([]string, pages)
+	for i := range kids {
+		kids[i] = fmt.Sprintf("%d 0 R", 4+i*2)
+	}
+	objects := []string{"<</Type/Catalog/Pages 2 0 R>>", fmt.Sprintf("<</Type/Pages/Count %d/Kids[%s]>>", pages, strings.Join(kids, " ")), "<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>"}
+	for i := 0; i < pages; i++ {
+		var stream strings.Builder
+		stream.WriteString("BT /F1 11 Tf 50 760 Td\n")
+		for _, line := range lines[i*48 : min((i+1)*48, len(lines))] {
+			stream.WriteByte('(')
+			for _, r := range line {
+				b, ok := charmap.Windows1252.EncodeRune(r)
+				if !ok || b < 32 {
+					b = '?'
+				}
+				if b == '(' || b == ')' || b == '\\' {
+					stream.WriteByte('\\')
+				}
+				stream.WriteByte(b)
+			}
+			stream.WriteString(") Tj 0 -14 Td\n")
+		}
+		stream.WriteString("ET")
+		objects = append(objects, fmt.Sprintf("<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R>>>>/Contents %d 0 R>>", 5+i*2), fmt.Sprintf("<</Length %d>>stream\n%s\nendstream", stream.Len(), stream.String()))
+	}
 	var b bytes.Buffer
 	b.WriteString("%PDF-1.4\n")
 	offsets := []int{0}
-	for _, o := range objects {
+	for i, o := range objects {
 		offsets = append(offsets, b.Len())
-		b.WriteString(o)
+		fmt.Fprintf(&b, "%d 0 obj%s endobj\n", i+1, o)
 	}
 	xref := b.Len()
 	fmt.Fprintf(&b, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)

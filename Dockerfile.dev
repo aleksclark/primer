@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+# Primer LMS + TV API dev image — Air hot-reload, source mounted at runtime.
+# Pins match server/go.mod (golang 1.25.7). Do not use for production.
+
+ARG AIR_VERSION=v1.67.4
+
+FROM golang:1.25.7-bookworm@sha256:564e366a28ad1d70f460a2b97d1d299a562f08707eb0ecb24b659e5bd6c108e1
+
+ARG AIR_VERSION
+ENV CGO_ENABLED=0 \
+    GO111MODULE=on \
+    GOPATH=/go \
+    GOWORK=off \
+    PATH=/go/bin:/usr/local/go/bin:$PATH
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && go install github.com/air-verse/air@${AIR_VERSION} \
+ && air -v \
+ && mkdir -p /tmp/air /src/server/tmp
+
+WORKDIR /src/server
+
+# Air as PID1 so SIGTERM reaches the watcher. Compose bind-mounts the repo at /src.
+CMD ["air", "-c", ".air.lms.toml"]

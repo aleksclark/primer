@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+
+# Development image only. Production images and deployment Dockerfiles remain
+# outside this product-local stack.
+FROM golang:1.25-alpine
+
+RUN apk add --no-cache git tzdata
+# Keep the watcher version reproducible; Air remains PID 1 in Compose.
+RUN go install github.com/air-verse/air@v1.61.7
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ENTRYPOINT ["air", "-c", ".air.toml"]

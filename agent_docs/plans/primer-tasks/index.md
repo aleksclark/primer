@@ -8,9 +8,10 @@ configured verification requirements succeed. Parents administer students,
 tasks, schedules, browser sessions, and exceptions through a browser SPA or a
 WebSocket-streamed Fantasy agent. Students use the same SPA; conversational,
 artifact, human, and external verification methods share one durable
-attempt/decision model. The already-established native baseline and all native
-work formerly attached to Phases 4–7 now live in the separate
-[Primer Tasks Android continuation plan](../primer-tasks-android/index.md).
+attempt/decision model. Native pairing/checklist baselines exist only on the
+preserved donor `impl/tasks-p6-external` (not on `origin/master`); those
+baselines and all native work formerly attached to Phases 4–7 now live in the
+separate [Primer Tasks Android continuation plan](../primer-tasks-android/index.md).
 
 The completed standalone loop is:
 
@@ -36,7 +37,7 @@ Repository evidence at the planning base (`2e55dd3`):
 | Fantasy | Not a production dependency. Local module cache and upstream release expose streaming text/reasoning/tool callbacks and typed tools at `charm.land/fantasy v0.41.1` | inspected Fantasy `README.md`, `agent.go`, `tool.go` |
 | Identity | Primer Identity is a separate issuer/broker and remains mid-delivery; product BFF/live cutover cannot be assumed complete | `primer-identity/README.md`, `agent_docs/plans/primer-identity-service/index.md` |
 | Design system | Primer System C is the stronger local visual authority; dark is primary, square/ruled, generated tokens, no chat bubbles | `design-system/README.md`, `design-system/generated/` |
-| Compose/Stacklane | No repository Compose or Stacklane lifecycle exists | repository file inventory |
+| Compose/Stacklane | Host Make is the default non-Docker path. An opt-in LMS/TV Compose stack exists and must not become the Tasks default; Tasks still needs its own additive opt-in vector if Compose is used at all | `AGENTS.md`, `docs/dev-compose.md` |
 | Task verification product | No standalone task/schedule/occurrence/verification service, SPA, or Android app exists | repository inventory |
 
 This plan therefore creates new product code under `primer-tasks/`; it does not
@@ -79,8 +80,8 @@ primer-tasks/
   clients/{typescript,kotlin}/        # committed façade/config only
   web/                                # parent + student route groups
   android/                            # dedicated student application
-  compose.yaml
-  scripts/dev                         # one Stacklane-aware lifecycle vector
+  compose.yaml                        # opt-in Stacklane-compatible Compose; not the default host path
+  scripts/dev                         # opt-in Compose/Stacklane lifecycle vector only
   test-artifacts/                     # text manifests/reports, not secrets/media
 ```
 
@@ -187,8 +188,12 @@ blocked; they never degrade to self-check or automatic completion.
 - WebSocket streaming, progress indicators, reconnect, durable jobs, audit and
   observability.
 - Handler-derived REST contracts and generated TypeScript/Kotlin clients.
-- Stacklane-first Compose with hot reload for Go and Vite, direct loopback
-  fallback, real PostgreSQL/object storage, and worktree isolation.
+- Host Make / non-Docker development as the primary path (`make tasks-*`,
+  local Postgres via existing host targets/testcontainers). An opt-in
+  Stacklane-compatible Compose vector with hot reload for Go and Vite, direct
+  loopback fallback, real PostgreSQL/object storage, and worktree isolation is
+  additive only; do not treat it as the default host command. Phases that add
+  or change that vector must still test it.
 - Mandatory independent exploratory E2E and promoted automation in every phase.
 
 ### Out of scope
@@ -205,7 +210,8 @@ blocked; they never degrade to self-check or automatic completion.
 - Offline completion guarantees; clients may cache read state, but server
   verification remains authoritative.
 - Treating scripted models as proof of pedagogical or multimodal model quality.
-- Native-client work after the reviewed Phase 1–2 baseline; dialogue, media,
+- Native-client work after the donor-only Phase 1–2 baseline on
+  `impl/tasks-p6-external` (not on `origin/master`); dialogue, media,
   external-verifier, and release continuation are owned by
   [`../primer-tasks-android/`](../primer-tasks-android/index.md) and do not block
   Phases 4–7 here.
@@ -220,7 +226,8 @@ blocked; they never degrade to self-check or automatic completion.
    server-side; two-tenant negatives begin in phase 1.
 3. **Auth split:** live parent auth targets Primer Identity OAuth/OIDC and a
    host-only BFF session. A protocol-compatible local test issuer is allowed in
-   dev/test Compose only; production must reject it before migration/listen.
+   host and opt-in Compose dev/test only; production must reject it before
+   migration/listen.
 4. **Device custody:** pairing codes are random, hashed, single-use, short-lived,
    and shown once. Device tokens are stored only as hashes server-side and in an
    Android Keystore-encrypted local store; never in QR URLs, logs, or backups.
@@ -244,11 +251,13 @@ blocked; they never degrade to self-check or automatic completion.
     chat bubbles, keyboard/a11y/mobile-browser evidence.
 11. **Server-owned collections:** parent lists use bounded server-side search,
     filter, sort, and pagination with URL state; no bulk-fetch/client filtering.
-12. **Stacklane contract:** publishing services use required
+12. **Opt-in Stacklane/Compose contract:** when the additive Compose vector is
+    used, publishing services use required
     `stacklane.enable/project/instance/endpoint/port` labels and
-    `127.0.0.1::<containerPort>` publishes. Every lifecycle command uses the same
-    ordered Compose vector and `-p primer-tasks-$INSTANCE`; no `.local`, fixed
-    host port, wildcard publish, or host network.
+    `127.0.0.1::<containerPort>` publishes. That vector's commands use the same
+    ordered Compose invocation and `-p primer-tasks-$INSTANCE`; no `.local`,
+    fixed host port, wildcard publish, or host network. Host Make targets remain
+    the default and are not routed through Compose.
 13. **Hot reload proof:** Go watcher and Vite HMR must be proven by source
     mutation/restore; Vite HMR must update without full reload. Source mounts are
     worktree-local; caches/state are named volumes.
@@ -265,9 +274,13 @@ are specified and gated independently in
 
 1. **Implementation agent** completes the vertical slice and focused tests.
 2. A **dedicated exploratory E2E agent** (not the implementer) starts the real
-   Stacklane Compose stack and exercises the phase through browser public
-   boundaries. It records actions, desktop/mobile screenshots, network/console
-   failures, and database-visible outcomes.
+   Tasks service through the default host Make/non-Docker path and exercises
+   the phase through browser public boundaries. It records actions,
+   desktop/mobile screenshots, network/console failures, and database-visible
+   outcomes. When the phase adds or changes the opt-in Compose/Stacklane
+   vector, the same agent also starts that additive stack and proves
+   isolation/hot-reload against it. Compose is never the universal/default host
+   lifecycle.
 3. The implementer fixes findings and the exploratory agent re-runs until PASS.
 4. Only after exploratory PASS, a **test-promotion agent** writes/extends the
    Playwright suite from those observed browser steps.
@@ -283,7 +296,7 @@ for assertions.
 
 | Phase | Goal | Depends on |
 |---|---|---|
-| [Phase 1: Standalone identity, pairing, and client shells](./phase-01-foundation-pairing.md) | Run the isolated Stacklane stack; parent logs in, creates a tenant-scoped student, displays a QR, and web/Android pair to that student. | None |
+| [Phase 1: Standalone identity, pairing, and client shells](./phase-01-foundation-pairing.md) | Run the default host Make path; parent logs in, creates a tenant-scoped student, displays a QR, and web/Android pair to that student. Add and test an opt-in Compose/Stacklane vector only as an additive lifecycle. | None |
 | [Phase 2: Tasks, schedules, checklist, and parent approval](./phase-02-tasks-schedules-manual.md) | Parent creates/schedules versioned tasks; students see occurrences; parent approval completes the manual-verification example. | Phase 1 |
 | [Phase 3: Fantasy runtime and parent command chat](./phase-03-parent-agent-chat.md) | Durable Fantasy jobs and WebSockets stream a parent agent that safely manages tasks and schedules with tools. | Phase 2 |
 | [Phase 4: Student dialogue verification](./phase-04-student-dialogue-verification.md) | Student SPA completes a reading task through a streamed, requirement-scoped three-question Fantasy conversation. | Phase 3 |
@@ -312,7 +325,7 @@ for assertions.
 | Native camera/files for image/video/audio | Separate Android continuation plan, Phase 2 |
 | Mandatory dedicated E2E then Playwright per phase | global browser promotion protocol + every phase E2E/completion gate |
 | Native emulator continuation | Separate Android plan; main Phases 4–7 do not wait for it |
-| Isolated dev Compose, Stacklane, Go/Vite hot reload | P1; re-proved in P7 two-instance/hot-reload gate |
+| Isolated opt-in Compose/Stacklane, Go/Vite hot reload | P1 additive vector; re-proved in P7 when that vector changes |
 
 ## Delivery/orchestration contract
 
@@ -348,9 +361,10 @@ exploratory evidence followed by promoted Playwright automation. The independent
 Android continuation may remain in progress without blocking this web/server
 completion claim and retains its own stricter emulator completion rule. Two
 tenants remain isolated across REST, WebSocket, agent tools, object keys, jobs,
-and events;
-Compose check/hot-reload/two-instance proofs pass; generated clients are freshly
-built from offline-emitted contracts with no tracked generated source; Fantasy
+and events; default host Make/testcontainer gates are green; when the opt-in
+Compose vector is in scope, Compose check/hot-reload/two-instance proofs pass;
+generated clients are freshly built from offline-emitted contracts with no
+tracked generated source; Fantasy
 and provider failures are bounded and observable; image rubric review has an
 explicit controlled live-provider qualification before any model-quality claim;
 backup/restore and device revocation drills pass; all builds/lints/tests/coverage

@@ -20,6 +20,14 @@ func TestRoleMatrixWrite(t *testing.T) {
 	assert.False(t, authz.CanMutate("stytch-admin"))
 }
 
+func TestP17ApprovalRoleMatrix(t *testing.T) {
+	t.Parallel()
+	assert.True(t, authz.CanReview(domain.MembershipRoleReviewer))
+	for _, role := range []string{domain.MembershipRoleAuthor, domain.MembershipRoleAdmin, domain.MembershipRoleOwner, domain.MembershipRoleViewer, "", "identity-admin"} {
+		assert.False(t, authz.CanReview(role), role)
+	}
+}
+
 func TestServiceScopeRequired(t *testing.T) {
 	t.Parallel()
 	assert.True(t, authz.HasScope([]string{"openid", "materialize:write"}, "materialize:write"))

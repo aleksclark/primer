@@ -124,21 +124,23 @@ type CurriculumBrief struct {
 }
 
 type Curriculum struct {
-	ID          string             `json:"id"`
-	WorkspaceID string             `json:"workspaceId"`
-	Name        string             `json:"name" minLength:"1"`
-	Description string             `json:"description,omitempty"`
-	Template    CurriculumTemplate `json:"template,omitempty"`
-	Status      CurriculumStatus   `json:"status"`
-	CreatedAt   time.Time          `json:"createdAt"`
-	UpdatedAt   time.Time          `json:"updatedAt"`
+	TemplateCode string             `json:"templateCode,omitempty"`
+	ID           string             `json:"id"`
+	WorkspaceID  string             `json:"workspaceId"`
+	Name         string             `json:"name" minLength:"1"`
+	Description  string             `json:"description,omitempty"`
+	Template     CurriculumTemplate `json:"template,omitempty"`
+	Status       CurriculumStatus   `json:"status"`
+	CreatedAt    time.Time          `json:"createdAt"`
+	UpdatedAt    time.Time          `json:"updatedAt"`
 }
 
 type CurriculumCreate struct {
-	Name        string             `json:"name" minLength:"1"`
-	Description string             `json:"description,omitempty"`
-	Template    CurriculumTemplate `json:"template,omitempty"`
-	Brief       *CurriculumBrief   `json:"brief,omitempty"`
+	TemplateCode string             `json:"templateCode,omitempty" maxLength:"100" doc:"Workspace template code; overrides the built-in template selection."`
+	Name         string             `json:"name" minLength:"1"`
+	Description  string             `json:"description,omitempty"`
+	Template     CurriculumTemplate `json:"template,omitempty"`
+	Brief        *CurriculumBrief   `json:"brief,omitempty"`
 }
 
 type CurriculumUpdate struct {
@@ -148,6 +150,7 @@ type CurriculumUpdate struct {
 }
 
 type PlanRevision struct {
+	Title        string           `json:"title"`
 	ID           string           `json:"id"`
 	CurriculumID string           `json:"curriculumId"`
 	RevisionNum  int              `json:"revisionNumber,omitempty"`
@@ -182,6 +185,7 @@ type PlanNode struct {
 }
 
 type PlanNodeWrite struct {
+	ID               string            `json:"id,omitempty"`
 	Kind             NodeKind          `json:"kind"`
 	Title            string            `json:"title"`
 	Body             string            `json:"body,omitempty"`
@@ -208,10 +212,11 @@ type PlanEdgeWrite struct {
 }
 
 type PlanGraph struct {
-	RevisionID string     `json:"revisionId"`
-	Nodes      []PlanNode `json:"nodes"`
-	Edges      []PlanEdge `json:"edges"`
-	ETag       string     `json:"etag"`
+	ContentFingerprint string     `json:"contentFingerprint,omitempty" doc:"Fingerprint of the graph snapshot displayed by GET, used to bind reviewer decisions."`
+	RevisionID         string     `json:"revisionId"`
+	Nodes              []PlanNode `json:"nodes" nullable:"false"`
+	Edges              []PlanEdge `json:"edges" nullable:"false"`
+	ETag               string     `json:"etag"`
 }
 
 type PlanGraphWrite struct {
@@ -231,7 +236,7 @@ type ValidationReport struct {
 	ID                string              `json:"id"`
 	RevisionID        string              `json:"revisionId"`
 	MaterializationID string              `json:"materializationId,omitempty"`
-	Findings          []ValidationFinding `json:"findings"`
+	Findings          []ValidationFinding `json:"findings" nullable:"false"`
 	Passed            bool                `json:"passed"`
 	CreatedAt         time.Time           `json:"createdAt"`
 }
@@ -319,9 +324,10 @@ type AuthoringGenerationPolicy struct {
 	MaxItems          int    `json:"maxItems,omitempty"`
 }
 type AuthoringMaterializeRequest struct {
-	Learner *GenericLearnerProfile     `json:"learner,omitempty"`
-	Window  AuthoringWindow            `json:"window"`
-	Policy  *AuthoringGenerationPolicy `json:"policy,omitempty"`
+	Learner    *GenericLearnerProfile     `json:"learner,omitempty"`
+	Window     AuthoringWindow            `json:"window"`
+	Policy     *AuthoringGenerationPolicy `json:"policy,omitempty"`
+	Attributes map[string]string          `json:"attributes,omitempty"`
 }
 type Materialization struct {
 	ID                 string                `json:"id"`
@@ -367,6 +373,11 @@ type ExportJob struct {
 	Format            ExportFormat          `json:"format"`
 	Status            MaterializationStatus `json:"status"`
 	ArtifactURI       string                `json:"artifactUri,omitempty"`
+	DownloadURL       string                `json:"downloadUrl,omitempty"`
+	ManifestURL       string                `json:"manifestUrl,omitempty"`
+	CreatedBy         string                `json:"createdBy"`
+	Checksum          string                `json:"checksum,omitempty"`
+	ErrorMessage      string                `json:"errorMessage,omitempty"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	CompletedAt       *time.Time            `json:"completedAt,omitempty"`
 }
@@ -406,13 +417,13 @@ type WebhookDelivery struct {
 // Page DTOs are transport envelopes; no domain model is hidden in them.
 
 type CurriculumPage struct {
-	Items      []Curriculum `json:"items"`
+	Items      []Curriculum `json:"items" nullable:"false"`
 	TotalCount int          `json:"totalCount"`
 	Limit      int          `json:"limit"`
 	Offset     int          `json:"offset"`
 }
 type PlanRevisionPage struct {
-	Items      []PlanRevision `json:"items"`
+	Items      []PlanRevision `json:"items" nullable:"false"`
 	TotalCount int            `json:"totalCount"`
 	Limit      int            `json:"limit"`
 	Offset     int            `json:"offset"`
@@ -442,13 +453,13 @@ type ResourcePage struct {
 	Offset     int        `json:"offset"`
 }
 type MaterializationPage struct {
-	Items      []Materialization `json:"items"`
+	Items      []Materialization `json:"items" nullable:"false"`
 	TotalCount int               `json:"totalCount"`
 	Limit      int               `json:"limit"`
 	Offset     int               `json:"offset"`
 }
 type MaterializedItemPage struct {
-	Items      []MaterializedItem `json:"items"`
+	Items      []MaterializedItem `json:"items" nullable:"false"`
 	TotalCount int                `json:"totalCount"`
 	Limit      int                `json:"limit"`
 	Offset     int                `json:"offset"`
@@ -548,12 +559,17 @@ type resourceListInput struct {
 	WorkspaceID string `path:"workspaceId"`
 }
 type materializationListInput struct {
-	authoringListQuery
 	RevisionID string `path:"revisionId"`
+	Limit      int    `query:"limit" minimum:"1" maximum:"100" default:"25"`
+	Offset     int    `query:"offset" minimum:"0" default:"0"`
 }
 type itemListInput struct {
-	authoringListQuery
+	// Huma does not emit fields embedded through an unexported struct. Keep
+	// these implemented query controls explicit so regenerated SPA clients agree.
 	MaterializationID string `path:"materializationId"`
+	Limit             int    `query:"limit" minimum:"1" maximum:"200" default:"25"`
+	Offset            int    `query:"offset" minimum:"0" default:"0"`
+	Q                 string `query:"q"`
 }
 type eventListInput struct {
 	authoringListQuery
@@ -684,24 +700,7 @@ func emptyPage[T any]() T { var page T; return page }
 
 func registerAuthoringRoutes(api huma.API) {
 	// Remaining authoring operations are contract placeholders until their
-	// domain waves land. Curricula, revisions, graphs, and resources are wired
-	// to durable handlers by Server.RegisterRoutes.
-
-	huma.Register(api, authoringOperation("list-materializations", http.MethodGet, "/studio/v1/revisions/{revisionId}/materializations", "Materializations", "List materializations"), func(context.Context, *materializationListInput) (*materializationPageResponse, error) {
-		return &materializationPageResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("create-materialization", http.MethodPost, "/studio/v1/revisions/{revisionId}/materializations", "Materializations", "Start an authoring materialization"), func(context.Context, *createMaterializationInput) (*materializationResponse, error) {
-		return &materializationResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-materialization", http.MethodGet, "/studio/v1/materializations/{materializationId}", "Materializations", "Get materialization status"), func(context.Context, *materializationPath) (*materializationResponse, error) {
-		return &materializationResponse{}, nil
-	})
-	huma.Register(api, authoringOperation("get-materialization-bundle", http.MethodGet, "/studio/v1/materializations/{materializationId}/bundle", "Materializations", "Get an authoring bundle summary"), func(context.Context, *materializationPath) (*bundleResponse, error) { return &bundleResponse{}, nil })
-	huma.Register(api, authoringOperation("list-materialized-items", http.MethodGet, "/studio/v1/materializations/{materializationId}/items", "Items", "List materialized items"), func(context.Context, *itemListInput) (*itemPageResponse, error) { return &itemPageResponse{}, nil })
-	huma.Register(api, authoringOperation("get-materialized-item", http.MethodGet, "/studio/v1/materialized-items/{itemId}", "Items", "Get a materialized item"), func(context.Context, *itemPath) (*itemResponse, error) { return &itemResponse{}, nil })
-	huma.Register(api, authoringOperation("update-materialized-item", http.MethodPatch, "/studio/v1/materialized-items/{itemId}", "Items", "Update a materialized item"), func(context.Context, *updateItemInput) (*itemResponse, error) { return &itemResponse{}, nil })
-	huma.Register(api, authoringOperation("lock-materialized-item", http.MethodPost, "/studio/v1/materialized-items/{itemId}/lock", "Items", "Lock a materialized item"), func(context.Context, *itemActionInput) (*itemResponse, error) { return &itemResponse{}, nil })
-	huma.Register(api, authoringOperation("unlock-materialized-item", http.MethodPost, "/studio/v1/materialized-items/{itemId}/unlock", "Items", "Unlock a materialized item"), func(context.Context, *itemActionInput) (*itemResponse, error) { return &itemResponse{}, nil })
+	// domain waves land. Materialization routes are owned by S11 handlers.
 
 	huma.Register(api, authoringOperation("list-webhooks", http.MethodGet, "/studio/v1/workspaces/{workspaceId}/webhooks", "Webhooks", "List webhook endpoints"), func(context.Context, *webhookListInput) (*webhookPageResponse, error) {
 		return &webhookPageResponse{}, nil

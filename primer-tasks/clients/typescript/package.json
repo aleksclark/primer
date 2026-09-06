@@ -1,0 +1,22 @@
+{
+  "name": "@primer-tasks/client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "node ./generate-client.mjs",
+    "test:generation": "node --test generate-client.test.mjs",
+    "check:boundary": "node ./scripts/check-agent-boundary.mjs",
+    "typecheck": "tsc -p tsconfig.json --allowImportingTsExtensions",
+    "test": "node --test src/*.test.mjs"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
+}

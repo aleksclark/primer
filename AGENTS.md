@@ -104,6 +104,12 @@ go run ./cmd/primer/
 go test ./...
 ```
 
+Host Make targets (`make dev-db`, `make test`, `make investor-web-dev`) stay the
+non-Docker path. An **opt-in** Stacklane-compatible Compose stack lives in
+`docker-compose.yml` and is driven only by `scripts/compose-dev.sh` / `paseo.json`
+— see [docs/dev-compose.md](docs/dev-compose.md). Do not treat Compose as the
+default host command.
+
 ## LMS Server (`server/`) and Admin SPA (`web/`)
 
 The LMS backend is a Go HTTP API (Huma v2 + chi + pgx/PostgreSQL) that manages
