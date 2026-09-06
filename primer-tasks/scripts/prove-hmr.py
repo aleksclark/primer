@@ -77,7 +77,7 @@ def main() -> int:
         response = command(
             "Runtime.evaluate",
             {
-                "expression": "document.querySelector('[data-hmr-proof-marker]')?.textContent || ''",
+                "expression": "document.querySelector('[data-hmr-proof-marker]')?.getAttribute('data-hmr-proof-marker') || ''",
                 "returnByValue": True,
             },
         )

@@ -328,7 +328,7 @@ for _ in $(seq 1 30); do
 done
 curl -fsS "http://127.0.0.1:${CHROME_PORT}/json/version" >/dev/null || fail "Chrome DevTools endpoint did not start"
 python3 "$ROOT/scripts/prove-hmr.py" "$CHROME_PORT" "http://127.0.0.1:${WEB_B_PORT}/student/pair" \
-  "System C · HMR baseline" "System C · $FRONTEND_NONCE" "$HMR_READY" >"$TMPDIR_PROOF/hmr.log" 2>&1 &
+  "tasks-source-baseline" "tasks-source-$FRONTEND_NONCE" "$HMR_READY" >"$TMPDIR_PROOF/hmr.log" 2>&1 &
 HMR_PID=$!
 for _ in $(seq 1 60); do
   [[ -f "$HMR_READY" ]] && break
@@ -342,9 +342,9 @@ import sys
 path = Path(sys.argv[1])
 nonce = sys.argv[2]
 raw = path.read_bytes()
-# The source is UTF-8; spell the anchor as code points to avoid shell byte loss.
-old = "System C · HMR baseline".encode()
-new = ("System C · " + nonce).encode()
+# Mutate the non-announcing source-backed data attribute, not UI copy.
+old = b"tasks-source-baseline"
+new = ("tasks-source-" + nonce).encode()
 if raw.count(old) != 1:
     raise SystemExit("frontend mutation anchor was not unique")
 path.write_bytes(raw.replace(old, new))

@@ -14,7 +14,7 @@ func TestTaskTemplateViewKeepsHistoryAndPaginatesTemplates(t *testing.T) {
 	h := s.Routes()
 	callTask := func(path, title string) TaskRevision {
 		t.Helper()
-		rec := requestJSON(t, h, http.MethodPost, path, "parent-a", `{"title":"`+title+`","instructions":"Careful steps","requirements":[{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
+		rec := requestJSON(t, h, http.MethodPost, path, "parent-a", `{"title":"`+title+`","instructions":"Careful steps for `+title+`","requirements":[{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
 		if rec.Code != 201 {
 			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
 		}
@@ -85,7 +85,7 @@ func TestTaskTemplateViewKeepsHistoryAndPaginatesTemplates(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &occurrences); err != nil {
 		t.Fatal(err)
 	}
-	if len(occurrences.Items) != 1 || occurrences.Items[0].Title != first.Title || occurrences.Items[0].StudentName == "" {
+	if len(occurrences.Items) != 1 || occurrences.Items[0].Title != first.Title || occurrences.Items[0].Instructions != first.Instructions || occurrences.Items[0].StudentName == "" {
 		t.Fatalf("snapshot names: %s", rec.Body.String())
 	}
 	if rec := requestJSON(t, h, http.MethodPost, "/tasks/"+second.ID+"/retire", "parent-a", ""); rec.Code != 404 {
