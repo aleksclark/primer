@@ -1,6 +1,7 @@
 package devicemanagement
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,12 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,15 +30,24 @@ var (
 	ErrUnavailable  = errors.New("unavailable")
 )
 
-var packageNameRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$`)
+var (
+	packageNameRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$`)
+	hex64RE       = regexp.MustCompile(`^[a-f0-9]{64}$`)
+)
 
-func (s *Service) pool() *pgxpool.Pool {
-	return s.DB
+var allowedRestrictions = map[UserRestriction]struct{}{
+	RestrictionNoFactoryReset: {},
+	RestrictionNoAddUser:      {},
+	RestrictionNoSafeBoot:     {},
+	RestrictionNoInstallApps:  {},
 }
 
-func (s *Service) listReleaseTargets(ctx context.Context, tenantID, deviceID string) ([]ReleaseTarget, error) {
-	return []ReleaseTarget{}, nil
+type txIface interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
+
+func (s *Service) pool() *pgxpool.Pool { return s.DB }
 
 func (s *Service) now() time.Time {
 	if s.Now != nil {
@@ -62,12 +74,57 @@ func secretToken() (string, error) {
 
 func hashSecret(v string) []byte { h := sha256.Sum256([]byte(v)); return h[:] }
 
-func jsonBytes(v any) []byte { b, _ := json.Marshal(v); return b }
+func marshalJSON(v any) ([]byte, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode", ErrUnavailable)
+	}
+	return b, nil
+}
+
+func canonicalReport(in PolicyReportInput) ([]byte, error) {
+	if in.Controls == nil {
+		in.Controls = []ControlResult{}
+	}
+	return marshalJSON(in)
+}
+
+func parseUUID(v, name string) (uuid.UUID, error) {
+	id, err := uuid.Parse(strings.TrimSpace(v))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %s must be a UUID", ErrInvalid, name)
+	}
+	return id, nil
+}
+
+func enrollmentBaseURL(origin, basePath string) (string, error) {
+	origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+	if origin == "" {
+		return "", fmt.Errorf("%w: public origin is required for enrollment QR", ErrUnavailable)
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("%w: public origin must be an absolute URL", ErrInvalid)
+	}
+	path := strings.TrimRight(basePath, "/")
+	if path != "" && path != "/tasks" {
+		return "", fmt.Errorf("%w: unsupported mount path", ErrInvalid)
+	}
+	return origin + path, nil
+}
+
+func (s *Service) qrPayload(baseURL, code string) string {
+	return EnrollmentQRScheme + ":" + EnrollmentQRVersion + ":" + baseURL + "/management-device/enroll#" + code
+}
 
 func scanDevice(row pgx.Row) (Device, error) {
 	var d Device
-	err := row.Scan(&d.ID, &d.DisplayName, &d.DeviceModel, &d.State, &d.DesiredRevision, &d.AppliedRevision, &d.LastSeenAt, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.DisplayName, &d.DeviceModel, &d.State, &d.DesiredRevision, &d.AppliedRevision, &d.LastSeenAt, &d.CreatedAt, &d.EnrollmentPublicKey, &d.EnrollmentKeyID)
 	return d, err
+}
+
+func deviceSelect() string {
+	return `id,display_name,device_model,state,desired_revision,applied_revision,last_seen_at,created_at,enrollment_public_key,enrollment_key_id`
 }
 
 func (s *Service) IssueEnrollment(ctx context.Context, sc Scope, in IssueEnrollmentInput) (Enrollment, error) {
@@ -82,6 +139,10 @@ func (s *Service) IssueEnrollment(ctx context.Context, sc Scope, in IssueEnrollm
 	if mins > 60 {
 		return Enrollment{}, fmt.Errorf("%w: enrollment expiry exceeds one hour", ErrInvalid)
 	}
+	baseURL, err := enrollmentBaseURL(s.PublicOrigin, s.BasePath)
+	if err != nil {
+		return Enrollment{}, err
+	}
 	code, err := secretHex(16)
 	if err != nil {
 		return Enrollment{}, ErrUnavailable
@@ -92,11 +153,25 @@ func (s *Service) IssueEnrollment(ctx context.Context, sc Scope, in IssueEnrollm
 		return Enrollment{}, err
 	}
 	expires := s.now().Add(time.Duration(mins) * time.Minute)
-	if _, err = p.Exec(ctx, `INSERT INTO management_enrollment_codes(id,tenant_id,created_by,label,code_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6)`, id, tenantID, sc.ActorRef, strings.TrimSpace(in.Label), hashSecret(code), expires); err != nil {
+	meta, err := marshalJSON(map[string]any{"enrollmentId": id.String(), "baseUrl": baseURL})
+	if err != nil {
 		return Enrollment{}, err
 	}
-	_ = s.audit(ctx, sc.TenantID, "", "parent", sc.ActorRef, "management.enrollment_issued", map[string]any{"enrollmentId": id.String()})
-	return Enrollment{ID: id.String(), Code: code, ExpiresAt: expires, QRPayload: "primer-management:v1:" + code}, nil
+	tx, err := p.Begin(ctx)
+	if err != nil {
+		return Enrollment{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO management_enrollment_codes(id,tenant_id,created_by,label,code_hash,expires_at,base_url) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, tenantID, sc.ActorRef, strings.TrimSpace(in.Label), hashSecret(code), expires, baseURL); err != nil {
+		return Enrollment{}, err
+	}
+	if err = insertAudit(ctx, tx, tenantID, nil, "parent", sc.ActorRef, "management.enrollment_issued", meta); err != nil {
+		return Enrollment{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Enrollment{}, err
+	}
+	return Enrollment{ID: id.String(), Code: code, ExpiresAt: expires, QRPayload: s.qrPayload(baseURL, code), BaseURL: baseURL, ResponseLossPolicy: "fresh-parent-enrollment"}, nil
 }
 
 func (s *Service) Enroll(ctx context.Context, in EnrollInput) (EnrollResult, error) {
@@ -104,7 +179,7 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) (EnrollResult, err
 	if p == nil {
 		return EnrollResult{}, ErrUnavailable
 	}
-	if strings.TrimSpace(in.Code) == "" || strings.TrimSpace(in.DeviceName) == "" {
+	if len(strings.TrimSpace(in.Code)) != 32 || strings.TrimSpace(in.DeviceName) == "" {
 		return EnrollResult{}, fmt.Errorf("%w: code and deviceName are required", ErrInvalid)
 	}
 	token, err := secretToken()
@@ -116,42 +191,33 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) (EnrollResult, err
 		return EnrollResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	var enrollmentID, tenantID, label string
+	var enrollmentID, tenantID, label, baseURL string
 	var expires time.Time
-	var consumedAt, revokedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT id,tenant_id,label,expires_at,consumed_at,revoked_at FROM management_enrollment_codes WHERE code_hash=$1 FOR UPDATE`, hashSecret(strings.TrimSpace(in.Code))).Scan(&enrollmentID, &tenantID, &label, &expires, &consumedAt, &revokedAt)
+	var consumedAt, revokedAt, abandonedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT id,tenant_id,label,expires_at,consumed_at,revoked_at,abandoned_at,base_url FROM management_enrollment_codes WHERE code_hash=$1 FOR UPDATE`, hashSecret(strings.TrimSpace(in.Code))).Scan(&enrollmentID, &tenantID, &label, &expires, &consumedAt, &revokedAt, &abandonedAt, &baseURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return EnrollResult{}, ErrGone
 	}
 	if err != nil {
 		return EnrollResult{}, err
 	}
-	if revokedAt != nil || consumedAt != nil || !expires.After(s.now()) {
+	if revokedAt != nil || consumedAt != nil || abandonedAt != nil || !expires.After(s.now()) {
 		return EnrollResult{}, ErrGone
 	}
 	name := strings.TrimSpace(in.DeviceName)
-	if name == "" && label != "" {
-		name = label
-	}
 	deviceID := uuid.New()
 	credentialID := uuid.New()
-	enrollmentUUID, err := uuid.Parse(enrollmentID)
+	enrollmentUUID := uuid.MustParse(enrollmentID)
+	tenantUUID := uuid.MustParse(tenantID)
+	caps, err := marshalJSON(in.Capabilities)
 	if err != nil {
 		return EnrollResult{}, err
-	}
-	tenantUUID, err := uuid.Parse(tenantID)
-	if err != nil {
-		return EnrollResult{}, err
-	}
-	caps := in.Capabilities
-	if caps == nil {
-		caps = map[string]any{}
 	}
 	var stableHash any
 	if strings.TrimSpace(in.StableDeviceKey) != "" {
 		stableHash = hashSecret(strings.TrimSpace(in.StableDeviceKey))
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO management_devices(id,tenant_id,enrollment_id,display_name,device_model,stable_device_key_hash,capabilities,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,now())`, deviceID, tenantUUID, enrollmentUUID, name, strings.TrimSpace(in.DeviceModel), stableHash, jsonBytes(caps)); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO management_devices(id,tenant_id,enrollment_id,display_name,device_model,stable_device_key_hash,capabilities,enrollment_public_key,enrollment_key_id,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())`, deviceID, tenantUUID, enrollmentUUID, name, strings.TrimSpace(in.DeviceModel), stableHash, caps, strings.TrimSpace(in.EnrollmentPubKey), strings.TrimSpace(in.EnrollmentKeyID)); err != nil {
 		return EnrollResult{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO management_device_credentials(id,tenant_id,device_id,token_hash) VALUES($1,$2,$3,$4)`, credentialID, tenantUUID, deviceID, hashSecret(token)); err != nil {
@@ -160,7 +226,11 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) (EnrollResult, err
 	if _, err = tx.Exec(ctx, `UPDATE management_enrollment_codes SET consumed_at=now(), consumed_device_id=$1 WHERE tenant_id=$2 AND id=$3`, deviceID, tenantUUID, enrollmentUUID); err != nil {
 		return EnrollResult{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,'management_device',$3,'management.device_enrolled',$4)`, tenantUUID, deviceID, deviceID.String(), jsonBytes(map[string]any{"enrollmentId": enrollmentID})); err != nil {
+	meta, err := marshalJSON(map[string]any{"enrollmentId": enrollmentID, "responseLossPolicy": "fresh-parent-enrollment"})
+	if err != nil {
+		return EnrollResult{}, err
+	}
+	if err = insertAudit(ctx, tx, tenantUUID, &deviceID, "management_device", deviceID.String(), "management.device_enrolled", meta); err != nil {
 		return EnrollResult{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -174,7 +244,51 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) (EnrollResult, err
 	if err != nil {
 		return EnrollResult{}, err
 	}
-	return EnrollResult{Token: token, Device: d, Desired: desired}, nil
+	return EnrollResult{Token: token, Device: d, Desired: desired, ResponseLossPolicy: "fresh-parent-enrollment"}, nil
+}
+
+func (s *Service) AbandonEnrollment(ctx context.Context, sc Scope, enrollmentID string) error {
+	id, err := parseUUID(enrollmentID, "enrollmentId")
+	if err != nil {
+		return err
+	}
+	tenantID, err := uuid.Parse(sc.TenantID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var consumedDevice *uuid.UUID
+	var consumedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT consumed_device_id, consumed_at FROM management_enrollment_codes WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, id).Scan(&consumedDevice, &consumedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE management_enrollment_codes SET abandoned_at=now(), revoked_at=COALESCE(revoked_at,now()) WHERE tenant_id=$1 AND id=$2`, tenantID, id); err != nil {
+		return err
+	}
+	if consumedDevice != nil {
+		if _, err = tx.Exec(ctx, `UPDATE management_devices SET state='revoked', revoked_at=COALESCE(revoked_at,now()), updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('active','quarantined')`, tenantID, *consumedDevice); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE management_device_credentials SET revoked_at=COALESCE(revoked_at,now()) WHERE tenant_id=$1 AND device_id=$2 AND revoked_at IS NULL`, tenantID, *consumedDevice); err != nil {
+			return err
+		}
+	}
+	meta, err := marshalJSON(map[string]any{"enrollmentId": id.String(), "hadCredential": consumedAt != nil})
+	if err != nil {
+		return err
+	}
+	if err = insertAudit(ctx, tx, tenantID, consumedDevice, "parent", sc.ActorRef, "management.enrollment_abandoned", meta); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) AuthenticateDevice(ctx context.Context, bearer string) (DeviceScope, error) {
@@ -183,20 +297,24 @@ func (s *Service) AuthenticateDevice(ctx context.Context, bearer string) (Device
 		return DeviceScope{}, ErrUnauthorized
 	}
 	var sc DeviceScope
-	err := p.QueryRow(ctx, `SELECT c.tenant_id,c.device_id FROM management_device_credentials c JOIN management_devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id WHERE c.token_hash=$1 AND c.revoked_at IS NULL AND d.revoked_at IS NULL AND d.state='active'`, hashSecret(strings.TrimSpace(bearer))).Scan(&sc.TenantID, &sc.DeviceID)
+	err := p.QueryRow(ctx, `SELECT c.tenant_id,c.device_id FROM management_device_credentials c JOIN management_devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id WHERE c.token_hash=$1 AND c.revoked_at IS NULL AND d.state='active'`, hashSecret(strings.TrimSpace(bearer))).Scan(&sc.TenantID, &sc.DeviceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DeviceScope{}, ErrUnauthorized
 	}
 	if err != nil {
 		return DeviceScope{}, err
 	}
-	_, _ = p.Exec(ctx, `UPDATE management_device_credentials SET last_used_at=now() WHERE token_hash=$1`, hashSecret(strings.TrimSpace(bearer)))
-	_, _ = p.Exec(ctx, `UPDATE management_devices SET last_seen_at=now(), updated_at=now() WHERE tenant_id=$1 AND id=$2`, sc.TenantID, sc.DeviceID)
+	if _, err = p.Exec(ctx, `UPDATE management_device_credentials SET last_used_at=now() WHERE token_hash=$1`, hashSecret(strings.TrimSpace(bearer))); err != nil {
+		return DeviceScope{}, err
+	}
+	if _, err = p.Exec(ctx, `UPDATE management_devices SET last_seen_at=now(), updated_at=now() WHERE tenant_id=$1 AND id=$2`, sc.TenantID, sc.DeviceID); err != nil {
+		return DeviceScope{}, err
+	}
 	return sc, nil
 }
 
 func (s *Service) ListDevices(ctx context.Context, sc Scope) ([]Device, error) {
-	rows, err := s.pool().Query(ctx, `SELECT id,display_name,device_model,state,desired_revision,applied_revision,last_seen_at,created_at FROM management_devices WHERE tenant_id=$1 ORDER BY created_at DESC`, sc.TenantID)
+	rows, err := s.pool().Query(ctx, `SELECT `+deviceSelect()+` FROM management_devices WHERE tenant_id=$1 ORDER BY created_at DESC`, sc.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,78 +325,163 @@ func (s *Service) ListDevices(ctx context.Context, sc Scope) ([]Device, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err = s.attachLatestReport(ctx, sc.TenantID, &d); err != nil {
+			return nil, err
+		}
 		out = append(out, d)
 	}
 	return out, rows.Err()
 }
 
 func (s *Service) GetDevice(ctx context.Context, sc Scope, id string) (Device, error) {
-	d, err := scanDevice(s.pool().QueryRow(ctx, `SELECT id,display_name,device_model,state,desired_revision,applied_revision,last_seen_at,created_at FROM management_devices WHERE tenant_id=$1 AND id=$2`, sc.TenantID, id))
+	if _, err := parseUUID(id, "deviceId"); err != nil {
+		return Device{}, err
+	}
+	d, err := scanDevice(s.pool().QueryRow(ctx, `SELECT `+deviceSelect()+` FROM management_devices WHERE tenant_id=$1 AND id=$2`, sc.TenantID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Device{}, ErrNotFound
 	}
-	return d, err
+	if err != nil {
+		return Device{}, err
+	}
+	if err = s.attachLatestReport(ctx, sc.TenantID, &d); err != nil {
+		return Device{}, err
+	}
+	return d, nil
+}
+
+func (s *Service) attachLatestReport(ctx context.Context, tenantID string, d *Device) error {
+	rep, err := s.latestPolicyReport(ctx, tenantID, d.ID)
+	if err != nil {
+		return err
+	}
+	d.LatestReport = rep
+	return nil
 }
 
 func (s *Service) UpdatePolicy(ctx context.Context, sc Scope, deviceID string, in PolicyUpdateInput) (PolicyRevision, error) {
 	if err := ValidatePolicy(in.Policy); err != nil {
 		return PolicyRevision{}, err
 	}
-	p := s.pool()
-	tx, err := p.Begin(ctx)
+	id, err := parseUUID(deviceID, "deviceId")
+	if err != nil {
+		return PolicyRevision{}, err
+	}
+	tenantID, err := uuid.Parse(sc.TenantID)
+	if err != nil {
+		return PolicyRevision{}, err
+	}
+	policyJSON, err := marshalJSON(in.Policy)
+	if err != nil {
+		return PolicyRevision{}, err
+	}
+	tx, err := s.pool().Begin(ctx)
 	if err != nil {
 		return PolicyRevision{}, err
 	}
 	defer tx.Rollback(ctx)
 	var current int64
 	var state string
-	if err = tx.QueryRow(ctx, `SELECT desired_revision,state FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, sc.TenantID, deviceID).Scan(&current, &state); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT desired_revision,state FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, id).Scan(&current, &state); errors.Is(err, pgx.ErrNoRows) {
 		return PolicyRevision{}, ErrNotFound
 	} else if err != nil {
 		return PolicyRevision{}, err
 	}
-	if state != "active" {
+	if state != string(DeviceActive) {
 		return PolicyRevision{}, ErrForbidden
 	}
 	if current != in.BaseRevision {
 		return PolicyRevision{}, fmt.Errorf("%w: stale policy base revision", ErrConflict)
 	}
 	rev := current + 1
-	id := uuid.NewString()
-	if _, err = tx.Exec(ctx, `INSERT INTO management_policy_revisions(id,tenant_id,device_id,revision,created_by,policy) VALUES($1,$2,$3,$4,$5,$6)`, id, sc.TenantID, deviceID, rev, sc.ActorRef, jsonBytes(in.Policy)); err != nil {
+	revisionID := uuid.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO management_policy_revisions(id,tenant_id,device_id,revision,created_by,policy) VALUES($1,$2,$3,$4,$5,$6)`, revisionID, tenantID, id, rev, sc.ActorRef, policyJSON); err != nil {
 		return PolicyRevision{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE management_devices SET desired_revision=$1,updated_at=now() WHERE tenant_id=$2 AND id=$3`, rev, sc.TenantID, deviceID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE management_devices SET desired_revision=$1,updated_at=now() WHERE tenant_id=$2 AND id=$3`, rev, tenantID, id); err != nil {
 		return PolicyRevision{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,'parent',$3,'management.policy_revised',$4)`, sc.TenantID, deviceID, sc.ActorRef, jsonBytes(map[string]any{"revision": rev})); err != nil {
+	meta, err := marshalJSON(map[string]any{"revision": rev})
+	if err != nil {
+		return PolicyRevision{}, err
+	}
+	if err = insertAudit(ctx, tx, tenantID, &id, "parent", sc.ActorRef, "management.policy_revised", meta); err != nil {
 		return PolicyRevision{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return PolicyRevision{}, err
 	}
-	return PolicyRevision{ID: id, DeviceID: deviceID, Revision: rev, Policy: in.Policy, CreatedAt: s.now()}, nil
+	return PolicyRevision{ID: revisionID.String(), DeviceID: deviceID, Revision: rev, Policy: in.Policy, CreatedAt: s.now()}, nil
 }
 
 func ValidatePolicy(p Policy) error {
 	if len(p.ApprovedApps) == 0 {
 		return fmt.Errorf("%w: at least Student must be approved", ErrInvalid)
 	}
-	seenStudent := false
-	for _, app := range append(append([]ApprovedApp{}, p.ApprovedApps...), p.RequiredPackages...) {
-		pkg := strings.TrimSpace(app.PackageName)
-		if !packageNameRE.MatchString(pkg) {
+	seen := map[string]string{}
+	student := false
+	check := func(app ApprovedApp, required bool) error {
+		pkg := app.PackageName
+		if pkg != strings.TrimSpace(pkg) || !packageNameRE.MatchString(pkg) {
 			return fmt.Errorf("%w: invalid package name", ErrInvalid)
 		}
-		if strings.TrimSpace(app.SignerSHA256) == "" || strings.Contains(app.SignerSHA256, "*") {
-			return fmt.Errorf("%w: signer pin is required", ErrInvalid)
+		if !hex64RE.MatchString(app.SignerSHA256) {
+			return fmt.Errorf("%w: signerSha256 must be 64 lowercase hex chars", ErrInvalid)
 		}
-		if strings.EqualFold(pkg, StudentPackageName) {
-			seenStudent = true
+		if prev, ok := seen[pkg]; ok && prev != app.SignerSHA256 {
+			return fmt.Errorf("%w: conflicting signer for %s", ErrInvalid, pkg)
+		}
+		seen[pkg] = app.SignerSHA256
+		if pkg == StudentPackageName {
+			student = true
+			if !required && !app.Required {
+				return fmt.Errorf("%w: Student must remain required", ErrInvalid)
+			}
+		}
+		return nil
+	}
+	for _, app := range p.ApprovedApps {
+		if err := check(app, app.Required); err != nil {
+			return err
 		}
 	}
-	if !seenStudent {
+	for _, app := range p.RequiredPackages {
+		if err := check(app, true); err != nil {
+			return err
+		}
+	}
+	if !student {
 		return fmt.Errorf("%w: policy must retain Student", ErrInvalid)
+	}
+	if signer, ok := seen[StudentPackageName]; !ok || signer == "" {
+		return fmt.Errorf("%w: Student signer pin is required", ErrInvalid)
+	}
+	seenRestriction := map[UserRestriction]struct{}{}
+	for _, r := range p.UserRestrictions {
+		if _, ok := allowedRestrictions[r]; !ok {
+			return fmt.Errorf("%w: unsupported user restriction", ErrInvalid)
+		}
+		if _, dup := seenRestriction[r]; dup {
+			return fmt.Errorf("%w: duplicate user restriction", ErrInvalid)
+		}
+		seenRestriction[r] = struct{}{}
+	}
+	for _, pkg := range p.LockTask.Packages {
+		if !packageNameRE.MatchString(pkg) {
+			return fmt.Errorf("%w: invalid lock-task package", ErrInvalid)
+		}
+	}
+	if p.LockTask.Enabled {
+		found := false
+		for _, pkg := range p.LockTask.Packages {
+			if pkg == StudentPackageName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: lock-task must retain Student", ErrInvalid)
+		}
 	}
 	return nil
 }
@@ -312,28 +515,36 @@ func (s *Service) DesiredState(ctx context.Context, sc DeviceScope) (DesiredStat
 	if err != nil {
 		return DesiredState{}, err
 	}
-	targets, err := s.listReleaseTargets(ctx, sc.TenantID, sc.DeviceID)
-	if err != nil {
-		return DesiredState{}, err
-	}
-	return DesiredState{Device: d, PolicyRevision: policy, Recovery: recovery, ReleaseTargets: targets}, nil
+	return DesiredState{Device: d, PolicyRevision: policy, Recovery: recovery, ReleaseTargets: []ReleaseTarget{}}, nil
 }
 
 func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyReportInput) (PolicyReport, error) {
-	if _, err := uuid.Parse(in.ReportID); err != nil {
-		return PolicyReport{}, fmt.Errorf("%w: reportId must be a UUID", ErrInvalid)
+	reportID, err := parseUUID(in.ReportID, "reportId")
+	if err != nil {
+		return PolicyReport{}, err
 	}
-	if in.PolicyRevision < 0 || !validPolicyStatus(in.Status) {
+	if in.PolicyRevision < 0 || !validPolicyStatus(string(in.Status)) {
 		return PolicyReport{}, ErrInvalid
 	}
-	p := s.pool()
-	tx, err := p.Begin(ctx)
+	payload, err := canonicalReport(in)
+	if err != nil {
+		return PolicyReport{}, err
+	}
+	deviceID, err := uuid.Parse(sc.DeviceID)
+	if err != nil {
+		return PolicyReport{}, err
+	}
+	tenantID, err := uuid.Parse(sc.TenantID)
+	if err != nil {
+		return PolicyReport{}, err
+	}
+	tx, err := s.pool().Begin(ctx)
 	if err != nil {
 		return PolicyReport{}, err
 	}
 	defer tx.Rollback(ctx)
 	var desired int64
-	if err = tx.QueryRow(ctx, `SELECT desired_revision FROM management_devices WHERE tenant_id=$1 AND id=$2 AND state='active' FOR UPDATE`, sc.TenantID, sc.DeviceID).Scan(&desired); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT desired_revision FROM management_devices WHERE tenant_id=$1 AND id=$2 AND state='active' FOR UPDATE`, tenantID, deviceID).Scan(&desired); errors.Is(err, pgx.ErrNoRows) {
 		return PolicyReport{}, ErrUnauthorized
 	} else if err != nil {
 		return PolicyReport{}, err
@@ -341,12 +552,24 @@ func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyRep
 	if in.PolicyRevision > desired {
 		return PolicyReport{}, ErrConflict
 	}
+	var existingID uuid.UUID
+	var existingPayload []byte
 	var existing PolicyReport
-	err = tx.QueryRow(ctx, `SELECT id,report_id,device_id,revision,status,stale,received_at FROM management_policy_reports WHERE tenant_id=$1 AND device_id=$2 AND report_id=$3`, sc.TenantID, sc.DeviceID, in.ReportID).Scan(&existing.ID, &existing.ReportID, &existing.DeviceID, &existing.PolicyRevision, &existing.Status, &existing.Stale, &existing.ReceivedAt)
+	err = tx.QueryRow(ctx, `SELECT id,report_id,device_id,revision,status,stale,installed_student_version,report,received_at FROM management_policy_reports WHERE tenant_id=$1 AND device_id=$2 AND report_id=$3`, tenantID, deviceID, reportID).Scan(&existingID, &existing.ReportID, &existing.DeviceID, &existing.PolicyRevision, &existing.Status, &existing.Stale, &existing.InstalledStudentVersion, &existingPayload, &existing.ReceivedAt)
 	if err == nil {
-		if _, err = tx.Exec(ctx, `UPDATE management_devices SET last_seen_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2`, sc.TenantID, sc.DeviceID); err != nil {
+		var stored PolicyReportInput
+		if err = json.Unmarshal(existingPayload, &stored); err != nil {
 			return PolicyReport{}, err
 		}
+		storedJSON, err := canonicalReport(stored)
+		if err != nil {
+			return PolicyReport{}, err
+		}
+		if !bytes.Equal(storedJSON, payload) {
+			return PolicyReport{}, fmt.Errorf("%w: report payload changed", ErrConflict)
+		}
+		existing.Controls = stored.Controls
+		existing.ID = existingID.String()
 		if err = tx.Commit(ctx); err != nil {
 			return PolicyReport{}, err
 		}
@@ -358,17 +581,17 @@ func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyRep
 	stale := in.PolicyRevision < desired
 	status := in.Status
 	if stale {
-		status = "stale"
+		status = ReportStale
 	}
-	id := uuid.NewString()
-	if _, err = tx.Exec(ctx, `INSERT INTO management_policy_reports(id,tenant_id,device_id,report_id,revision,status,installed_student_version,device_reported_at,stale,report) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, sc.TenantID, sc.DeviceID, in.ReportID, in.PolicyRevision, status, in.InstalledStudentVersion, in.DeviceReportedAt, stale, jsonBytes(in)); err != nil {
+	id := uuid.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO management_policy_reports(id,tenant_id,device_id,report_id,revision,status,installed_student_version,device_reported_at,stale,report) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, tenantID, deviceID, reportID, in.PolicyRevision, status, in.InstalledStudentVersion, in.DeviceReportedAt, stale, payload); err != nil {
 		return PolicyReport{}, err
 	}
-	if !stale && status == "applied" {
-		if _, err = tx.Exec(ctx, `UPDATE management_devices SET applied_revision=$1,last_seen_at=now(),updated_at=now() WHERE tenant_id=$2 AND id=$3 AND applied_revision<=$1`, in.PolicyRevision, sc.TenantID, sc.DeviceID); err != nil {
+	if !stale && status == ReportApplied {
+		if _, err = tx.Exec(ctx, `UPDATE management_devices SET applied_revision=$1,latest_report_id=$2,last_seen_at=now(),updated_at=now() WHERE tenant_id=$3 AND id=$4 AND applied_revision<=$1`, in.PolicyRevision, id, tenantID, deviceID); err != nil {
 			return PolicyReport{}, err
 		}
-	} else if _, err = tx.Exec(ctx, `UPDATE management_devices SET last_seen_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2`, sc.TenantID, sc.DeviceID); err != nil {
+	} else if _, err = tx.Exec(ctx, `UPDATE management_devices SET latest_report_id=$1,last_seen_at=now(),updated_at=now() WHERE tenant_id=$2 AND id=$3`, id, tenantID, deviceID); err != nil {
 		return PolicyReport{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -378,8 +601,8 @@ func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyRep
 }
 
 func validPolicyStatus(v string) bool {
-	switch v {
-	case "requested", "applied", "partial", "failed", "stale":
+	switch PolicyReportStatus(v) {
+	case ReportRequested, ReportApplied, ReportPartial, ReportFailed, ReportStale:
 		return true
 	default:
 		return false
@@ -387,38 +610,103 @@ func validPolicyStatus(v string) bool {
 }
 
 func (s *Service) GetPolicyReport(ctx context.Context, sc DeviceScope, reportID string) (PolicyReport, error) {
+	return scanPolicyReport(s.pool().QueryRow(ctx, `SELECT id,report_id,device_id,revision,status,stale,installed_student_version,report,received_at FROM management_policy_reports WHERE tenant_id=$1 AND device_id=$2 AND report_id=$3`, sc.TenantID, sc.DeviceID, reportID))
+}
+
+func (s *Service) latestPolicyReport(ctx context.Context, tenantID, deviceID string) (*PolicyReport, error) {
+	rep, err := scanPolicyReport(s.pool().QueryRow(ctx, `SELECT id,report_id,device_id,revision,status,stale,installed_student_version,report,received_at FROM management_policy_reports WHERE tenant_id=$1 AND device_id=$2 ORDER BY received_at DESC LIMIT 1`, tenantID, deviceID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rep, nil
+}
+
+func scanPolicyReport(row pgx.Row) (PolicyReport, error) {
 	var out PolicyReport
-	err := s.pool().QueryRow(ctx, `SELECT id,report_id,device_id,revision,status,stale,received_at FROM management_policy_reports WHERE tenant_id=$1 AND device_id=$2 AND report_id=$3`, sc.TenantID, sc.DeviceID, reportID).Scan(&out.ID, &out.ReportID, &out.DeviceID, &out.PolicyRevision, &out.Status, &out.Stale, &out.ReceivedAt)
-	return out, err
+	var raw []byte
+	err := row.Scan(&out.ID, &out.ReportID, &out.DeviceID, &out.PolicyRevision, &out.Status, &out.Stale, &out.InstalledStudentVersion, &raw, &out.ReceivedAt)
+	if err != nil {
+		return PolicyReport{}, err
+	}
+	var in PolicyReportInput
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &in)
+		out.Controls = in.Controls
+	}
+	if out.Controls == nil {
+		out.Controls = []ControlResult{}
+	}
+	return out, nil
+}
+
+func allowedTransition(from, to string) bool {
+	switch from {
+	case string(DeviceActive):
+		return to == string(DeviceQuarantined) || to == string(DeviceRevoked)
+	case string(DeviceQuarantined):
+		return to == string(DeviceRevoked)
+	default:
+		return false
+	}
 }
 
 func (s *Service) ChangeDeviceState(ctx context.Context, sc Scope, deviceID, state, reason string) (Device, error) {
-	if state != "quarantined" && state != "revoked" && state != "decommissioned" {
+	if state != string(DeviceQuarantined) && state != string(DeviceRevoked) && state != string(DeviceDecommissioned) {
 		return Device{}, ErrInvalid
+	}
+	id, err := parseUUID(deviceID, "deviceId")
+	if err != nil {
+		return Device{}, err
+	}
+	tenantID, err := uuid.Parse(sc.TenantID)
+	if err != nil {
+		return Device{}, err
 	}
 	tx, err := s.pool().Begin(ctx)
 	if err != nil {
 		return Device{}, err
 	}
 	defer tx.Rollback(ctx)
-	var col string
-	switch state {
-	case "quarantined":
+	var current string
+	if err = tx.QueryRow(ctx, `SELECT state FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, id).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
+		return Device{}, ErrNotFound
+	} else if err != nil {
+		return Device{}, err
+	}
+	if current == state {
+		if err = tx.Commit(ctx); err != nil {
+			return Device{}, err
+		}
+		return s.GetDevice(ctx, sc, deviceID)
+	}
+	if !allowedTransition(current, state) {
+		return Device{}, fmt.Errorf("%w: illegal device state transition", ErrConflict)
+	}
+	col := "revoked_at"
+	if state == string(DeviceQuarantined) {
 		col = "quarantined_at"
-	case "revoked":
-		col = "revoked_at"
-	case "decommissioned":
+	} else if state == string(DeviceDecommissioned) {
 		col = "decommissioned_at"
 	}
-	cmd, err := tx.Exec(ctx, `UPDATE management_devices SET state=$1,`+col+`=now(),updated_at=now() WHERE tenant_id=$2 AND id=$3`, state, sc.TenantID, deviceID)
+	if _, err = tx.Exec(ctx, `UPDATE management_devices SET state=$1,`+col+`=now(),updated_at=now() WHERE tenant_id=$2 AND id=$3`, state, tenantID, id); err != nil {
+		return Device{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE management_device_credentials SET revoked_at=now() WHERE tenant_id=$1 AND device_id=$2 AND revoked_at IS NULL`, tenantID, id); err != nil {
+		return Device{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE management_recovery_intents SET status='revoked' WHERE tenant_id=$1 AND device_id=$2 AND status='pending'`, tenantID, id); err != nil {
+		return Device{}, err
+	}
+	meta, err := marshalJSON(map[string]any{"reason": reason, "from": current, "to": state})
 	if err != nil {
 		return Device{}, err
 	}
-	if cmd.RowsAffected() == 0 {
-		return Device{}, ErrNotFound
+	if err = insertAudit(ctx, tx, tenantID, &id, "parent", sc.ActorRef, "management.device_"+state, meta); err != nil {
+		return Device{}, err
 	}
-	_, _ = tx.Exec(ctx, `UPDATE management_device_credentials SET revoked_at=now() WHERE tenant_id=$1 AND device_id=$2 AND revoked_at IS NULL`, sc.TenantID, deviceID)
-	_, _ = tx.Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,'parent',$3,$4,$5)`, sc.TenantID, deviceID, sc.ActorRef, "management.device_"+state, jsonBytes(map[string]any{"reason": reason}))
 	if err = tx.Commit(ctx); err != nil {
 		return Device{}, err
 	}
@@ -426,38 +714,107 @@ func (s *Service) ChangeDeviceState(ctx context.Context, sc Scope, deviceID, sta
 }
 
 func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID string, in RecoveryIntentInput) (RecoveryIntent, error) {
-	if in.Kind != "maintenance_lease" && in.Kind != "rotate_recovery_code" {
+	if in.Kind != RecoveryMaintenanceLease && in.Kind != RecoveryRotateCode {
 		return RecoveryIntent{}, ErrInvalid
 	}
-	mins := in.ExpiresInMinutes
-	if mins <= 0 {
-		mins = 30
-	}
-	if mins > 24*60 {
-		return RecoveryIntent{}, fmt.Errorf("%w: recovery intent too long", ErrInvalid)
-	}
-	if in.Kind == "rotate_recovery_code" && strings.TrimSpace(in.MaterialCiphertext) == "" {
-		return RecoveryIntent{}, fmt.Errorf("%w: staged rotation requires encrypted material", ErrInvalid)
-	}
-	if _, err := s.GetDevice(ctx, sc, deviceID); err != nil {
+	id, err := parseUUID(deviceID, "deviceId")
+	if err != nil {
 		return RecoveryIntent{}, err
 	}
-	id := uuid.NewString()
-	expires := s.now().Add(time.Duration(mins) * time.Minute)
-	var materialHash any
-	if in.MaterialCiphertext != "" {
-		materialHash = hashSecret(in.MaterialCiphertext)
+	tenantID, err := uuid.Parse(sc.TenantID)
+	if err != nil {
+		return RecoveryIntent{}, err
+	}
+	deliveryMins := in.DeliveryExpiresMinutes
+	if deliveryMins <= 0 {
+		deliveryMins = 15
+	}
+	if deliveryMins > 60 {
+		return RecoveryIntent{}, fmt.Errorf("%w: delivery window exceeds one hour", ErrInvalid)
+	}
+	var leaseMins int
+	if in.Kind == RecoveryMaintenanceLease {
+		leaseMins = in.LeaseExpiresMinutes
+		if leaseMins <= 0 {
+			leaseMins = 15
+		}
+		if leaseMins > 30 {
+			return RecoveryIntent{}, fmt.Errorf("%w: maintenance lease exceeds 30 minutes", ErrInvalid)
+		}
+	} else if in.LeaseExpiresMinutes != 0 {
+		return RecoveryIntent{}, fmt.Errorf("%w: rotation has no maintenance lease", ErrInvalid)
+	}
+	if in.Kind == RecoveryRotateCode {
+		if in.Envelope == nil || in.Envelope.Alg != "X25519-ChaCha20Poly1305" || in.Envelope.KeyID == "" || in.Envelope.Nonce == "" || in.Envelope.Ciphertext == "" {
+			return RecoveryIntent{}, fmt.Errorf("%w: rotation requires X25519-ChaCha20Poly1305 envelope", ErrInvalid)
+		}
+		if !in.ParentAcknowledged {
+			return RecoveryIntent{}, fmt.Errorf("%w: parent must acknowledge one-time custody before rotation", ErrInvalid)
+		}
+	} else if in.Envelope != nil {
+		return RecoveryIntent{}, fmt.Errorf("%w: maintenance lease has no recovery envelope", ErrInvalid)
+	}
+	envelopeJSON, err := marshalJSON(in.Envelope)
+	if err != nil {
+		return RecoveryIntent{}, err
+	}
+	tx, err := s.pool().Begin(ctx)
+	if err != nil {
+		return RecoveryIntent{}, err
+	}
+	defer tx.Rollback(ctx)
+	var state, keyID string
+	if err = tx.QueryRow(ctx, `SELECT state,enrollment_key_id FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, id).Scan(&state, &keyID); errors.Is(err, pgx.ErrNoRows) {
+		return RecoveryIntent{}, ErrNotFound
+	} else if err != nil {
+		return RecoveryIntent{}, err
+	}
+	if state != string(DeviceActive) {
+		return RecoveryIntent{}, ErrForbidden
+	}
+	if in.Kind == RecoveryRotateCode && keyID != "" && in.Envelope.KeyID != keyID {
+		return RecoveryIntent{}, fmt.Errorf("%w: envelope keyId does not match enrolled device key", ErrInvalid)
+	}
+	intentID := uuid.New()
+	delivery := s.now().Add(time.Duration(deliveryMins) * time.Minute)
+	var lease any
+	if leaseMins > 0 {
+		t := s.now().Add(time.Duration(leaseMins) * time.Minute)
+		lease = t
+	}
+	var parentAck any
+	if in.ParentAcknowledged {
+		parentAck = s.now()
 	}
 	var out RecoveryIntent
-	err := s.pool().QueryRow(ctx, `INSERT INTO management_recovery_intents(id,tenant_id,device_id,kind,created_by,expires_at,material_ciphertext,material_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,device_id,kind,status,expires_at,material_ciphertext,created_at`, id, sc.TenantID, deviceID, in.Kind, sc.ActorRef, expires, in.MaterialCiphertext, materialHash).Scan(&out.ID, &out.DeviceID, &out.Kind, &out.Status, &out.ExpiresAt, &out.MaterialCiphertext, &out.CreatedAt)
-	if err == nil {
-		_ = s.audit(ctx, sc.TenantID, deviceID, "parent", sc.ActorRef, "management.recovery_intent_created", map[string]any{"kind": in.Kind})
+	var envelopeRaw []byte
+	var leaseOut *time.Time
+	err = tx.QueryRow(ctx, `INSERT INTO management_recovery_intents(id,tenant_id,device_id,kind,created_by,expires_at,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at) VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8,$9) RETURNING id,device_id,kind,status,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at IS NOT NULL,created_at`, intentID, tenantID, id, in.Kind, sc.ActorRef, delivery, lease, envelopeJSON, parentAck).Scan(&out.ID, &out.DeviceID, &out.Kind, &out.Status, &out.DeliveryExpiresAt, &leaseOut, &envelopeRaw, &out.ParentAcknowledged, &out.CreatedAt)
+	if err != nil {
+		return RecoveryIntent{}, err
 	}
-	return out, err
+	out.LeaseExpiresAt = leaseOut
+	if len(envelopeRaw) > 0 && string(envelopeRaw) != "null" && string(envelopeRaw) != "{}" {
+		var env RecoveryEnvelope
+		if err = json.Unmarshal(envelopeRaw, &env); err == nil && env.KeyID != "" {
+			out.Envelope = &env
+		}
+	}
+	meta, err := marshalJSON(map[string]any{"kind": in.Kind, "deliveryExpiresAt": delivery})
+	if err != nil {
+		return RecoveryIntent{}, err
+	}
+	if err = insertAudit(ctx, tx, tenantID, &id, "parent", sc.ActorRef, "management.recovery_intent_created", meta); err != nil {
+		return RecoveryIntent{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return RecoveryIntent{}, err
+	}
+	return out, nil
 }
 
 func (s *Service) PendingRecovery(ctx context.Context, tenantID, deviceID string) ([]RecoveryIntent, error) {
-	rows, err := s.pool().Query(ctx, `SELECT id,device_id,kind,status,expires_at,material_ciphertext,created_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 AND status='pending' AND expires_at>now() ORDER BY created_at`, tenantID, deviceID)
+	rows, err := s.pool().Query(ctx, `SELECT id,device_id,kind,status,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at IS NOT NULL,created_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 AND status='pending' AND delivery_expires_at>now() ORDER BY created_at`, tenantID, deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -465,8 +822,15 @@ func (s *Service) PendingRecovery(ctx context.Context, tenantID, deviceID string
 	out := []RecoveryIntent{}
 	for rows.Next() {
 		var x RecoveryIntent
-		if err = rows.Scan(&x.ID, &x.DeviceID, &x.Kind, &x.Status, &x.ExpiresAt, &x.MaterialCiphertext, &x.CreatedAt); err != nil {
+		var raw []byte
+		if err = rows.Scan(&x.ID, &x.DeviceID, &x.Kind, &x.Status, &x.DeliveryExpiresAt, &x.LeaseExpiresAt, &raw, &x.ParentAcknowledged, &x.CreatedAt); err != nil {
 			return nil, err
+		}
+		if len(raw) > 0 && string(raw) != "null" && string(raw) != "{}" {
+			var env RecoveryEnvelope
+			if json.Unmarshal(raw, &env) == nil && env.KeyID != "" {
+				x.Envelope = &env
+			}
 		}
 		out = append(out, x)
 	}
@@ -474,24 +838,66 @@ func (s *Service) PendingRecovery(ctx context.Context, tenantID, deviceID string
 }
 
 func (s *Service) ConfirmRecoveryIntent(ctx context.Context, sc DeviceScope, intentID, reportID string) error {
-	cmd, err := s.pool().Exec(ctx, `UPDATE management_recovery_intents SET status='applied',applied_report_id=$1,applied_at=now() WHERE tenant_id=$2 AND device_id=$3 AND id=$4 AND status='pending' AND expires_at>now()`, reportID, sc.TenantID, sc.DeviceID, intentID)
+	id, err := parseUUID(intentID, "recoveryId")
 	if err != nil {
 		return err
 	}
-	if cmd.RowsAffected() == 0 {
+	rid, err := parseUUID(reportID, "reportId")
+	if err != nil {
+		return err
+	}
+	deviceID, err := uuid.Parse(sc.DeviceID)
+	if err != nil {
+		return err
+	}
+	tenantID, err := uuid.Parse(sc.TenantID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var state string
+	if err = tx.QueryRow(ctx, `SELECT state FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, deviceID).Scan(&state); errors.Is(err, pgx.ErrNoRows) {
+		return ErrUnauthorized
+	} else if err != nil {
+		return err
+	}
+	if state != string(DeviceActive) {
+		return ErrUnauthorized
+	}
+	var status string
+	var appliedReport *uuid.UUID
+	var delivery time.Time
+	err = tx.QueryRow(ctx, `SELECT status,applied_report_id,delivery_expires_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 AND id=$3 FOR UPDATE`, tenantID, deviceID, id).Scan(&status, &appliedReport, &delivery)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return nil
-}
-
-func (s *Service) audit(ctx context.Context, tenantID, deviceID, actorKind, actorRef, action string, metadata map[string]any) error {
-	_, err := s.pool().Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,$3,$4,$5,$6)`, tenantID, emptyUUIDNil(deviceID), actorKind, actorRef, action, jsonBytes(metadata))
-	return err
-}
-
-func emptyUUIDNil(v string) any {
-	if strings.TrimSpace(v) == "" {
-		return nil
+	if err != nil {
+		return err
 	}
-	return v
+	if status == "applied" && appliedReport != nil && *appliedReport == rid {
+		return tx.Commit(ctx)
+	}
+	if status == "applied" {
+		return fmt.Errorf("%w: recovery already confirmed with a different report", ErrConflict)
+	}
+	if status != "pending" || !delivery.After(s.now()) {
+		return ErrNotFound
+	}
+	tag, err := tx.Exec(ctx, `UPDATE management_recovery_intents SET status='applied',applied_report_id=$1,applied_at=now() WHERE tenant_id=$2 AND device_id=$3 AND id=$4 AND status='pending' AND delivery_expires_at>now()`, rid, tenantID, deviceID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return tx.Commit(ctx)
+}
+
+func insertAudit(ctx context.Context, tx txIface, tenantID uuid.UUID, deviceID *uuid.UUID, actorKind, actorRef, action string, metadata []byte) error {
+	_, err := tx.Exec(ctx, `INSERT INTO management_audit_records(tenant_id,device_id,actor_kind,actor_ref,action,metadata) VALUES($1,$2,$3,$4,$5,$6)`, tenantID, deviceID, actorKind, actorRef, action, metadata)
+	return err
 }

@@ -82,6 +82,7 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 		"/management-device/desired",
 		"/management-device/reports",
 		"/management-device/recovery/{id}/confirm",
+		"/managed-devices/enrollments/{id}/abandon",
 	} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("management contract omitted %s", path)
@@ -92,6 +93,9 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	}
 	if len(paths["/managed-devices"].Get.Security) == 0 {
 		t.Fatal("managed-devices list must require parentSession")
+	}
+	if len(paths["/management-device/desired"].Get.Security) == 0 || paths["/management-device/desired"].Get.Security[0]["managementDevice"] == nil {
+		t.Fatal("management-device desired must declare managementDevice bearer")
 	}
 }
 
