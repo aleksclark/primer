@@ -67,8 +67,8 @@ class ManagementSessionTest {
         inventory = {
             listOf(InventoriedApp("com.aleksclark.primer.student", "Primer Student", "0.1.0", 1, "aa"))
         },
-        applyRemoteRecovery = { _, _ -> false },
-        applyRemoteLease = { _, _ -> false },
+        applyRemoteRecovery = { _, _ -> "ack-recovery" },
+        applyRemoteLease = { _, _ -> "ack-lease" },
         studentVersion = "1",
         outbox = outbox,
         localRestrictions = emptySet(),

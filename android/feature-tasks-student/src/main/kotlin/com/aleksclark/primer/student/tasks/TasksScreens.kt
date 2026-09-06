@@ -282,7 +282,7 @@ fun StudentTasksApp(
                 },
                 onImportImage = {
                     if (pairing != null && !pairing.canImportImage) {
-                        message = pairing.message
+                        message = pairing.importMessage
                     } else {
                         message = null
                         imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

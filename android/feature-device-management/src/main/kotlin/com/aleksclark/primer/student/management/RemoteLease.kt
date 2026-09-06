@@ -11,11 +11,17 @@ data class RemoteLease(
 )
 
 object RemoteLeasePolicy {
-    fun canOpen(lease: RemoteLease, nowWallMs: Long, elapsedMs: Long, boot: Int): Boolean {
-        if (lease.receivedBoot != boot) return false
-        if (nowWallMs >= lease.deliveryExpiresAtMs) return false
-        val remaining = lease.leaseExpiresAtMs?.let { it - lease.serverNowMs } ?: return false
+    fun remainingMs(lease: RemoteLease): Long {
+        val remaining = lease.leaseExpiresAtMs?.let { it - lease.serverNowMs } ?: return -1
+        return remaining
+    }
+
+    fun canOpen(lease: RemoteLease, requestElapsedMs: Long, responseElapsedMs: Long, requestBoot: Int, responseBoot: Int): Boolean {
+        if (requestBoot < 0 || requestBoot != responseBoot || lease.receivedBoot != requestBoot) return false
+        if (lease.serverNowMs >= lease.deliveryExpiresAtMs) return false
+        val remaining = remainingMs(lease)
         if (remaining <= 0) return false
-        return elapsedMs < lease.receivedElapsedMs + remaining
+        if (responseElapsedMs < requestElapsedMs) return false
+        return responseElapsedMs < requestElapsedMs + remaining
     }
 }

@@ -56,6 +56,7 @@ class PairingCapabilityPolicyTest {
             photoPickerPackage = "com.google.android.photopicker",
         )
         assertEquals(true, capability.parentCanGrantCamera)
+        assertEquals(true, capability.canImportImage)
         assertEquals(
             listOf("com.android.permissioncontroller", "com.google.android.photopicker", "com.android.documentsui"),
             PairingCapabilityPolicy.maintenanceDelegates(
@@ -64,5 +65,19 @@ class PairingCapabilityPolicyTest {
                 "com.android.documentsui",
             ),
         )
+    }
+
+    @Test
+    fun cameraGrantDoesNotEnableNormalModeMediaPicker() {
+        val capability = PairingCapabilityPolicy.evaluate(
+            cameraGranted = true,
+            owner = true,
+            inMaintenance = false,
+            permissionControllerPackage = "com.android.permissioncontroller",
+            photoPickerPackage = "com.google.android.photopicker",
+        )
+        assertEquals(true, capability.canScan)
+        assertEquals(false, capability.canImportImage)
+        assertTrue(capability.importMessage.contains("parent maintenance"))
     }
 }

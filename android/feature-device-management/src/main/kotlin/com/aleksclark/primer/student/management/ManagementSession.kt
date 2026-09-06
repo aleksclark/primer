@@ -48,8 +48,8 @@ class ManagementSession(
         deviceId: String,
     ) -> PolicyApplication,
     private val inventory: () -> List<InventoriedApp>,
-    private val applyRemoteRecovery: (requestId: String, codes: List<String>) -> Boolean,
-    private val applyRemoteLease: (requestId: String, durationMs: Long) -> Boolean,
+    private val applyRemoteRecovery: (requestId: String, codes: List<String>) -> String,
+    private val applyRemoteLease: (requestId: String, durationMs: Long) -> String,
     private val studentVersion: String,
     private val outbox: ManagementOutbox,
     private val localRestrictions: Set<String>,
@@ -94,7 +94,7 @@ class ManagementSession(
                     keyId = keyId,
                 ),
             )
-            applyDesired(result.desired)
+            applyDesired(result.desired, elapsedMs(), boot())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: TasksHttpException) {
@@ -114,10 +114,20 @@ class ManagementSession(
         if (binding.token.isBlank()) {
             return ManagementSyncResult("Management credential was revoked. Last-known policy remains; local recovery still works.")
         }
+        val requestElapsed = elapsedMs()
+        val requestBoot = boot()
         val client = clientFactory(binding.origin) { binding.token }
         return try {
-            flushOutbox(binding)
-            applyDesired(client.managementDeviceDesired())
+            val flush = flushOutbox(binding)
+            val desired = applyDesired(client.managementDeviceDesired(), requestElapsed, requestBoot)
+            if (flush.retryable || desired.retryable || outbox.undelivered(binding.origin, binding.deviceId)) {
+                desired.copy(
+                    retryable = true,
+                    message = if (outbox.undelivered(binding.origin, binding.deviceId)) {
+                        "${desired.message} Durable reports remain undelivered."
+                    } else desired.message,
+                )
+            } else desired
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: TasksHttpException) {
@@ -127,14 +137,16 @@ class ManagementSession(
         }
     }
 
-    private suspend fun applyDesired(desired: DesiredState): ManagementSyncResult {
+    private suspend fun applyDesired(desired: DesiredState, requestElapsedMs: Long, requestBoot: Int): ManagementSyncResult {
         val binding = credentials.read() ?: return ManagementSyncResult("Management is not enrolled")
         if (desired.device.id != binding.deviceId) {
             return ManagementSyncResult("Desired state is for a different device. Local recovery still works.")
         }
         val serverNow = runCatching { Instant.parse(desired.serverTime).toEpochMilli() }.getOrNull()
             ?: return ManagementSyncResult("Management desired state is missing a valid serverTime.")
-        desired.recovery.forEach { intent -> applyRecovery(intent, serverNow, binding) }
+        val responseElapsed = elapsedMs()
+        val responseBoot = boot()
+        desired.recovery.forEach { intent -> applyRecovery(intent, serverNow, binding, requestElapsedMs, requestBoot, responseElapsed, responseBoot) }
         val revision = desired.policyRevision
         val application = if (revision != null) {
             val extras = RemotePolicyProjection.extraControls(
@@ -157,17 +169,27 @@ class ManagementSession(
             PolicyApplication(0, "requested", emptyList(), "No remote policy yet")
         }
         enqueuePolicyReport(binding, application)
-        flushOutbox(binding)
+        val reports = flushOutbox(binding)
         applyReleases(desired.releaseTargets, binding)
-        flushOutbox(binding)
+        val receipts = flushOutbox(binding)
+        val undelivered = outbox.undelivered(binding.origin, binding.deviceId)
         return ManagementSyncResult(
-            message = application.summary,
+            message = if (undelivered) "${application.summary} Durable reports remain undelivered." else application.summary,
             appliedRevision = application.revision,
             status = application.status,
+            retryable = reports.retryable || receipts.retryable || undelivered,
         )
     }
 
-    private suspend fun applyRecovery(intent: RecoveryIntent, serverNowMs: Long, binding: ManagementBinding) {
+    private suspend fun applyRecovery(
+        intent: RecoveryIntent,
+        serverNowMs: Long,
+        binding: ManagementBinding,
+        requestElapsedMs: Long,
+        requestBoot: Int,
+        responseElapsedMs: Long,
+        responseBoot: Int,
+    ) {
         if (intent.deviceId != binding.deviceId) return
         val deliveryMs = runCatching { Instant.parse(intent.deliveryExpiresAt).toEpochMilli() }.getOrNull() ?: return
         val leaseMs = intent.leaseExpiresAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
@@ -177,35 +199,32 @@ class ManagementSession(
             deliveryExpiresAtMs = deliveryMs,
             leaseExpiresAtMs = leaseMs,
             serverNowMs = serverNowMs,
-            receivedElapsedMs = elapsedMs(),
-            receivedBoot = boot(),
+            receivedElapsedMs = requestElapsedMs,
+            receivedBoot = requestBoot,
         )
-        if (serverNowMs >= deliveryMs) return
         when (intent.kind) {
             "rotate_recovery_code" -> {
+                if (serverNowMs >= deliveryMs) return
                 val wire = intent.envelope ?: return
                 if (!intent.parentAcknowledged) return
                 val handle = credentials.privateHandle() ?: return
                 val envelope = RecoveryCiphertext(wire.keyId, wire.alg, wire.ciphertext)
                 if (envelope.keyId != binding.keyId) return
                 val payload = RecoveryHpke.decryptCodes(handle, envelope, binding.deviceId, intent.id, binding.keyId)
-                applyRemoteRecovery(intent.id, payload.codes)
-                enqueueRecoveryAck(intent.id)
+                val ackId = applyRemoteRecovery(intent.id, payload.codes)
+                enqueueRecoveryAck(binding, intent.id, ackId)
             }
             "maintenance_lease" -> {
-                if (!RemoteLeasePolicy.canOpen(lease, serverNowMs, elapsedMs(), boot())) return
-                val remaining = (lease.leaseExpiresAtMs ?: return) - serverNowMs
-                applyRemoteLease(intent.id, remaining)
-                enqueueRecoveryAck(intent.id)
+                if (!RemoteLeasePolicy.canOpen(lease, requestElapsedMs, responseElapsedMs, requestBoot, responseBoot)) return
+                val remaining = RemoteLeasePolicy.remainingMs(lease)
+                val ackId = applyRemoteLease(intent.id, remaining)
+                enqueueRecoveryAck(binding, intent.id, ackId)
             }
         }
     }
 
     private suspend fun enqueuePolicyReport(binding: ManagementBinding, application: PolicyApplication) {
-        val id = "policy:${binding.deviceId}:${application.revision}:${application.status}"
-        val existing = outbox.get(id)
-        val reportId = existing?.let { json.decodeFromString(PolicyReportInput.serializer(), it.body).reportId }
-            ?: UUID.randomUUID().toString()
+        val id = "policy:${binding.origin}:${binding.deviceId}:${application.revision}:${application.status}"
         val apps = inventory().take(64).map { app ->
             InstalledApp(
                 packageName = app.packageName,
@@ -217,49 +236,67 @@ class ManagementSession(
             )
         }
         val body = PolicyReportInput(
-            reportId = reportId,
+            reportId = UUID.randomUUID().toString(),
             policyRevision = application.revision,
             status = application.status,
             installedStudentVersion = studentVersion,
             controls = application.controls.map { it.toWire() },
             installedApps = apps,
         )
-        outbox.put(OutboxEntry(id, "policy-report", json.encodeToString(PolicyReportInput.serializer(), body)))
+        outbox.putIfAbsent(
+            OutboxEntry(
+                id = id,
+                kind = "policy-report",
+                body = json.encodeToString(PolicyReportInput.serializer(), body),
+                origin = binding.origin,
+                deviceId = binding.deviceId,
+            ),
+        )
     }
 
-    private suspend fun enqueueRecoveryAck(intentId: String) {
-        val id = "recovery-ack:$intentId"
-        val existing = outbox.get(id)
-        val reportId = existing?.let { json.decodeFromString(RecoveryConfirmInput.serializer(), it.body).reportId }
-            ?: UUID.randomUUID().toString()
-        outbox.put(OutboxEntry(id, "recovery-ack", json.encodeToString(RecoveryConfirmInput.serializer(), RecoveryConfirmInput(reportId = reportId))))
+    private suspend fun enqueueRecoveryAck(binding: ManagementBinding, intentId: String, reportId: String) {
+        val id = "recovery-ack:${binding.origin}:${binding.deviceId}:$intentId"
+        outbox.putIfAbsent(
+            OutboxEntry(
+                id = id,
+                kind = "recovery-ack",
+                body = json.encodeToString(RecoveryConfirmInput.serializer(), RecoveryConfirmInput(reportId = reportId)),
+                origin = binding.origin,
+                deviceId = binding.deviceId,
+            ),
+        )
     }
 
-    private suspend fun enqueueReceipt(target: ReleaseTarget, status: String, versionCode: Long?, error: String?) {
-        val id = "receipt:${target.id}:${target.targetVersion}:$status"
-        val existing = outbox.get(id)
-        val reportId = existing?.let { json.decodeFromString(ReleaseReceiptInput.serializer(), it.body).reportId }
-            ?: UUID.randomUUID().toString()
+    private suspend fun enqueueReceipt(binding: ManagementBinding, target: ReleaseTarget, status: String, versionCode: Long?, error: String?) {
+        val id = "receipt:${binding.origin}:${binding.deviceId}:${target.id}:${target.targetVersion}:$status"
         val body = ReleaseReceiptInput(
-            reportId = reportId,
+            reportId = UUID.randomUUID().toString(),
             status = status,
             targetId = target.id,
             targetVersion = target.targetVersion,
             installedVersionCode = versionCode,
             error = error,
         )
-        outbox.put(OutboxEntry(id, "release-receipt", json.encodeToString(ReleaseReceiptInput.serializer(), body)))
+        outbox.putIfAbsent(
+            OutboxEntry(
+                id = id,
+                kind = "release-receipt",
+                body = json.encodeToString(ReleaseReceiptInput.serializer(), body),
+                origin = binding.origin,
+                deviceId = binding.deviceId,
+            ),
+        )
     }
 
-    private suspend fun flushOutbox(binding: ManagementBinding) {
+    private suspend fun flushOutbox(binding: ManagementBinding): ManagementSyncResult {
         val client = clientFactory(binding.origin) { binding.token }
-        for (entry in outbox.pending()) {
-            if (entry.attempts >= 8) continue
+        var retryable = false
+        for (entry in outbox.pending(binding.origin, binding.deviceId)) {
             try {
                 when (entry.kind) {
                     "policy-report" -> client.managementDeviceReport(json.decodeFromString(PolicyReportInput.serializer(), entry.body))
                     "recovery-ack" -> {
-                        val intentId = entry.id.removePrefix("recovery-ack:")
+                        val intentId = entry.id.substringAfterLast(':')
                         client.managementDeviceConfirmRecovery(intentId, json.decodeFromString(RecoveryConfirmInput.serializer(), entry.body))
                     }
                     "release-receipt" -> client.managementDeviceReleaseReceipt(json.decodeFromString(ReleaseReceiptInput.serializer(), entry.body))
@@ -272,53 +309,64 @@ class ManagementSession(
                     credentials.clearTokenOnly()
                     throw error
                 }
-                outbox.markAttempt(entry.id)
-                if (error.statusCode in 400..499 && error.statusCode != 409 && error.statusCode != 429) continue
-                throw error
+                val permanent = error.statusCode in 400..499 && error.statusCode != 409 && error.statusCode != 429
+                val dead = if (permanent || entry.attempts + 1 >= 8) error.message?.take(200) ?: "undeliverable" else null
+                outbox.markAttempt(entry.id, dead)
+                if (!permanent) retryable = true
+                if (!permanent && error.statusCode >= 500) {
+                    return ManagementSyncResult("Unable to refresh management policy.", retryable = true)
+                }
             }
         }
+        return ManagementSyncResult("ok", retryable = retryable || outbox.undelivered(binding.origin, binding.deviceId))
     }
 
     private suspend fun applyReleases(targets: List<ReleaseTarget>, binding: ManagementBinding) {
         val sink = releaseSink ?: return
         for (target in targets) {
+            val trusted = runCatching { ReleaseDelivery.verify(target, trustRoot) }
+            val manifest = trusted.getOrNull()
+            if (manifest == null) {
+                enqueueReceipt(binding, target, "failed", null, trusted.exceptionOrNull()?.message?.take(200) ?: "untrusted")
+                continue
+            }
             if (target.packageName != ReleaseDelivery.STUDENT_PACKAGE) {
-                enqueueReceipt(target, "blocked", null, "Package is not Student")
+                enqueueReceipt(binding, target, "blocked", null, "Package is not Student")
                 continue
             }
             if (target.status in setOf("confirmed", "blocked", "failed")) continue
             if (sink.installActive) continue
             if (sink.studentVersion == target.versionCode) {
-                enqueueReceipt(target, "confirmed", sink.studentVersion, null)
+                enqueueReceipt(binding, target, "confirmed", sink.studentVersion, null)
                 continue
             }
             if (sink.studentVersion > target.versionCode) {
-                enqueueReceipt(target, "failed", sink.studentVersion, "Installed version superseded this target")
+                enqueueReceipt(binding, target, "failed", sink.studentVersion, "Installed version superseded this target")
                 continue
             }
-            val verifiedManifest = runCatching { ReleaseDelivery.verify(target, trustRoot) }
-            val manifest = verifiedManifest.getOrNull()
-            if (manifest == null) {
-                enqueueReceipt(target, "failed", null, verifiedManifest.exceptionOrNull()?.message?.take(200) ?: "untrusted")
-                continue
-            }
-            enqueueReceipt(target, "downloading", sink.studentVersion, null)
+            enqueueReceipt(binding, target, "downloading", sink.studentVersion, null)
             val directory = sink.stagingDir().apply { check(mkdirs() || isDirectory) }
             val partial = File(directory, "${target.id}.partial")
             val verified = File(directory, "${target.id}.apk")
             try {
                 val client = clientFactory(binding.origin) { binding.token }
-                sink.remember(target.id, target.targetVersion)
+                val current = credentials.read()
+                check(current?.token == binding.token && current.origin == binding.origin && current.deviceId == binding.deviceId) {
+                    "Management enrollment changed before install"
+                }
                 partial.outputStream().use { raw ->
                     ArchiveChecks.digestingSink(raw, manifest.byteSize, manifest.sha256).use { digesting ->
                         client.managementDeviceArtifact(target.releaseId, digesting)
                     }
                 }
-                enqueueReceipt(target, "verifying", sink.studentVersion, null)
+                enqueueReceipt(binding, target, "verifying", sink.studentVersion, null)
                 if (verified.exists()) check(verified.delete())
                 check(partial.renameTo(verified)) { "Cannot stage verified APK" }
-                enqueueReceipt(target, "installing", sink.studentVersion, null)
-                sink.installVerified(verified, manifest.byteSize)
+                enqueueReceipt(binding, target, "installing", sink.studentVersion, null)
+                val live = credentials.read()
+                val authorized = live?.token == binding.token && live.origin == binding.origin && live.deviceId == binding.deviceId
+                val outcome = sink.installVerified(verified, manifest) { authorized }
+                enqueueReceipt(binding, target, outcome.status, outcome.versionCode, outcome.error)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: TasksHttpException) {
@@ -326,9 +374,9 @@ class ManagementSession(
                     credentials.clearTokenOnly()
                     throw error
                 }
-                enqueueReceipt(target, "failed", sink.studentVersion, "Unable to download release")
+                enqueueReceipt(binding, target, "failed", sink.studentVersion, "Unable to download release")
             } catch (error: Exception) {
-                enqueueReceipt(target, "failed", sink.studentVersion, error.message?.take(200) ?: error.javaClass.simpleName)
+                enqueueReceipt(binding, target, "failed", sink.studentVersion, error.message?.take(200) ?: error.javaClass.simpleName)
             } finally {
                 partial.delete()
             }
