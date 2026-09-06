@@ -24,15 +24,16 @@ type TaskPage2 struct {
 	Offset     int            `json:"offset"`
 }
 type TaskRevision struct {
-	ID           string        `json:"id"`
-	RevisionID   string        `json:"revisionId,omitempty"`
-	TemplateID   string        `json:"templateId"`
-	Version      int           `json:"version"`
-	Title        string        `json:"title"`
-	Instructions string        `json:"instructions"`
-	Status       string        `json:"status"`
-	Requirements []Requirement `json:"requirements"`
-	CreatedAt    time.Time     `json:"createdAt"`
+	ID             string        `json:"id"`
+	RevisionID     string        `json:"revisionId,omitempty"`
+	TemplateID     string        `json:"templateId"`
+	Version        int           `json:"version"`
+	Title          string        `json:"title"`
+	Instructions   string        `json:"instructions"`
+	Status         string        `json:"status"`
+	TemplateStatus string        `json:"templateStatus,omitempty"`
+	Requirements   []Requirement `json:"requirements"`
+	CreatedAt      time.Time     `json:"createdAt"`
 }
 type Requirement struct {
 	ID            string         `json:"id"`
@@ -47,7 +48,15 @@ type TaskInput2 struct {
 	Instructions string        `json:"instructions"`
 	Requirements []Requirement `json:"requirements"`
 }
+type SchedulePage2 struct {
+	Items      []Schedule2 `json:"items"`
+	TotalCount int         `json:"totalCount"`
+	Limit      int         `json:"limit"`
+	Offset     int         `json:"offset"`
+}
 type Schedule2 struct {
+	Title            string     `json:"title,omitempty"`
+	StudentName      string     `json:"studentName,omitempty"`
 	ID               string     `json:"id"`
 	StudentID        string     `json:"studentId"`
 	TemplateID       string     `json:"templateId"`
@@ -73,6 +82,7 @@ type ScheduleInput2 struct {
 	DueOffsetMinutes int        `json:"dueOffsetMinutes"`
 }
 type Occurrence2 struct {
+	StudentName         string    `json:"studentName,omitempty"`
 	ID                  string    `json:"id"`
 	StudentID           string    `json:"studentId"`
 	ScheduleID          string    `json:"scheduleId"`
@@ -172,13 +182,22 @@ func (s *Server) listTasks2(w http.ResponseWriter, r *http.Request, sc scope) {
 	if strings.EqualFold(r.URL.Query().Get("dir"), "asc") {
 		dir = "ASC"
 	}
+	// Select one revision per template BEFORE search and pagination. The default
+	// remains the revision collection for existing consumers. Published pickers
+	// select the newest published revision even when a newer draft exists.
+	status := r.URL.Query().Get("status")
+	base := `SELECT r.*,t.status AS template_status FROM task_revisions r JOIN task_templates t ON t.tenant_id=r.tenant_id AND t.id=r.template_id WHERE r.tenant_id=$1 AND ($3='' OR $3='all' OR ($3='active' AND t.status<>'retired') OR ($3='published' AND r.status='published' AND t.status<>'retired'))`
+	if r.URL.Query().Get("view") == "templates" {
+		base = `SELECT DISTINCT ON (template_id) * FROM (` + base + `) revisions ORDER BY template_id,version DESC`
+	}
+	filtered := ` FROM (` + base + `) tasks WHERE ($2='' OR title ILIKE '%'||$2||'%')`
 	var total int
-	if e := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM task_revisions WHERE tenant_id=$1 AND ($2='' OR title ILIKE '%'||$2||'%')`, sc.Tenant, q).Scan(&total); e != nil {
+	if e := s.DB.QueryRow(r.Context(), `SELECT count(*)`+filtered, sc.Tenant, q, status).Scan(&total); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	sql := fmt.Sprintf(`SELECT id,template_id,version,title,instructions,status,created_at FROM task_revisions WHERE tenant_id=$1 AND ($2='' OR title ILIKE '%%'||$2||'%%') ORDER BY %s %s LIMIT $3 OFFSET $4`, sortCol, dir)
-	rows, e := s.DB.Query(r.Context(), sql, sc.Tenant, q, limit, offset)
+	sql := `SELECT id,template_id,version,title,instructions,status,created_at,template_status,COALESCE((SELECT jsonb_agg(v.config->0 ORDER BY v.ordinal) FROM verification_requirements v WHERE v.tenant_id=tasks.tenant_id AND v.revision_id=tasks.id),'[]'::jsonb)` + filtered + fmt.Sprintf(` ORDER BY %s %s,id LIMIT $4 OFFSET $5`, sortCol, dir)
+	rows, e := s.DB.Query(r.Context(), sql, sc.Tenant, q, status, limit, offset)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -187,7 +206,7 @@ func (s *Server) listTasks2(w http.ResponseWriter, r *http.Request, sc scope) {
 	out := []TaskRevision{}
 	for rows.Next() {
 		var x TaskRevision
-		if e = rows.Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt); e != nil {
+		if e = rows.Scan(&x.ID, &x.TemplateID, &x.Version, &x.Title, &x.Instructions, &x.Status, &x.CreatedAt, &x.TemplateStatus, &x.Requirements); e != nil {
 			problem(w, 500, "internal", e.Error())
 			return
 		}
@@ -297,7 +316,11 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 500, "internal", e.Error())
 		return
 	}
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
+	dir := "ASC"
+	if r.URL.Query().Get("dir") == "desc" {
+		dir = "DESC"
+	}
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0),st.display_name FROM task_occurrences o JOIN students st ON st.tenant_id=o.tenant_id AND st.id=o.student_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at `+dir+`,o.id LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -306,7 +329,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	out := []Occurrence2{}
 	for rows.Next() {
 		var x Occurrence2
-		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber); e != nil {
+		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber, &x.StudentName); e != nil {
 			problem(w, 500, "internal", e.Error())
 			return
 		}
@@ -688,7 +711,7 @@ func (s *Server) listSchedules2(w http.ResponseWriter, r *http.Request, sc scope
 		problem(w, 500, "internal", err.Error())
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT id,student_id,template_id,revision_id,kind,timezone,start_local,end_local,rrule,due_offset_minutes,enabled,version FROM task_schedules WHERE tenant_id=$1 AND ($2 OR enabled) ORDER BY start_local LIMIT $3 OFFSET $4`, sc.Tenant, all, limit, offset)
+	rows, err := s.DB.Query(r.Context(), `SELECT s.id,s.student_id,s.template_id,s.revision_id,s.kind,s.timezone,s.start_local,s.end_local,s.rrule,s.due_offset_minutes,s.enabled,s.version,r.title,st.display_name FROM task_schedules s JOIN task_revisions r ON r.tenant_id=s.tenant_id AND r.id=s.revision_id JOIN students st ON st.tenant_id=s.tenant_id AND st.id=s.student_id WHERE s.tenant_id=$1 AND ($2 OR s.enabled) ORDER BY s.start_local,s.id LIMIT $3 OFFSET $4`, sc.Tenant, all, limit, offset)
 	if err != nil {
 		problem(w, 500, "internal", err.Error())
 		return
@@ -697,13 +720,13 @@ func (s *Server) listSchedules2(w http.ResponseWriter, r *http.Request, sc scope
 	items := []Schedule2{}
 	for rows.Next() {
 		var x Schedule2
-		if err := rows.Scan(&x.ID, &x.StudentID, &x.TemplateID, &x.RevisionID, &x.Kind, &x.Timezone, &x.StartAt, &x.EndAt, &x.RRULE, &x.DueOffsetMinutes, &x.Enabled, &x.Version); err != nil {
+		if err := rows.Scan(&x.ID, &x.StudentID, &x.TemplateID, &x.RevisionID, &x.Kind, &x.Timezone, &x.StartAt, &x.EndAt, &x.RRULE, &x.DueOffsetMinutes, &x.Enabled, &x.Version, &x.Title, &x.StudentName); err != nil {
 			problem(w, 500, "internal", err.Error())
 			return
 		}
 		items = append(items, x)
 	}
-	jsonOK(w, map[string]any{"items": items, "totalCount": total, "limit": limit, "offset": offset})
+	jsonOK(w, SchedulePage2{items, total, limit, offset})
 }
 
 func (s *Server) updateSchedule2(w http.ResponseWriter, r *http.Request, sc scope) {

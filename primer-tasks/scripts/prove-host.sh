@@ -77,8 +77,8 @@ from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 raw = path.read_bytes()
-old = b"System C \xc2\xb7 HMR baseline"
-new = b"System C \xc2\xb7 host-b"
+old = b"tasks-source-baseline"
+new = b"tasks-source-host-b"
 if raw.count(old) != 1:
     raise SystemExit("frontend mutation anchor missing")
 path.write_bytes(raw.replace(old, new))
