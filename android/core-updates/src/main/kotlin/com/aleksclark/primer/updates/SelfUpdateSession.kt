@@ -8,6 +8,8 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Parcel
+import android.util.Base64
 import com.aleksclark.primer.updates.ArchiveChecks.hex
 import java.io.File
 import java.security.MessageDigest
@@ -21,20 +23,35 @@ class SelfUpdateSession(
     private val context: Context,
     private val resultReceiver: ComponentName,
     private val storeName: String = "self-update",
-) {
+) : SelfUpdateCommands {
     private val prefs = context.getSharedPreferences(storeName, Context.MODE_PRIVATE)
     private val installer = context.packageManager.packageInstaller
-    val status: String get() = prefs.getString("status", "No self-update attempted")!!
-    val active: Boolean get() = prefs.getBoolean("active", false)
-    val pendingConfirmation: Boolean get() = prefs.getBoolean("pendingConfirmation", false)
-    val desiredVersion: Long get() = prefs.getLong("desiredVersion", 0)
-    val lastOutcome: InstallAttempt get() = InstallAttempt(
-        status = prefs.getString("outcomeStatus", "queued") ?: "queued",
-        versionCode = prefs.getLong("outcomeVersion", -1).takeIf { it >= 0 },
-        error = prefs.getString("outcomeError", null),
-    )
+    @Volatile private var liveConfirmation: Intent? = null
+    val status: String get() = snapshot().status
+    val active: Boolean get() = snapshot().active
+    val pendingConfirmation: Boolean get() = snapshot().pendingConfirmation
+    val desiredVersion: Long get() = snapshot().desiredVersion
+    val lastOutcome: InstallAttempt get() = snapshot().lastOutcome
 
-    fun install(apk: File, expected: SignedManifest): InstallAttempt = synchronized(lock) {
+    override fun snapshot(): SelfUpdateSessionState = synchronized(lock) {
+        val sessionId = prefs.getInt("session", -1)
+        val info = if (sessionId >= 0) installer.getSessionInfo(sessionId) else null
+        SelfUpdateSessionState(
+            status = prefs.getString("status", "No self-update attempted")!!,
+            active = prefs.getBoolean("active", false),
+            pendingConfirmation = prefs.getBoolean("pendingConfirmation", false),
+            installerSessionLive = info != null,
+            desiredVersion = prefs.getLong("desiredVersion", 0),
+            lastOutcome = InstallAttempt(
+                status = prefs.getString("outcomeStatus", "queued") ?: "queued",
+                versionCode = prefs.getLong("outcomeVersion", -1).takeIf { it >= 0 },
+                error = prefs.getString("outcomeError", null),
+            ),
+            hasConfirmationIntent = liveConfirmation != null || !prefs.getString("confirmation", null).isNullOrBlank(),
+        )
+    }
+
+    override fun install(apk: File, expected: SignedManifest): InstallAttempt = synchronized(lock) {
         reconcile()
         check(!active) { "An installation is already in progress" }
         var sessionId: Int? = null
@@ -80,6 +97,7 @@ class SelfUpdateSession(
                         session.fsync(output)
                     }
                 }
+                liveConfirmation = null
                 persist(sessionId!!, expected.versionCode)
                 val intent = Intent(ACTION_RESULT).setComponent(resultReceiver)
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or
@@ -97,7 +115,7 @@ class SelfUpdateSession(
         }
     }
 
-    fun handleResult(intent: Intent, onUserAction: ((Intent) -> Boolean)? = null): InstallAttempt = synchronized(lock) {
+    override fun handleResult(intent: Intent, onUserAction: ((Intent) -> Boolean)?): InstallAttempt = synchronized(lock) {
         if (intent.action != ACTION_RESULT || !active) return lastOutcome
         if (intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1) != prefs.getInt("session", -2)) return lastOutcome
         when (val code = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
@@ -108,31 +126,54 @@ class SelfUpdateSession(
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val confirmation = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                liveConfirmation = confirmation
+                if (confirmation != null) persistConfirmation(confirmation)
                 val presented = try {
                     confirmation != null && onUserAction?.invoke(confirmation) == true
                 } catch (_: RuntimeException) {
                     false
                 }
-                if (presented) {
-                    check(
-                        prefs.edit()
-                            .putBoolean("pendingConfirmation", true)
-                            .putString("status", "Waiting for system install confirmation")
-                            .putString("outcomeStatus", "blocked")
-                            .remove("outcomeVersion")
-                            .commit(),
-                    ) { "Cannot persist self-update confirmation" }
-                } else {
-                    runCatching { installer.abandonSession(prefs.getInt("session", -1)) }
-                    fail("blocked", "Android requires a system install confirmation")
-                }
+                applyRecord(
+                    SelfUpdateFlow.onPendingUserAction(
+                        current = record().copy(hasConfirmation = confirmation != null),
+                        hasConfirmation = confirmation != null,
+                        presented = presented,
+                    ),
+                )
             }
             else -> fail("failed", "Android status $code")
         }
         lastOutcome
     }
 
-    fun reconcile(): InstallAttempt = synchronized(lock) {
+    override fun resumeUserAction(onUserAction: (Intent) -> Boolean): InstallAttempt = synchronized(lock) {
+        reconcile()
+        val confirmation = liveConfirmation ?: restoreConfirmation()
+        liveConfirmation = confirmation ?: liveConfirmation
+        val live = snapshot().installerSessionLive
+        val presented = try {
+            confirmation != null && onUserAction(confirmation)
+        } catch (_: RuntimeException) {
+            false
+        }
+        applyRecord(
+            SelfUpdateFlow.onResumeUserAction(
+                current = record().copy(hasConfirmation = confirmation != null),
+                sessionLive = live,
+                presented = presented,
+            ),
+        )
+        lastOutcome
+    }
+
+    override fun cancel(): InstallAttempt = synchronized(lock) {
+        runCatching { installer.abandonSession(prefs.getInt("session", -1)) }
+        liveConfirmation = null
+        applyRecord(SelfUpdateFlow.onCancel(record()))
+        lastOutcome
+    }
+
+    override fun reconcile(): InstallAttempt = synchronized(lock) {
         val installed = runCatching { installedInfo().longVersionCode }.getOrDefault(-1L)
         val desired = prefs.getLong("desiredVersion", 0)
         val sessionId = prefs.getInt("session", -1)
@@ -146,9 +187,65 @@ class SelfUpdateSession(
                 runCatching { installer.abandonSession(info.sessionId) }
                 fail("failed", "Installation interrupted before commit")
             }
-            active && info == null -> fail("failed", "Installation interrupted or rejected")
+            active && info == null -> applyRecord(SelfUpdateFlow.onMissingInstallerSession(record()))
         }
         lastOutcome
+    }
+
+    private fun record(): SelfUpdateRecord = SelfUpdateRecord(
+        active = prefs.getBoolean("active", false),
+        pendingConfirmation = prefs.getBoolean("pendingConfirmation", false),
+        sessionId = prefs.getInt("session", -1),
+        desiredVersion = prefs.getLong("desiredVersion", 0),
+        status = prefs.getString("status", "No self-update attempted")!!,
+        outcomeStatus = prefs.getString("outcomeStatus", "queued") ?: "queued",
+        outcomeError = prefs.getString("outcomeError", null),
+        hasConfirmation = liveConfirmation != null || !prefs.getString("confirmation", null).isNullOrBlank(),
+    )
+
+    private fun applyRecord(next: SelfUpdateRecord) {
+        if (SelfUpdateFlow.shouldAbandon(next) && next.sessionId >= 0) {
+            runCatching { installer.abandonSession(next.sessionId) }
+        }
+        if (!next.hasConfirmation) {
+            liveConfirmation = null
+        }
+        val editor = prefs.edit()
+            .putBoolean("active", next.active)
+            .putBoolean("pendingConfirmation", next.pendingConfirmation)
+            .putInt("session", next.sessionId)
+            .putLong("desiredVersion", next.desiredVersion)
+            .putString("status", next.status)
+            .putString("outcomeStatus", next.outcomeStatus)
+        if (next.outcomeError != null) editor.putString("outcomeError", next.outcomeError) else editor.remove("outcomeError")
+        if (!next.hasConfirmation) editor.remove("confirmation")
+        check(editor.commit()) { "Cannot persist self-update status" }
+    }
+
+    private fun persistConfirmation(confirmation: Intent) {
+        val parcel = Parcel.obtain()
+        try {
+            confirmation.writeToParcel(parcel, 0)
+            val encoded = Base64.encodeToString(parcel.marshall(), Base64.NO_WRAP)
+            check(prefs.edit().putString("confirmation", encoded).commit()) { "Cannot persist install confirmation" }
+        } finally {
+            parcel.recycle()
+        }
+    }
+
+    private fun restoreConfirmation(): Intent? {
+        val encoded = prefs.getString("confirmation", null) ?: return null
+        val bytes = runCatching { Base64.decode(encoded, Base64.NO_WRAP) }.getOrNull() ?: return null
+        val parcel = Parcel.obtain()
+        return try {
+            parcel.unmarshall(bytes, 0, bytes.size)
+            parcel.setDataPosition(0)
+            Intent.CREATOR.createFromParcel(parcel)
+        } catch (_: RuntimeException) {
+            null
+        } finally {
+            parcel.recycle()
+        }
     }
 
     private fun persist(sessionId: Int, desiredVersion: Long) {
@@ -159,6 +256,7 @@ class SelfUpdateSession(
                 .putInt("session", sessionId)
                 .putLong("desiredVersion", desiredVersion)
                 .remove("outcomeVersion")
+                .remove("confirmation")
                 .putString("status", "Installing version $desiredVersion")
                 .putString("outcomeStatus", "installing")
                 .remove("outcomeError")

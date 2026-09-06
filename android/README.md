@@ -56,20 +56,29 @@ physical acceptance. Needed configuration, without changing canonical auth here:
 
 ### Control self-update
 
-Control consumes `:core-updates` `SelfUpdateSession.install(File, SignedManifest)`,
-`handleResult(Intent, onUserAction)`, and `reconcile()`. The adapter snapshots APK
-bytes (`copyVerified`), checks device ABIs, and compares candidate targetSdk to the
-running OS floor. Callers retain the download temp file and delete it in `finally`.
+Control consumes `:core-updates` `SelfUpdateSession` through `SelfUpdateCommands`
+(`install`, `handleResult`, `resumeUserAction`, `reconcile`, `snapshot`, `cancel`).
+Callers do not read the adapter's SharedPreferences layout. The adapter snapshots
+APK bytes (`copyVerified`), checks device ABIs, and compares candidate targetSdk
+to the running OS floor. Callers delete their download temp in `finally`.
+Verifier is Tink `Ed25519Verify` only — host digest||zeros is not accepted.
 
-`userActionRequired` means `!unattendedEligible`. `mustHandlePendingUserAction` is a
-separate mandatory handler even when unattended is eligible. Control starts the
-system confirmation activity and posts a notification fallback. Missing
-`PRIMER_RELEASE_TRUST_ROOT` / unsigned release metadata fails closed — there is no
-`productionTrusted` flag that authorizes unchecked bytes.
+Foreground confirmation is dispatched only through a resumed Activity. A silent
+`startActivity` return is not presentation. Otherwise Control checks
+`POST_NOTIFICATIONS`, `areNotificationsEnabled`, and the update channel, then
+posts a real notification or records **Deferred**. Continue Confirmation / onResume
+re-dispatches through `resumeUserAction`. Missing session, cancel, and denied
+notifications are observable; they are not `presented=true`.
 
-minSdk **28** is explicit on Control app/consumers. No `overrideLibrary`. No
-duplicate installer. Ed25519 at API 28 remains A's runtime gate; live install
-acceptance is not claimed.
+Control candidates are selected by running package **and** the stable channel,
+newer than the installed version. The decoded signed manifest must match outer
+package/channel/version/signer/size/hash before download. Device rollout still
+uses `selectedReleaseId`; Control self-update does not.
+
+Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
+Automatic discovery of new versions with parent settings/safe timing is **not**
+claimed. Missing `PRIMER_RELEASE_TRUST_ROOT` fails closed. No hardware or live
+install acceptance. minSdk **28**; no `overrideLibrary`; no duplicate installer.
 
 ### Exact Clerk identity acceptance (external; not the test issuer)
 

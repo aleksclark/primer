@@ -3,6 +3,7 @@ package com.aleksclark.primer.control
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aleksclark.primer.control.device.ApprovedAppDraft
+import com.aleksclark.primer.control.device.ControlSelfUpdate
 import com.aleksclark.primer.control.device.ControlSelfUpdateUi
 import com.aleksclark.primer.control.device.DeviceRepository
 import com.aleksclark.primer.control.device.DeviceSync
@@ -37,12 +38,16 @@ import com.aleksclark.primertasks.client.TaskRevision
 import com.aleksclark.primertasks.client.TasksHttpException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.cancellation.CancellationException
+import com.aleksclark.primer.updates.ArchiveChecks
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 data class ControlUiState(
@@ -96,6 +101,7 @@ class ControlViewModel(
     private val http: OkHttpClient = OkHttpClient(),
     private val updater: ControlSelfUpdateCoordinator? = null,
     private val downloadDir: java.io.File? = null,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
     private val tasksFactory: (CredentialProvider) -> ParentTasksRepository = { token ->
         ParentTasksRepository(requireNotNull(apiBase), token, http)
     },
@@ -124,7 +130,10 @@ class ControlViewModel(
     fun onResume() {
         viewModelScope.launch {
             try {
+                updater?.continueConfirmation()
                 refreshAuth()
+                val ctx = session
+                if (ctx != null && stillValid(ctx)) refreshSelfUpdate(ctx)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -415,22 +424,38 @@ class ControlViewModel(
     }
 
     fun installControlUpdate() {
-        val releaseId = _state.value.selectedReleaseId.ifBlank {
-            _state.value.releases.firstOrNull { it.packageName == com.aleksclark.primer.control.device.ControlSelfUpdate.CONTROL_PACKAGE }?.id.orEmpty()
-        }
+        val snapshot = _state.value
+        val candidate = ControlSelfUpdate.selectCandidate(snapshot.releases, snapshot.selfUpdate.installedVersion)
+            ?: run {
+                _state.value = snapshot.copy(message = "No newer Control release is published on the stable channel.")
+                return
+            }
         mutate { ctx ->
             val coordinator = updater ?: error("Release trust root is not configured.")
-            val release = _state.value.releases.firstOrNull { it.id == releaseId }
-                ?: error("Choose a published Control release.")
-            coordinator.verify(release)
             val dir = downloadDir ?: error("Download directory is not available.")
-            val download = java.io.File.createTempFile("control-", ".apk", dir)
-            try {
-                download.outputStream().use { sink -> tasksFor(ctx).downloadReleaseArtifact(release.id, sink) }
-                coordinator.install(download, release)
-            } finally {
-                download.delete()
+            withContext(io) {
+                val expected = coordinator.verify(candidate)
+                if (!stillValid(ctx)) return@withContext
+                val download = java.io.File.createTempFile("control-", ".apk", dir)
+                try {
+                    download.outputStream().use { raw ->
+                        ArchiveChecks.digestingSink(raw, expected.byteSize, expected.sha256).use { sink ->
+                            tasksFor(ctx).downloadReleaseArtifact(candidate.id, sink)
+                        }
+                    }
+                    if (!stillValid(ctx)) return@withContext
+                    coordinator.install(download, expected)
+                } finally {
+                    download.delete()
+                }
             }
+            if (stillValid(ctx)) refreshSelfUpdate(ctx)
+        }
+    }
+
+    fun continueControlUpdate() {
+        act { ctx ->
+            updater?.continueConfirmation()
             refreshSelfUpdate(ctx)
         }
     }
@@ -602,9 +627,8 @@ class ControlViewModel(
     }
 
     private fun refreshSelfUpdate(ctx: AuthContext) {
-        val candidate = _state.value.releases.firstOrNull {
-            it.packageName == com.aleksclark.primer.control.device.ControlSelfUpdate.CONTROL_PACKAGE
-        }
+        val installed = updater?.ui()?.installedVersion ?: _state.value.selfUpdate.installedVersion
+        val candidate = ControlSelfUpdate.selectCandidate(_state.value.releases, installed)
         val ui = updater?.ui(candidate) ?: ControlSelfUpdateUi(
             phase = com.aleksclark.primer.control.device.ControlSelfUpdatePhase.Failed,
             status = "Release trust root is not configured.",
