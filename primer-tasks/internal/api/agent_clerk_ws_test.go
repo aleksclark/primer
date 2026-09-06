@@ -14,10 +14,10 @@ import (
 
 	"git.clark.team/aleksclark/authstack/auth"
 	"git.clark.team/aleksclark/authstack/clerk"
-	"github.com/go-jose/go-jose/v4"
-	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	tasksdb "primer-tasks/internal/db"
 	"primer-tasks/internal/jobs"
 )

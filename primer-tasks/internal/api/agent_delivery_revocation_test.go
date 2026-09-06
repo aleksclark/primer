@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // This gate wraps the REAL server TCP connection, below net/http and WebSocket.
