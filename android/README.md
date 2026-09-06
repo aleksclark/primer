@@ -23,6 +23,10 @@ scheduled linear stream with a fully locked player) is a later phase.
 | `app`  | Android: Compose UI (tablet + leanback), ExoPlayer host, DataStore persistence. |
 | `feature-tasks-student` | Migrated Tasks pairing/checklist/start/submit for Student. Entry: `StudentTasksRoute`. |
 | `app-student` | Device-owner launcher. Tasks, approved apps, and parent maintenance; recovery stays in `StudentRuntime`. |
+| `core-parent-identity` | Official Clerk Android SDK 0.1.31 password sign-in adapter (Kotlin 2.0.21 pin). Publishable key only. Live Clerk acceptance is not claimed. |
+| `feature-tasks-control` | Native parent roster/tasks/schedules/review using `:tasks-client`. |
+| `feature-device-control` | Unprivileged parent device/release surfaces using generated parent JWT calls. |
+| `app-control` | Primer Control (`com.aleksclark.primer.control`). Not a device owner. |
 
 Keeping the interesting logic in `core` is deliberate: the grant lifecycle,
 heartbeat cadence, and watch-once rules are tested without an emulator.

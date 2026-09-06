@@ -81,3 +81,10 @@ jobs:
           name: primer-student-debug
           path: android/app-student/build/outputs/apk/debug/app-student-debug.apk
           if-no-files-found: error
+
+      - name: Upload Control debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: primer-control-debug
+          path: android/app-control/build/outputs/apk/debug/app-control-debug.apk
+          if-no-files-found: error

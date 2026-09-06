@@ -2,6 +2,8 @@ package com.aleksclark.primertasks.client
 
 import com.aleksclark.primertasks.generated.AuthKind
 import com.aleksclark.primertasks.generated.GeneratedTasksApi
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 import java.net.URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,6 +27,7 @@ class TasksClient(
     private val deviceCredentials: CredentialProvider? = null,
     private val managementCredentials: CredentialProvider? = null,
     maxBinaryBytes: Long = DEFAULT_MAX_BINARY_BYTES,
+    maxInMemoryBinaryBytes: Long = DEFAULT_MAX_IN_MEMORY_BINARY_BYTES,
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
     private val api = GeneratedTasksApi(
@@ -41,6 +44,7 @@ class TasksClient(
         },
         maxBinaryBytes = maxBinaryBytes,
     )
+    private val inMemoryCap = maxInMemoryBinaryBytes
 
     suspend fun health(): Health = io { api.health() }
 
@@ -116,10 +120,18 @@ class TasksClient(
         io { api.managedDevicesReleaseTarget(id, body) }
     suspend fun managementDeviceReleaseReceipt(body: ReleaseReceiptInput): ReleaseReceipt =
         io { api.managementDeviceReleaseReceipt(body) }
-    suspend fun managementDeviceArtifact(id: String): ByteArray =
-        io { api.managementDeviceArtifact(id) }
+    suspend fun managementDeviceArtifact(id: String, sink: OutputStream): Long =
+        io { api.managementDeviceArtifact(id, sink) }
+    suspend fun downloadManagedReleaseArtifact(id: String, sink: OutputStream): Long =
+        io { api.managementDeviceArtifact(id, sink) }
+    suspend fun managementDeviceArtifact(id: String): ByteArray = io {
+        val out = ByteArrayOutputStream()
+        val written = api.managementDeviceArtifact(id, out)
+        check(written <= inMemoryCap) { "in-memory artifact cap exceeded" }
+        out.toByteArray()
+    }
     suspend fun downloadManagedReleaseArtifact(id: String): ByteArray =
-        io { api.managementDeviceArtifact(id) }
+        managementDeviceArtifact(id)
 
     fun authHeader(token: String) = "Bearer $token"
 
@@ -127,6 +139,7 @@ class TasksClient(
 
     companion object {
         const val DEFAULT_MAX_BINARY_BYTES: Long = 200L * 1024L * 1024L
+        const val DEFAULT_MAX_IN_MEMORY_BINARY_BYTES: Long = 1024L * 1024L
 
         internal fun apiOrigin(raw: String): String {
             val trimmed = raw.trim()
