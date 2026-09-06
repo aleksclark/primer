@@ -38,6 +38,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: primer-tasks/go.mod
+          cache-dependency-path: primer-tasks/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - uses: android-actions/setup-android@v3
 
       - uses: gradle/actions/setup-gradle@v4
@@ -48,9 +57,7 @@ jobs:
 
       - name: Generate Tasks Kotlin client
         working-directory: .
-        run: |
-          make -C primer-tasks openapi
-          node primer-tasks/clients/kotlin/generate-client.mjs
+        run: make tasks-clients
 
       - name: Unit tests
         run: ./gradlew test --no-daemon --max-workers=1

@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Env, DatabaseURL, AuthMode, IssuerURL, ClientID, RedirectURL, PublicOrigin, SessionSecret, TestPrincipal, ModelProvider string
 	ClerkIssuer, ClerkJWKSURL, ClerkAudience, BasePath, WebDir                                                              string
+	ReleasePublisherToken, ReleaseSigningKey, ReleaseArtifactDir                                                            string
 }
 
 func Load() (Config, error) {
@@ -19,6 +20,9 @@ func Load() (Config, error) {
 	c.ClerkAudience = os.Getenv("TASKS_CLERK_AUDIENCE")
 	c.BasePath = strings.TrimRight(os.Getenv("TASKS_BASE_PATH"), "/")
 	c.WebDir = os.Getenv("TASKS_WEB_DIR")
+	c.ReleasePublisherToken = os.Getenv("TASKS_RELEASE_PUBLISHER_TOKEN")
+	c.ReleaseSigningKey = os.Getenv("TASKS_RELEASE_SIGNING_KEY")
+	c.ReleaseArtifactDir = os.Getenv("TASKS_RELEASE_ARTIFACT_DIR")
 	c.RedirectURL = value("TASKS_OIDC_REDIRECT_URL", c.PublicOrigin+"/auth/callback")
 	return c, c.Validate()
 }

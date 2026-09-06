@@ -9,27 +9,6 @@ val configuredApiOrigin = providers.gradleProperty("primerApiOrigin")
     .orElse(providers.environmentVariable("PRIMER_API_ORIGIN"))
     .getOrElse("")
 
-val tasksClientRoot = rootProject.layout.projectDirectory.dir("../primer-tasks/clients/kotlin")
-val generatedClient = tasksClientRoot.file(
-    "src/main/kotlin/com/aleksclark/primertasks/generated/GeneratedTasksApi.kt",
-)
-
-abstract class RequireGeneratedTasksClientTask : DefaultTask() {
-    @get:InputFile
-    abstract val generatedFile: RegularFileProperty
-
-    @TaskAction
-    fun verify() {
-        check(generatedFile.get().asFile.exists()) {
-            "Missing ${generatedFile.get().asFile.absolutePath}. Run `make tasks-clients` from the repo root."
-        }
-    }
-}
-
-val requireGeneratedTasksClient by tasks.registering(RequireGeneratedTasksClientTask::class) {
-    generatedFile.set(generatedClient)
-}
-
 android {
     namespace = "com.aleksclark.primer.student.tasks"
     compileSdk = 35
@@ -49,24 +28,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    sourceSets {
-        getByName("main") {
-            // Temporary bridge until the client worker lands :tasks-client.
-            // Import the committed façade, never copy generated DTOs.
-            kotlin.srcDir(tasksClientRoot.dir("src/main/kotlin"))
-        }
-    }
-}
-
-tasks.named("preBuild").configure { dependsOn(requireGeneratedTasksClient) }
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    dependsOn(requireGeneratedTasksClient)
 }
 
 kotlin { jvmToolchain(17) }
 
 dependencies {
+    implementation(project(":tasks-client"))
     implementation(project(":core-ui"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

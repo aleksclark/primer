@@ -69,6 +69,51 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	if paths["/student/pair"].Post.RequestBody.Content["application/json"].Schema.Ref != "#/components/schemas/PairCode" {
 		t.Fatal("pairing boundary is not derived from PairCode")
 	}
+	if paths["/device/occurrences/{id}/submit"].Post.Responses["200"].Content["application/json"].Schema.Ref != "#/components/schemas/OccurrenceAction2" {
+		t.Fatal("device submit is not derived from OccurrenceAction2")
+	}
+	if paths["/occurrences/{id}/decision"].Post.Responses["200"].Content["application/json"].Schema.Ref != "#/components/schemas/OccurrenceDecision2" {
+		t.Fatal("occurrence decision is not derived from OccurrenceDecision2")
+	}
+	if paths["/occurrences/{id}/retry"].Post.Responses["200"].Content["application/json"].Schema.Ref != "#/components/schemas/OccurrenceRetry2" {
+		t.Fatal("occurrence retry is not derived from OccurrenceRetry2")
+	}
+	if paths["/schedules/{id}"].Patch.Responses["200"].Content["application/json"].Schema.Ref != "#/components/schemas/Schedule2" {
+		t.Fatal("schedule update is not derived from Schedule2")
+	}
+	for _, path := range []string{
+		"/managed-devices",
+		"/managed-devices/enrollments",
+		"/managed-devices/{id}",
+		"/managed-devices/{id}/desired",
+		"/managed-devices/{id}/policy",
+		"/managed-devices/{id}/recovery",
+		"/managed-devices/{id}/quarantine",
+		"/managed-devices/{id}/revoke",
+		"/management-device/enroll",
+		"/management-device/desired",
+		"/management-device/reports",
+		"/management-device/recovery/{id}/confirm",
+		"/managed-devices/enrollments/{id}/abandon",
+		"/managed-releases",
+		"/managed-releases/{id}",
+		"/managed-devices/{id}/releases",
+		"/management-device/release-receipts",
+		"/management-device/artifacts/{id}",
+	} {
+		if _, ok := paths[path]; !ok {
+			t.Fatalf("management contract omitted %s", path)
+		}
+	}
+	if paths["/management-device/enroll"].Post.Security != nil && len(paths["/management-device/enroll"].Post.Security) > 0 {
+		t.Fatal("management-device enroll must not require parentSession")
+	}
+	if len(paths["/managed-devices"].Get.Security) == 0 {
+		t.Fatal("managed-devices list must require parentSession")
+	}
+	if len(paths["/management-device/desired"].Get.Security) == 0 || paths["/management-device/desired"].Get.Security[0]["managementDevice"] == nil {
+		t.Fatal("management-device desired must declare managementDevice bearer")
+	}
 }
 
 func TestTaskTemplateViewQueryIsTaskOnly(t *testing.T) {
@@ -118,8 +163,8 @@ func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 			operationCount++
 		}
 	}
-	if operationCount != 42 {
-		t.Fatalf("registered %d operations, want 42", operationCount)
+	if operationCount != 60 {
+		t.Fatalf("registered %d operations, want 60", operationCount)
 	}
 	for path, item := range registered {
 		if item.Get == nil && item.Post == nil && item.Patch == nil && item.Delete == nil {

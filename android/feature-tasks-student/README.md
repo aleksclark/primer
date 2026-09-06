@@ -15,4 +15,4 @@ Native Tasks pairing/checklist/start/submit for Primer Student.
 - Old `com.aleksclark.primertasks` tokens cannot be migrated. Parents issue a new Student QR and revoke the prototype pairing.
 - Prototype `make tasks-android` / `primer-tasks/android` remains until this flow is proven.
 
-Temporary Gradle source-set still imports `primer-tasks/clients/kotlin` façade until the client worker lands `:tasks-client`. Generated internals stay ignored.
+Gradle depends on the real `:tasks-client` module at `primer-tasks/clients/kotlin`; no client source-set is copied into the feature. Run `make tasks-clients` before a fresh build. Generated internals stay ignored.
