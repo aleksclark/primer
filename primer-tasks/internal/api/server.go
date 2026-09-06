@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"primer-tasks/internal/devicemanagement"
 	"strings"
 	"time"
 )
@@ -33,6 +34,7 @@ type Server struct {
 	ParentAuthenticator auth.Authenticator
 	ParentPolicy        auth.AuthenticationPolicy
 	BasePath            string
+	Management          *devicemanagement.Service
 }
 type scope struct{ Tenant, Subject string }
 
@@ -83,7 +85,7 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC()}
+	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC(), Management: &devicemanagement.Service{DB: db}}
 }
 func (s *Server) Routes() http.Handler { return s.parentBoundary(s.humaAPI().Adapter()) }
 

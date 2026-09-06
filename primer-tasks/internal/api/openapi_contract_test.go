@@ -69,6 +69,30 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	if paths["/student/pair"].Post.RequestBody.Content["application/json"].Schema.Ref != "#/components/schemas/PairCode" {
 		t.Fatal("pairing boundary is not derived from PairCode")
 	}
+	for _, path := range []string{
+		"/managed-devices",
+		"/managed-devices/enrollments",
+		"/managed-devices/{id}",
+		"/managed-devices/{id}/desired",
+		"/managed-devices/{id}/policy",
+		"/managed-devices/{id}/recovery",
+		"/managed-devices/{id}/quarantine",
+		"/managed-devices/{id}/revoke",
+		"/management-device/enroll",
+		"/management-device/desired",
+		"/management-device/reports",
+		"/management-device/recovery/{id}/confirm",
+	} {
+		if _, ok := paths[path]; !ok {
+			t.Fatalf("management contract omitted %s", path)
+		}
+	}
+	if paths["/management-device/enroll"].Post.Security != nil && len(paths["/management-device/enroll"].Post.Security) > 0 {
+		t.Fatal("management-device enroll must not require parentSession")
+	}
+	if len(paths["/managed-devices"].Get.Security) == 0 {
+		t.Fatal("managed-devices list must require parentSession")
+	}
 }
 
 func TestTaskTemplateViewQueryIsTaskOnly(t *testing.T) {
