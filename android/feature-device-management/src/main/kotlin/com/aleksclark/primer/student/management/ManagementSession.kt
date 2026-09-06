@@ -120,14 +120,8 @@ class ManagementSession(
         return try {
             val flush = flushOutbox(binding)
             val desired = applyDesired(client.managementDeviceDesired(), requestElapsed, requestBoot)
-            if (flush.retryable || desired.retryable || outbox.undelivered(binding.origin, binding.deviceId)) {
-                desired.copy(
-                    retryable = true,
-                    message = if (outbox.undelivered(binding.origin, binding.deviceId)) {
-                        "${desired.message} Durable reports remain undelivered."
-                    } else desired.message,
-                )
-            } else desired
+            val retryable = flush.retryable || desired.retryable || outbox.hasRetryable(binding.origin, binding.deviceId)
+            if (retryable) desired.copy(retryable = true) else desired
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: TasksHttpException) {
@@ -172,12 +166,18 @@ class ManagementSession(
         val reports = flushOutbox(binding)
         applyReleases(desired.releaseTargets, binding)
         val receipts = flushOutbox(binding)
-        val undelivered = outbox.undelivered(binding.origin, binding.deviceId)
+        val retryable = reports.retryable || receipts.retryable || outbox.hasRetryable(binding.origin, binding.deviceId)
+        val dead = outbox.hasDeadLetter(binding.origin, binding.deviceId)
+        val suffix = when {
+            retryable -> " Durable reports remain undelivered."
+            dead -> " Some reports were rejected and will not retry."
+            else -> ""
+        }
         return ManagementSyncResult(
-            message = if (undelivered) "${application.summary} Durable reports remain undelivered." else application.summary,
+            message = application.summary + suffix,
             appliedRevision = application.revision,
             status = application.status,
-            retryable = reports.retryable || receipts.retryable || undelivered,
+            retryable = retryable,
         )
     }
 
@@ -202,29 +202,31 @@ class ManagementSession(
             receivedElapsedMs = requestElapsedMs,
             receivedBoot = requestBoot,
         )
+        val conservative = RemoteLeasePolicy.conservative(lease, requestElapsedMs, responseElapsedMs, requestBoot, responseBoot)
         when (intent.kind) {
             "rotate_recovery_code" -> {
-                if (serverNowMs >= deliveryMs) return
+                if (conservative == null) return
                 val wire = intent.envelope ?: return
                 if (!intent.parentAcknowledged) return
                 val handle = credentials.privateHandle() ?: return
                 val envelope = RecoveryCiphertext(wire.keyId, wire.alg, wire.ciphertext)
                 if (envelope.keyId != binding.keyId) return
                 val payload = RecoveryHpke.decryptCodes(handle, envelope, binding.deviceId, intent.id, binding.keyId)
+                val afterDecrypt = elapsedMs()
+                val afterBoot = boot()
+                if (RemoteLeasePolicy.conservative(lease, requestElapsedMs, afterDecrypt, requestBoot, afterBoot) == null) return
                 val ackId = applyRemoteRecovery(intent.id, payload.codes)
                 enqueueRecoveryAck(binding, intent.id, ackId)
             }
             "maintenance_lease" -> {
-                if (!RemoteLeasePolicy.canOpen(lease, requestElapsedMs, responseElapsedMs, requestBoot, responseBoot)) return
-                val remaining = RemoteLeasePolicy.remainingMs(lease)
-                val ackId = applyRemoteLease(intent.id, remaining)
+                if (conservative == null) return
+                val ackId = applyRemoteLease(intent.id, conservative.remainingMs)
                 enqueueRecoveryAck(binding, intent.id, ackId)
             }
         }
     }
 
     private suspend fun enqueuePolicyReport(binding: ManagementBinding, application: PolicyApplication) {
-        val id = "policy:${binding.origin}:${binding.deviceId}:${application.revision}:${application.status}"
         val apps = inventory().take(64).map { app ->
             InstalledApp(
                 packageName = app.packageName,
@@ -235,6 +237,19 @@ class ManagementSession(
                 self = app.packageName == "com.aleksclark.primer.student",
             )
         }
+        val identity = json.encodeToString(
+            PolicyReportInput.serializer(),
+            PolicyReportInput(
+                reportId = "00000000-0000-0000-0000-000000000000",
+                policyRevision = application.revision,
+                status = application.status,
+                installedStudentVersion = studentVersion,
+                controls = application.controls.map { it.toWire() },
+                installedApps = apps,
+            ),
+        )
+        val id = "policy:${binding.origin}:${binding.deviceId}:${identity.hashCode()}"
+        if (outbox.get(id) != null) return
         val body = PolicyReportInput(
             reportId = UUID.randomUUID().toString(),
             policyRevision = application.revision,
@@ -318,7 +333,7 @@ class ManagementSession(
                 }
             }
         }
-        return ManagementSyncResult("ok", retryable = retryable || outbox.undelivered(binding.origin, binding.deviceId))
+        return ManagementSyncResult("ok", retryable = retryable || outbox.hasRetryable(binding.origin, binding.deviceId))
     }
 
     private suspend fun applyReleases(targets: List<ReleaseTarget>, binding: ManagementBinding) {

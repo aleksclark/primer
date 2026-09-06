@@ -47,7 +47,17 @@ class PreferencesManagementOutbox(
     }
 
     override suspend fun undelivered(origin: String, deviceId: String): Boolean =
-        OutboxCodec.decode(store.data.first()[key]).values.any { it.origin == origin && it.deviceId == deviceId }
+        hasRetryable(origin, deviceId)
+
+    override suspend fun hasRetryable(origin: String, deviceId: String): Boolean =
+        OutboxCodec.decode(store.data.first()[key]).values.any {
+            it.origin == origin && it.deviceId == deviceId && it.deadLetter == null
+        }
+
+    override suspend fun hasDeadLetter(origin: String, deviceId: String): Boolean =
+        OutboxCodec.decode(store.data.first()[key]).values.any {
+            it.origin == origin && it.deviceId == deviceId && it.deadLetter != null
+        }
 }
 
 class DataStoreManagementOutbox(context: Context) : ManagementOutbox by PreferencesManagementOutbox(context.managementDataStore)

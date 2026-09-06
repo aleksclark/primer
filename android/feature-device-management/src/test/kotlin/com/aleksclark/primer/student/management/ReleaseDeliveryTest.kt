@@ -62,6 +62,15 @@ class ReleaseDeliveryTest {
         org.junit.Assert.assertThrows(IllegalStateException::class.java) {
             ReleaseDelivery.verify(target(payload).copy(packageName = "com.other"), trust)
         }
+    }
+
+    @Test
+    fun minSdkOutOfIntRangeFailsClosed() {
+        val payload = """{"packageName":"com.aleksclark.primer.student","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":${Int.MAX_VALUE.toLong() + 1},"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}"""
+            .toByteArray(Charsets.UTF_8)
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            ReleaseDelivery.verify(target(payload), trust)
+        }
         assertTrue(true)
     }
 }

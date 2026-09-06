@@ -5,9 +5,9 @@ import com.aleksclark.primer.updates.ArchiveIdentity
 import com.aleksclark.primer.updates.ReleaseTrust
 import com.aleksclark.primer.updates.SignedManifest
 import com.aleksclark.primertasks.client.ReleaseTarget
-import com.aleksclark.primertasks.generated.ReleaseManifest
 import java.io.File
 import java.util.Base64
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 data class InstallOutcome(
@@ -25,6 +25,19 @@ interface RemoteReleaseSink {
     fun installVerified(file: File, manifest: SignedManifest, authorized: () -> Boolean): InstallOutcome
 }
 
+@Serializable
+internal data class SignedReleaseManifestWire(
+    val packageName: String,
+    val channel: String,
+    val versionCode: Long,
+    val versionName: String,
+    val minSdk: Long,
+    val supportedAbis: List<String>,
+    val signerSha256: String,
+    val sha256: String,
+    val byteSize: Long,
+)
+
 object ReleaseDelivery {
     const val STUDENT_PACKAGE = "com.aleksclark.primer.student"
     const val SIGNING_ALG = "ed25519-v1"
@@ -39,7 +52,8 @@ object ReleaseDelivery {
         val payload = runCatching { Base64.getUrlDecoder().decode(payloadB64) }
             .getOrElse { error("Release manifest is missing") }
         check(ReleaseTrust.verifyEd25519(key, payload, signature)) { "Release manifest signature is invalid" }
-        val decoded = json.decodeFromString(ReleaseManifest.serializer(), payload.decodeToString())
+        val decoded = json.decodeFromString(SignedReleaseManifestWire.serializer(), payload.decodeToString())
+        check(decoded.minSdk in 1..Int.MAX_VALUE) { "APK minSdk is out of bounds" }
         val manifest = SignedManifest(
             packageName = decoded.packageName,
             channel = decoded.channel,
