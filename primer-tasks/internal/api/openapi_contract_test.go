@@ -71,6 +71,28 @@ func TestTypedBoundarySchemasAndStatuses(t *testing.T) {
 	}
 }
 
+func TestTaskTemplateViewQueryIsTaskOnly(t *testing.T) {
+	paths := New(nil, "openapi").humaAPI().OpenAPI().Paths
+	for _, path := range []string{"/tasks", "/schedules", "/occurrences"} {
+		t.Run(path, func(t *testing.T) {
+			parameters := map[string]bool{}
+			for _, parameter := range paths[path].Get.Parameters {
+				if parameter.In == "query" {
+					parameters[parameter.Name] = true
+				}
+			}
+			for _, name := range []string{"q", "limit", "offset", "sort", "dir", "status"} {
+				if !parameters[name] {
+					t.Errorf("existing query parameter %q is missing", name)
+				}
+			}
+			if parameters["view"] != (path == "/tasks") {
+				t.Errorf("view advertised on %s = %t; only tasks supports template views", path, parameters["view"])
+			}
+		})
+	}
+}
+
 func TestOpenAPIDerivesExactProductionRegistration(t *testing.T) {
 	first, second := OpenAPI(), OpenAPI()
 	if first != second {

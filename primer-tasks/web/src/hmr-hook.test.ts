@@ -19,3 +19,17 @@ test("hot-reload proofs share a source-backed attribute with no announced marker
   assert.doesNotMatch(cdp, /textContent/);
   assert.match(cdp, /if navigations:/); // Still rejects a full document navigation.
 });
+
+test("parent UI keeps plain Advanced controls without scheduling jargon", () => {
+  // Inspect UI modules, not schedule-presets.ts: the compiler still needs the
+  // underlying rule syntax, but labels, placeholders and help must not teach it.
+  for (const name of ["App.tsx", "TaskForms.tsx"]) {
+    const source = readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /\bRRULE\b|FREQ=/);
+    assert.doesNotMatch(source, /Daylight-saving changes|DST gap|DST fold|missing clock times|instances of a repeated time/);
+  }
+  const forms = readFileSync(new URL("./TaskForms.tsx", import.meta.url), "utf8");
+  assert.match(forms, /<details open=\{settings\.preset === "advanced" \|\| undefined\}><summary>Advanced<\/summary>/);
+  assert.match(forms, /Custom repeat<input/);
+  assert.match(forms, /value=\{settings\.rrule\}/); // Existing custom values remain editable.
+});

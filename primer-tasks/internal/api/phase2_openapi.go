@@ -6,14 +6,17 @@ import (
 	"net/http"
 )
 
-type TaskListInput2 struct {
+type ListInput2 struct {
 	Q      string `query:"q"`
 	Limit  int    `query:"limit"`
 	Offset int    `query:"offset"`
 	Sort   string `query:"sort"`
 	Dir    string `query:"dir"`
 	Status string `query:"status"`
-	View   string `query:"view" doc:"Use templates for the latest matching revision of each task"`
+}
+type TaskListInput2 struct {
+	ListInput2
+	View string `query:"view" doc:"Use templates for the latest matching revision of each task"`
 }
 type TaskInputEnvelope2 struct {
 	Body TaskInput2 `required:"true"`
@@ -89,7 +92,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		h, e := legacyEmpty(ctx, s.requireParent(s.retireTask2), nil)
 		return &NoContentOutput{h}, e
 	})
-	register(api, huma.Operation{OperationID: "schedules-list", Method: http.MethodGet, Path: "/schedules", Errors: []int{401, 500}}, func(ctx context.Context, _ *TaskListInput2) (*SchedulePageOutput2, error) {
+	register(api, huma.Operation{OperationID: "schedules-list", Method: http.MethodGet, Path: "/schedules", Errors: []int{401, 500}}, func(ctx context.Context, _ *ListInput2) (*SchedulePageOutput2, error) {
 		b, h, e := legacyJSON[SchedulePage2](ctx, s.requireParent(s.listSchedules2), nil)
 		return &SchedulePageOutput2{h, b}, e
 	})
@@ -105,7 +108,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		h, e := legacyEmpty(ctx, s.requireParent(s.retireSchedule2), nil)
 		return &NoContentOutput{h}, e
 	})
-	register(api, huma.Operation{OperationID: "occurrences-list", Method: http.MethodGet, Path: "/occurrences", Errors: []int{401, 500}}, func(ctx context.Context, _ *TaskListInput2) (*OccurrencePageOutput2, error) {
+	register(api, huma.Operation{OperationID: "occurrences-list", Method: http.MethodGet, Path: "/occurrences", Errors: []int{401, 500}}, func(ctx context.Context, _ *ListInput2) (*OccurrencePageOutput2, error) {
 		b, h, e := legacyJSON[OccurrencePage2](ctx, s.requireParent(s.listOccurrences2), nil)
 		return &OccurrencePageOutput2{h, b}, e
 	})

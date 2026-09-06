@@ -119,7 +119,7 @@ export function ScheduleForm({ schedule, onSaved, onClose }: { schedule?: Schedu
         <label className="field">Time zone<input className="input" required value={settings.timezone} disabled={locked} onChange={(e) => setSettings((s) => ({ ...s, timezone: e.target.value }))} /></label>
         <label className="field">Schedule start<input className="input" type="datetime-local" required value={`${settings.date}T${settings.times[0]}`} disabled={locked} onChange={(e) => setSettings((s) => ({ ...s, date: e.target.value.slice(0, 10), times: [e.target.value.slice(11), ...s.times.slice(1)] }))} /></label>
         <label className="field">End date and time (optional)<input className="input" type="datetime-local" value={settings.endAt} disabled={locked} onChange={(e) => setSettings((s) => ({ ...s, endAt: e.target.value }))} /></label>
-        <label className="field">Custom repeat rule (RRULE)<input className="input" placeholder="FREQ=DAILY;COUNT=7" value={settings.rrule} disabled={locked} onChange={(e) => setSettings((s) => ({ ...s, preset: "advanced", rrule: e.target.value }))} /></label><p>Leave the rule empty for a single assignment. Daylight-saving changes skip missing clock times and repeat both instances of a repeated time.</p>
+        <label className="field">Custom repeat<input className="input" value={settings.rrule} disabled={locked} onChange={(e) => setSettings((s) => ({ ...s, preset: "advanced", rrule: e.target.value }))} /></label><p>Leave this empty for a single assignment.</p>
       </div></details>
       <FormError error={error} />
       {updated && <p role="status">Schedule saved. Already assigned work has not changed.</p>}
