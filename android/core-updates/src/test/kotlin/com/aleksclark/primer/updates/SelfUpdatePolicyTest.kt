@@ -43,15 +43,25 @@ class SelfUpdatePolicyTest {
     fun ordinaryAppMayBeUnattendedWhenFloorAndPermissionMatch() {
         val eligibility = decide()
         assertTrue(eligibility.unattendedEligible)
-        assertTrue(eligibility.userActionRequired)
+        assertFalse(eligibility.userActionRequired)
+        assertTrue(eligibility.mustHandlePendingUserAction)
     }
 
     @Test
-    fun targetSdk35RequiresAndroid33Floor() {
-        val tooOld = decide(sdk = 32, candidateTargetSdk = 35)
-        assertFalse(tooOld.unattendedEligible)
-        val ok = decide(sdk = 33, candidateTargetSdk = 35)
-        assertTrue(ok.unattendedEligible)
+    fun runningPlatformSelectsTheRequiredCandidateTargetSdk() {
+        for ((os, floor) in mapOf(31 to 29, 32 to 29, 33 to 30, 34 to 31, 35 to 33, 36 to 34)) {
+            val below = decide(sdk = os, candidateTargetSdk = floor - 1)
+            assertFalse("Android $os must reject unattended targetSdk ${floor - 1}", below.unattendedEligible)
+            assertTrue(below.userActionRequired)
+            val eligible = decide(sdk = os, candidateTargetSdk = floor)
+            assertTrue("Android $os must permit an unattended request for targetSdk $floor", eligible.unattendedEligible)
+            assertFalse(eligible.userActionRequired)
+            assertTrue(eligible.mustHandlePendingUserAction)
+        }
+        assertTrue(decide(sdk = 32, candidateTargetSdk = 35).unattendedEligible)
+        assertFalse(decide(sdk = 36, candidateTargetSdk = 31).unattendedEligible)
+        assertFalse(decide(sdk = 30, candidateTargetSdk = 35).unattendedEligible)
+        assertFalse(decide(sdk = 37, candidateTargetSdk = 99).unattendedEligible)
     }
 
     @Test

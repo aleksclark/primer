@@ -19,7 +19,12 @@ if (!schema?.properties) throw new Error("OpenAPI schema ReleaseManifest is requ
 const required = new Set(schema.required ?? []);
 function kotlinType(propertySchema) {
   const types = Array.isArray(propertySchema.type) ? propertySchema.type : [propertySchema.type];
-  if (types.includes("array")) return "List<String>";
+  if (types.includes("array")) {
+    if (propertySchema.items?.type !== "string") {
+      throw new Error(`unsupported ReleaseManifest array item ${JSON.stringify(propertySchema.items)}`);
+    }
+    return "List<String>";
+  }
   if (types.includes("integer")) return "Long";
   if (types.includes("string")) return "String";
   throw new Error(`unsupported ReleaseManifest field ${JSON.stringify(propertySchema)}`);
