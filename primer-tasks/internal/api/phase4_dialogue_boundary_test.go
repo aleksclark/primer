@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +14,132 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"primer-tasks/internal/domain"
 	"primer-tasks/internal/repo"
 )
+
+// Corruption is an explicit NEGATIVE fixture appended to real public history.
+// Production immutable UPDATE/DELETE constraints remain enabled; no accepted
+// decision/result is fabricated and the real parent router must fail closed.
+func TestPublicParentInspectRejectsInvalidDurableEvents(t *testing.T) {
+	h := newPublicDialogueHarness(t)
+	type corruptCase struct {
+		name, missing string
+		unknown       bool
+		rowMismatch   string
+	}
+	cases := []corruptCase{{name: "unknown-provider-property", unknown: true}}
+	for _, field := range []string{"attemptId", "occurrenceId", "requirementId", "policyVersion", "snapshotDigest", "version", "questionId", "text"} {
+		cases = append(cases, corruptCase{name: "missing-" + field, missing: field})
+	}
+	for _, field := range []string{"sequence", "kind", "attemptId", "occurrenceId", "requirementId", "snapshotDigest"} {
+		cases = append(cases, corruptCase{name: "row-mismatch-" + field, rowMismatch: field})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			local := *h
+			local.t = t
+			local.followingOccurrence()
+			local.begin()
+			conn := local.socket(0)
+			question := local.wait(conn, func(e wireStudentEvent) bool { return e.Kind == "question" })
+			conn.CloseNow()
+			var valid DialogueInspect
+			local.request(local.parent, "GET", "/occurrences/"+local.occurrence+"/inspect?limit=50", nil, 200, &valid)
+			found := false
+			for _, entry := range valid.Entries {
+				found = found || entry.Kind == "question" && entry.QuestionID == question.QuestionID && entry.Text == question.Text
+			}
+			if !found {
+				t.Fatal("valid public question history unavailable before corruption")
+			}
+			ctx := context.Background()
+			var raw []byte
+			var sequence int64
+			if err := h.pool.QueryRow(ctx, `SELECT payload FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2 AND kind='question' ORDER BY sequence DESC LIMIT 1`, tenantA, local.attempt).Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.pool.QueryRow(ctx, `SELECT COALESCE(max(sequence),0)+1 FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2`, tenantA, local.attempt).Scan(&sequence); err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(raw, &payload); err != nil {
+				t.Fatal(err)
+			}
+			payload["sequence"], payload["cursor"] = sequence, sequence
+			const sentinel = "INSPECT_PROVIDER_VALUE_MUST_NOT_ESCAPE"
+			if tc.unknown {
+				payload["provider_metadata"] = map[string]string{"reasoning": sentinel}
+			}
+			if tc.missing != "" {
+				delete(payload, tc.missing)
+			}
+			rowKind := "question"
+			switch tc.rowMismatch {
+			case "sequence":
+				payload["sequence"], payload["cursor"] = sequence+1, sequence+1
+			case "kind":
+				rowKind = "progress"
+			case "snapshotDigest":
+				payload["snapshotDigest"] = strings.Repeat("0", 64)
+			case "attemptId", "occurrenceId", "requirementId":
+				payload[tc.rowMismatch] = uuid.NewString()
+			}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.unknown || tc.missing != "" {
+				if _, err := decodeStudentEvent(encoded); err == nil {
+					t.Fatal("negative fixture does not violate the actual student decoder")
+				}
+			}
+			if _, err = h.pool.Exec(ctx, `INSERT INTO verification_events(tenant_id,attempt_id,sequence,event_key,kind,payload) VALUES($1,$2,$3,$4,$5,$6)`, tenantA, local.attempt, sequence, "negative-inspect-"+tc.name, rowKind, encoded); err != nil {
+				t.Fatal("production schema did not permit this negative precondition")
+			}
+			if tc.unknown {
+				for _, sql := range []string{`UPDATE verification_events SET payload=payload WHERE tenant_id=$1 AND attempt_id=$2 AND sequence=$3`, `DELETE FROM verification_events WHERE tenant_id=$1 AND attempt_id=$2 AND sequence=$3`} {
+					_, err := h.pool.Exec(ctx, sql, tenantA, local.attempt, sequence)
+					var pgError *pgconn.PgError
+					if !errors.As(err, &pgError) || pgError.Code != "23514" {
+						t.Fatal("durable-event immutability was not enforced")
+					}
+				}
+			}
+			// Full page and the bounded lookahead both contain the malformed row.
+			// Neither may return a partially projected 200 timeline.
+			for _, limit := range []int64{50, sequence - 1} {
+				response, err := local.parent.Get(fmt.Sprintf("%s/occurrences/%s/inspect?limit=%d", local.base, local.occurrence, limit))
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := io.ReadAll(response.Body)
+				response.Body.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if bytes.Contains(body, []byte(sentinel)) {
+					t.Fatal("unknown provider value echoed by parent inspect")
+				}
+				var problem map[string]json.RawMessage
+				if json.Unmarshal(body, &problem) != nil {
+					t.Fatal("inspect error is not typed JSON")
+				}
+				if response.StatusCode != http.StatusServiceUnavailable {
+					t.Fatalf("contract-invalid durable event returned HTTP %d, want 503", response.StatusCode)
+				}
+				var code string
+				if json.Unmarshal(problem["code"], &code) != nil || code != "unavailable" {
+					t.Fatal("inspect did not return the fail-closed typed error")
+				}
+				if _, partial := problem["entries"]; partial {
+					t.Fatal("inspect returned a partial timeline on failure")
+				}
+			}
+		})
+	}
+}
 
 // Public REST authoring + real PG evidence only. This is not the later student
 // WS/Fantasy acceptance fixture. Parent-session prerequisites use the existing

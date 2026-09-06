@@ -16,11 +16,12 @@
   P4 is00010/00011, then separately owned management/release012–015. Local
   checkpoints are allowed; push/PR/integration remains L1/L0 coordinated.
 
-**Current status: CP3 Go-producer/TypeScript checkpoint, not completed P4.**
+**Current status: CP3 BLOCK remediation, not CP4/full-P4 acceptance.**
 CP1 `d24287d5` and CP2 remediation `65339f8` were independently accepted for staged
-continuation. SAMEe24's BLOCK of `82d92597` and every earlier receipt remain
-preserved. CP3 source/contract/client evidence below requires its own review;
-UI, coverage/race10, browser, Android and matching-head CI gates remain open.
+continuation. SAMEe24 BLOCKED CP3 `d84b3ef5` because parent inspect bypassed the
+strict durable-event decoder. That source/handoff/artifact set, the earlier82d
+BLOCK and all prior receipts remain preserved. The narrow correction below needs
+SAMEe24 rereview; UI and every remaining integration/release gate stay open.
 
 ## CP1 foundation recovery (historical, independently accepted)
 
@@ -359,6 +360,37 @@ output gate rejected the existing empty `.gitkeep`; exact marker allowlisting
 preserves rejection of real generated source. These are not hidden or called
 flaky. Raw artifact hashes/normalized digest and final source binding are in the
 producer handoff report, clearly pre-merge and pending independent CP3 review.
+
+## CP3 parent-inspect decoder remediation
+
+Review `/tmp/primer-p4-review-cp3.md` was read fully and hash-verified
+`f45633c21fcc2f62ad86338dfb142b998f803f93a6943c7f5b16218e908b6d21`.
+
+- The HIGH finding was reproduced through actual public parent inspect on the
+  uncorrected d84 production handler: unknown `provider_metadata` and each missing
+  required scope/question/version/text field returned HTTP200. Adjacent payload/
+  row sequence, kind, attempt, occurrence, requirement and digest mismatches also
+  reproduced. `cp3-remediation/inspect-before` is preserved RED.
+- Fixtures append syntactically valid malformed JSONB rows to real public-created
+  question history. They are explicitly NEGATIVE preconditions, not accepted-
+  result success fixtures. Production schema allowed these inserts; real immutable
+  UPDATE and DELETE guards were independently asserted still enabled/refusing.
+- Parent inspect now invokes the SAME `decodeStudentEvent` as strict replay before
+  projection. It also verifies decoded identity/sequence/kind/policy/digest against
+  the selected durable row and issued snapshot. Every fetched row, including the
+  bounded lookahead, is validated before any success projection is returned.
+- Malformed history returns the existing typed503 `unavailable` response, with no
+  partial timeline and no unknown sentinel value echoed. No field is silently
+  dropped, normalized or skipped. The scoped queries, bounds/pagination, names,
+  parent guards and immutable evidence/override operations remain intact.
+- Fifteen public negative cases pass after correction, for both a full page and
+  a corrupt lookahead; each first proves valid scoped question history succeeds.
+  Existing public historical-attempt inspection, override/tenant preservation,
+  cookie boundaries and strict decoder/runtime tests pass in a focused run.
+- The adjacent snapshot decode already uses domain snapshot validation; criteria
+  decode failures already propagate. No unrelated decoding/refactor was changed.
+  Raw artifact and normalized-digest equality are rechecked in the new remediation
+  handoff; the original d84 handoff/frozen bundle is not overwritten or promoted.
 
 ## Next checkpoint / remaining acceptance
 

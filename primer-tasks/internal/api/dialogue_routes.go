@@ -387,7 +387,7 @@ func (s *Server) dialogueInspect(w http.ResponseWriter, r *http.Request, sc scop
 		dialogueProblem(w, verification.ErrDialogueConflict)
 		return
 	}
-	rows, err := tx.Query(ctx, `SELECT ev.sequence,ev.payload,COALESCE(v.provider,''),COALESCE(v.model,''),COALESCE(v.input_tokens,0),COALESCE(v.output_tokens,0),COALESCE(v.criteria,'[]'::jsonb),COALESCE(ov.reason,'') FROM verification_events ev LEFT JOIN verification_evaluations v ON ev.kind='answer_evaluation' AND v.tenant_id=ev.tenant_id AND v.attempt_id=ev.attempt_id AND v.message_id::text=ev.payload->>'messageId' LEFT JOIN verification_overrides ov ON ev.kind='override' AND ov.tenant_id=ev.tenant_id AND ov.attempt_id=ev.attempt_id AND ov.id::text=ev.payload->>'decisionId' WHERE ev.tenant_id=$1 AND ev.attempt_id=$2 AND ev.sequence>$3 ORDER BY ev.sequence LIMIT $4`, sc.Tenant, out.AttemptID, after, limit+1)
+	rows, err := tx.Query(ctx, `SELECT ev.sequence,ev.kind,ev.payload,COALESCE(v.provider,''),COALESCE(v.model,''),COALESCE(v.input_tokens,0),COALESCE(v.output_tokens,0),COALESCE(v.criteria,'[]'::jsonb),COALESCE(ov.reason,'') FROM verification_events ev LEFT JOIN verification_evaluations v ON ev.kind='answer_evaluation' AND v.tenant_id=ev.tenant_id AND v.attempt_id=ev.attempt_id AND v.message_id::text=ev.payload->>'messageId' LEFT JOIN verification_overrides ov ON ev.kind='override' AND ov.tenant_id=ev.tenant_id AND ov.attempt_id=ev.attempt_id AND ov.id::text=ev.payload->>'decisionId' WHERE ev.tenant_id=$1 AND ev.attempt_id=$2 AND ev.sequence>$3 ORDER BY ev.sequence LIMIT $4`, sc.Tenant, out.AttemptID, after, limit+1)
 	if err != nil {
 		dialogueProblem(w, err)
 		return
@@ -396,15 +396,22 @@ func (s *Server) dialogueInspect(w http.ResponseWriter, r *http.Request, sc scop
 		var entry DialogueInspectEntry
 		var event wireStudentEvent
 		var payload []byte
-		var overrideReason string
-		if err = rows.Scan(&entry.Sequence, &payload, &entry.Provider, &entry.Model, &entry.InputTokens, &entry.OutputTokens, &entry.Criteria, &overrideReason); err != nil {
+		var overrideReason, rowKind string
+		if err = rows.Scan(&entry.Sequence, &rowKind, &payload, &entry.Provider, &entry.Model, &entry.InputTokens, &entry.OutputTokens, &entry.Criteria, &overrideReason); err != nil {
+			break
+		}
+		// Inspect has exactly the same strict durable-event boundary as student
+		// replay. Validate even the fetched lookahead row before projecting any
+		// success; malformed/foreign payloads are not normalized or skipped.
+		if event, err = decodeStudentEvent(payload); err != nil {
+			break
+		}
+		if event.Kind != rowKind || event.Sequence != entry.Sequence || event.Cursor != entry.Sequence || event.AttemptID != out.AttemptID || event.OccurrenceID != out.OccurrenceID || event.RequirementID != out.RequirementID || event.PolicyVersion != snapshot.PolicyVersion || event.SnapshotDigest != snapshot.Digest {
+			err = errors.New("invalid inspected durable event binding")
 			break
 		}
 		if len(out.Entries) == limit {
 			out.HasMore = true
-			break
-		}
-		if err = json.Unmarshal(payload, &event); err != nil {
 			break
 		}
 		entry.Kind, entry.At, entry.Text, entry.QuestionID, entry.MessageID, entry.DecisionID, entry.DecisionSource, entry.Status, entry.PolicyVersion = event.Kind, event.Time, event.Text, event.QuestionID, event.MessageID, event.DecisionID, event.DecisionSource, event.Status, event.PolicyVersion
