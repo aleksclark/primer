@@ -387,6 +387,48 @@ func TestP16MappingFailureRollsBackProject(t *testing.T) {
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	graph := decodeGraph(t, got.Body.Bytes())
 	require.Nil(t, graph.project())
+	for _, node := range graph.Nodes {
+		require.NotEqual(t, "outcome", node.Kind, "failed mapping left residual outcome %s", node.Title)
+		require.NotEqual(t, "Unmapped", node.Title)
+	}
+}
+
+func TestP16ReplaceGraphRejectsUnsupportedEdgeKind(t *testing.T) {
+	t.Parallel()
+	handler, _, key, now := newWorkspaceSuite(t)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/curricula", map[string]any{
+		"name": "Unsupported PUT edge", "template": "custom",
+	}, token)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var curriculum struct{ ID string }
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &curriculum))
+	rev := doJSON(t, handler, http.MethodPost, "/studio/v1/curricula/"+curriculum.ID+"/revisions", map[string]any{}, token)
+	require.Equal(t, http.StatusCreated, rev.Code, rev.Body.String())
+	var revision struct{ ID string }
+	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
+	project := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
+		"kind": "project", "title": "Keep me", "attributes": map[string]string{"phasesJSON": `[{"id":"design","name":"Design","position":1}]`},
+	}, token)
+	require.Equal(t, http.StatusCreated, project.Code, project.Body.String())
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+revision.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	before := decodeGraph(t, got.Body.Bytes())
+	require.NotNil(t, before.project())
+
+	replaced := doJSON(t, handler, http.MethodPut, "/studio/v1/revisions/"+revision.ID+"/graph", map[string]any{
+		"nodes": []map[string]any{{"kind": "project", "title": "Keep me", "attributes": map[string]string{"phasesJSON": `[{"id":"design","name":"Design","position":1}]`}}},
+		"edges": []map[string]any{{"kind": "addresses_standard", "fromNodeId": "0", "toNodeId": "0"}},
+	}, token)
+	require.Equal(t, http.StatusBadRequest, replaced.Code, replaced.Body.String())
+	after := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+revision.ID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, after.Code, after.Body.String())
+	kept := decodeGraph(t, after.Body.Bytes())
+	require.NotNil(t, kept.project())
+	assert.Equal(t, "Keep me", kept.project().Title)
 }
 
 func TestP16AuthoringJourneyCreatePublishMaterializePhase(t *testing.T) {

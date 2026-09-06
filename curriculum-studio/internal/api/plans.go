@@ -603,6 +603,8 @@ func (s *Server) replaceGraph(ctx context.Context, ws, rev uuid.UUID, in PlanGra
 				if e := createUsesResourceEdge(ctx, graphRepo, ws, rev, from, to, edge.Note); e != nil {
 					return e
 				}
+			default:
+				return fmt.Errorf("%w: unsupported edge kind %q", repo.ErrCheckViolation, edge.Kind)
 			}
 		}
 		loaded, loadErr := graphRepo.Load(ctx, ws, rev)
@@ -702,7 +704,16 @@ func nodeUUID(raw string) uuid.UUID {
 }
 
 func (s *Server) createNode(ctx context.Context, ws, rev uuid.UUID, in PlanNodeWrite) (PlanNode, error) {
-	return s.createNodeWithRepo(ctx, repo.NewPlanGraphRepo(s.querier), ws, rev, in)
+	var node PlanNode
+	err := repo.WithTx(ctx, s.querier, func(q repo.Querier) error {
+		created, e := s.createNodeWithRepo(ctx, repo.NewPlanGraphRepo(q), ws, rev, in)
+		if e != nil {
+			return e
+		}
+		node = created
+		return nil
+	})
+	return node, err
 }
 func (s *Server) createNodeWithRepo(ctx context.Context, r *repo.PlanGraphRepo, ws, rev uuid.UUID, in PlanNodeWrite) (PlanNode, error) {
 	code := in.Attributes["code"]
