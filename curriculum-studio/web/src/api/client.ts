@@ -42,3 +42,11 @@ export async function exportRevision(revisionId: string, format: ExportFormat) {
 export async function downloadExport(exportId: string) {
   return studioClient.GET("/studio/v1/exports/{exportId}/download", { credentials: "include", params: { path: { exportId } }, parseAs: "blob" });
 }
+
+export async function getRevisionGraph(revisionId: string) {
+  return studioClient.GET("/studio/v1/revisions/{revisionId}/graph", { credentials: "include", params: { path: { revisionId } } });
+}
+
+export async function createPlanNode(revisionId: string, body: { kind: "project"; title: string; body?: string; attributes?: Record<string, string> }) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/nodes", { credentials: "include", params: { path: { revisionId } }, body });
+}

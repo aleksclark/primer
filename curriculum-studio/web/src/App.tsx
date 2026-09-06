@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BookOpen, Compass, FolderKanban, LogIn, Moon, Settings2, Sun } from "lucide-react";
-import { createCurriculum, currentSession, createRevision, downloadExport, exportRevision, listCurricula, listRevisions, publishRevision, validateRevision } from "./api/client";
+import { createCurriculum, createPlanNode, currentSession, createRevision, downloadExport, exportRevision, getRevisionGraph, listCurricula, listRevisions, publishRevision, validateRevision } from "./api/client";
 import type { ExportFormat } from "./api/client";
 
 type Theme = "dark" | "light";
@@ -27,6 +27,9 @@ export default function App() {
   const [revision, setRevision] = useState<Revision | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("markdown");
   const [exporting, setExporting] = useState(false);
+  const [projectName, setProjectName] = useState("Chicken coop");
+  const [projectPhases, setProjectPhases] = useState("Design, Build, Present");
+  const [projectNodes, setProjectNodes] = useState<{ title: string; phases: string }[]>([]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -60,17 +63,42 @@ export default function App() {
   async function openCurriculum(item: Curriculum) {
     setSelected(item); setMessage("Loading plan drafts…");
     const result = await listRevisions(item.id);
-    if (result.data && "items" in result.data) { const items = result.data.items as Revision[]; setRevisions(items); setRevision(items[0] ?? null); setMessage(items.length ? "Draft ready to configure." : "No draft revision yet."); }
+    if (result.data && "items" in result.data) { const items = result.data.items as Revision[]; setRevisions(items); const next = items[0] ?? null; setRevision(next); setMessage(items.length ? "Draft ready to configure." : "No draft revision yet."); if (next) await loadProjects(next.id); }
   }
 
   async function newDraft() {
-    if (!selected) return; const result = await createRevision(selected.id); if (result.data && "id" in result.data) { const next = result.data as Revision; setRevisions((items) => [next, ...items]); setRevision(next); setMessage("Draft revision created."); }
+    if (!selected) return; const result = await createRevision(selected.id); if (result.data && "id" in result.data) { const next = result.data as Revision; setRevisions((items) => [next, ...items]); setRevision(next); setMessage("Draft revision created."); await loadProjects(next.id); }
   }
   async function revisionAction(action: "validate" | "publish") {
     if (!revision) return;
     if (action === "validate") await validateRevision(revision.id);
     if (action === "publish") await publishRevision(revision.id);
     setMessage(action === "validate" ? "Validation report saved." : "Revision published.");
+  }
+  async function loadProjects(revisionId: string) {
+    const result = await getRevisionGraph(revisionId);
+    if (result.data && "nodes" in result.data) {
+      const nodes = (result.data.nodes as { kind?: string; title?: string; attributes?: Record<string, string> }[])
+        .filter((node) => node.kind === "project")
+        .map((node) => ({ title: String(node.title ?? "Untitled project"), phases: String(node.attributes?.phaseNames ?? node.attributes?.phases ?? "") }));
+      setProjectNodes(nodes);
+    }
+  }
+  async function addProject(event: FormEvent) {
+    event.preventDefault();
+    if (!revision || !projectName.trim()) return;
+    const names = projectPhases.split(",").map((part) => part.trim()).filter(Boolean);
+    const ids = names.map((name) => name.toLowerCase().replace(/\s+/g, "-"));
+    const result = await createPlanNode(revision.id, {
+      kind: "project",
+      title: projectName.trim(),
+      body: "Multi-subject project blueprint",
+      attributes: { phases: ids.join(","), phaseNames: names.join("|") },
+    });
+    if (result.data && "id" in result.data) {
+      setMessage(`Saved project ${projectName.trim()} with ${names.length} ordered phases.`);
+      await loadProjects(revision.id);
+    } else setMessage("The Studio API could not save that project blueprint.");
   }
   async function exportPlan() {
     if (!revision || exporting) return;
@@ -116,6 +144,7 @@ export default function App() {
         {message && <p className="feedback" role="status">{message}</p>}
         {curricula.length === 0 ? <div className="empty-state"><div className="empty-mark">01</div><div><span className="eyebrow">No curricula found</span><h3>Start with a brief.</h3><p>Create a draft above. The server owns search, pagination, and durable identity; this view never filters a bulk client-side collection.</p></div></div> : <div className="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Updated</th><th>ID</th></tr></thead><tbody>{curricula.map((item) => <tr key={item.id} onClick={() => openCurriculum(item)}><th scope="row">{item.name}</th><td><span className="status-text">● {item.status}</span></td><td>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "—"}</td><td><code>{item.id}</code></td></tr>)}</tbody></table></div>}
         {selected && <div className="plan-panel"><div><span className="eyebrow">Configure / {selected.name}</span><h3>{revision ? `Revision ${revision.revisionNumber ?? "draft"}` : "No revision"}</h3><p>{message}</p></div><div className="plan-actions"><button className="secondary" type="button" onClick={newDraft}>New draft</button>{revision && <><button className="secondary" type="button" onClick={() => revisionAction("validate")}>Validate</button><button className="primary" type="button" onClick={() => revisionAction("publish")}>Publish</button><select className="secondary" aria-label="Export format" value={exportFormat} disabled={exporting} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}><option value="markdown">Markdown</option><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="csv_coverage">CSV coverage</option><option value="json_bundle">JSON download subset</option><option value="ical">iCal schedule</option></select><button className="plain-button" type="button" disabled={exporting} onClick={exportPlan}>{exporting ? "Exporting…" : "Export and download"}</button></>}</div></div>}
+        {selected && revision && <section className="project-designer" aria-labelledby="project-designer-title"><div className="section-heading"><div><span className="eyebrow">Configure / Projects</span><h3 id="project-designer-title">Project designer</h3></div></div><form className="create-form" onSubmit={addProject}><label htmlFor="project-name">Project name</label><input id="project-name" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="e.g. Chicken coop" /><label htmlFor="project-phases">Ordered phases</label><input id="project-phases" value={projectPhases} onChange={(event) => setProjectPhases(event.target.value)} placeholder="Design, Build, Present" /><button className="secondary" type="submit">Save blueprint</button></form>{projectNodes.length > 0 && <ul className="project-list">{projectNodes.map((node) => <li key={node.title}><strong>{node.title}</strong><span>{node.phases || "No phases yet"}</span></li>)}</ul>}</section>}
       </section>
       <footer className="footer"><span>Studio shell · dark-first Editorial Instrument</span><span>Bearer tokens stay server-side · host-only session cookie</span></footer>
     </main>

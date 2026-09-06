@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
 	"github.com/aleksclark/primer/curriculum-studio/internal/fingerprint"
+	"github.com/aleksclark/primer/curriculum-studio/internal/projects"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 )
 
@@ -206,6 +208,12 @@ func canonicalSnapshot(revisionID uuid.UUID, profileID *uuid.UUID, req Authoring
 			"maxItems":          req.Policy.MaxItems,
 		}
 	}
+	if phaseID := strings.TrimSpace(req.Attributes["projectPhaseId"]); phaseID != "" {
+		payload["projectPhaseId"] = phaseID
+	}
+	if projectID := strings.TrimSpace(req.Attributes["projectId"]); projectID != "" {
+		payload["projectId"] = projectID
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, "", err
@@ -265,6 +273,35 @@ func (s *Server) registerMaterializationRoutes(api huma.API) {
 		if err != nil {
 			return nil, huma.Error400BadRequest("invalid materialization snapshot")
 		}
+		var phaseItems []projects.Item
+		if phaseID := strings.TrimSpace(in.Body.Attributes["projectPhaseId"]); phaseID != "" {
+			graph, ge := repo.NewPlanGraphRepo(s.querier).Load(ctx, ws, rev.ID)
+			if ge != nil {
+				return nil, materializationError(ge)
+			}
+			projectID, pe := decodeProjectAttr(in.Body.Attributes["projectId"], graph)
+			if pe != nil {
+				return nil, huma.Error400BadRequest(pe.Error())
+			}
+			result, me := projects.MaterializePhase(graph, projects.Window{ProjectID: projectID, PhaseID: phaseID})
+			if me != nil {
+				return nil, huma.Error400BadRequest(me.Error())
+			}
+			snapshot, err = projects.ApplySnapshot(snapshot, result)
+			if err != nil {
+				return nil, huma.Error400BadRequest("invalid materialization snapshot")
+			}
+			canonical, ce := fingerprint.CanonicalJSON(snapshot)
+			if ce != nil {
+				return nil, huma.Error400BadRequest("invalid materialization snapshot")
+			}
+			fp, err = fingerprint.Hash(canonical)
+			if err != nil {
+				return nil, huma.Error400BadRequest("invalid materialization snapshot")
+			}
+			snapshot = canonical
+			phaseItems = result.Items
+		}
 		var created *domain.MaterializationRun
 		err = repo.WithTx(ctx, s.querier, func(q repo.Querier) error {
 			inserted := true
@@ -315,6 +352,11 @@ func (s *Server) registerMaterializationRoutes(api huma.API) {
 					Payload:       json.RawMessage(`{"version":1}`),
 				}); e != nil {
 					return e
+				}
+				if inserted && len(phaseItems) > 0 {
+					if e := persistPhaseItems(ctx, q, ws, created, phaseItems); e != nil {
+						return e
+					}
 				}
 				if s.matStub && created.Status == domain.MaterializationStatusRequested {
 					if _, e := repo.NewMaterializationRunRepo(q).Start(ctx, ws, created.ID); e != nil {
@@ -574,4 +616,49 @@ func pageBounds(limit, offset int) (int, int) {
 		offset = 0
 	}
 	return limit, offset
+}
+
+func decodeProjectAttr(raw string, graph *domain.PlanGraph) (uuid.UUID, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		if graph != nil && len(graph.Projects) == 1 {
+			return graph.Projects[0].ID, nil
+		}
+		return uuid.Nil, errors.New("projectId is required when materializing a project phase")
+	}
+	if strings.HasPrefix(raw, projectIDPrefix) {
+		return decodePlanID(raw, projectIDPrefix)
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid projectId")
+	}
+	return id, nil
+}
+
+func persistPhaseItems(ctx context.Context, q repo.Querier, ws uuid.UUID, run *domain.MaterializationRun, items []projects.Item) error {
+	repoItems := repo.NewMaterializedItemRepo(q)
+	for _, item := range items {
+		body, err := json.Marshal(item.Body)
+		if err != nil {
+			return err
+		}
+		projectID := item.ProjectID
+		provenance, err := json.Marshal(map[string]any{
+			"provider":           "scripted",
+			"fixture_id":         "project-phase-v1",
+			"phase_id":           item.PhaseID,
+			"writes_lms_mastery": false,
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := repoItems.Create(ctx, ws, &domain.MaterializedItem{
+			RunID: run.ID, PlanRevisionID: run.PlanRevisionID, ProjectID: &projectID, OutcomeID: item.OutcomeID,
+			Kind: item.Kind, Title: item.Title, Body: body, Provenance: provenance, Status: domain.ItemStatusReady,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

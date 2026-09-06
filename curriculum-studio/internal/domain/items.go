@@ -9,8 +9,10 @@ import (
 
 const (
 	ItemKindLesson       = "lesson"
+	ItemKindTeacherGuide = "teacher_guide"
 	ItemKindAssessment   = "assessment"
 	ItemKindRubric       = "rubric"
+	ItemKindProjectTask  = "project_task"
 	ItemKindAnswerKey    = "answer_key"
 	ItemStatusDraft      = "draft"
 	ItemStatusReady      = "ready"

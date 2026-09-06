@@ -448,7 +448,7 @@ func graphView(g *domain.PlanGraph) PlanGraph {
 		out.Nodes = append(out.Nodes, PlanNode{ID: encodePlanID(unitIDPrefix, v.ID), RevisionID: out.RevisionID, Kind: "unit", Title: v.Title, Position: v.Position, Attributes: map[string]string{"code": v.Code}})
 	}
 	for _, v := range g.Projects {
-		out.Nodes = append(out.Nodes, PlanNode{ID: encodePlanID(projectIDPrefix, v.ID), RevisionID: out.RevisionID, Kind: "project", Title: v.Title, Body: v.Description, Position: v.Position, Attributes: map[string]string{"code": v.Code}})
+		out.Nodes = append(out.Nodes, projectNode(out.RevisionID, v))
 	}
 	for _, e := range g.OutcomePrerequisites {
 		out.Edges = append(out.Edges, PlanEdge{ID: "edge_" + compactUUID(e.ID), RevisionID: out.RevisionID, Kind: "prerequisite", FromNodeID: encodePlanID(outcomeIDPrefix, e.PrerequisiteID), ToNodeID: encodePlanID(outcomeIDPrefix, e.OutcomeID), Note: e.Requirement})
@@ -456,33 +456,71 @@ func graphView(g *domain.PlanGraph) PlanGraph {
 	for _, e := range g.UnitOutcomes {
 		out.Edges = append(out.Edges, PlanEdge{ID: "edge_" + compactUUID(e.UnitID) + compactUUID(e.OutcomeID), RevisionID: out.RevisionID, Kind: "parent_child", FromNodeID: encodePlanID(unitIDPrefix, e.UnitID), ToNodeID: encodePlanID(outcomeIDPrefix, e.OutcomeID), Note: e.Role})
 	}
+	for _, e := range g.ProjectOutcomes {
+		out.Edges = append(out.Edges, PlanEdge{ID: "edge_" + compactUUID(e.ProjectID) + compactUUID(e.OutcomeID), RevisionID: out.RevisionID, Kind: "parent_child", FromNodeID: encodePlanID(projectIDPrefix, e.ProjectID), ToNodeID: encodePlanID(outcomeIDPrefix, e.OutcomeID), Note: e.Role})
+	}
 	return out
+}
+
+func projectNode(revisionID string, v domain.Project) PlanNode {
+	attrs := map[string]string{"code": v.Code}
+	phases, err := domain.ParseProjectPhases(v.Phases)
+	if err == nil && len(phases) > 0 {
+		ids := make([]string, 0, len(phases))
+		names := make([]string, 0, len(phases))
+		for _, phase := range phases {
+			ids = append(ids, phase.ID)
+			names = append(names, phase.Name)
+		}
+		attrs["phases"] = strings.Join(ids, ",")
+		attrs["phaseNames"] = strings.Join(names, "|")
+	}
+	return PlanNode{ID: encodePlanID(projectIDPrefix, v.ID), RevisionID: revisionID, Kind: "project", Title: v.Title, Body: v.Description, Position: v.Position, Attributes: attrs}
 }
 
 func (s *Server) replaceGraph(ctx context.Context, ws, rev uuid.UUID, in PlanGraphWrite) (*domain.PlanGraph, error) {
 	var out *domain.PlanGraph
 	err := repo.WithTx(ctx, s.querier, func(q repo.Querier) error {
-		for _, table := range []string{"plan_resources", "scheduling_constraints", "evidence_requirements", "project_outcomes", "unit_outcomes", "projects", "units", "learning_arcs", "outcome_prerequisites", "outcome_standard_mappings", "outcomes", "objectives"} {
-			if _, e := q.Exec(ctx, `DELETE FROM curriculum_studio.`+table+` WHERE plan_revision_id=$1`, rev); e != nil {
+		clears := []string{
+			`DELETE FROM curriculum_studio.plan_resources WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.scheduling_constraints WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.evidence_requirements WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.project_outcomes po USING curriculum_studio.projects p WHERE po.project_id=p.id AND p.plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.unit_outcomes uo USING curriculum_studio.units u WHERE uo.unit_id=u.id AND u.plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.projects WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.units WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.learning_arcs WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.outcome_prerequisites WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.outcome_standard_mappings osm USING curriculum_studio.outcomes o WHERE osm.outcome_id=o.id AND o.plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.outcomes WHERE plan_revision_id=$1`,
+			`DELETE FROM curriculum_studio.objectives WHERE plan_revision_id=$1`,
+		}
+		for _, statement := range clears {
+			if _, e := q.Exec(ctx, statement, rev); e != nil {
 				return e
 			}
 		}
 		graphRepo := repo.NewPlanGraphRepo(q)
-		ids := map[string]uuid.UUID{}
+		ids := map[string]string{}
 		for i, n := range in.Nodes {
 			node, e := s.createNodeWithRepo(ctx, graphRepo, ws, rev, n)
 			if e != nil {
 				return e
 			}
-			ids[fmt.Sprintf("%d", i)] = nodeUUID(node.ID)
+			ids[fmt.Sprintf("%d", i)] = node.ID
 		}
 		for _, edge := range in.Edges {
 			from, to := edgeNodeIDs(edge, ids)
-			if edge.Kind == "prerequisite" {
+			switch edge.Kind {
+			case "prerequisite":
 				fromID, _ := decodePlanID(from, outcomeIDPrefix)
 				toID, _ := decodePlanID(to, outcomeIDPrefix)
 				_, e := graphRepo.CreatePrerequisite(ctx, ws, &domain.OutcomePrerequisite{PlanRevisionID: rev, OutcomeID: toID, PrerequisiteID: fromID, Requirement: edge.Note})
 				if e != nil {
+					return e
+				}
+			case "parent_child":
+				if e := createParentChildEdge(ctx, graphRepo, ws, from, to, edge.Note); e != nil {
 					return e
 				}
 			}
@@ -493,17 +531,87 @@ func (s *Server) replaceGraph(ctx context.Context, ws, rev uuid.UUID, in PlanGra
 	})
 	return out, err
 }
-func edgeNodeIDs(e PlanEdgeWrite, ids map[string]uuid.UUID) (string, string) {
+func edgeNodeIDs(e PlanEdgeWrite, ids map[string]string) (string, string) {
 	resolve := func(raw string) string {
 		if i, err := strconv.Atoi(raw); err == nil {
 			if id, ok := ids[strconv.Itoa(i)]; ok {
-				return id.String()
+				return id
 			}
 		}
 		return raw
 	}
 	return resolve(e.FromNodeID), resolve(e.ToNodeID)
 }
+func createParentChildEdge(ctx context.Context, r *repo.PlanGraphRepo, ws uuid.UUID, from, to, note string) error {
+	role := strings.TrimSpace(note)
+	if role == "" {
+		role = domain.ProjectOutcomeRoleTarget
+	}
+	switch {
+	case strings.HasPrefix(from, projectIDPrefix) && strings.HasPrefix(to, outcomeIDPrefix):
+		projectID, err := decodePlanID(from, projectIDPrefix)
+		if err != nil {
+			return err
+		}
+		outcomeID, err := decodePlanID(to, outcomeIDPrefix)
+		if err != nil {
+			return err
+		}
+		_, err = r.CreateProjectOutcome(ctx, ws, &domain.ProjectOutcome{ProjectID: projectID, OutcomeID: outcomeID, Role: role})
+		return err
+	case strings.HasPrefix(from, unitIDPrefix) && strings.HasPrefix(to, outcomeIDPrefix):
+		unitID, err := decodePlanID(from, unitIDPrefix)
+		if err != nil {
+			return err
+		}
+		outcomeID, err := decodePlanID(to, outcomeIDPrefix)
+		if err != nil {
+			return err
+		}
+		_, err = r.CreateUnitOutcome(ctx, ws, &domain.UnitOutcome{UnitID: unitID, OutcomeID: outcomeID, Role: role})
+		return err
+	default:
+		return nil
+	}
+}
+
+func projectPhasesFromAttributes(attrs map[string]string) (json.RawMessage, error) {
+	if attrs == nil {
+		return json.RawMessage(`[]`), nil
+	}
+	if raw := strings.TrimSpace(attrs["phasesJSON"]); raw != "" {
+		phases, err := domain.ParseProjectPhases(json.RawMessage(raw))
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(phases)
+	}
+	ids := splitAttrList(attrs["phases"], ",")
+	names := splitAttrList(attrs["phaseNames"], "|")
+	if len(ids) == 0 {
+		return json.RawMessage(`[]`), nil
+	}
+	phases := make([]domain.ProjectPhase, 0, len(ids))
+	for i, id := range ids {
+		name := id
+		if i < len(names) && names[i] != "" {
+			name = names[i]
+		}
+		phases = append(phases, domain.ProjectPhase{ID: id, Name: name, Position: i + 1})
+	}
+	return domain.EncodeProjectPhases(phases)
+}
+
+func splitAttrList(raw, sep string) []string {
+	out := []string{}
+	for _, part := range strings.Split(raw, sep) {
+		if v := strings.TrimSpace(part); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func nodeUUID(raw string) uuid.UUID {
 	for _, prefix := range []string{objectiveIDPrefix, outcomeIDPrefix, arcIDPrefix, unitIDPrefix, projectIDPrefix} {
 		if strings.HasPrefix(raw, prefix) {
@@ -553,11 +661,15 @@ func (s *Server) createNodeWithRepo(ctx context.Context, r *repo.PlanGraphRepo, 
 		}
 		return PlanNode{ID: encodePlanID(unitIDPrefix, v.ID), RevisionID: revisionID(rev), Kind: in.Kind, Title: v.Title, Position: v.Position, Attributes: map[string]string{"code": v.Code}}, nil
 	case "project":
-		v, e := r.CreateProject(ctx, ws, &domain.Project{PlanRevisionID: rev, Code: code, Title: in.Title, Description: in.Body, Position: in.Position})
+		phases, e := projectPhasesFromAttributes(in.Attributes)
 		if e != nil {
 			return PlanNode{}, e
 		}
-		return PlanNode{ID: encodePlanID(projectIDPrefix, v.ID), RevisionID: revisionID(rev), Kind: in.Kind, Title: v.Title, Body: v.Description, Position: v.Position, Attributes: map[string]string{"code": v.Code}}, nil
+		v, e := r.CreateProject(ctx, ws, &domain.Project{PlanRevisionID: rev, Code: code, Title: in.Title, Description: in.Body, Position: in.Position, Phases: phases})
+		if e != nil {
+			return PlanNode{}, e
+		}
+		return projectNode(revisionID(rev), *v), nil
 	default:
 		return PlanNode{}, fmt.Errorf("unsupported node kind %q", in.Kind)
 	}

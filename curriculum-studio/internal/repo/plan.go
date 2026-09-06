@@ -432,7 +432,7 @@ func (r *PlanGraphRepo) CreateProject(ctx context.Context, ws uuid.UUID, in *dom
 			return nil, MapError(e)
 		}
 	}
-	ph, e := arrayJSON(in.Phases, "phases")
+	ph, e := projectPhasesJSON(in.Phases)
 	if e != nil {
 		return nil, e
 	}
@@ -519,7 +519,7 @@ func (r *PlanGraphRepo) CreatePlanResource(ctx context.Context, ws uuid.UUID, in
 	if in == nil {
 		return nil, fmt.Errorf("plan resource is required")
 	}
-	v, e := scanPlanResource(r.Q.QueryRow(ctx, `INSERT INTO curriculum_studio.plan_resources(plan_revision_id,resource_id,unit_id,project_id,role,notes) SELECT $1,res.id,$3,$4,$5,$6 FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.resources res ON res.id=$2 AND (res.workspace_id IS NULL OR res.workspace_id=$7) WHERE r.id=$1 AND c.workspace_id=$7 RETURNING id,plan_revision_id,resource_id,unit_id,project_id,role,notes`, in.PlanRevisionID, in.ResourceID, in.UnitID, in.ProjectID, in.Role, in.Notes, ws))
+	v, e := scanPlanResourceInsert(r.Q.QueryRow(ctx, `INSERT INTO curriculum_studio.plan_resources(plan_revision_id,resource_id,unit_id,project_id,role,notes) SELECT $1,res.id,$3,$4,$5,$6 FROM curriculum_studio.plan_revisions r JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.resources res ON res.id=$2 AND (res.workspace_id IS NULL OR res.workspace_id=$7) WHERE r.id=$1 AND c.workspace_id=$7 RETURNING id,plan_revision_id,resource_id,unit_id,project_id,role,notes`, in.PlanRevisionID, in.ResourceID, in.UnitID, in.ProjectID, in.Role, in.Notes, ws))
 	if e != nil {
 		return nil, MapError(e)
 	}
@@ -614,6 +614,18 @@ func arrayJSON(raw json.RawMessage, name string) (json.RawMessage, error) {
 	return raw, nil
 }
 
+func projectPhasesJSON(raw json.RawMessage) (json.RawMessage, error) {
+	phases, err := domain.ParseProjectPhases(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrCheckViolation, err.Error())
+	}
+	encoded, err := json.Marshal(phases)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
 type scanner interface{ Scan(...any) error }
 
 func scanCurriculum(s scanner) (*domain.Curriculum, error) {
@@ -671,9 +683,14 @@ func scanConstraint(s scanner) (*domain.SchedulingConstraint, error) {
 	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.Kind, &v.Payload, &v.CreatedAt)
 	return v, e
 }
-func scanPlanResource(s scanner) (*domain.PlanResource, error) {
+func scanPlanResourceInsert(s scanner) (*domain.PlanResource, error) {
 	v := new(domain.PlanResource)
 	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.ResourceID, &v.UnitID, &v.ProjectID, &v.Role, &v.Notes)
+	return v, e
+}
+func scanPlanResource(s scanner) (*domain.PlanResource, error) {
+	v := new(domain.PlanResource)
+	e := s.Scan(&v.ID, &v.PlanRevisionID, &v.ResourceID, &v.UnitID, &v.ProjectID, &v.Role, &v.Notes, &v.ResourceKind, &v.ResourceTitle)
 	return v, e
 }
 
@@ -741,5 +758,5 @@ func listConstraints(c context.Context, q Querier, id uuid.UUID) ([]domain.Sched
 	return listRows(c, q, `SELECT id,plan_revision_id,kind,payload,created_at FROM curriculum_studio.scheduling_constraints WHERE plan_revision_id=$1 ORDER BY created_at,id`, []any{id}, scanConstraint)
 }
 func listPlanResources(c context.Context, q Querier, id uuid.UUID) ([]domain.PlanResource, error) {
-	return listRows(c, q, `SELECT id,plan_revision_id,resource_id,unit_id,project_id,role,notes FROM curriculum_studio.plan_resources WHERE plan_revision_id=$1 ORDER BY id`, []any{id}, scanPlanResource)
+	return listRows(c, q, `SELECT pr.id,pr.plan_revision_id,pr.resource_id,pr.unit_id,pr.project_id,pr.role,pr.notes,COALESCE(res.kind,''),COALESCE(res.title,'') FROM curriculum_studio.plan_resources pr LEFT JOIN curriculum_studio.resources res ON res.id=pr.resource_id WHERE pr.plan_revision_id=$1 ORDER BY pr.id`, []any{id}, scanPlanResource)
 }
