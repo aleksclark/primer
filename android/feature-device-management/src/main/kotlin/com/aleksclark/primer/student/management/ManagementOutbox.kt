@@ -80,10 +80,18 @@ class ManagementAuthorization private constructor(
     companion object {
         @Volatile private var currentGeneration = 0L
 
+        fun current(): Long = currentGeneration
+
         @Synchronized
         fun capture(binding: ManagementBinding, snapshot: () -> ManagementBinding?): ManagementAuthorization {
             check(binding.token.isNotBlank()) { "Cannot authorize a blank management credential" }
             return ManagementAuthorization(currentGeneration, binding, snapshot)
+        }
+
+        @Synchronized
+        fun captureAt(generation: Long, binding: ManagementBinding, snapshot: () -> ManagementBinding?): ManagementAuthorization {
+            check(binding.token.isNotBlank()) { "Cannot authorize a blank management credential" }
+            return ManagementAuthorization(generation, binding, snapshot)
         }
 
         @Synchronized
