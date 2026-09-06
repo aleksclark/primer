@@ -108,8 +108,9 @@ type OccurrencePage2 struct {
 	Offset     int           `json:"offset"`
 }
 type DecisionInput2 struct {
-	Accepted bool   `json:"accepted"`
-	Reason   string `json:"reason"`
+	Accepted      bool   `json:"accepted"`
+	Reason        string `json:"reason"`
+	RequirementID string `json:"requirementId,omitempty"`
 }
 type IDInput2 struct {
 	ID string `path:"id"`
@@ -486,14 +487,43 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 404, "not_found", "occurrence not found")
 		return
 	}
-	var attempt, attemptStatus, requirementKind string
-	e = tx.QueryRow(r.Context(), `SELECT a.id,a.status,r.kind FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id WHERE a.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC LIMIT 1 FOR UPDATE OF a`, sc.Tenant, oid).Scan(&attempt, &attemptStatus, &requirementKind)
-	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-		problem(w, 500, "internal", e.Error())
+	rows, e := tx.Query(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.tenant_id=vr.tenant_id AND o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 AND vr.kind='parent_approval' ORDER BY vr.ordinal`, sc.Tenant, oid)
+	if e != nil {
+		problem(w, 500, "internal", "unable to read manual requirements")
 		return
 	}
-	if e == nil && requirementKind == domain.AgentDialogueKind {
-		problem(w, 409, "conflict", "dialogue requires verification evidence or a separate audited override")
+	var manual []string
+	for rows.Next() {
+		var id string
+		if e = rows.Scan(&id); e != nil {
+			break
+		}
+		manual = append(manual, id)
+	}
+	if e == nil {
+		e = rows.Err()
+	}
+	rows.Close()
+	if e != nil {
+		problem(w, 500, "internal", "unable to read manual requirements")
+		return
+	}
+	requirement := in.RequirementID
+	if requirement == "" && len(manual) == 1 {
+		requirement = manual[0]
+	}
+	found := false
+	for _, id := range manual {
+		found = found || id == requirement
+	}
+	if !found {
+		problem(w, 409, "conflict", "select a manual requirement; dialogue requires its evidence or a separate audited override")
+		return
+	}
+	var attempt, attemptStatus string
+	e = tx.QueryRow(r.Context(), `SELECT id,status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 AND requirement_id=$3 ORDER BY number DESC LIMIT 1 FOR UPDATE`, sc.Tenant, oid, requirement).Scan(&attempt, &attemptStatus)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		problem(w, 500, "internal", e.Error())
 		return
 	}
 	if !errors.Is(e, pgx.ErrNoRows) && attemptStatus != "open" {
@@ -551,6 +581,12 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
+	if next == domain.OccurrenceCompleted {
+		if e = verification.PublishDialogueOccurrenceCompletion(r.Context(), tx, sc.Tenant, oid); e != nil {
+			problem(w, 500, "internal", "unable to record verification completion")
+			return
+		}
+	}
 	if e = tx.Commit(r.Context()); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -574,20 +610,31 @@ func (s *Server) retryOccurrence2(w http.ResponseWriter, r *http.Request, sc sco
 		problem(w, 409, "conflict", "retry requires a pending occurrence")
 		return
 	}
-	var latestStatus string
-	if e = tx.QueryRow(r.Context(), `SELECT status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1 FOR UPDATE`, sc.Tenant, oid).Scan(&latestStatus); e != nil || latestStatus != "rejected" {
-		problem(w, 409, "conflict", "retry requires a rejected attempt")
+	var latestStatus, req, kind string
+	if e = tx.QueryRow(r.Context(), `SELECT a.status,a.requirement_id,r.kind FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id WHERE a.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC LIMIT 1 FOR UPDATE OF a`, sc.Tenant, oid).Scan(&latestStatus, &req, &kind); e != nil || (latestStatus != "rejected" && latestStatus != "exhausted") {
+		problem(w, 409, "conflict", "retry requires a rejected or exhausted attempt")
 		return
 	}
 	var n int
-	if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	var req string
-	if e = tx.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY vr.ordinal LIMIT 1`, sc.Tenant, oid).Scan(&req); e != nil {
-		problem(w, 404, "not_found", "occurrence not found")
-		return
+	if kind == domain.AgentDialogueKind {
+		if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 AND requirement_id=$3`, sc.Tenant, oid, req).Scan(&n); e != nil {
+			problem(w, 500, "internal", "unable to read dialogue attempt policy")
+			return
+		}
+		var maximum int
+		if e = tx.QueryRow(r.Context(), `SELECT (p.snapshot->'config'->>'maxAttempts')::int FROM dialogue_revision_policies p JOIN task_occurrences o ON o.tenant_id=p.tenant_id AND o.revision_id=p.revision_id WHERE p.tenant_id=$1 AND o.id=$2 AND p.requirement_id=$3`, sc.Tenant, oid, req).Scan(&maximum); e != nil || n > maximum {
+			problem(w, 409, "conflict", "dialogue attempt policy exhausted")
+			return
+		}
+	} else {
+		if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, sc.Tenant, oid).Scan(&n); e != nil {
+			problem(w, 500, "internal", e.Error())
+			return
+		}
+		if e = tx.QueryRow(r.Context(), `SELECT vr.id FROM verification_requirements vr JOIN task_occurrences o ON o.revision_id=vr.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY vr.ordinal LIMIT 1`, sc.Tenant, oid).Scan(&req); e != nil {
+			problem(w, 404, "not_found", "occurrence not found")
+			return
+		}
 	}
 	if _, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, uuid.New(), sc.Tenant, oid, req, n); e != nil {
 		problem(w, 409, "conflict", "retry is not permitted")

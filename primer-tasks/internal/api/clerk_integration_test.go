@@ -151,13 +151,36 @@ func TestClerkReleaseParentAndUnchangedStudentBoundary(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal("browser pairing")
 	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatal("cookie missing")
+	// Fresh pairing has exactly one opaque authentication cookie and one
+	// independent, non-authorizing CSRF cookie. Never depend on header order.
+	cookies := map[string]*http.Cookie{}
+	for _, candidate := range rec.Result().Cookies() {
+		if candidate.Name != "tasks_student" && candidate.Name != "tasks_csrf" {
+			t.Fatal("unexpected fresh-pairing cookie")
+		}
+		if cookies[candidate.Name] != nil {
+			t.Fatal("duplicate fresh-pairing cookie")
+		}
+		cookies[candidate.Name] = candidate
 	}
-	cookie := cookies[0]
+	cookie, csrf := cookies["tasks_student"], cookies["tasks_csrf"]
+	if cookie == nil || csrf == nil || len(cookies) != 2 {
+		t.Fatal("fresh pairing cookie set is incomplete")
+	}
 	if cookie.Name != "tasks_student" || cookie.Path != "/" || !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode {
 		t.Fatal("student cookie contract changed")
+	}
+	if cookie.Domain != "" || cookie.Value == "" || cookie.MaxAge != 7776000 {
+		t.Fatal("student host-only credential or lifetime changed")
+	}
+	if csrf.Domain != "" || csrf.Value == "" || csrf.Value == cookie.Value || csrf.Path != "/" || csrf.HttpOnly || !csrf.Secure || csrf.SameSite != http.SameSiteStrictMode || csrf.MaxAge != 28800 {
+		t.Fatal("CSRF cookie separation, scope, protection or lifetime is invalid")
+	}
+	if rec := call("GET", "/student/profile", "", "", csrf); rec.Code != 401 {
+		t.Fatal("CSRF cookie authenticated as student")
+	}
+	if rec := call("GET", "/students", "", "", csrf); rec.Code != 401 {
+		t.Fatal("CSRF cookie authenticated as parent")
 	}
 	rec = call("POST", "/students/"+alice+"/pairing", a, "")
 	code, _ = pairingResponse(t, rec)

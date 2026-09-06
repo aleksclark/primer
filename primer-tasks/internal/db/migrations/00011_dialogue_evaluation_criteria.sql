@@ -67,3 +67,19 @@ END;
 $$;
 CREATE TRIGGER dialogue_decision_retained BEFORE UPDATE OR DELETE ON verification_decisions
  FOR EACH ROW EXECUTE FUNCTION tasks_dialogue_decision_retained();
+
+-- Ownership of an issued dialogue cannot change behind a bounded private
+-- frame. Delivery locks student/session revocation rows, not mutable progress
+-- rows, so slow network readers cannot block evaluation/decision commits.
+CREATE FUNCTION tasks_dialogue_occurrence_binding_retained() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF (NEW.id,NEW.tenant_id,NEW.student_id,NEW.revision_id) IS DISTINCT FROM
+    (OLD.id,OLD.tenant_id,OLD.student_id,OLD.revision_id) AND
+    EXISTS(SELECT 1 FROM dialogue_attempts WHERE tenant_id=OLD.tenant_id AND occurrence_id=OLD.id) THEN
+  RAISE EXCEPTION 'immutable dialogue occurrence binding' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dialogue_occurrence_binding_retained BEFORE UPDATE ON task_occurrences
+ FOR EACH ROW EXECUTE FUNCTION tasks_dialogue_occurrence_binding_retained();

@@ -327,8 +327,10 @@ func (s *Server) humaAPI() huma.API {
 		return &AgentConversationOutput{ResponseHeaders: headers, Body: body}, err
 	})
 	s.registerPhase2(api)
-	// WebSocket uses the same production router, with its own generated protocol.
+	s.registerDialogueRoutes(api)
+	// WebSockets use the same production router and actual Go wire boundaries.
 	r.Handle("/ws", http.HandlerFunc(s.agentWS))
+	r.Handle("/student/ws", http.HandlerFunc(s.studentWS))
 	return api
 }
 

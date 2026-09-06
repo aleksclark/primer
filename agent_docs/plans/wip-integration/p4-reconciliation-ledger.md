@@ -16,13 +16,13 @@
   P4 is00010/00011, then separately owned management/release012–015. Local
   checkpoints are allowed; push/PR/integration remains L1/L0 coordinated.
 
-**Current status: CP1 policy/persistence/authoring foundation, not completed P4
-or student-dialogue acceptance.** The durable evaluation/completion adapter,
-worker, public student WS, generated dialogue contract, UI and independent
-browser gates are still forthcoming. Do not infer acceptance from the presence
-of a manifest or a migration.
+**Current status: CP2 server/runtime checkpoint, not completed P4.** The public
+server/Fantasy/PG dialogue path now exists with focused process/protocol evidence.
+Generated student client contracts/facades, UI, full coverage/race10, independent
+browser and Android compatibility gates remain open. CP1 foundation `d24287d5`
+was independently accepted; CP2 still requires its independent checkpoint review.
 
-## Source recovery and adaptation completed in this checkpoint
+## CP1 foundation recovery (historical, independently accepted)
 
 | Original source | Current adaptation |
 |---|---|
@@ -38,8 +38,9 @@ of a manifest or a migration.
 
 The schema stores evidence and enforces structural/retention constraints; it
 **does not itself execute the worker, authenticate a socket or complete a task**.
-Pure policy helpers likewise are not a durable acceptance path. These missing
-runtime boundaries remain explicit work, not private-test substitutes.
+Pure policy helpers alone are not a durable acceptance path. At the CP1
+foundation those runtime boundaries were explicitly deferred; CP2 below adds
+them through actual production boundaries, not private-test substitutes.
 
 ## Preserved versus omitted/deferred
 
@@ -106,24 +107,116 @@ No source mutation was justified by calling those setup failures “flaky.” Ow
 PostgreSQL containers were terminated by their test cleanup. No live household
 or another initiative's fixture was used.
 
-## Next coherent work and remaining gates
+## CP2 durable public runtime recovery
 
-1. Finish CP1 durable authority: atomic authenticated message/job/ack, locked
-   current-question CAS, leased/idempotent evaluation and exactly one generic
-   decision/completion event, separate audited override and bounded inspect.
-2. Requirement-scoped Fantasy runtime with student system policy/PrepareStep,
-   real usage/safe streaming, durable initial/next-question stages, bounded
-   retry and restart/takeover fencing. No provider error/fallback prose success.
-3. Cookie-only public student WS with Origin/CSRF and locked lifetime authority
-   at admission/subscribe/replay/commands/every bounded private write; durable
-   page/window/backpressure/healthy-reader behavior on maintained coder.
-4. Actual Go-derived REST/WS contract and verified bundle/facades; additive web
-   TaskEditor/Decide-Learn/Inspect, never copied DTOs or local completion state.
-5. Supply an exact coherent producer/contract commit and normalized digest to
-   L0/L1 for the peer additive handoff. This foundation is not that final
-   producer freeze. Kotlin/Android remains held until its explicit handoff;
-   actual existing Android build compatibility is still required.
-6. Actual85% coverage, original race10 (including verification/agent/jobs/API,
-   same budgets), generated clients/web, independent Chrome then promoted
-   Playwright, all matching-head CI and review before integration. No native,
-   live-provider quality, publication, deployment or phase13 completion claim.
+- `internal/verification/dialogue.go` now owns authenticated atomic start and
+  message/job/ack admission, current-question/policy/version binding, durable
+  question/evaluation stage commits, finite follow-up exhaustion, and the one
+  automatic decision/completion path. All issued requirements must be satisfied.
+  Exact message-key replay returns original evidence; changed payload conflicts.
+- `internal/jobs/dialogue.go` recovers the donor queue with renewable generation
+  leases, production expired-lease recovery, monotonic retry budgets and fresh
+  clock predicates after lock waits. It does not own completion.
+- `internal/agent/dialogue.go` recovers exactly three narrow tools with a separate
+  student system policy/PrepareStep, bounded public Fantasy execution and no
+  parent tools/repository handle. One typed proposal commits only after successful
+  execution with measured usage. Raw text/reasoning/provider output never implies
+  success. The curated fixture requires distinct factual concepts and rejects
+  insufficient, contradictory and keyword-bearing injection answers.
+- `internal/api/dialogue_worker.go` and the additive main hook run this real
+  worker independently of sockets. A persisted evaluation -> next-question stage
+  survives an actual running-server SIGKILL and a fresh process/lease generation.
+- `student_ws.go`/`student_ws_protocol.go` use cookie-only upgrade, exact Origin/
+  CSRF and locked lifetime authority. No bearer/query fallback or tenant hub.
+  A sole writer uses durable32-event pages, a64-event acknowledgment window,
+  bounded writes and the maintained coder transport. Network writes hold only
+  revocation/immutable-binding locks, not mutable progress locks.
+- `dialogue_routes.go` registers typed public start/state/inspect/override through
+  the production registry (47 REST operations). Inspect uses bounded event and
+  attempt pagination. Parent override preserves prior decisions/evidence, records
+  separate actor/provenance/audit and original idempotent result, rejects completed
+  reversal, and prevents late worker acceptance. Manual/mixed requirements remain
+  independent; ordinary approval cannot bypass dialogue.
+- `phase2.go` preserves canonical config arrays/manual workflow while supporting
+  bounded dialogue attempt retry and final all-requirements completion. Existing
+  parent decision bodies remain valid; optional requirement selection disambiguates
+  multiple manual requirements.
+- Only incoming010/011 were extended for immutable occurrence ownership and exact
+  override receipt metadata. Canonical001–009 stay byte-identical.
+
+### CP2 actual tests and limits
+
+New public harness runs the real `tasks-server` executable, actual public pairing,
+REST/WS, real PG and real Fantasy tool loop. SQL is a read-only outcome observer
+except explicitly labeled schema/locking negative fixtures. Actual cases cover:
+three correct concepts + insufficient/injection retry, reconnect2/3, distinct
+message/CAS/foreign binding/concurrent tabs, one decision/event, malformed/timeout/
+forbidden-tool failure with saved-answer retry, actual running process crash and
+stage takeover, manual+dialogue all-requirements completion, finite attempt limits,
+immutable bounded inspect/override and late-worker cancellation/override fences.
+
+Public cookie/bearer/query/Origin/CSRF, same-household and cross-tenant negatives,
+idle revocation, real TCP write-vs-public-archive winner ordering and stalled
+write lock release are exercised. Real public answers produce >64 durable events
+for healthy paged replay and a raw RFC6455 probe: exactly64 unacknowledged events,
+1013, one Close reply and EOF. Managed Chrome is still a separate future gate.
+
+The parent race build tag now controls explicit child `go build -race`. Actual
+binary build information is checked; detector output, exit66, early exits and
+shutdown hangs fail even in deliberate crash tests. An intentional crash is
+accepted only with the observed requested SIGKILL and no detector failure.
+Ordinary runs remain ordinary evidence. Focused instrumented public-flow and
+harness qualification passed; no full/count10 race result is claimed.
+
+A source-provenance defect in Go's embedded stamp was diagnosed: installed
+Go1.26.6 recognizes only directory `.git` roots and skips the linked worktree's
+`.git` file, selecting the enclosing user repo. A scoped read-only Git trace
+confirmed this. Original4b8924b8/false receipts are preserved, not rewritten.
+The harness now separately captures actual worktree/HEAD/module/target, hashes
+tracked AND untracked source/tests/SQL/assets and selected embeds around build,
+verifies stable inputs during qualification, and hashes the actual live process
+executable. Embedded stamp mismatch is explicitly non-authoritative. No user-root
+or global Git/toolchain change was made.
+
+CP2 REDs retained under `/tmp/primer-p4-gates/cp2/`:
+
+- `public-authority-first`: missing `net/url` test import; corrected, not a
+  security PASS.
+- `module-first`: old Clerk test expected one cookie; exact TEST-ONLY amendment
+  authorized by L0. Fresh pair now asserts exact names, unchanged student-cookie
+  protections, independent host-only eight-hour readable CSRF and CSRF-alone
+  student/parent denial. All original other assertions remain.
+- The same module run had one initial1008 in a provider-failure subcase. Its exact
+  historical DB interleaving was not captured. A concrete missing progress-read
+  lock was proven RED by an actual public HTTP/PG barrier test, then corrected:
+  assemble the DB state under a short shared progress lock, release before network
+  I/O, and revalidate authority after waiting. Focused corrected-input proof and
+  the subsequent complete ordinary module run passed. Do not call the original
+  failure harmless/flaky or assert uncaptured causality.
+- `state-snapshot-after` was interrupted during a later fixture and has no exit
+  receipt; completed subcase observations are preserved, NOT aggregate PASS.
+  Owned process/container cleanup was verified and remaining focused cases got a
+  separate complete exit0 receipt.
+
+The corrected complete standalone module run passed (`module-corrected`, exit0,
+API242.964s). Vet/build and focused receipts are source-scoped. The current runtime
+workload is materially larger than P3; full race10 still has its unchanged40m
+package/60m job ceilings. No deadline/budget increase, assertion removal or skip
+is authorized. Actual full coverage85% remains to be measured; subprocess
+functional evidence must not be misrepresented as parent-process coverage.
+
+## Next checkpoint / remaining acceptance
+
+1. Independent review of this CP2 source/failure-adaptation/provenance checkpoint.
+2. Go-owned actual REST/WS contract generation and verified bundle/facades, then
+   additive TaskEditor/Decide-Learn/Inspect web surfaces. No handwritten client
+   DTOs or local-completion projections. Preserve existing parent contract bytes
+   or document actual additive changes.
+3. At coherent CP3 producer/contract freeze, deliver exact commit + normalized
+   contract digest to L0/L1 for peer additive handoff. This CP2 checkpoint is not
+   that final producer freeze. Kotlin/Android stays held pending its explicit
+   handoff; native dialogue is deferred, ordinary build compatibility still owed.
+4. Actual85% coverage and original race10 with effective runtime instrumentation,
+   generated clients/web, independent Chrome before promotion, Android build and
+   all exact-head CI/review before integration. No full-P4/native/live-provider/
+   phase13/publication/deployment claim.

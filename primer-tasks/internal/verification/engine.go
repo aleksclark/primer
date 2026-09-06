@@ -100,7 +100,14 @@ func RequirementPolicySatisfied(ctx context.Context, tx pgx.Tx, tenant, occurren
 	if tx == nil || tenant == "" || occurrence == "" {
 		return false, errors.New("bound verification transaction required")
 	}
-	rows, err := tx.Query(ctx, `SELECT r.id,COALESCE((SELECT d.accepted FROM verification_attempts a LEFT JOIN verification_decisions d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id WHERE a.tenant_id=o.tenant_id AND a.occurrence_id=o.id AND a.requirement_id=r.id ORDER BY a.number DESC LIMIT 1),false) FROM task_occurrences o JOIN verification_requirements r ON r.tenant_id=o.tenant_id AND r.revision_id=o.revision_id WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY r.ordinal`, tenant, occurrence)
+	rows, err := tx.Query(ctx, `SELECT r.id,COALESCE((
+ SELECT COALESCE((SELECT ov.accepted FROM verification_overrides ov
+  WHERE ov.tenant_id=a.tenant_id AND ov.attempt_id=a.id ORDER BY ov.result_version DESC LIMIT 1),d.accepted,false)
+ FROM verification_attempts a LEFT JOIN verification_decisions d ON d.tenant_id=a.tenant_id AND d.attempt_id=a.id
+ WHERE a.tenant_id=o.tenant_id AND a.occurrence_id=o.id AND a.requirement_id=r.id
+ ORDER BY a.number DESC LIMIT 1),false)
+ FROM task_occurrences o JOIN verification_requirements r ON r.tenant_id=o.tenant_id AND r.revision_id=o.revision_id
+ WHERE o.tenant_id=$1 AND o.id=$2 ORDER BY r.ordinal`, tenant, occurrence)
 	if err != nil {
 		return false, err
 	}
@@ -119,6 +126,38 @@ func RequirementPolicySatisfied(ctx context.Context, tx pgx.Tx, tenant, occurren
 		return false, err
 	}
 	return AllRequirementsAccepted(required, outcomes)
+}
+
+// PublishDialogueOccurrenceCompletion records the dialogue-facing completion
+// when a later manual requirement supplies the final accepted decision. The
+// caller already holds the occurrence lock and has applied the all-requirement
+// policy in this transaction; no repository/model owns a completion shortcut.
+func PublishDialogueOccurrenceCompletion(ctx context.Context, tx pgx.Tx, tenant, occurrence string) error {
+	var student, attempt string
+	err := tx.QueryRow(ctx, `SELECT o.student_id,d.attempt_id FROM task_occurrences o JOIN dialogue_attempts d ON d.tenant_id=o.tenant_id AND d.occurrence_id=o.id JOIN verification_attempts a ON a.tenant_id=d.tenant_id AND a.id=d.attempt_id WHERE o.tenant_id=$1 AND o.id=$2 AND o.status='completed' AND a.status='accepted' AND a.number=(SELECT max(number) FROM verification_attempts WHERE tenant_id=a.tenant_id AND occurrence_id=a.occurrence_id AND requirement_id=a.requirement_id) ORDER BY a.number DESC,d.attempt_id LIMIT 1`, tenant, occurrence).Scan(&student, &attempt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s, err := LoadDialogueState(ctx, tx, StudentAuthority{TenantID: tenant, StudentID: student}, occurrence, attempt)
+	if err != nil {
+		return err
+	}
+	ready, err := DialogueEvidence(s)
+	if err != nil {
+		return err
+	}
+	var decision, source string
+	err = tx.QueryRow(ctx, `SELECT id::text,'parent_override' FROM verification_overrides WHERE tenant_id=$1 AND attempt_id=$2 AND accepted ORDER BY result_version DESC LIMIT 1`, tenant, attempt).Scan(&decision, &source)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `SELECT id::text,'verification_engine' FROM verification_decisions WHERE tenant_id=$1 AND attempt_id=$2 AND accepted`, tenant, attempt).Scan(&decision, &source)
+	}
+	if err != nil {
+		return err
+	}
+	return appendDialogueEvent(ctx, tx, s, "completion", DialogueEvent{Kind: "complete", Status: "accepted", OccurrenceStatus: "completed", DecisionID: decision, DecisionSource: source, AcceptedCount: ready.AcceptedCount, RequiredCount: 3})
 }
 
 type Decision struct {

@@ -604,6 +604,10 @@ func (s *Server) pairBrowser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "tasks_student", Value: raw, Path: "/", HttpOnly: true, Secure: s.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: 7776000})
+	if s.csrfToken(w, r) == "" {
+		problem(w, 503, "entropy_unavailable", "unable to establish student request protection")
+		return
+	}
 	jsonOK(w, map[string]string{"studentId": sid.String()})
 }
 func (s *Server) studentFromCookie(r *http.Request) (uuid.UUID, error) {
