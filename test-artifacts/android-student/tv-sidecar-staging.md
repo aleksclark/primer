@@ -62,3 +62,34 @@ existing destinations. Follow-up was requested for:
 These findings are not waived by successful helper tests or this real-APK
 positive-path check. No TV update, Play Protect bypass, or physical A16 change
 was performed.
+
+## Follow-up checkpoint: `faeac75f`
+
+Integrated A's `0ceb1276`. Parent reran the sidecar package with `go test -json
+-count=1`: all eight tests passed, including
+`TestStageCLIProducesSignedSidecarFromInspectableAPK`; **that test was not
+skipped in this local run**. It exercises the production `run` workflow and real
+Android inspection tools, rather than spawning the compiled CLI. TV
+`TestAppRelease` also passed.
+
+The publisher now inspects/signs its private snapshot, refuses destinations
+already present at preflight, keeps universal ABIs empty, rejects unsupported
+signer/major-version metadata, and validates the private key's public half.
+
+Operator-safety acceptance still remains open for these precise findings:
+
+- Plain `os.Rename` is not a kernel no-replace operation. Its preflight check
+  does not prevent replacement of an empty destination created just before the
+  rename syscall.
+- Opening a FIFO before checking its file type can block indefinitely.
+- The real-APK test still skips when prerequisites are missing. A separately
+  required acceptance gate must build/require those prerequisites and fail if
+  they are absent.
+- The symlink guidance must be implementation-specific or use an explicit
+  temporary symlink plus same-directory rename. A temporary-directory `strace`
+  probe confirmed that **GNU coreutils 9.11 on this host** implements `ln -sfn`
+  using a temporary symlink and `renameat`; that is not a portability guarantee.
+  Ancestor symlinks also need resolution when snapshotting the release path.
+
+Follow-up was sent to the implementation lane. No live paths or physical
+Android devices were touched by these checks.
