@@ -159,6 +159,10 @@ Gradle properties are `primerSigningStoreFile`, `primerSigningStorePassword`,
 Devices must be provisioned initially with that same production signing identity;
 Android will reject later APKs signed with another key.
 
+Self-update from `GET /app/release` requires a signed sidecar. Unsigned
+metadata (no `release-manifest.json`) is a normal legacy server and the client
+fails closed rather than installing. See [operator publication](#operator-publication-signed-tv-sidecar).
+
 If Gradle cannot find the SDK, create `android/local.properties`:
 
 ```
@@ -210,6 +214,46 @@ replacement. Downloads are size/checksum checked and must contain the same
 package, a newer published version, and a compatible signing certificate.
 Unmanaged devices, and device-owner ROMs that reject silent sessions, use the
 interactive system installer fallback.
+
+## Operator publication (signed TV sidecar)
+
+Do not publish anything live from this checkout. The TV server never talks to
+Tasks for this path: no Tasks DB, no Tasks token, no shared credential.
+
+The Android client accepts an update only after `TvReleaseAdapter` verifies a
+canonical `ReleaseManifest` with Tink Ed25519 over the pinned
+`PRIMER_RELEASE_TRUST_ROOT` (`ed25519-v1`). Outer `/app/release` fields that do
+not match the verified payload are rejected.
+
+1. Build and sign the TV APK with the same production identity already on the box.
+2. Set `TV_RELEASE_SIGNING_KEY` to the 64-byte Ed25519 private key whose public
+   32 bytes are the pinned trust root (hex or base64url). Optional:
+   `TV_AAPT2` / `TV_APKSIGNER` if those tools are not on `PATH`.
+3. Write a **staging** directory (APK + `version` + `release-manifest.json`):
+
+   ```bash
+   make tv-release-sidecar SIDECAR_ARGS='-apk path/to/app-release.apk -out /tmp/tv-release-staging'
+   ```
+
+   The command inspects the APK with `aapt2`/`apksigner`, signs canonical
+   `ReleaseManifest` JSON with Go `crypto/ed25519` (same field order as the
+   Tasks publisher, without opening Tasks), and refuses to talk to a database.
+4. Confirm `packageName` is `com.aleksclark.primer.tv`, `version` matches the
+   APK `versionCode`, `sha256`/`byteSize`/`signerSha256`/`minSdk` match the
+   APK, and `signingKeyId` is `ed25519-v1`. Payload base64url is capped at 16KiB.
+5. Atomic directory swap onto `TV_RELEASE_DIR` so readers never see a partial
+   set (`primer-tv.apk`, `version`, `release-manifest.json` together):
+
+   ```bash
+   # example only; do not run against a live household from this lane
+   mv "$TV_RELEASE_DIR" "$TV_RELEASE_DIR.prev" && mv /tmp/tv-release-staging "$TV_RELEASE_DIR"
+   ```
+
+A missing sidecar stays the unsigned legacy shape. A present but malformed,
+empty, or oversized sidecar is logged and still served unsigned; the client
+will not install it. Configure `PRIMER_RELEASE_TRUST_ROOT` on the TV APK before
+expecting a signed update to be offered. Full streaming/update acceptance on
+hardware remains open.
 
 ## Pairing
 
