@@ -61,13 +61,14 @@ currently trusts caller eligibility instead of validating the actual APK hash,
 signer, and version, and `pendingConfirmation` can wedge when the installer
 session is missing. Do not copy those validators or treat a filename as proof.
 
-Control UI is prepared against the upcoming stable shared API (`canAttempt`,
-unattended vs confirmation vs settings/notification fallback) but **does not
-commit a PackageInstaller session**. Unattended is allowed only for ordinary
-Android eligibility (SDK 31+, same package/signer/newer version, platform flag).
-If Android requires user action, Control must present confirmation, settings, or
-a notification fallback — not assume device-owner silence. Not every Control
-update is a prompted install.
+`SignedManifestCodec` now decodes the generated OpenAPI `ReleaseManifest` wire
+(`android/core-updates/build/generated`, gitignored) rather than a handwritten
+Go-field copy. `client.ReleaseManifest` remains the Tasks façade alias.
+Control UI maps [AdapterEligibility] from the shared adapter and does not
+duplicate APK/hash/signer/ABI validators. Production PackageInstaller stays
+held. Unattended is allowed only for ordinary Android eligibility; otherwise
+confirmation, settings, or a notification fallback. Not every Control update is
+a prompted install. Control minSdk 26 does not depend on `:core-updates` (28).
 
 TV `TvReleaseAdapter` must not copy unsigned outer fields into a verified
 manifest after checking an unrelated payload. That fix belongs in A's adapter.

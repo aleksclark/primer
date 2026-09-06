@@ -39,7 +39,7 @@ object SignedManifestCodec {
         val payload = runCatching { Base64.getUrlDecoder().decode(payloadBase64) }.getOrElse {
             error("Release manifest is missing")
         }
-        check(payload.isNotEmpty() && payload.size <= ArchiveChecks.MAX_APK_BYTES) { "Release manifest is missing" }
+        check(payload.isNotEmpty() && payload.size <= MAX_PAYLOAD_BASE64) { "Release manifest is missing" }
         check(ReleaseTrust.verifyEd25519(key, payload, signature)) { "Release manifest signature is invalid" }
         return parseVerified(payload)
     }

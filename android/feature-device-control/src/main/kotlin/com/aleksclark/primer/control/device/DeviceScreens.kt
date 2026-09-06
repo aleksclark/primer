@@ -154,7 +154,6 @@ fun ControlSelfUpdateScreen(update: ControlSelfUpdateUi) {
     if (update.candidateVersion != null) PrimerRecordRow(label = "Candidate version", value = update.candidateVersion.toString())
     val plan = update.plan
     if (plan != null) {
-        PrimerRecordRow(label = "Verified bytes", value = if (plan.verifiedBytes) "yes" else "no")
         PrimerRecordRow(label = "Unattended eligible", value = if (plan.unattendedEligible) "yes" else "no")
         PrimerRecordRow(label = "Confirmation", value = if (plan.confirmationRequired) "system prompt or notification" else "not required")
         if (plan.settingsRequired) PrimerStatus("Open system install settings, then confirm the update.", tone = PrimerStatusTone.Attention)
