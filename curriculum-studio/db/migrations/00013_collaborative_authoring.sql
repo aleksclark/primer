@@ -3,7 +3,61 @@
 
 -- Collaborative authoring (S17): comments, approvals, read-only shares,
 -- reusable unit library, plan templates, and workspace policy knobs.
--- Additive only; plan-graph immutability triggers are unchanged.
+-- Existing frozen migrations are unchanged. Additional content-write locks
+-- close MVCC races between graph edits, approval and publication.
+
+-- All content writes serialize on revision rows, including UPDATE/DELETE which
+-- otherwise need not acquire a conflicting FK lock. This VOLATILE trigger runs
+-- before the old guards and prerequisite locks. Each state check is a distinct
+-- post-lock SQL statement so READ COMMITTED cannot reuse a pre-wait snapshot.
+-- Reparenting locks/checks both old and new revisions in UUID order.
+CREATE FUNCTION curriculum_studio.lock_plan_content_write()
+RETURNS trigger LANGUAGE plpgsql VOLATILE AS $$
+DECLARE
+    images jsonb[] := ARRAY[]::jsonb[];
+    image jsonb;
+    revisions uuid[] := ARRAY[]::uuid[];
+    v_revision uuid;
+    state text;
+BEGIN
+    IF TG_OP <> 'INSERT' THEN images := array_append(images, to_jsonb(OLD)); END IF;
+    IF TG_OP <> 'DELETE' THEN images := array_append(images, to_jsonb(NEW)); END IF;
+    FOREACH image IN ARRAY images LOOP
+        v_revision := NULL;
+        CASE TG_TABLE_NAME
+            WHEN 'outcome_standard_mappings' THEN
+                SELECT plan_revision_id INTO v_revision FROM curriculum_studio.outcomes WHERE id=(image->>'outcome_id')::uuid;
+            WHEN 'unit_outcomes' THEN
+                SELECT plan_revision_id INTO v_revision FROM curriculum_studio.units WHERE id=(image->>'unit_id')::uuid;
+            WHEN 'project_outcomes' THEN
+                SELECT plan_revision_id INTO v_revision FROM curriculum_studio.projects WHERE id=(image->>'project_id')::uuid;
+            ELSE v_revision := (image->>'plan_revision_id')::uuid;
+        END CASE;
+        IF v_revision IS NOT NULL THEN revisions := array_append(revisions,v_revision); END IF;
+    END LOOP;
+    FOR v_revision IN SELECT DISTINCT id FROM unnest(revisions) AS ids(id) ORDER BY id LOOP
+        PERFORM id FROM curriculum_studio.plan_revisions WHERE id=v_revision FOR NO KEY UPDATE;
+        SELECT status INTO state FROM curriculum_studio.plan_revisions WHERE id=v_revision;
+        IF state IN ('published','superseded') THEN
+            RAISE EXCEPTION 'cannot mutate % of immutable plan revision %', TG_TABLE_NAME, v_revision
+                USING ERRCODE='restrict_violation';
+        END IF;
+    END LOOP;
+    IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+DECLARE tab text;
+BEGIN
+    FOREACH tab IN ARRAY ARRAY['objectives','outcomes','learning_arcs','units','projects',
+        'outcome_standard_mappings','outcome_prerequisites','unit_outcomes',
+        'project_outcomes','evidence_requirements','scheduling_constraints','plan_resources'] LOOP
+        EXECUTE format('CREATE TRIGGER a_studio_lock_content BEFORE INSERT OR UPDATE OR DELETE ON curriculum_studio.%I FOR EACH ROW EXECUTE FUNCTION curriculum_studio.lock_plan_content_write()', tab);
+    END LOOP;
+END;
+$$;
 
 CREATE TABLE curriculum_studio.plan_comments (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -16,7 +70,8 @@ CREATE TABLE curriculum_studio.plan_comments (
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (node_id <> ''),
     CHECK (author_subject_ref <> ''),
-    CHECK (body <> '')
+    CHECK (body <> ''),
+    CONSTRAINT plan_comments_body_length CHECK (char_length(body) <= 10000)
 );
 
 CREATE INDEX idx_studio_plan_comments_revision
@@ -164,6 +219,17 @@ CREATE TABLE curriculum_studio.workspace_policies (
 -- +goose Down
 -- +goose StatementBegin
 
+DO $$
+DECLARE tab text;
+BEGIN
+    FOREACH tab IN ARRAY ARRAY['objectives','outcomes','learning_arcs','units','projects',
+        'outcome_standard_mappings','outcome_prerequisites','unit_outcomes',
+        'project_outcomes','evidence_requirements','scheduling_constraints','plan_resources'] LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS a_studio_lock_content ON curriculum_studio.%I',tab);
+    END LOOP;
+END;
+$$;
+DROP FUNCTION IF EXISTS curriculum_studio.lock_plan_content_write();
 DROP FUNCTION IF EXISTS curriculum_studio.plan_content_fingerprint(UUID);
 DROP TABLE IF EXISTS curriculum_studio.workspace_policies;
 DROP TABLE IF EXISTS curriculum_studio.plan_templates;

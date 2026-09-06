@@ -26,6 +26,9 @@ func (r *CommentRepo) Create(ctx context.Context, in *domain.PlanComment) (*doma
 	if strings.TrimSpace(in.NodeID) == "" || strings.TrimSpace(in.Body) == "" || strings.TrimSpace(in.AuthorSubjectRef) == "" {
 		return nil, fmt.Errorf("node, body, and author are required")
 	}
+	if err := domain.ValidateCommentBody(in.Body); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCheckViolation, err)
+	}
 	const q = `
 INSERT INTO curriculum_studio.plan_comments
     (workspace_id, plan_revision_id, node_id, author_subject_ref, author_display_name, body)

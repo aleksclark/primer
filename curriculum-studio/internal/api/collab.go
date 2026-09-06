@@ -44,6 +44,8 @@ type commentPageOutput struct {
 	Body struct {
 		Items      []PlanComment `json:"items"`
 		TotalCount int           `json:"totalCount"`
+		Limit      int           `json:"limit"`
+		Offset     int           `json:"offset"`
 	}
 }
 
@@ -196,13 +198,16 @@ func (s *Server) registerCollabRoutes(api huma.API) {
 		if err != nil {
 			return nil, planError(err)
 		}
-		comments, total, err := repo.NewCommentRepo(s.querier).ListPage(ctx, ws, r.ID, in.NodeID, in.Limit, in.Offset)
+		limit, offset := repo.CommentPageBounds(in.Limit, in.Offset)
+		comments, total, err := repo.NewCommentRepo(s.querier).ListPage(ctx, ws, r.ID, in.NodeID, limit, offset)
 		if err != nil {
 			return nil, planError(err)
 		}
 		out := &commentPageOutput{}
 		out.Body.Items = []PlanComment{}
 		out.Body.TotalCount = total
+		out.Body.Limit = limit
+		out.Body.Offset = offset
 		for i := range comments {
 			out.Body.Items = append(out.Body.Items, commentView(&comments[i]))
 		}

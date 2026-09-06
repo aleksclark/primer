@@ -1,7 +1,11 @@
 # S17 backend implementation handoff
 
-Status: **backend/API slice ready for independent review; full phase 17 is not
-complete**. Continued the inherited dirty tree on `impl/s17-collab`, parent
+Status: **backend concurrency corrections awaiting re-review; full phase 17 is
+not complete**. Reviewer b010fc06 blocked `80021bdf` on real PostgreSQL races.
+See [the concurrency-fix handoff](s17-concurrency-review-fix.md) for the corrected
+locking protocol, permanent regressions, and current verification. The original
+verification table below is historical evidence for `80021bdf`, not acceptance
+of the race fixes. Continued the inherited dirty tree on `impl/s17-collab`, parent
 `4842b22b95dad0c2392885663b41d4a71598adb3`. No reset, workspace/runtime changes,
 agents, push, PR, merge, deployment, or production data operations.
 
@@ -10,9 +14,12 @@ agents, push, PR, merge, deployment, or production data operations.
 - `internal/api/collab.go`, `internal/repo/collab*.go`: durable, bounded node
   comments with server-derived membership display name and JWT subject; reviewer
   decisions tied to a content fingerprint. GET approval supplies the fingerprint;
-  POST requires `decision` and `contentFingerprint`. The SQL write rechecks local
-  active human reviewer membership, draft status and the fingerprint. Changed
-  content returns pending; stale decisions return 409; authors cannot approve.
+  POST requires `decision` and `contentFingerprint`. A real READ COMMITTED
+  transaction locks revision, local reviewer membership and existing approval
+  before a fresh statement checks authority, draft status and fingerprint.
+  Graph-write triggers use the same revision lock. Changed content or revoked/
+  demoted review authority returns pending; stale decisions return 409; authors
+  cannot approve.
   Approval is separate from the existing publication/validation policy.
 - `GET /studio/v1/revisions/{revisionId}/diff?fromRevisionId=...`: SQL comparison
   of stable outcome codes and names. Renames produce removed/added names. Both
@@ -107,7 +114,8 @@ Local run logs: `/tmp/primer-s17-focused.log`, `/tmp/primer-s17-full.log`,
   JSON storage table and existing Studio-local role rules. Comment targets are
   graph nodes; materialized-item comments are not part of this slice.
 - Approval notification events are optional and not emitted here.
-- Coverage is currently **77.0%, RED**, not the earlier 73.2% and not acceptance.
-  No threshold edits, skipped tests, or broad coverage chase.
+- Coverage remains **RED against 85%**. The original writer measured 77.0% on
+  `80021bdf`; reviewer b010fc06 measured 76.9%. Neither is acceptance or a new-tip
+  measurement. The concurrency fix does not rerun/chase coverage or alter gates.
 - Independent review, schema/contract track acceptance and the phase completion
   gate remain open. Do not mark the whole roadmap phase complete from API tests.

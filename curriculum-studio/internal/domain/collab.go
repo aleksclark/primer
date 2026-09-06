@@ -2,8 +2,10 @@ package domain
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -13,6 +15,17 @@ const (
 	ApprovalApproved    = "approved"
 	ApprovalRejected    = "rejected"
 )
+
+// MaxCommentLength counts Unicode code points, matching OpenAPI maxLength and
+// PostgreSQL char_length (not UTF-8 bytes or user-perceived graphemes).
+const MaxCommentLength = 10000
+
+func ValidateCommentBody(body string) error {
+	if !utf8.ValidString(body) || utf8.RuneCountInString(body) > MaxCommentLength || strings.TrimSpace(body) == "" {
+		return fmt.Errorf("comment body must contain 1–%d Unicode code points", MaxCommentLength)
+	}
+	return nil
+}
 
 // PlanComment is a collaborative note on a plan node (outcome, unit, …).
 type PlanComment struct {

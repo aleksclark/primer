@@ -33,12 +33,25 @@ limited to explicit curriculum/revision/graph/diff reads, not comments, reviews,
 exports, materializations, library saves, or any mutation. Grants never become
 workspace memberships.
 
-Approval writes compare the supplied content fingerprint to
-`plan_content_fingerprint(revision_id)` in the same SQL statement and recheck an
-active, local human reviewer membership. Later graph/brief edits make the stored
+Approval writes hold transaction row locks in revision → reviewer membership →
+existing approval order, then compare the supplied content fingerprint and
+recheck draft status and local human reviewer authority in a new statement.
+`Current` also checks that the reviewer is still active with the reviewer role.
+Publication and content writes cannot commit during the approval's lock waits.
+The protocol requires a real READ COMMITTED transaction; unsupported/autocommit
+queriers and higher isolation levels fail closed instead of reusing an old
+snapshot. Later graph/brief edits or membership revocation/demotion make the
 decision obsolete; API reads return `pending` until a fresh decision. Approval
 is recorded separately from publication (it does not bypass graph validation or
 change the existing publication policy).
+
+Migration 00013 adds `a_studio_lock_content` triggers to graph tables. They lock
+revision rows with `FOR NO KEY UPDATE` before existing immutability/prerequisite
+guards and check state in a post-wait statement. Updates/reparenting check both
+old and new revisions in UUID order. Library imports hold the same revision lock
+through the complete copy transaction. Older migration bytes remain unchanged.
+Comments are bounded to 10,000 Unicode code points in HTTP, domain/repo validation
+and a PostgreSQL `char_length` CHECK; this is not a UTF-8 byte limit.
 
 Library snapshots keep unit content, linked outcomes/objectives/arcs, internal
 prerequisites, mappings/evidence, projects and resource links. Copying uses fresh

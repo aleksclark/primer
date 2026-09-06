@@ -139,12 +139,10 @@ func (r *UnitLibraryRepo) CopyIntoRevision(ctx context.Context, ws, revision, en
 	}
 	var unit *domain.Unit
 	err := WithTx(ctx, r.Q, func(q Querier) error {
-		rev, err := NewPlanRevisionRepo(q).Get(ctx, ws, revision)
-		if err != nil {
+		// Serialize the whole copy against publication and other content writes,
+		// then check state using a fresh post-wait statement snapshot.
+		if _, err := lockDraftRevision(ctx, q, ws, revision); err != nil {
 			return err
-		}
-		if rev.Status != "draft" {
-			return ErrImmutable
 		}
 		entry, err := NewUnitLibraryRepo(q).Get(ctx, ws, entryID)
 		if err != nil {

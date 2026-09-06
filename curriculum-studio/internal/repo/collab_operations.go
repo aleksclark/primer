@@ -10,17 +10,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// CommentPageBounds is shared by storage and the HTTP page metadata.
+func CommentPageBounds(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
 // ListPage bounds both the returned rows and the database work retained in memory.
 func (r *CommentRepo) ListPage(ctx context.Context, ws, revision uuid.UUID, node string, limit, offset int) ([]domain.PlanComment, int, error) {
 	if r == nil || r.Q == nil {
 		return nil, 0, ErrClosed
 	}
-	if limit <= 0 || limit > 100 {
-		limit = 25
-	}
-	if offset < 0 {
-		offset = 0
-	}
+	limit, offset = CommentPageBounds(limit, offset)
 	const scope = ` FROM curriculum_studio.plan_comments p JOIN curriculum_studio.plan_revisions r ON r.id=p.plan_revision_id JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE p.workspace_id=$1 AND c.workspace_id=$1 AND p.plan_revision_id=$2 AND ($3='' OR p.node_id=$3)`
 	var total int
 	if err := r.Q.QueryRow(ctx, `SELECT count(*)`+scope, ws, revision, strings.TrimSpace(node)).Scan(&total); err != nil {
@@ -43,8 +52,9 @@ func (r *ApprovalRepo) Fingerprint(ctx context.Context, ws, revision uuid.UUID) 
 }
 
 // Decide is a compare-and-set on the reviewed content, not just the revision ID.
-// Membership is checked again in the write statement, including revocation and
-// subject kind. A caller cannot manufacture review authority through this repo.
+// All locks are held through commit: revision -> membership -> approval row.
+// Only then does a new statement check status, authority and fingerprint. Graph
+// writes use the same revision lock via DB triggers, including direct SQL edits.
 func (r *ApprovalRepo) Decide(ctx context.Context, ws, revision uuid.UUID, subject, decision, expectedFingerprint string) (*domain.PlanApproval, error) {
 	if r == nil || r.Q == nil {
 		return nil, ErrClosed
@@ -62,7 +72,25 @@ func (r *ApprovalRepo) Decide(ctx context.Context, ws, revision uuid.UUID, subje
  WHERE r.id=$2 AND c.workspace_id=$1 AND r.status='draft' AND curriculum_studio.plan_content_fingerprint(r.id)=$5
  ON CONFLICT (plan_revision_id) DO UPDATE SET reviewer_subject_ref=EXCLUDED.reviewer_subject_ref,reviewer_display_name=EXCLUDED.reviewer_display_name,status=EXCLUDED.status,content_fingerprint=EXCLUDED.content_fingerprint,created_at=now()
  RETURNING id,workspace_id,plan_revision_id,reviewer_subject_ref,reviewer_display_name,status,content_fingerprint,created_at`
-	out, err := scanApproval(r.Q.QueryRow(ctx, query, ws, revision, subject, decision, expectedFingerprint))
+	var out *domain.PlanApproval
+	err := WithTx(ctx, r.Q, func(q Querier) error {
+		if _, err := lockDraftRevision(ctx, q, ws, revision); err != nil {
+			return err
+		}
+		var id uuid.UUID
+		// SHARE (not KEY SHARE) conflicts with status/role/name updates and deletion.
+		if err := q.QueryRow(ctx, `SELECT id FROM curriculum_studio.workspace_memberships WHERE workspace_id=$1 AND subject_ref=$2 FOR SHARE`, ws, subject).Scan(&id); err != nil {
+			return err
+		}
+		err := q.QueryRow(ctx, `SELECT id FROM curriculum_studio.plan_approvals WHERE plan_revision_id=$1 FOR UPDATE`, revision).Scan(&id)
+		if err != nil && !errors.Is(MapError(err), ErrNotFound) {
+			return err
+		}
+		// This statement begins after every required lock wait. While it executes,
+		// neither publication, graph edits nor membership revocation can commit.
+		out, err = scanApproval(q.QueryRow(ctx, query, ws, revision, subject, decision, expectedFingerprint))
+		return err
+	})
 	err = MapError(err)
 	if errors.Is(err, ErrNotFound) {
 		return nil, fmt.Errorf("%w: stale draft or review authority", ErrConflict)
@@ -70,12 +98,13 @@ func (r *ApprovalRepo) Decide(ctx context.Context, ws, revision uuid.UUID, subje
 	return out, err
 }
 
-// Current hides obsolete decisions without discarding the durable decision row.
+// Current hides obsolete or no-longer-authorized decisions without discarding
+// the durable decision row. A revoked/demoted reviewer's approval is not effective.
 func (r *ApprovalRepo) Current(ctx context.Context, ws, revision uuid.UUID) (*domain.PlanApproval, error) {
 	if r == nil || r.Q == nil {
 		return nil, ErrClosed
 	}
-	out, err := scanApproval(r.Q.QueryRow(ctx, `SELECT a.id,a.workspace_id,a.plan_revision_id,a.reviewer_subject_ref,a.reviewer_display_name,a.status,a.content_fingerprint,a.created_at FROM curriculum_studio.plan_approvals a JOIN curriculum_studio.plan_revisions r ON r.id=a.plan_revision_id JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id WHERE a.workspace_id=$1 AND c.workspace_id=$1 AND r.id=$2 AND a.content_fingerprint=curriculum_studio.plan_content_fingerprint(r.id)`, ws, revision))
+	out, err := scanApproval(r.Q.QueryRow(ctx, `SELECT a.id,a.workspace_id,a.plan_revision_id,a.reviewer_subject_ref,a.reviewer_display_name,a.status,a.content_fingerprint,a.created_at FROM curriculum_studio.plan_approvals a JOIN curriculum_studio.plan_revisions r ON r.id=a.plan_revision_id JOIN curriculum_studio.curricula c ON c.id=r.curriculum_id JOIN curriculum_studio.workspace_memberships m ON m.workspace_id=a.workspace_id AND m.subject_ref=a.reviewer_subject_ref AND m.status='active' AND m.role='reviewer' AND m.subject_kind='human' WHERE a.workspace_id=$1 AND c.workspace_id=$1 AND r.id=$2 AND a.content_fingerprint=curriculum_studio.plan_content_fingerprint(r.id)`, ws, revision))
 	err = MapError(err)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
