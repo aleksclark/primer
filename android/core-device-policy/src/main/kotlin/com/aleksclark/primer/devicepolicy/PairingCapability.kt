@@ -7,9 +7,10 @@ data class PairingCapability(
     val photoPickerAvailable: Boolean,
     val inMaintenance: Boolean,
     val message: String,
+    val importMessage: String,
 ) {
     val canScan: Boolean get() = cameraGranted
-    val canImportImage: Boolean get() = photoPickerAvailable && (inMaintenance || cameraGranted)
+    val canImportImage: Boolean get() = photoPickerAvailable && inMaintenance
 }
 
 object PairingCapabilityPolicy {
@@ -32,6 +33,12 @@ object PairingCapabilityPolicy {
             parentCanGrant -> "Parent can grant camera for pairing during this maintenance window. The system permission screen is blocked in normal lock-task."
             else -> "Ask a parent to open maintenance and grant camera for pairing. The system permission screen is blocked in lock-task."
         }
+        val importMessage = when {
+            picker && inMaintenance -> "Photo picker is available during this parent maintenance window."
+            !owner -> "Importing a pairing QR image is unavailable until Student is device owner."
+            inMaintenance && !picker -> "No trusted photo picker is available."
+            else -> "Importing a pairing QR image requires parent maintenance. The system media picker is blocked in lock-task."
+        }
         return PairingCapability(
             cameraGranted = cameraGranted,
             parentCanGrantCamera = parentCanGrant,
@@ -39,6 +46,7 @@ object PairingCapabilityPolicy {
             photoPickerAvailable = picker,
             inMaintenance = inMaintenance,
             message = message,
+            importMessage = importMessage,
         )
     }
 

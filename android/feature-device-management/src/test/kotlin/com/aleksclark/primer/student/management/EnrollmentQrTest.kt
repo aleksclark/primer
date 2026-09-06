@@ -55,8 +55,8 @@ class RemoteLeasePolicyTest {
             receivedElapsedMs = 100,
             receivedBoot = 7,
         )
-        assertEquals(true, RemoteLeasePolicy.canOpen(lease, nowWallMs = 1_100, elapsedMs = 150, boot = 7))
-        assertEquals(false, RemoteLeasePolicy.canOpen(lease, nowWallMs = 2_100, elapsedMs = 150, boot = 7))
-        assertEquals(false, RemoteLeasePolicy.canOpen(lease, nowWallMs = 1_100, elapsedMs = 150, boot = 8))
+        assertEquals(true, RemoteLeasePolicy.canOpen(lease, requestElapsedMs = 100, responseElapsedMs = 150, requestBoot = 7, responseBoot = 7))
+        assertEquals(false, RemoteLeasePolicy.canOpen(lease, requestElapsedMs = 100, responseElapsedMs = 150, requestBoot = 7, responseBoot = 8))
+        assertEquals(false, RemoteLeasePolicy.canOpen(lease, requestElapsedMs = 100, responseElapsedMs = 700, requestBoot = 7, responseBoot = 7))
     }
 }

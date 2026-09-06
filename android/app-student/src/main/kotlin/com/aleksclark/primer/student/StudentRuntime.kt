@@ -17,9 +17,11 @@ import com.aleksclark.primer.student.management.ManagementCredentialStore
 import com.aleksclark.primer.student.management.ManagementSession
 import com.aleksclark.primer.student.management.ManagementSyncResult
 import com.aleksclark.primer.student.management.ManagementSyncWorker
+import com.aleksclark.primer.student.management.InstallOutcome
 import com.aleksclark.primer.student.management.RemoteReleaseSink
 import com.aleksclark.primer.student.update.InstallResultReceiver
 import com.aleksclark.primer.updates.ManagedUpdater
+import com.aleksclark.primer.updates.SignedManifest
 import com.aleksclark.primertasks.client.CredentialProvider
 import com.aleksclark.primertasks.client.TasksClient
 import java.io.File
@@ -56,10 +58,13 @@ class StudentRuntime(private val context: Context) {
             override val installActive: Boolean get() = updater.active
             override val pendingTargetId: String get() = updater.pendingTargetId
             override val pendingTargetVersion: Long get() = updater.pendingTargetVersion
-            override fun remember(targetId: String, targetVersion: Long) = updater.rememberReleaseTarget(targetId, targetVersion)
             override fun stagingDir(): File = File(context.cacheDir, "managed-updates")
-            override fun installVerified(file: File, size: Long): String =
-                updater.installVerifiedFile(file, size) { policy.isOwner && policy.store.configured }
+            override fun installVerified(file: File, manifest: SignedManifest, authorized: () -> Boolean): InstallOutcome {
+                val attempt = updater.installVerifiedFile(file, manifest) {
+                    authorized() && policy.isOwner && policy.store.configured
+                }
+                return InstallOutcome(attempt.status, attempt.versionCode, attempt.error)
+            }
         },
         trustRoot = BuildConfig.RELEASE_TRUST_ROOT,
         elapsedMs = { SystemClock.elapsedRealtime() },
@@ -122,16 +127,18 @@ class StudentRuntime(private val context: Context) {
         return managementSession().sync()
     }
 
-    fun applyRemoteRecovery(requestId: String, codes: List<String>): Boolean {
+    fun applyRemoteRecovery(requestId: String, codes: List<String>): String {
         check(policy.isOwner && policy.store.configured) { "Managed parent setup required" }
-        return recovery.activateRemoteCodes(requestId, codes)
+        return recovery.activateRemoteCodes(requestId, codes).ackReportId
     }
 
-    fun openRemoteLease(requestId: String, durationMs: Long): Boolean {
+    fun openRemoteLease(requestId: String, durationMs: Long): String {
         check(policy.isOwner && policy.store.configured) { "Managed parent setup required" }
+        val existing = recovery.ackReportId(requestId)
+        if (existing != null) return existing
         check(canScheduleExpiry()) { "Exact maintenance-expiry alarms are unavailable" }
-        val opened = recovery.openRemoteLease(requestId, durationMs)
-        if (opened || recovery.alreadyConsumed(requestId)) {
+        val result = recovery.openRemoteLease(requestId, durationMs)
+        if (result.firstApply) {
             try { scheduleExpiry() } catch (e: RuntimeException) {
                 recovery.close()
                 policy.reconcile()
@@ -139,7 +146,7 @@ class StudentRuntime(private val context: Context) {
             }
             policy.reconcile()
         }
-        return opened || recovery.alreadyConsumed(requestId)
+        return result.ackReportId
     }
 
     fun startHome() {

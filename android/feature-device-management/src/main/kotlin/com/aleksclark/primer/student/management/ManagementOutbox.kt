@@ -1,31 +1,45 @@
 package com.aleksclark.primer.student.management
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+@Serializable
 data class OutboxEntry(
     val id: String,
     val kind: String,
     val body: String,
+    val origin: String,
+    val deviceId: String,
     val attempts: Int = 0,
+    val deadLetter: String? = null,
 )
 
 interface ManagementOutbox {
-    suspend fun put(entry: OutboxEntry)
+    suspend fun putIfAbsent(entry: OutboxEntry): OutboxEntry
     suspend fun get(id: String): OutboxEntry?
-    suspend fun pending(): List<OutboxEntry>
-    suspend fun markAttempt(id: String)
+    suspend fun pending(origin: String, deviceId: String): List<OutboxEntry>
+    suspend fun markAttempt(id: String, deadLetter: String? = null)
     suspend fun remove(id: String)
+    suspend fun undelivered(origin: String, deviceId: String): Boolean
 }
 
 class InMemoryManagementOutbox : ManagementOutbox {
     private val items = linkedMapOf<String, OutboxEntry>()
-    override suspend fun put(entry: OutboxEntry) {
-        items[entry.id] = items[entry.id]?.copy(body = entry.body) ?: entry
+    override suspend fun putIfAbsent(entry: OutboxEntry): OutboxEntry {
+        val existing = items[entry.id]
+        if (existing != null) return existing
+        items[entry.id] = entry
+        return entry
     }
     override suspend fun get(id: String): OutboxEntry? = items[id]
-    override suspend fun pending(): List<OutboxEntry> = items.values.toList()
-    override suspend fun markAttempt(id: String) {
-        items[id]?.let { items[id] = it.copy(attempts = it.attempts + 1) }
+    override suspend fun pending(origin: String, deviceId: String): List<OutboxEntry> =
+        items.values.filter { it.origin == origin && it.deviceId == deviceId && it.deadLetter == null }
+    override suspend fun markAttempt(id: String, deadLetter: String?) {
+        items[id]?.let { items[id] = it.copy(attempts = it.attempts + 1, deadLetter = deadLetter ?: it.deadLetter) }
     }
     override suspend fun remove(id: String) { items.remove(id) }
+    override suspend fun undelivered(origin: String, deviceId: String): Boolean =
+        items.values.any { it.origin == origin && it.deviceId == deviceId }
 }
 
 object ManagementAuth {
@@ -74,5 +88,21 @@ object RemotePolicyProjection {
         }
         if (!allowParentUnlock) unsupported("maintenance", "allowParentUnlock=false", "Local recovery cannot be disabled remotely")
         return controls
+    }
+}
+
+object OutboxCodec {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    fun encode(items: Collection<OutboxEntry>): String =
+        json.encodeToString(kotlinx.serialization.builtins.ListSerializer(OutboxEntry.serializer()), items.toList())
+
+    fun decode(raw: String?): LinkedHashMap<String, OutboxEntry> {
+        val items = linkedMapOf<String, OutboxEntry>()
+        if (raw.isNullOrBlank()) return items
+        json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(OutboxEntry.serializer()), raw).forEach {
+            items[it.id] = it
+        }
+        return items
     }
 }
