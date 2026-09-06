@@ -204,6 +204,10 @@ const (
 	RecoveryRotateCode       RecoveryKind = "rotate_recovery_code"
 )
 
+// RecoveryEnvelope is a provisional opaque holder. Native encryption is not
+// specified here; a later Tink/HPKE profile will replace alg/nonce/ciphertext
+// semantics without changing this route. Do not treat this as a complete AEAD
+// protocol: there is no sender ephemeral key, KDF, AAD, or intent-id binding yet.
 type RecoveryEnvelope struct {
 	KeyID      string `json:"keyId" minLength:"8" maxLength:"64"`
 	Alg        string `json:"alg" enum:"X25519-ChaCha20Poly1305"`
@@ -239,8 +243,7 @@ type DesiredState struct {
 	Device         Device           `json:"device"`
 	PolicyRevision *PolicyRevision  `json:"policyRevision,omitempty"`
 	Recovery       []RecoveryIntent `json:"recovery" nullable:"false"`
-	// ReleaseTargets remains empty until Phase 5 release queries land.
-	ReleaseTargets []ReleaseTarget `json:"releaseTargets" nullable:"false"`
+	ReleaseTargets []ReleaseTarget  `json:"releaseTargets" nullable:"false"`
 }
 
 type StateChangeInput struct {
@@ -248,16 +251,16 @@ type StateChangeInput struct {
 }
 
 type ReleaseTarget struct {
-	ID            string `json:"id"`
-	ReleaseID     string `json:"releaseId"`
+	ID            string `json:"id" format:"uuid"`
+	ReleaseID     string `json:"releaseId" format:"uuid"`
 	PackageName   string `json:"packageName"`
 	Channel       string `json:"channel"`
-	Status        string `json:"status"`
-	VersionCode   int64  `json:"versionCode"`
+	Status        string `json:"status" enum:"queued,downloading,verifying,installing,confirmed,blocked,failed"`
+	VersionCode   int64  `json:"versionCode" minimum:"1"`
 	VersionName   string `json:"versionName"`
-	SHA256        string `json:"sha256"`
-	ByteSize      int64  `json:"byteSize"`
-	TargetVersion int64  `json:"targetVersion"`
+	SHA256        string `json:"sha256" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	ByteSize      int64  `json:"byteSize" minimum:"1"`
+	TargetVersion int64  `json:"targetVersion" minimum:"1"`
 	MinSdk        int    `json:"minSdk,omitempty"`
-	SignerSHA256  string `json:"signerSha256,omitempty"`
+	SignerSHA256  string `json:"signerSha256,omitempty" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
 }

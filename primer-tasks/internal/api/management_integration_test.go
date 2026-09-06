@@ -169,8 +169,8 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 		t.Fatalf("parent latest report missing: %s", got.Body.String())
 	}
 
-	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"rotate_recovery_code","envelope":{"keyId":"device-key-1","alg":"X25519-ChaCha20Poly1305","nonce":"n1n1n1n1n1n1n1n1","ciphertext":"cipher-cipher-cipher"}}`); rec.Code != http.StatusBadRequest {
-		t.Fatalf("rotation without parent ack = %d %s", rec.Code, rec.Body.String())
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"rotate_recovery_code","parentAcknowledged":true,"envelope":{"keyId":"device-key-1","alg":"X25519-ChaCha20Poly1305","nonce":"n1n1n1n1n1n1n1n1","ciphertext":"cipher-cipher-cipher"}}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("rotation without enrolled key = %d %s", rec.Code, rec.Body.String())
 	}
 	recovery := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"maintenance_lease","deliveryExpiresMinutes":15,"leaseExpiresMinutes":10}`)
 	if recovery.Code != http.StatusCreated || !strings.Contains(recovery.Body.String(), `"status":"pending"`) {
