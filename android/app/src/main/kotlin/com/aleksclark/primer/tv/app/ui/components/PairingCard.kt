@@ -17,8 +17,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +34,9 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.aleksclark.primer.tv.app.ui.designsystem.PrimerTheme
 import com.aleksclark.primer.tv.core.domain.FormFactor
+import com.aleksclark.primer.ui.PrimerStatus
+import com.aleksclark.primer.ui.PrimerStatusTone
+import com.aleksclark.primer.ui.PrimerTextField
 
 /**
  * Centered onboarding surface: server URL, uppercase pairing code, inline error,
@@ -110,18 +111,14 @@ fun PairingCard(
                 color = colors.onSurfaceMuted,
             )
 
-            OutlinedTextField(
+            PrimerTextField(
                 value = baseUrl,
                 onValueChange = onBaseUrlChanged,
-                label = { Text("Server address") },
-                singleLine = true,
+                label = "Server address",
                 enabled = !submitting,
-                shape = shapes.button,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { codeFocus.requestFocus() }),
-                colors = pairingFieldColors(),
                 modifier = Modifier
-                    .fillMaxWidth()
                     .heightIn(min = if (formFactor == FormFactor.TELEVISION) 56.dp else 48.dp)
                     .focusRequester(urlFocus)
                     .focusProperties {
@@ -132,13 +129,11 @@ fun PairingCard(
                     .semantics { contentDescription = "Server address" },
             )
 
-            OutlinedTextField(
+            PrimerTextField(
                 value = code,
                 onValueChange = onCodeChanged,
-                label = { Text("Pairing code") },
-                singleLine = true,
+                label = "Pairing code",
                 enabled = !submitting,
-                shape = shapes.button,
                 // Codes are uppercase-only; keep the software keyboard there too.
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Characters,
@@ -148,9 +143,7 @@ fun PairingCard(
                 keyboardActions = KeyboardActions(
                     onDone = { if (canSubmit) onSubmit() else pairFocus.requestFocus() },
                 ),
-                colors = pairingFieldColors(),
                 modifier = Modifier
-                    .fillMaxWidth()
                     .heightIn(min = if (formFactor == FormFactor.TELEVISION) 56.dp else 48.dp)
                     .focusRequester(codeFocus)
                     .focusProperties {
@@ -164,10 +157,9 @@ fun PairingCard(
             )
 
             error?.let { message ->
-                Text(
-                    text = message.uppercase(),
-                    style = typography.label,
-                    color = colors.error,
+                PrimerStatus(
+                    text = message,
+                    tone = PrimerStatusTone.Attention,
                     modifier = Modifier
                         .testTag("pairing_error")
                         .semantics { contentDescription = "Pairing error: $message" },
@@ -226,21 +218,3 @@ fun PairingCard(
         }
     }
 }
-
-@Composable
-private fun pairingFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = PrimerTheme.colors.onSurface,
-    unfocusedTextColor = PrimerTheme.colors.onSurface,
-    disabledTextColor = PrimerTheme.colors.onSurfaceMuted,
-    focusedBorderColor = PrimerTheme.colors.brand,
-    unfocusedBorderColor = PrimerTheme.colors.outline,
-    focusedLabelColor = PrimerTheme.colors.brand,
-    unfocusedLabelColor = PrimerTheme.colors.onSurfaceMuted,
-    cursorColor = PrimerTheme.colors.brand,
-    focusedContainerColor = PrimerTheme.colors.surfaceRaised,
-    unfocusedContainerColor = PrimerTheme.colors.surfaceRaised,
-    disabledContainerColor = PrimerTheme.colors.surface,
-    errorBorderColor = PrimerTheme.colors.error,
-    errorLabelColor = PrimerTheme.colors.error,
-    errorCursorColor = PrimerTheme.colors.error,
-)
