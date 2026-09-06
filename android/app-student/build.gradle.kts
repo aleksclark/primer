@@ -17,6 +17,9 @@ check(signingValues.all { it != null } || signingValues.all { it == null }) {
 val configuredApiOrigin = providers.gradleProperty("primerApiOrigin")
     .orElse(providers.environmentVariable("PRIMER_API_ORIGIN"))
     .getOrElse("")
+val releaseTrustRoot = providers.gradleProperty("primerReleaseTrustRoot")
+    .orElse(providers.environmentVariable("PRIMER_RELEASE_TRUST_ROOT"))
+    .getOrElse("")
 
 android {
     namespace = "com.aleksclark.primer.student"
@@ -31,6 +34,7 @@ android {
         versionName = providers.gradleProperty("studentVersionName").orElse("0.1.0-qualification").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CONFIGURED_API_ORIGIN", "\"${configuredApiOrigin.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "RELEASE_TRUST_ROOT", "\"${releaseTrustRoot.replace("\"", "\\\"")}\"")
     }
     signingConfigs {
         if (signingValues.all { it != null }) {

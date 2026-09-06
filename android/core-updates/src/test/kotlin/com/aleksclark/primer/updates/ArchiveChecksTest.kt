@@ -56,4 +56,19 @@ class ArchiveChecksTest {
         assertThrows(IllegalArgumentException::class.java) { ArchiveChecks.copyVerified(ByteArrayInputStream(bytes), output, 1, digest(bytes)) }
         assertEquals(0, output.size())
     }
+    @Test fun `digesting sink verifies length and digest on close`() {
+        val bytes = "test bytes".toByteArray()
+        val output = ByteArrayOutputStream()
+        ArchiveChecks.digestingSink(output, bytes.size.toLong(), digest(bytes)).use { it.write(bytes) }
+        assertArrayEquals(bytes, output.toByteArray())
+        val truncated = ByteArrayOutputStream()
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.digestingSink(truncated, bytes.size.toLong(), digest(bytes)).use { it.write(bytes, 0, bytes.size - 1) }
+        }
+        val overflow = ByteArrayOutputStream()
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.digestingSink(overflow, 1, digest(bytes)).use { it.write(bytes) }
+        }
+        assertEquals(0, overflow.size())
+    }
 }

@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.UserManager
 import android.provider.Settings
+import android.Manifest
 
 class DevicePolicyController(
     private val context: Context,
@@ -108,9 +109,15 @@ class DevicePolicyController(
         return reconcile()
     }
 
-    fun rememberRemotePolicy(revision: Long, apps: List<ApprovedApp>): PolicyApplication {
+    fun rememberRemotePolicy(
+        revision: Long,
+        apps: List<ApprovedApp>,
+        extraControls: List<ControlReadback> = emptyList(),
+        origin: String = store.lastRemoteOrigin(),
+        deviceId: String = store.lastRemoteDeviceId(),
+    ): PolicyApplication {
         val studentSigners = PackageIdentity.signers(context.packageManager, context.packageName)
-        val (sanitized, controls) = PolicyGuard.sanitizeRemoteApps(
+        val (sanitized, appControls) = PolicyGuard.sanitizeRemoteApps(
             requested = apps,
             studentPackage = context.packageName,
             studentSigners = studentSigners,
@@ -118,9 +125,10 @@ class DevicePolicyController(
                 runCatching { PackageIdentity.signers(context.packageManager, pkg) }.getOrDefault(emptySet())
             },
         )
+        val controls = extraControls + appControls
         val status = PolicyGuard.overallStatus(controls)
         if (sanitized.isNotEmpty() && status != "failed") {
-            store.rememberRemote(revision, sanitized)
+            store.rememberRemote(revision, sanitized, origin, deviceId)
             store.configure(sanitized)
         }
         val summary = reconcile()
@@ -197,6 +205,51 @@ class DevicePolicyController(
         RecoveryStore(context).close()
     }
 
+    fun pairingCapability(): PairingCapability = PairingCapabilityPolicy.evaluate(
+        cameraGranted = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
+        owner = isOwner,
+        inMaintenance = inMaintenance,
+        permissionControllerPackage = permissionControllerPackage(),
+        photoPickerPackage = photoPickerPackage(),
+    )
+
+    fun grantCameraForPairing(): String {
+        check(isOwner && inMaintenance) { "Parent maintenance required" }
+        dpm.setPermissionGrantState(
+            admin,
+            context.packageName,
+            Manifest.permission.CAMERA,
+            DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+        )
+        val granted = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED ||
+            dpm.getPermissionGrantState(admin, context.packageName, Manifest.permission.CAMERA) ==
+            DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+        check(granted) { "Android did not grant camera for pairing" }
+        reconcile()
+        return "Camera granted for pairing during this maintenance window"
+    }
+
+    private fun permissionControllerPackage(): String? {
+        val intents = listOf(
+            Intent("android.intent.action.MANAGE_PERMISSIONS"),
+            Intent("android.intent.action.REVIEW_PERMISSIONS"),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(android.net.Uri.fromParts("package", context.packageName, null)),
+        )
+        return intents.firstNotNullOfOrNull {
+            context.packageManager.resolveActivity(it, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+        }?.takeIf { it != context.packageName }
+    }
+
+    private fun photoPickerPackage(): String? {
+        val intents = listOf(
+            Intent("android.provider.action.PICK_IMAGES"),
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"),
+        )
+        return intents.firstNotNullOfOrNull {
+            context.packageManager.resolveActivity(it, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+        }
+    }
+
     private fun maintenancePackages(): List<String> {
         val pm = context.packageManager
         val repair = listOf(
@@ -211,7 +264,12 @@ class DevicePolicyController(
         ).map { it.activityInfo.packageName }.filter {
             pm.checkPermission("android.permission.PACKAGE_VERIFICATION_AGENT", it) == PackageManager.PERMISSION_GRANTED
         }
-        return (repair + verifiers).distinct()
+        val delegates = PairingCapabilityPolicy.maintenanceDelegates(
+            permissionControllerPackage = permissionControllerPackage(),
+            photoPickerPackage = photoPickerPackage(),
+            documentsUiPackage = repair.firstOrNull(),
+        )
+        return (repair + verifiers + delegates).distinct()
     }
 
     companion object {
