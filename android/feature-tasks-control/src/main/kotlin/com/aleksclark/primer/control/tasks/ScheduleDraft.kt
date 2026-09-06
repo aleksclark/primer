@@ -14,7 +14,28 @@ data class ScheduleDraft(
     val time: String = "09:00",
     val timezone: String = ZoneId.systemDefault().id,
     val rrule: String = "",
+    val dueOffsetMinutes: Long = 0,
+    val endAt: String = "",
 )
+
+fun scheduleDraftFrom(schedule: com.aleksclark.primertasks.client.Schedule): ScheduleDraft {
+    val start = runCatching { java.time.Instant.parse(schedule.startAt).atZone(ZoneId.of(schedule.timezone)) }.getOrNull()
+    val kind = when {
+        schedule.kind == "one_off" -> "one_off"
+        schedule.rrule?.contains("FREQ=DAILY") == true -> "daily"
+        schedule.rrule?.contains("FREQ=WEEKLY") == true -> "weekly"
+        else -> schedule.kind
+    }
+    return ScheduleDraft(
+        kind = kind,
+        date = start?.toLocalDate()?.toString() ?: LocalDate.now().toString(),
+        time = start?.toLocalTime()?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "09:00",
+        timezone = schedule.timezone,
+        rrule = schedule.rrule.orEmpty(),
+        dueOffsetMinutes = schedule.dueOffsetMinutes,
+        endAt = schedule.endAt.orEmpty(),
+    )
+}
 
 fun ScheduleDraft.toInput(studentId: String, templateId: String, revisionId: String): ScheduleInput {
     val start = zonedStart("$date $time", timezone)
@@ -28,7 +49,8 @@ fun ScheduleDraft.toInput(studentId: String, templateId: String, revisionId: Str
         timezone = timezone,
         startAt = start,
         rrule = if (recurring) rule else null,
-        dueOffsetMinutes = 0,
+        dueOffsetMinutes = dueOffsetMinutes,
+        endAt = endAt.trim().ifEmpty { null },
     )
 }
 

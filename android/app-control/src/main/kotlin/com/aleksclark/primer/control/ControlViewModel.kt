@@ -22,6 +22,7 @@ import com.aleksclark.primer.control.tasks.LogoutDecision
 import com.aleksclark.primer.control.tasks.MutationGate
 import com.aleksclark.primer.control.tasks.ParentTasksRepository
 import com.aleksclark.primer.control.tasks.ScheduleDraft
+import com.aleksclark.primer.control.tasks.scheduleDraftFrom
 import com.aleksclark.primer.control.tasks.ScheduleIdentity
 import com.aleksclark.primer.control.tasks.controlMessage
 import com.aleksclark.primer.control.tasks.toInput
@@ -93,6 +94,7 @@ data class ControlUiState(
     val recovery: RecoveryBinding? = null,
     val approvedAppDraft: ApprovedAppDraft = ApprovedAppDraft(),
     val creatingStudent: Boolean = false,
+    val creatingTask: Boolean = false,
     val creatingSchedule: Boolean = false,
     val studentsHasMore: Boolean = false,
     val tasksHasMore: Boolean = false,
@@ -369,7 +371,7 @@ class ControlViewModel(
             if (editing == null) tasksFor(ctx).createTask(title, instructions)
             else tasksFor(ctx).reviseTask(editing.templateId, title, instructions, editing.requirements)
             refreshTasks(ctx)
-            commit(ctx) { it.copy(editingTask = null, taskTitle = "", taskInstructions = "Complete the task, then ask a parent to check it.") }
+            commit(ctx) { it.copy(editingTask = null, creatingTask = false, taskTitle = "", taskInstructions = "Complete the task, then ask a parent to check it.") }
         }
     }
 
@@ -397,7 +399,7 @@ class ControlViewModel(
         mutate(ConflictResource.Schedule) { ctx ->
             if (editingId == null) tasksFor(ctx).createSchedule(body) else tasksFor(ctx).updateSchedule(editingId, body)
             refreshSchedules(ctx)
-            commit(ctx) { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false) }
+            commit(ctx) { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false, scheduleDraft = ScheduleDraft()) }
         }
     }
 
@@ -408,24 +410,70 @@ class ControlViewModel(
 
     fun loadOccurrences(reset: Boolean = true) = act { ctx -> refreshOccurrences(ctx, reset) }
 
-    fun decide(accepted: Boolean) {
-        val id = _state.value.selectedOccurrence?.id ?: return
-        val reason = _state.value.decisionReason
+    fun beginCreateTask() {
+        _state.value = _state.value.copy(
+            creatingTask = true,
+            editingTask = null,
+            taskTitle = "",
+            taskInstructions = "Complete the task, then ask a parent to check it.",
+        )
+    }
+
+    fun beginEditTask(task: TaskRevision) {
+        _state.value = _state.value.copy(
+            creatingTask = false,
+            editingTask = task,
+            taskTitle = task.title,
+            taskInstructions = task.instructions,
+        )
+    }
+
+    fun closeTaskEditor() {
+        _state.value = _state.value.copy(creatingTask = false, editingTask = null, taskTitle = "", taskInstructions = "Complete the task, then ask a parent to check it.")
+    }
+
+    fun beginCreateSchedule() {
+        _state.value = _state.value.copy(
+            creatingSchedule = true,
+            editingSchedule = null,
+            scheduleStudentId = "",
+            scheduleTaskId = "",
+            scheduleDraft = ScheduleDraft(),
+        )
+        loadStudents()
+        loadTasks()
+    }
+
+    fun beginEditSchedule(schedule: Schedule) {
+        _state.value = _state.value.copy(
+            creatingSchedule = false,
+            editingSchedule = schedule,
+            scheduleStudentId = schedule.studentId,
+            scheduleTaskId = schedule.revisionId,
+            scheduleDraft = scheduleDraftFrom(schedule),
+        )
+        loadStudents()
+        loadTasks()
+    }
+
+    fun decide(accepted: Boolean, occurrence: Occurrence? = null, reason: String? = null) {
+        val target = occurrence ?: _state.value.selectedOccurrence ?: return
+        val decision = (reason ?: _state.value.decisionReason).trim()
         mutate(ConflictResource.Occurrence) { ctx ->
-            tasksFor(ctx).decide(id, accepted, reason)
-            val occurrence = tasksFor(ctx).getOccurrence(id)
+            tasksFor(ctx).decide(target.id, accepted, decision)
+            val latest = tasksFor(ctx).getOccurrence(target.id)
             refreshOccurrences(ctx)
-            commit(ctx) { it.copy(selectedOccurrence = occurrence) }
+            commit(ctx) { it.copy(selectedOccurrence = latest, decisionReason = "") }
         }
     }
 
-    fun retryOccurrence() {
-        val id = _state.value.selectedOccurrence?.id ?: return
+    fun retryOccurrence(occurrence: Occurrence? = null) {
+        val target = occurrence ?: _state.value.selectedOccurrence ?: return
         mutate(ConflictResource.Occurrence) { ctx ->
-            tasksFor(ctx).retry(id)
-            val occurrence = tasksFor(ctx).getOccurrence(id)
+            tasksFor(ctx).retry(target.id)
+            val latest = tasksFor(ctx).getOccurrence(target.id)
             refreshOccurrences(ctx)
-            commit(ctx) { it.copy(selectedOccurrence = occurrence) }
+            commit(ctx) { it.copy(selectedOccurrence = latest) }
         }
     }
 
@@ -819,7 +867,7 @@ class ControlViewModel(
         session = ctx
         try {
             tasksFor(ctx).session()
-            commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false) }
+            commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false, pairing = null, enrollment = null) }
             if (_state.value.discovery.periodicEnabled && catalogJob?.isActive != true) syncCatalogTicker()
             if (stillValid(ctx)) refreshStudents(ctx)
         } catch (error: CancellationException) {
