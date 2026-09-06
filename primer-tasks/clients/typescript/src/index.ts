@@ -151,6 +151,10 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async createTask(body: TaskInputBody, options: RequestOptions = {}) {
       return unwrap(transport.POST("/tasks", { ...options, body }));
     },
+    /** Append a draft to a template; published revisions and issued work stay unchanged. */
+    async reviseTask(templateId: string, body: TaskInputBody, options: RequestOptions = {}) {
+      return unwrap(transport.POST("/tasks/{id}/revisions", { ...options, params: { path: { id: templateId } }, body }));
+    },
     async publishTask(id: string, options: RequestOptions = {}) {
       return unwrap(transport.POST("/tasks/{id}/publish", { ...options, params: { path: { id } } }));
     },

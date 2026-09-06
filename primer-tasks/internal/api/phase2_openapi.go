@@ -13,8 +13,13 @@ type TaskListInput2 struct {
 	Sort   string `query:"sort"`
 	Dir    string `query:"dir"`
 	Status string `query:"status"`
+	View   string `query:"view" doc:"Use templates for the latest matching revision of each task"`
 }
 type TaskInputEnvelope2 struct {
+	Body TaskInput2 `required:"true"`
+}
+type TaskReviseEnvelope2 struct {
+	ID   string     `path:"id"`
 	Body TaskInput2 `required:"true"`
 }
 type ScheduleInputEnvelope2 struct {
@@ -48,7 +53,7 @@ type ScheduleOutput2 struct {
 }
 type SchedulePageOutput2 struct {
 	ResponseHeaders
-	Body map[string]any
+	Body SchedulePage2
 }
 type OccurrencePageOutput2 struct {
 	ResponseHeaders
@@ -72,7 +77,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[TaskRevision](ctx, s.requireParent(s.createTask2), in.Body)
 		return &TaskOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "tasks-revise", Method: http.MethodPost, Path: "/tasks/{id}/revisions", DefaultStatus: 201, Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *TaskInputEnvelope2) (*TaskOutput2, error) {
+	register(api, huma.Operation{OperationID: "tasks-revise", Method: http.MethodPost, Path: "/tasks/{id}/revisions", DefaultStatus: 201, Errors: []int{400, 401, 404, 409, 500}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, in *TaskReviseEnvelope2) (*TaskOutput2, error) {
 		b, h, e := legacyJSON[TaskRevision](ctx, s.requireParent(s.reviseTask2), in.Body)
 		return &TaskOutput2{h, b}, e
 	})
@@ -85,7 +90,7 @@ func (s *Server) registerPhase2(api huma.API) {
 		return &NoContentOutput{h}, e
 	})
 	register(api, huma.Operation{OperationID: "schedules-list", Method: http.MethodGet, Path: "/schedules", Errors: []int{401, 500}}, func(ctx context.Context, _ *TaskListInput2) (*SchedulePageOutput2, error) {
-		b, h, e := legacyJSON[map[string]any](ctx, s.requireParent(s.listSchedules2), nil)
+		b, h, e := legacyJSON[SchedulePage2](ctx, s.requireParent(s.listSchedules2), nil)
 		return &SchedulePageOutput2{h, b}, e
 	})
 	register(api, huma.Operation{OperationID: "schedules-create", Method: http.MethodPost, Path: "/schedules", DefaultStatus: 201, Errors: []int{400, 401, 409, 500}, SkipValidateBody: true}, func(ctx context.Context, in *ScheduleInputEnvelope2) (*ScheduleOutput2, error) {
