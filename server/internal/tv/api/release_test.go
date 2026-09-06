@@ -88,6 +88,45 @@ func TestAppReleaseWithoutAVersionFileReportsZero(t *testing.T) {
 	assert.Zero(t, body.VersionCode, "an unversioned build never looks newer than what is installed")
 }
 
+func TestAppReleaseSidecarIsOptionalAndDoesNotShareTasksCredentials(t *testing.T) {
+	t.Parallel()
+	apk := []byte("apk-bytes")
+	dir := publishRelease(t, apk, "4")
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{ReleaseDir: dir})
+	_, token := factory.PairedDevice(t, q)
+
+	unsigned := decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.True(t, unsigned.Available)
+	assert.Empty(t, unsigned.PackageName)
+	assert.Nil(t, unsigned.ManifestPayloadBase64, "current servers stay unsigned until an operator writes the sidecar")
+
+	payload := "payload-b64"
+	sig := "sig-b64"
+	signer := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	minSdk := 28
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "release-manifest.json"), []byte(`{
+  "packageName":"com.aleksclark.primer.tv",
+  "versionName":"0.2.0",
+  "signerSha256":"`+signer+`",
+  "minSdk":28,
+  "channel":"stable",
+  "manifestPayloadBase64":"`+payload+`",
+  "manifestSignature":"`+sig+`",
+  "signingKeyId":"ed25519-v1"
+}`), 0o600))
+
+	signed := decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.Equal(t, "com.aleksclark.primer.tv", signed.PackageName)
+	require.NotNil(t, signed.ManifestPayloadBase64)
+	assert.Equal(t, payload, *signed.ManifestPayloadBase64)
+	require.NotNil(t, signed.ManifestSignature)
+	assert.Equal(t, sig, *signed.ManifestSignature)
+	require.NotNil(t, signed.SigningKeyID)
+	assert.Equal(t, "ed25519-v1", *signed.SigningKeyID)
+	require.NotNil(t, signed.MinSdk)
+	assert.Equal(t, minSdk, *signed.MinSdk)
+}
+
 func TestAppReleaseRequiresAPairedDevice(t *testing.T) {
 	t.Parallel()
 	h, _, _ := tvtestutil.API(t, tvtestutil.Options{
