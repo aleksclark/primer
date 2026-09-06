@@ -68,8 +68,10 @@ tasks-web: web
 browser-test:
 	npm --prefix web run browser:test
 
+# Compatibility wrapper for the retired prototype APK. Student now lives in
+# ../android/:feature-tasks-student; keep this target until that flow is proven.
 android: clients
-	cd android && ./gradlew test assembleDebug
+	cd android && ./gradlew --no-daemon --max-workers=1 test assembleDebug
 
 tasks-test: test
 tasks-cover: cover
