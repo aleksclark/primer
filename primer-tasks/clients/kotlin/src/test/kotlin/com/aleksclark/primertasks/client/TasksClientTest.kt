@@ -99,7 +99,7 @@ class TasksClientTest {
     fun managementDeviceRoutesUseManagementCredential() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
-                """{"device":{"id":"d1","displayName":"A16","deviceModel":"SM-S166V","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[],"serverTime":"2026-01-01T00:00:00Z"}""",
+                """{"device":{"id":"00000000-0000-0000-0000-0000000000d1","displayName":"A16","deviceModel":"SM-S166V","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[],"serverTime":"2026-01-01T00:00:00Z"}""",
             ),
         )
         TasksClient(
@@ -110,6 +110,24 @@ class TasksClientTest {
         val request = take()
         assertEquals("/api/management-device/desired", request.path)
         assertEquals("Bearer mgmt-token", request.getHeader("Authorization"))
+    }
+
+    @Test
+    fun restConstraintViolationIsRejectedOnDecode() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"device":{"id":"not-a-uuid","displayName":"A16","deviceModel":"SM","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[],"serverTime":"not-a-date"}""",
+            ),
+        )
+        try {
+            TasksClient(
+                server.url("/").toString(),
+                managementCredentials = CredentialProvider { "mgmt-token" },
+            ).managementDeviceDesired()
+            fail("expected constraint rejection")
+        } catch (error: IllegalStateException) {
+            assertTrue(error.message!!.contains("contract") || error.message!!.contains("payload"))
+        }
     }
 
     @Test

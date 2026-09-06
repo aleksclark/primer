@@ -49,6 +49,38 @@ class ContractConstraintsTest {
     }
 
     @Test
+    fun jsonTypesAreNotCoerced() {
+        val stringSchema = obj("""{"type":"string","minLength":1}""")
+        assertFalse(ContractConstraints.matches(stringSchema, json.parseToJsonElement("1")))
+        assertFalse(ContractConstraints.matches(stringSchema, json.parseToJsonElement("true")))
+        val integerSchema = obj("""{"type":"integer"}""")
+        assertFalse(ContractConstraints.matches(integerSchema, json.parseToJsonElement("\"1\"")))
+        val booleanSchema = obj("""{"type":"boolean"}""")
+        assertFalse(ContractConstraints.matches(booleanSchema, json.parseToJsonElement("\"true\"")))
+        val equal = obj("""{"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"x-equalFields":["a","b"]}""")
+        assertFalse(ContractConstraints.matches(equal, json.parseToJsonElement("""{"a":1,"b":"1"}""")))
+    }
+
+    @Test
+    fun unknownStandardConstructsFailClosed() {
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            ContractConstraints.requireSupported(obj("""{"type":"string","exclusiveMinimum":1}"""))
+        }
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            ContractConstraints.requireSupported(obj("""{"anyOf":[{"type":"string"}]}"""))
+        }
+        assertFalse(ContractConstraints.matches(obj("""{"type":"string","format":"email"}"""), json.parseToJsonElement("\"a@b.c\"")))
+    }
+
+    @Test
+    fun restApprovedAppConstraintsAreEnforced() {
+        val schema = obj("""{"type":"object","properties":{"packageName":{"type":"string","minLength":3,"maxLength":255,"pattern":"^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$"},"label":{"type":"string","maxLength":80}},"required":["packageName"]}""")
+        assertTrue(ContractConstraints.matches(schema, json.parseToJsonElement("""{"packageName":"com.primer.app","label":"App"}""")))
+        assertFalse(ContractConstraints.matches(schema, json.parseToJsonElement("""{"packageName":"ab"}""")))
+        assertFalse(ContractConstraints.matches(schema, json.parseToJsonElement("""{"packageName":1}""")))
+    }
+
+    @Test
     fun frozenDialogueConfigSourceTextAndRubric() {
         val sourceText = obj("""{"type":"string","minLength":1,"x-maxBytes":12000,"x-nonBlank":true}""")
         assertTrue(ContractConstraints.matches(sourceText, json.parseToJsonElement("\"A bounded parent source.\"")))

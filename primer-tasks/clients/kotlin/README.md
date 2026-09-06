@@ -11,10 +11,13 @@ Apps import this package only. Parent, student-device, and management-device
 credentials are separate `CredentialProvider`s. Pass the exact mounted origin
 (`/tasks/api` stays `/tasks/api`).
 
-Go-owned extensions `x-maxBytes`, `x-nonBlank`, `x-equalFields`, and
-`x-uniqueNormalized` are interpreted by `ContractConstraints`. Unknown `x-*`
-keys fail closed in the generator and matcher. This package does not implement
-device websocket dialogue or bearer fallback.
+Generated decode/encode calls `ContractConstraints.requireMatches` against the
+emitted OpenAPI component schemas. JSON types are not coerced. Unknown `x-*`
+and unsupported constructs fail closed. REST OpenAPI currently has standard
+constraints (`minLength`, `format`, `pattern`, …) and no `x-*` keys; the four
+Go extensions remain implemented for WS/config schemas when those contracts are
+bound. This package does not implement device websocket dialogue or bearer
+fallback.
 
 ```bash
 node generate-client.test.mjs

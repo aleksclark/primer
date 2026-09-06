@@ -227,6 +227,13 @@ function queryPuts(operationId, parameters) {
   }).join("\n");
 }
 
+function schemaLiteralEntries() {
+  return schemaNames.map((name) => {
+    const encoded = JSON.stringify(JSON.stringify(document.components.schemas[name])).replaceAll("$", "\\$");
+    return `        ${JSON.stringify(name)} to json.parseToJsonElement(${encoded}).jsonObject,`;
+  }).join("\n");
+}
+
 function pathExpr(pathname, pathParams) {
   if (!pathParams.length) return JSON.stringify(pathname);
   return pathParams.reduce((expr, parameter) => `${expr}.replace("{${parameter.name}}", ${toCamel(parameter.name)})`, JSON.stringify(pathname));
@@ -262,12 +269,20 @@ for (const entry of operations) {
   const sinkArgs = success.binary ? [...args, "sink: java.io.OutputStream"] : [...args, "token: String? = null"];
   if (success.binary) sinkArgs.push("token: String? = null");
   const returnType = success.binary ? "Long" : success.schema ? kotlinType(success.schema) : "Unit";
-  const bodyLine = bodySchema ? `json.encodeToString(${kotlinType(bodySchema)}.serializer(), body)` : "null";
+  const bodyName = bodySchema?.$ref ? refName(bodySchema) : null;
+  const successName = success.schema?.$ref ? refName(success.schema) : (success.schema && !success.binary ? kotlinType(success.schema) : null);
+  const bodyLine = bodySchema
+    ? (bodyName
+      ? `encodeJson(${JSON.stringify(bodyName)}, json.encodeToString(${kotlinType(bodySchema)}.serializer(), body))`
+      : `json.encodeToString(${kotlinType(bodySchema)}.serializer(), body)`)
+    : "null";
   const queryBuild = queryParams.length ? `        val httpUrl = url(${pathExpr(entry.pathname, pathParams)})\n${queryPuts(operationId, queryParams)}\n        val requestUrl = httpUrl.build()` : `        val requestUrl = url(${pathExpr(entry.pathname, pathParams)}).build()`;
   const decode = success.binary
     ? `        return executeToSink(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token, sink = sink)`
     : returnType === "Unit"
     ? "        execute(method = " + JSON.stringify(entry.method) + ", url = requestUrl, body = " + bodyLine + ", auth = AuthKind." + authKind(entry.pathname, operationId) + ", token = token, expectBody = false)\n        return"
+    : successName
+    ? `        val payload = execute(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token, expectBody = true)\n        return json.decodeFromString(${returnType}.serializer(), decodeJson(${JSON.stringify(successName)}, payload))`
     : `        val payload = execute(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token, expectBody = true)\n        return json.decodeFromString(${returnType}.serializer(), payload)`;
   methods.push(`    fun ${toCamel(operationId)}(${sinkArgs.join(", ")}): ${returnType} {
 ${queryBuild}
@@ -281,6 +296,7 @@ package com.aleksclark.primertasks.generated
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -296,6 +312,14 @@ ${consts.join("\n")}
 ${schemaNames.map(modelSource).join("\n\n")}
 
 ${queryTypes.join("\n\n")}
+
+internal object PrimerTasksSchemas {
+    private val json = Json { ignoreUnknownKeys = false }
+    val defs: Map<String, JsonObject> = mapOf(
+${schemaLiteralEntries()}
+    )
+    fun require(name: String): JsonObject = defs[name] ?: error("missing schema " + name)
+}
 
 internal enum class AuthKind { NONE, PARENT, DEVICE, MANAGEMENT }
 
@@ -360,6 +384,18 @@ ${methods.join("\n\n")}
         method == "GET" || method == "HEAD" -> null
         body != null -> body.toRequestBody(JSON)
         else -> ByteArray(0).toRequestBody(JSON)
+    }
+
+    private fun decodeJson(name: String, payload: String): String {
+        val element = json.parseToJsonElement(payload)
+        com.aleksclark.primertasks.client.ContractConstraints.requireMatches(PrimerTasksSchemas.require(name), element, PrimerTasksSchemas.defs)
+        return payload
+    }
+
+    private fun encodeJson(name: String, payload: String): String {
+        val element = json.parseToJsonElement(payload)
+        com.aleksclark.primertasks.client.ContractConstraints.requireMatches(PrimerTasksSchemas.require(name), element, PrimerTasksSchemas.defs)
+        return payload
     }
 
     private fun decodeError(status: Int, payload: String): TasksTransportException {
