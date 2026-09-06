@@ -1,0 +1,14 @@
+import { useState } from 'react';
+import { approval, decide, diff, problem } from '../api/collaboration';
+import { Notice, useRemote } from './common';
+export function RevisionDiff({revisionId,from}:{revisionId:string;from:string}){
+ const result=useRemote(signal=>diff(revisionId,from,signal),[revisionId,from]);
+ return <section aria-label="Revision comparison"><h3>Outcome changes</h3><Notice {...result}/>{result.data&&<div className="diff-columns"><div><h4>Added outcomes</h4>{result.data.addedOutcomes.length===0&&<p>None.</p>}<ul>{result.data.addedOutcomes.map(o=><li key={o.code}><strong>{o.name}</strong> <code>{o.code}</code></li>)}</ul></div><div><h4>Removed outcomes</h4>{result.data.removedOutcomes.length===0&&<p>None.</p>}<ul>{result.data.removedOutcomes.map(o=><li key={o.code}><strong>{o.name}</strong> <code>{o.code}</code></li>)}</ul></div></div>}</section>
+}
+export function Review({revisionId,role,draft,version,displayedFingerprint}:{revisionId:string;role:string;draft:boolean;version:number;displayedFingerprint?:string}){
+ const result=useRemote(signal=>approval(revisionId,signal),[revisionId,version]);const [saving,setSaving]=useState(false);const [message,setMessage]=useState('');
+ async function act(decision:'approved'|'rejected'){
+  if(!result.data||!displayedFingerprint||displayedFingerprint!==result.data.contentFingerprint)return;setSaving(true);setMessage('');try{await decide(revisionId,decision,displayedFingerprint);setMessage(`Review ${decision}.`);result.reload()}catch(e){setMessage(`${problem(e)} Reload the current review before deciding again.`)}finally{setSaving(false)}
+ }
+ return <section aria-label="Draft review"><h3>Review</h3><Notice {...result}/>{result.data&&<><p>{result.data.state}{result.data.reviewerName?` — ${result.data.reviewerName}`:''}</p><details><summary>Review snapshot</summary><code>{result.data.contentFingerprint}</code></details>{displayedFingerprint!==result.data.contentFingerprint&&<p role="status">The displayed plan and review do not match yet. Reload plan and review before deciding.</p>}</>}<div className="collab-actions"><button className="secondary" disabled={saving} onClick={result.reload}>Reload current review</button>{role==='reviewer'&&draft&&<><button className="primary" disabled={!result.data||saving||!displayedFingerprint||displayedFingerprint!==result.data.contentFingerprint} onClick={()=>void act('approved')}>Approve this snapshot</button><button className="secondary" disabled={!result.data||saving||!displayedFingerprint||displayedFingerprint!==result.data.contentFingerprint} onClick={()=>void act('rejected')}>Reject this snapshot</button></>}</div>{role!=='reviewer'&&<p>Only a local reviewer can decide. Authors cannot approve their own work.</p>}{message&&<p role="status">{message}</p>}</section>
+}
