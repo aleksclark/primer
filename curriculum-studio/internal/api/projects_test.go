@@ -233,6 +233,39 @@ func TestP16UnsupportedParentChildEdgeFailsClosed(t *testing.T) {
 	assert.NotContains(t, denied.Body.String(), `"id":"edge_`)
 }
 
+func TestP16PartialCatalogAddsMissingStandardAndPublishes(t *testing.T) {
+	t.Parallel()
+	handler, key, now := newStubMaterializationHandler(t, false)
+	subject := uuid.New()
+	workspace := factory.Workspace(t, testutil.DB(t))
+	factory.SeedMembership(t, testutil.DB(t), workspace.ID, domain.HumanSubjectRef(subject), domain.MembershipRoleAuthor)
+	token := mintHuman(t, key, now, subject)
+	partial := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspace.ID.String()+"/standards-catalogs", map[string]any{
+		"source": "custom", "title": "Project standards",
+		"standards": []map[string]any{
+			{"code": "MATH.6.G", "source": "custom", "description": "Scale drawings"},
+			{"code": "SCI.6.PS", "source": "custom", "description": "Load paths"},
+		},
+	}, token)
+	require.Equal(t, http.StatusCreated, partial.Code, partial.Body.String())
+	var catalog struct{ ID string }
+	require.NoError(t, json.Unmarshal(partial.Body.Bytes(), &catalog))
+
+	fixture := authorProjectViaAPI(t, handler, token, workspace.ID.String())
+	got := doJSON(t, handler, http.MethodGet, "/studio/v1/revisions/"+fixture.RevisionID+"/graph", nil, token)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	var graph map[string]any
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &graph))
+	assert.Contains(t, outcomeStandardCodes(t, graph), "MATH.6.RP")
+
+	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalog.ID+"/standards", nil, token)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	assert.Contains(t, listed.Body.String(), "MATH.6.RP")
+
+	publish := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+fixture.RevisionID+"/publish", nil, token)
+	require.Equal(t, http.StatusOK, publish.Code, publish.Body.String())
+}
+
 func TestP16AuthoringJourneyCreatePublishMaterializePhase(t *testing.T) {
 	t.Parallel()
 	handler, key, now := newStubMaterializationHandler(t, false)
@@ -285,23 +318,7 @@ func authorProjectViaAPI(t *testing.T, handler http.Handler, token, workspaceID 
 	var revision struct{ ID string }
 	require.NoError(t, json.Unmarshal(rev.Body.Bytes(), &revision))
 
-	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", nil, token)
-	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
-	var catalogs struct {
-		Items []struct{ ID string } `json:"items"`
-	}
-	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &catalogs))
-	if len(catalogs.Items) == 0 {
-		catalog := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", map[string]any{
-			"source": "custom", "title": "Project standards",
-			"standards": []map[string]any{
-				{"code": "MATH.6.G", "source": "custom", "description": "Scale drawings"},
-				{"code": "SCI.6.PS", "source": "custom", "description": "Load paths"},
-				{"code": "MATH.6.RP", "source": "custom", "description": "Ratios"},
-			},
-		}, token)
-		require.Equal(t, http.StatusCreated, catalog.Code, catalog.Body.String())
-	}
+	ensureProjectStandards(t, handler, token, workspaceID, []string{"MATH.6.G", "SCI.6.PS", "MATH.6.RP"})
 
 	math := doJSON(t, handler, http.MethodPost, "/studio/v1/revisions/"+revision.ID+"/nodes", map[string]any{
 		"kind": "outcome", "title": "Scale drawings", "standardCodes": []string{"MATH.6.G"}, "attributes": map[string]string{"code": "MATH.6.G", "evidenceKind": "portfolio", "evidenceDescription": "photo essay"},
@@ -395,6 +412,59 @@ func (g graphView) rolesFor(projectID string) map[string]string {
 		}
 	}
 	return out
+}
+
+func ensureProjectStandards(t *testing.T, handler http.Handler, token, workspaceID string, codes []string) {
+	t.Helper()
+	listed := doJSON(t, handler, http.MethodGet, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", nil, token)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	var catalogs struct {
+		Items []struct {
+			ID, Title string
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &catalogs))
+	catalogID := ""
+	for _, item := range catalogs.Items {
+		if item.Title == "Project standards" || catalogID == "" {
+			catalogID = item.ID
+			if item.Title == "Project standards" {
+				break
+			}
+		}
+	}
+	if catalogID == "" {
+		standards := make([]map[string]any, 0, len(codes))
+		for _, code := range codes {
+			standards = append(standards, map[string]any{"code": code, "source": "custom", "description": code})
+		}
+		created := doJSON(t, handler, http.MethodPost, "/studio/v1/workspaces/"+workspaceID+"/standards-catalogs", map[string]any{
+			"source": "custom", "title": "Project standards", "standards": standards,
+		}, token)
+		require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+		var catalog struct{ ID string }
+		require.NoError(t, json.Unmarshal(created.Body.Bytes(), &catalog))
+		catalogID = catalog.ID
+	}
+	page := doJSON(t, handler, http.MethodGet, "/studio/v1/standards-catalogs/"+catalogID+"/standards", nil, token)
+	require.Equal(t, http.StatusOK, page.Code, page.Body.String())
+	var listedStandards struct {
+		Items []struct{ Code string } `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(page.Body.Bytes(), &listedStandards))
+	existing := map[string]struct{}{}
+	for _, item := range listedStandards.Items {
+		existing[item.Code] = struct{}{}
+	}
+	for _, code := range codes {
+		if _, ok := existing[code]; ok {
+			continue
+		}
+		created := doJSON(t, handler, http.MethodPost, "/studio/v1/standards-catalogs/"+catalogID+"/standards", map[string]any{
+			"code": code, "source": "custom", "description": code,
+		}, token)
+		require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	}
 }
 
 func decodePhasesJSON(t *testing.T, raw string) []domain.ProjectPhase {

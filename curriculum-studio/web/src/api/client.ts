@@ -78,3 +78,11 @@ export async function importStandardsCatalog(workspaceId: string, body: { source
 export async function listCatalogStandards(catalogId: string) {
   return studioClient.GET("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId }, query: { limit: 50, offset: 0 } } });
 }
+
+export async function createCatalogStandard(catalogId: string, body: { code: string; source: string; description: string }) {
+  return studioClient.POST("/studio/v1/standards-catalogs/{catalogId}/standards", { credentials: "include", params: { path: { catalogId } }, body: body as never });
+}
+
+export async function deletePlanNode(revisionId: string, nodeId: string) {
+  return studioClient.DELETE("/studio/v1/revisions/{revisionId}/nodes/{nodeId}", { credentials: "include", params: { path: { revisionId, nodeId } } });
+}

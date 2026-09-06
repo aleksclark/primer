@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BookOpen, Compass, FolderKanban, LogIn, Moon, Settings2, Sun } from "lucide-react";
-import { createCurriculum, createPlanEdge, createPlanNode, createResource, currentSession, createRevision, downloadExport, exportRevision, getRevisionGraph, importStandardsCatalog, listCatalogStandards, listCurricula, listMaterializedItems, listRevisions, listStandardsCatalogs, materializeRevision, publishRevision, validateRevision } from "./api/client";
+import { createCatalogStandard, createCurriculum, createPlanEdge, createPlanNode, createResource, currentSession, createRevision, deletePlanNode, downloadExport, exportRevision, getRevisionGraph, importStandardsCatalog, listCatalogStandards, listCurricula, listMaterializedItems, listRevisions, listStandardsCatalogs, materializeRevision, publishRevision, validateRevision } from "./api/client";
 import type { ExportFormat } from "./api/client";
 
 type Theme = "dark" | "light";
@@ -109,64 +109,74 @@ export default function App() {
   function slug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-"); }
   async function ensureProjectStandards(workspaceId: string, codes: string[]) {
     const unique = [...new Set(codes.map((code) => code.trim()).filter(Boolean))];
-    if (unique.length === 0) return [] as string[];
+    if (unique.length === 0) return { codes: [] as string[], error: "Each outcome needs a standard code." };
     const listed = await listStandardsCatalogs(workspaceId);
-    const catalogs = listed.data && "items" in listed.data ? listed.data.items as { id: string }[] : [];
-    let catalogId = catalogs[0]?.id ?? "";
+    const catalogs = listed.data && "items" in listed.data ? listed.data.items as { id: string; title?: string }[] : [];
+    let catalogId = catalogs.find((item) => item.title === "Project standards")?.id ?? catalogs[0]?.id ?? "";
     if (!catalogId) {
       const created = await importStandardsCatalog(workspaceId, {
         source: "custom",
         title: "Project standards",
         standards: unique.map((code) => ({ code, source: "custom", description: code })),
       });
-      if (!created.data || !("id" in created.data)) return [];
+      if (!created.data || !("id" in created.data)) return { codes: [] as string[], error: "Could not create a Project standards catalog." };
       catalogId = String(created.data.id);
     }
     const page = await listCatalogStandards(catalogId);
     const existing = new Set((page.data && "items" in page.data ? page.data.items as { code: string }[] : []).map((item) => item.code));
-    const missing = unique.filter((code) => !existing.has(code));
-    if (missing.length) {
-      const created = await importStandardsCatalog(workspaceId, {
-        source: "custom",
-        title: "Project standards",
-        standards: missing.map((code) => ({ code, source: "custom", description: code })),
-      });
-      if (created.data && "id" in created.data) catalogId = String(created.data.id);
+    for (const code of unique.filter((value) => !existing.has(value))) {
+      const created = await createCatalogStandard(catalogId, { code, source: "custom", description: code });
+      if (!created.data || !("id" in created.data)) return { codes: [] as string[], error: `Could not add standard ${code} to the existing catalog.` };
+      existing.add(code);
     }
-    const refreshed = await listCatalogStandards(catalogId);
-    const available = new Set((refreshed.data && "items" in refreshed.data ? refreshed.data.items as { code: string }[] : []).map((item) => item.code));
-    return unique.filter((code) => available.has(code));
+    const missing = unique.filter((code) => !existing.has(code));
+    if (missing.length) return { codes: [] as string[], error: `Missing standards: ${missing.join(", ")}.` };
+    return { codes: unique, error: "" };
   }
   async function addProject(event: FormEvent) {
     event.preventDefault();
     if (!revision || !workspace || !projectName.trim()) return;
+    const roles = [
+      { title: targetOutcome, role: "target", standard: targetStandard, evidenceKind: "portfolio", evidenceDescription: "photo essay" },
+      { title: priorOutcome, role: "prior", standard: priorStandard },
+      { title: stretchOutcome, role: "stretch", standard: stretchStandard },
+    ].filter((entry) => entry.title.trim());
+    const mapped = await ensureProjectStandards(workspace.workspaceId, roles.map((entry) => entry.standard));
+    if (mapped.error || mapped.codes.length !== roles.length) {
+      setMessage(mapped.error || "Every outcome needs a mapped standard before the project can be saved.");
+      return;
+    }
     const phases: ProjectPhase[] = [
       { id: slug(phaseDesign) || "design", name: phaseDesign.trim() || "Design", position: 1 },
       { id: slug(phaseBuild) || "build", name: phaseBuild.trim() || "Build", position: 2, offScreen, activities: offScreen ? [{ kind: "off_screen", title: `${phaseBuild.trim() || "Build"} off-screen task` }] : [] },
     ];
     const project = await createPlanNode(revision.id, { kind: "project", title: projectName.trim(), body: "Multi-subject project blueprint", attributes: { phasesJSON: JSON.stringify(phases) } });
     if (!project.data || !("id" in project.data)) { setMessage("The Studio API could not save that project blueprint."); return; }
-    const roles = [
-      { title: targetOutcome, role: "target", standard: targetStandard, evidenceKind: "portfolio", evidenceDescription: "photo essay" },
-      { title: priorOutcome, role: "prior", standard: priorStandard },
-      { title: stretchOutcome, role: "stretch", standard: stretchStandard },
-    ];
-    const mapped = await ensureProjectStandards(workspace.workspaceId, roles.map((entry) => entry.standard));
-    if (mapped.length === 0) { setMessage("Create or import a standards catalog before saving a project blueprint."); return; }
-    for (const entry of roles) {
-      if (!entry.title.trim()) continue;
-      const code = entry.standard.trim();
-      const outcome = await createPlanNode(revision.id, {
-        kind: "outcome",
-        title: entry.title.trim(),
-        standardCodes: code ? [code] : [],
-        attributes: entry.evidenceKind ? { evidenceKind: entry.evidenceKind, evidenceDescription: entry.evidenceDescription ?? "" } : {},
-      });
-      if (outcome.data && "id" in outcome.data) await createPlanEdge(revision.id, { kind: "parent_child", fromNodeId: String(project.data.id), toNodeId: String(outcome.data.id), note: entry.role });
-    }
-    if (toolName.trim()) {
-      const tool = await createResource(workspace.workspaceId, { kind: "tool", title: toolName.trim() });
-      if (tool.data && "id" in tool.data) await createPlanEdge(revision.id, { kind: "uses_resource", fromNodeId: String(project.data.id), toNodeId: String(tool.data.id), note: "required" });
+    const createdIds = [String(project.data.id)];
+    try {
+      for (const entry of roles) {
+        const code = entry.standard.trim();
+        const outcome = await createPlanNode(revision.id, {
+          kind: "outcome",
+          title: entry.title.trim(),
+          standardCodes: [code],
+          attributes: entry.evidenceKind ? { evidenceKind: entry.evidenceKind, evidenceDescription: entry.evidenceDescription ?? "" } : {},
+        });
+        if (!outcome.data || !("id" in outcome.data)) throw new Error(`Could not map outcome ${entry.title.trim()} to ${code}.`);
+        createdIds.push(String(outcome.data.id));
+        const edge = await createPlanEdge(revision.id, { kind: "parent_child", fromNodeId: String(project.data.id), toNodeId: String(outcome.data.id), note: entry.role });
+        if (edge.error) throw new Error(`Could not attach ${entry.role} outcome ${entry.title.trim()}.`);
+      }
+      if (toolName.trim()) {
+        const tool = await createResource(workspace.workspaceId, { kind: "tool", title: toolName.trim() });
+        if (!tool.data || !("id" in tool.data)) throw new Error("Could not save the required tool.");
+        const edge = await createPlanEdge(revision.id, { kind: "uses_resource", fromNodeId: String(project.data.id), toNodeId: String(tool.data.id), note: "required" });
+        if (edge.error) throw new Error("Could not attach the required tool.");
+      }
+    } catch (cause) {
+      await Promise.all(createdIds.map((id) => deletePlanNode(revision.id, id)));
+      setMessage(cause instanceof Error ? cause.message : "Project mapping failed; the incomplete blueprint was removed.");
+      return;
     }
     setSelectedProject(String(project.data.id));
     setSelectedPhase(phases[1]?.id ?? phases[0]?.id ?? "");
