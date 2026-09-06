@@ -14,7 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"primer-tasks/internal/domain"
+	"primer-tasks/internal/repo"
 	"primer-tasks/internal/schedule"
+	"primer-tasks/internal/verification"
 )
 
 type TaskPage2 struct {
@@ -137,7 +139,7 @@ func (s *Server) createTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 	}
 	dr := make([]domain.VerificationRequirement, len(rs))
 	for i, x := range rs {
-		dr[i] = domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion}
+		dr[i] = domain.VerificationRequirement{Kind: x.Kind, ConfigVersion: x.ConfigVersion, Config: x.Config, Interaction: x.Interaction, Executor: x.Executor}
 	}
 	if errors.Is(domain.ValidateRevision(in.Title, in.Instructions, dr), domain.ErrInvalidTask) {
 		problem(w, 400, "invalid_request", "a task requires a title and supported verification requirement")
@@ -231,6 +233,17 @@ func (s *Server) publishTask2(w http.ResponseWriter, r *http.Request, sc scope) 
 	}
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
+		return
+	}
+	// Validate and resolve source from the stored canonical requirement array
+	// in this same publication transaction. Failure rolls back the draft->
+	// published transition; no client-authored snapshot is trusted.
+	if e = repo.NewDialogueRepository(tx).PublishRevisionPolicies(ctx, sc.Tenant, id); e != nil {
+		if errors.Is(e, domain.ErrInvalidDialogueConfig) || errors.Is(e, domain.ErrDialogueSourceMissing) {
+			problem(w, 400, "invalid_request", "verification requirement configuration is invalid")
+		} else {
+			problem(w, 500, "internal", "unable to snapshot verification policy")
+		}
 		return
 	}
 	if _, e = tx.Exec(ctx, `UPDATE task_templates SET title=$1,status='published',current_revision=$2 WHERE tenant_id=$3 AND id=$4`, x.Title, x.Version, sc.Tenant, x.TemplateID); e != nil {
@@ -473,10 +486,14 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 		problem(w, 404, "not_found", "occurrence not found")
 		return
 	}
-	var attempt, attemptStatus string
-	e = tx.QueryRow(r.Context(), `SELECT id,status FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 ORDER BY number DESC LIMIT 1 FOR UPDATE`, sc.Tenant, oid).Scan(&attempt, &attemptStatus)
+	var attempt, attemptStatus, requirementKind string
+	e = tx.QueryRow(r.Context(), `SELECT a.id,a.status,r.kind FROM verification_attempts a JOIN verification_requirements r ON r.tenant_id=a.tenant_id AND r.id=a.requirement_id WHERE a.tenant_id=$1 AND a.occurrence_id=$2 ORDER BY a.number DESC LIMIT 1 FOR UPDATE OF a`, sc.Tenant, oid).Scan(&attempt, &attemptStatus, &requirementKind)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if e == nil && requirementKind == domain.AgentDialogueKind {
+		problem(w, 409, "conflict", "dialogue requires verification evidence or a separate audited override")
 		return
 	}
 	if !errors.Is(e, pgx.ErrNoRows) && attemptStatus != "open" {
@@ -510,7 +527,15 @@ func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc sc
 	next := domain.OccurrencePending
 	attemptNext := "rejected"
 	if accepted {
-		next = domain.OccurrenceCompleted
+		allAccepted, policyErr := verification.RequirementPolicySatisfied(r.Context(), tx, sc.Tenant, oid)
+		if policyErr != nil {
+			problem(w, 500, "internal", "unable to evaluate issued verification policy")
+			return
+		}
+		next = domain.OccurrenceAwaitingVerification
+		if allAccepted {
+			next = domain.OccurrenceCompleted
+		}
 		attemptNext = "accepted"
 	}
 	if !domain.CanTransition(domain.OccurrenceStatus(current), next) {
@@ -675,8 +700,9 @@ func (s *Server) reviseTask2(w http.ResponseWriter, r *http.Request, sc scope) {
 		return
 	}
 	for _, req := range in.Requirements {
-		if req.Kind != "parent_approval" || req.ConfigVersion != 1 {
-			problem(w, 400, "invalid_request", "unsupported verification requirement")
+		r := domain.VerificationRequirement{Kind: req.Kind, ConfigVersion: req.ConfigVersion, Config: req.Config, Interaction: req.Interaction, Executor: req.Executor}
+		if domain.ValidateRevision(in.Title, in.Instructions, []domain.VerificationRequirement{r}) != nil {
+			problem(w, 400, "invalid_request", "unsupported verification requirement configuration")
 			return
 		}
 	}

@@ -20,8 +20,8 @@ func TestAppliedClerkMigrationIsImmutable(t *testing.T) {
 }
 
 // Run alongside the fresh real-PG migration gate. Build exactly the released
-// five-migration schema, including local identities, then apply only incoming
-// P3 migrations with the production migrator. No donor schema is substituted.
+// five-migration schema, including local identities, then apply incoming
+// P3/P4 migrations with the production migrator. No donor schema is substituted.
 func testParentAgentUpgrade(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -84,7 +84,7 @@ func testParentAgentUpgrade(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatal("P3 upgrade changed released identity/student/revision/applied history")
 	}
 	var n int
-	if err = upgrade.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&n); err != nil || n != 9 {
+	if err = upgrade.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&n); err != nil || n != 11 {
 		t.Fatalf("incoming migration count %d: %v", n, err)
 	}
 }

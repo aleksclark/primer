@@ -2,13 +2,16 @@ package verification
 
 import "testing"
 
-func TestOnlyParentApprovalIsRegistered(t *testing.T) {
+func TestParentApprovalAndDialogueAreRegistered(t *testing.T) {
 	r := NewRegistry()
 	if _, ok := r.Lookup("parent_approval"); !ok {
 		t.Fatal("parent approval missing")
 	}
-	if _, ok := r.Lookup("agent_dialogue"); ok {
-		t.Fatal("future driver registered")
+	if m, ok := r.Lookup("agent_dialogue"); !ok || m.ConfigVersion != 1 || m.Interaction != "chat" || m.Executor != "fantasy" {
+		t.Fatal("dialogue manifest missing or incorrectly scoped")
+	}
+	if err := r.Validate("agent_dialogue", 2); err == nil {
+		t.Fatal("unsupported dialogue version accepted")
 	}
 	if e := r.Validate("parent_approval", 1); e != nil {
 		t.Fatal(e)

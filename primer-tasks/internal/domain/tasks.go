@@ -64,7 +64,16 @@ func ValidateRevision(title, instructions string, requirements []VerificationReq
 		return ErrInvalidTask
 	}
 	for _, r := range requirements {
-		if r.Kind != "parent_approval" || r.ConfigVersion != 1 {
+		if r.ConfigVersion != 1 {
+			return ErrInvalidTask
+		}
+		switch r.Kind {
+		case "parent_approval": // Preserve the existing manual requirement contract.
+		case AgentDialogueKind:
+			if err := ValidateDialogueRequirement(r); err != nil {
+				return ErrInvalidTask
+			}
+		default:
 			return ErrInvalidTask
 		}
 	}
