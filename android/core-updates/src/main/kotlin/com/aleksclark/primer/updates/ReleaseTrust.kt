@@ -1,6 +1,5 @@
 package com.aleksclark.primer.updates
 
-import com.google.crypto.tink.subtle.Ed25519Sign
 import com.google.crypto.tink.subtle.Ed25519Verify
 import java.security.GeneralSecurityException
 import java.util.Base64
@@ -36,7 +35,8 @@ object ReleaseTrust {
 
     /**
      * Tink Ed25519Verify over a pinned 32-byte key. Available on minSdk 26/28;
-     * JCA Ed25519 is not (API 33+).
+     * JCA Ed25519 is not (API 33+). Host JVM success does not prove Android 9.
+     * Digest||zeros and any other truncated/forged 64-byte value is rejected.
      */
     fun verifyEd25519(publicKey: ByteArray, message: ByteArray, signatureBase64Url: String): Boolean {
         val signature = runCatching { Base64.getUrlDecoder().decode(signatureBase64Url) }.getOrNull() ?: return false
@@ -47,16 +47,5 @@ object ReleaseTrust {
         } catch (_: GeneralSecurityException) {
             false
         }
-    }
-
-    /** Fixture helper using the same Tink primitive the verifier uses. */
-    fun newKeyPair(): Pair<ByteArray, ByteArray> {
-        val pair = Ed25519Sign.KeyPair.newKeyPair()
-        return pair.publicKey to pair.privateKey
-    }
-
-    fun sign(privateKey: ByteArray, message: ByteArray): String {
-        val signature = Ed25519Sign(privateKey).sign(message)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(signature)
     }
 }
