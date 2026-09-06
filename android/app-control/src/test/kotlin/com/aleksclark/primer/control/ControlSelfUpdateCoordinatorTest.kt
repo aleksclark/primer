@@ -2,11 +2,15 @@ package com.aleksclark.primer.control
 
 import android.content.Intent
 import com.aleksclark.primer.control.device.ControlSelfUpdatePhase
+import com.aleksclark.primer.control.device.ControlSelfUpdate
 import com.aleksclark.primer.updates.InstallAttempt
 import com.aleksclark.primer.updates.SelfUpdateCommands
+import com.aleksclark.primer.updates.SelfUpdateEligibility
 import com.aleksclark.primer.updates.SelfUpdateSession
 import com.aleksclark.primer.updates.SelfUpdateSessionState
 import com.aleksclark.primer.updates.SignedManifest
+import com.aleksclark.primertasks.client.Release
+import com.aleksclark.primertasks.client.ReleaseManifest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +91,64 @@ class ControlSelfUpdateCoordinatorTest {
     }
 
     @Test
+    fun sourcesAllowedWithoutPreparedApkStaysIdle() {
+        val ui = coordinator().ui(release())
+        assertEquals(ControlSelfUpdatePhase.Idle, ui.phase)
+        assertFalse(ui.canInstall)
+        assertEquals(null, ui.plan)
+    }
+
+    @Test
+    fun prepareUsesSharedPolicyAndDoesNotInstall() {
+        val session = FakeSession()
+        session.eligibility = SelfUpdateEligibility(
+            unattendedEligible = true,
+            userActionRequired = false,
+            reason = "Android may replace this package without a prompt",
+        )
+        val apk = File.createTempFile("control-", ".apk").apply { writeBytes(ByteArray(12) { 1 }) }
+        val coordinator = coordinator(session = session)
+        coordinator.prepare(apk, manifest())
+        val ui = coordinator.ui(release())
+        assertEquals(ControlSelfUpdatePhase.EligibleUnattended, ui.phase)
+        assertTrue(ui.canInstall)
+        assertTrue(ui.plan!!.unattendedEligible)
+        assertEquals(1, session.evaluations)
+        assertEquals(0, session.installs)
+        assertFalse(apk.exists())
+    }
+
+    @Test
+    fun preparedConfirmEligibilityDoesNotClaimUnattended() {
+        val session = FakeSession()
+        session.eligibility = SelfUpdateEligibility(
+            unattendedEligible = false,
+            userActionRequired = true,
+            reason = "Android requires a system install confirmation",
+        )
+        val apk = File.createTempFile("control-", ".apk").apply { writeBytes(ByteArray(12) { 1 }) }
+        val coordinator = coordinator(session = session)
+        coordinator.prepare(apk, manifest())
+        val ui = coordinator.ui(release())
+        assertEquals(ControlSelfUpdatePhase.EligibleConfirm, ui.phase)
+        assertTrue(ui.canInstall)
+        assertTrue(ui.plan!!.confirmationRequired)
+        assertEquals(0, session.installs)
+    }
+
+    @Test
+    fun installPreparedIsSeparateFromEvaluate() {
+        val session = FakeSession()
+        session.eligibility = SelfUpdateEligibility(true, false, "unattended")
+        val apk = File.createTempFile("control-", ".apk").apply { writeBytes(ByteArray(12) { 1 }) }
+        val coordinator = coordinator(session = session)
+        coordinator.prepare(apk, manifest())
+        coordinator.installPrepared()
+        assertEquals(1, session.evaluations)
+        assertEquals(1, session.installs)
+    }
+
+    @Test
     fun missingInstallerSessionFailsClosedOnContinue() {
         val session = FakeSession(pending = true, live = false, hasConfirmation = true)
         session.failOnResume = true
@@ -111,6 +173,48 @@ class ControlSelfUpdateCoordinatorTest {
         presenter = presenter,
         unknownSourcesAllowed = { true },
         installedVersion = { 1L },
+        decode = { manifest() },
+    )
+
+    private fun manifest() = SignedManifest(
+        packageName = ControlSelfUpdate.CONTROL_PACKAGE,
+        channel = ControlSelfUpdate.CONTROL_CHANNEL,
+        versionCode = 2,
+        versionName = "0.2.0",
+        minSdk = 28,
+        supportedAbis = listOf("arm64-v8a"),
+        signerSha256 = "a".repeat(64),
+        sha256 = "b".repeat(64),
+        byteSize = 12,
+    )
+
+    private fun release() = Release(
+        byteSize = 12,
+        channel = ControlSelfUpdate.CONTROL_CHANNEL,
+        id = "rel-2",
+        manifest = ReleaseManifest(
+            byteSize = 12,
+            channel = ControlSelfUpdate.CONTROL_CHANNEL,
+            minSdk = 28,
+            packageName = ControlSelfUpdate.CONTROL_PACKAGE,
+            sha256 = "b".repeat(64),
+            signerSha256 = "a".repeat(64),
+            supportedAbis = listOf("arm64-v8a"),
+            versionCode = 2,
+            versionName = "0.2.0",
+        ),
+        manifestPayloadBase64 = "payload",
+        manifestSignature = "sig",
+        minSdk = 28,
+        packageName = ControlSelfUpdate.CONTROL_PACKAGE,
+        publishedAt = "2026-01-01T00:00:00Z",
+        sha256 = "b".repeat(64),
+        signerSha256 = "a".repeat(64),
+        signingKeyId = "ed25519-v1",
+        status = "published",
+        supportedAbis = listOf("arm64-v8a"),
+        versionCode = 2,
+        versionName = "0.2.0",
     )
 
     private class FakeSession(
@@ -121,8 +225,11 @@ class ControlSelfUpdateCoordinatorTest {
         var outcome: String = "queued",
         var status: String = "No self-update attempted",
         var failOnResume: Boolean = false,
+        var eligibility: SelfUpdateEligibility = SelfUpdateEligibility(false, true, "confirm"),
     ) : SelfUpdateCommands {
         var lastShown: Boolean? = null
+        var evaluations = 0
+        var installs = 0
 
         override fun snapshot() = SelfUpdateSessionState(
             status = status,
@@ -135,7 +242,14 @@ class ControlSelfUpdateCoordinatorTest {
         )
 
         override fun reconcile() = snapshot().lastOutcome
-        override fun install(apk: File, expected: SignedManifest) = snapshot().lastOutcome
+        override fun evaluate(apk: File, expected: SignedManifest): SelfUpdateEligibility {
+            evaluations += 1
+            return eligibility
+        }
+        override fun install(apk: File, expected: SignedManifest): InstallAttempt {
+            installs += 1
+            return snapshot().lastOutcome
+        }
         override fun handleResult(intent: Intent, onUserAction: ((Intent) -> Boolean)?): InstallAttempt {
             lastShown = onUserAction?.invoke(Intent())
             pending = true

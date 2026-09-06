@@ -3,7 +3,6 @@ package com.aleksclark.primer.control
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aleksclark.primer.control.device.ApprovedAppDraft
-import com.aleksclark.primer.control.device.ControlDiscoveryAction
 import com.aleksclark.primer.control.device.ControlSelfUpdate
 import com.aleksclark.primer.control.device.ControlSelfUpdatePhase
 import com.aleksclark.primer.control.device.ControlSelfUpdateUi
@@ -46,9 +45,12 @@ import com.aleksclark.primer.updates.ArchiveChecks
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,6 +111,7 @@ class ControlViewModel(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val discoveryStore: ControlDiscoveryStore? = null,
+    private val catalogPeriodMs: Long = ControlUpdateDiscovery.MIN_PERIOD_MS,
     private val tasksFactory: (CredentialProvider) -> ParentTasksRepository = { token ->
         ParentTasksRepository(requireNotNull(apiBase), token, http)
     },
@@ -126,12 +129,14 @@ class ControlViewModel(
     private var workJob = SupervisorJob(viewModelScope.coroutineContext.job)
     private val workScope: CoroutineScope
         get() = CoroutineScope(viewModelScope.coroutineContext + workJob)
+    private var catalogJob: Job? = null
 
     private val _state = MutableStateFlow(ControlUiState())
     val state: StateFlow<ControlUiState> = _state
 
     init {
         discoveryStore?.load()?.let { loaded -> _state.value = _state.value.copy(discovery = loaded) }
+        syncCatalogTicker()
         viewModelScope.launch { refreshAuth() }
     }
 
@@ -165,6 +170,7 @@ class ControlViewModel(
             selfUpdate = _state.value.selfUpdate.copy(discovery = next),
         )
         discoveryStore?.save(next)
+        syncCatalogTicker()
     }
 
     fun clearPassword() {
@@ -451,30 +457,24 @@ class ControlViewModel(
 
     fun installControlUpdate() {
         val snapshot = _state.value
+        if (blocksInstall(snapshot.selfUpdate.phase, snapshot.selfUpdate.canContinueConfirmation)) {
+            _state.value = snapshot.copy(message = "Finish or cancel the current install confirmation first.")
+            return
+        }
         val candidate = ControlSelfUpdate.selectCandidate(snapshot.releases, snapshot.selfUpdate.installedVersion)
             ?: run {
                 _state.value = snapshot.copy(message = "No newer Control release is published on the stable channel.")
                 return
             }
         mutate { ctx ->
-            val coordinator = updater ?: error("Release trust root is not configured.")
-            val dir = downloadDir ?: error("Download directory is not available.")
-            withContext(io) {
-                val expected = coordinator.verify(candidate)
-                if (!stillValid(ctx)) return@withContext
-                val download = java.io.File.createTempFile("control-", ".apk", dir)
-                try {
-                    download.outputStream().use { raw ->
-                        ArchiveChecks.digestingSink(raw, expected.byteSize, expected.sha256).use { sink ->
-                            tasksFor(ctx).downloadReleaseArtifact(candidate.id, sink)
-                        }
-                    }
-                    if (!stillValid(ctx)) return@withContext
-                    coordinator.install(download, expected)
-                } finally {
-                    download.delete()
-                }
+            if (!_state.value.selfUpdate.canInstall) {
+                prepareCandidate(ctx, candidate)
+                if (!stillValid(ctx)) return@mutate
+                refreshSelfUpdate(ctx)
             }
+            val latest = _state.value.selfUpdate
+            if (blocksInstall(latest.phase, latest.canContinueConfirmation) || !latest.canInstall) return@mutate
+            updater?.installPrepared()
             if (stillValid(ctx)) refreshSelfUpdate(ctx)
         }
     }
@@ -662,31 +662,96 @@ class ControlViewModel(
         commit(ctx) { it.copy(selfUpdate = ui) }
     }
 
-    private suspend fun applyDiscovery(ctx: AuthContext) {
+    private suspend fun applyDiscovery(ctx: AuthContext, catalogOnly: Boolean = false) {
         val snapshot = _state.value
-        when (
-            ControlUpdateDiscovery.action(
-                settings = snapshot.discovery,
-                nowMs = clock(),
-                phase = snapshot.selfUpdate.phase,
-                canInstall = snapshot.selfUpdate.canInstall,
-                pendingConfirmation = snapshot.selfUpdate.canContinueConfirmation,
-            )
+        if (catalogOnly || ControlUpdateDiscovery.shouldRefreshCatalog(snapshot.discovery, clock())) {
+            refreshDevices(ctx)
+            if (!stillValid(ctx)) return
+            val next = _state.value.discovery.copy(lastCatalogCheckAtMs = clock())
+            commit(ctx) { it.copy(discovery = next) }
+            discoveryStore?.save(next)
+            refreshSelfUpdate(ctx)
+            if (stillValid(ctx)) prepareCurrentCandidate(ctx)
+        }
+        val latest = _state.value.selfUpdate
+        if (
+            !catalogOnly &&
+            ControlUpdateDiscovery.shouldRequestUnattendedInstall(
+                settings = _state.value.discovery,
+                phase = latest.phase,
+                canInstall = latest.canInstall,
+                pendingConfirmation = latest.canContinueConfirmation,
+            ) &&
+            !blocksInstall(latest.phase, latest.canContinueConfirmation) &&
+            !mutations.isBusy()
         ) {
-            ControlDiscoveryAction.None -> Unit
-            ControlDiscoveryAction.RefreshCatalog -> {
-                refreshDevices(ctx)
-                if (stillValid(ctx)) {
-                    val next = _state.value.discovery.copy(lastCatalogCheckAtMs = clock())
-                    commit(ctx) { it.copy(discovery = next) }
-                    discoveryStore?.save(next)
-                    refreshSelfUpdate(ctx)
+            installControlUpdate()
+        }
+    }
+
+    private suspend fun prepareCurrentCandidate(ctx: AuthContext) {
+        val snapshot = _state.value
+        if (snapshot.selfUpdate.canInstall) return
+        if (blocksInstall(snapshot.selfUpdate.phase, snapshot.selfUpdate.canContinueConfirmation)) return
+        val candidate = ControlSelfUpdate.selectCandidate(snapshot.releases, snapshot.selfUpdate.installedVersion) ?: return
+        prepareCandidate(ctx, candidate)
+        if (stillValid(ctx)) refreshSelfUpdate(ctx)
+    }
+
+    private suspend fun prepareCandidate(ctx: AuthContext, candidate: com.aleksclark.primertasks.client.Release) {
+        val coordinator = updater ?: error("Release trust root is not configured.")
+        val dir = downloadDir ?: error("Download directory is not available.")
+        withContext(io) {
+            val expected = coordinator.verify(candidate)
+            if (!stillValid(ctx)) return@withContext
+            val download = java.io.File.createTempFile("control-", ".apk", dir)
+            try {
+                download.outputStream().use { raw ->
+                    ArchiveChecks.digestingSink(raw, expected.byteSize, expected.sha256).use { sink ->
+                        tasksFor(ctx).downloadReleaseArtifact(candidate.id, sink)
+                    }
                 }
+                if (!stillValid(ctx)) {
+                    download.delete()
+                    return@withContext
+                }
+                coordinator.prepare(download, expected)
+            } catch (error: Exception) {
+                download.delete()
+                throw error
             }
-            ControlDiscoveryAction.RequestUnattendedInstall -> {
-                if (snapshot.selfUpdate.phase != ControlSelfUpdatePhase.EligibleUnattended) return
-                if (mutations.isBusy()) return
-                installControlUpdate()
+        }
+    }
+
+    private fun blocksInstall(phase: ControlSelfUpdatePhase, pendingConfirmation: Boolean): Boolean {
+        if (pendingConfirmation) return true
+        return phase == ControlSelfUpdatePhase.Failed ||
+            phase == ControlSelfUpdatePhase.Deferred ||
+            phase == ControlSelfUpdatePhase.WaitingConfirmation ||
+            phase == ControlSelfUpdatePhase.NeedsSettings
+    }
+
+    private fun syncCatalogTicker() {
+        catalogJob?.cancel()
+        if (!_state.value.discovery.periodicEnabled) return
+        catalogJob = viewModelScope.launch {
+            while (isActive) {
+                val tick = workScope.launch {
+                    val ctx = try {
+                        captureAuth()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    } ?: return@launch
+                    applyDiscovery(ctx, catalogOnly = true)
+                }
+                try {
+                    tick.join()
+                } catch (_: CancellationException) {
+                    // Auth fence cancelled an in-flight catalog tick; the next period retries.
+                }
+                delay(catalogPeriodMs)
             }
         }
     }
@@ -739,6 +804,7 @@ class ControlViewModel(
         try {
             tasksFor(ctx).session()
             commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false) }
+            syncCatalogTicker()
             if (stillValid(ctx)) refreshStudents(ctx)
         } catch (error: CancellationException) {
             throw error
@@ -770,15 +836,19 @@ class ControlViewModel(
     private fun tasksFor(ctx: AuthContext) = tasksFactory(CredentialProvider { ctx.token })
     private fun devicesFor(ctx: AuthContext) = devicesFactory(CredentialProvider { ctx.token })
 
-    private fun signedOut(signedIn: Boolean = false, message: String? = null) = ControlUiState(
-        ready = true,
-        signedIn = signedIn,
-        householdOk = false,
-        email = _state.value.email,
-        message = message,
-        discovery = _state.value.discovery,
-        selfUpdate = _state.value.selfUpdate.copy(discovery = _state.value.discovery),
-    )
+    private fun signedOut(signedIn: Boolean = false, message: String? = null): ControlUiState {
+        catalogJob?.cancel()
+        catalogJob = null
+        return ControlUiState(
+            ready = true,
+            signedIn = signedIn,
+            householdOk = false,
+            email = _state.value.email,
+            message = message,
+            discovery = _state.value.discovery,
+            selfUpdate = _state.value.selfUpdate.copy(discovery = _state.value.discovery),
+        )
+    }
 
     private fun commit(ctx: AuthContext, transform: (ControlUiState) -> ControlUiState) {
         if (!stillValid(ctx)) return

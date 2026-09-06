@@ -34,6 +34,18 @@ class ParentTasksRepositoryTest {
     }
 
     @Test
+    fun downloadsControlApkWithParentJwt() = runBlocking {
+        server.enqueue(MockResponse().setBody("apk"))
+        val out = java.io.ByteArrayOutputStream()
+        ParentTasksRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" })
+            .downloadReleaseArtifact("rel-2", out)
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertEquals("/api/managed-releases/rel-2/apk", request?.path)
+        assertEquals("Bearer parent-jwt", request?.getHeader("Authorization"))
+        assertEquals("apk", out.toString())
+    }
+
+    @Test
     fun pagesStudentsWithoutFetchingTheHousehold() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"items":[],"totalCount":40,"limit":20,"offset":20}"""))
         ParentTasksRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" }).listStudents("ali", 20)

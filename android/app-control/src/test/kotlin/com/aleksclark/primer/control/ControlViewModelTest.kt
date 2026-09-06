@@ -1,7 +1,13 @@
 package com.aleksclark.primer.control
 
+import com.aleksclark.primer.control.device.ControlSelfUpdatePhase
 import com.aleksclark.primer.control.device.DeviceRepository
 import com.aleksclark.primer.control.tasks.ParentTasksRepository
+import com.aleksclark.primer.updates.InstallAttempt
+import com.aleksclark.primer.updates.SelfUpdateCommands
+import com.aleksclark.primer.updates.SelfUpdateEligibility
+import com.aleksclark.primer.updates.SelfUpdateSessionState
+import com.aleksclark.primer.updates.SignedManifest
 import com.aleksclark.primer.identity.ParentIdentity
 import com.aleksclark.primer.identity.SignInOutcome
 import com.aleksclark.primer.identity.SignOutOutcome
@@ -378,16 +384,196 @@ class ControlViewModelTest {
         }
     }
 
-    private fun model(identity: FakeIdentity): ControlViewModel {
+    @Test
+    fun prepareEvaluatesWithoutInstallingUntilEligibleUnattended() = runBlocking {
+        val session = RecordingSession()
+        session.eligibility = SelfUpdateEligibility(true, false, "Android may replace this package without a prompt")
+        val apkBytes = ByteArray(12) { 'x'.code.toByte() }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
+                    request.path == "/api/managed-releases/rel-2/apk" -> MockResponse().setBody(okio.Buffer().write(apkBytes))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val dir = java.io.File.createTempFile("control-dl", "dir").apply {
+            delete()
+            mkdirs()
+        }
+        val model = model(identity, updater = coordinator(session), downloadDir = dir)
+        awaitHousehold(model)
+        model.setDiscovery(checkOnResume = true, periodicEnabled = false, unattendedCatchUp = false)
+        model.loadDevices()
+        awaitPhase(model, ControlSelfUpdatePhase.EligibleUnattended)
+        assertEquals(1, session.evaluations)
+        assertEquals(0, session.installs)
+        model.installControlUpdate()
+        repeat(40) {
+            if (session.installs >= 1) return@repeat
+            delay(25)
+        }
+        assertEquals(1, session.evaluations)
+        assertEquals(1, session.installs)
+    }
+
+    @Test
+    fun deferredAndFailedNeverDispatchInstaller() = runBlocking {
+        val session = RecordingSession(pending = true, live = true, hasConfirmation = true)
+        session.eligibility = SelfUpdateEligibility(true, false, "unattended")
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val model = model(identity, updater = coordinator(session))
+        awaitHousehold(model)
+        model.setDiscovery(checkOnResume = false, periodicEnabled = false, unattendedCatchUp = false)
+        model.loadDevices()
+        awaitPhase(model, ControlSelfUpdatePhase.WaitingConfirmation)
+        model.installControlUpdate()
+        delay(40)
+        assertEquals(0, session.evaluations)
+        assertEquals(0, session.installs)
+        assertEquals("Finish or cancel the current install confirmation first.", model.state.value.message)
+    }
+
+    @Test
+    fun periodicCatalogTickIsCancelledByAuthFence() = runBlocking {
+        val catalogs = AtomicInteger(0)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path == "/api/managed-releases") catalogs.incrementAndGet()
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path == "/api/auth/logout" -> MockResponse().setBody("""{"status":"ok"}""")
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody("""{"items":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val model = model(identity, catalogPeriodMs = 40)
+        awaitHousehold(model)
+        model.setDiscovery(periodicEnabled = true, checkOnResume = false)
+        delay(90)
+        val before = catalogs.get()
+        assertTrue("catalog never ticked: $before", before >= 1)
+        model.signOut()
+        awaitSignedOut(model)
+        delay(90)
+        assertEquals(before, catalogs.get())
+    }
+
+    private fun model(
+        identity: FakeIdentity,
+        updater: ControlSelfUpdateCoordinator? = null,
+        downloadDir: java.io.File? = null,
+        catalogPeriodMs: Long = 15L * 60L * 1000L,
+    ): ControlViewModel {
         val http = OkHttpClient()
         val origin = server.url("/").toString()
         return ControlViewModel(
             identity = identity,
             apiBase = origin,
             http = http,
+            updater = updater,
+            downloadDir = downloadDir,
+            io = dispatcher,
+            catalogPeriodMs = catalogPeriodMs,
             tasksFactory = { token -> ParentTasksRepository(origin, token, http) },
             devicesFactory = { token -> DeviceRepository(origin, token, http) },
         )
+    }
+
+    private fun coordinator(session: RecordingSession) = ControlSelfUpdateCoordinator(
+        context = object : android.content.ContextWrapper(null) {
+            override fun getPackageName() = "com.aleksclark.primer.control"
+        },
+        trustRoot = "dGVzdA",
+        session = session,
+        unknownSourcesAllowed = { true },
+        installedVersion = { 1L },
+        decode = {
+            SignedManifest(
+                packageName = "com.aleksclark.primer.control",
+                channel = "stable",
+                versionCode = 2,
+                versionName = "0.2.0",
+                minSdk = 28,
+                supportedAbis = listOf("arm64-v8a"),
+                signerSha256 = "a".repeat(64),
+                sha256 = "59ffe12a70df15109e0345955e3230a978f31ebc28d8fe3e42d306afb28b8e81",
+                byteSize = 12,
+            )
+        },
+    )
+
+    private fun releasePageJson() = """{"items":[{
+        "byteSize":12,
+        "channel":"stable",
+        "id":"rel-2",
+        "manifest":{"byteSize":12,"channel":"stable","minSdk":28,"packageName":"com.aleksclark.primer.control","sha256":"59ffe12a70df15109e0345955e3230a978f31ebc28d8fe3e42d306afb28b8e81","signerSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","supportedAbis":["arm64-v8a"],"versionCode":2,"versionName":"0.2.0"},
+        "manifestPayloadBase64":"payload",
+        "manifestSignature":"sig",
+        "minSdk":28,
+        "packageName":"com.aleksclark.primer.control",
+        "publishedAt":"2026-01-01T00:00:00Z",
+        "sha256":"59ffe12a70df15109e0345955e3230a978f31ebc28d8fe3e42d306afb28b8e81",
+        "signerSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signingKeyId":"ed25519-v1",
+        "status":"published",
+        "supportedAbis":["arm64-v8a"],
+        "versionCode":2,
+        "versionName":"0.2.0"
+    }]}"""
+
+    private class RecordingSession(
+        var pending: Boolean = false,
+        var live: Boolean = false,
+        var hasConfirmation: Boolean = false,
+        var eligibility: SelfUpdateEligibility = SelfUpdateEligibility(false, true, "confirm"),
+    ) : SelfUpdateCommands {
+        var evaluations = 0
+        var installs = 0
+        override fun snapshot() = SelfUpdateSessionState(
+            status = if (pending) "Waiting for system install confirmation" else "No self-update attempted",
+            active = pending,
+            pendingConfirmation = pending,
+            installerSessionLive = live,
+            desiredVersion = if (pending) 2 else 0,
+            lastOutcome = InstallAttempt(if (pending) "blocked" else "queued"),
+            hasConfirmationIntent = hasConfirmation,
+        )
+        override fun reconcile() = snapshot().lastOutcome
+        override fun evaluate(apk: java.io.File, expected: SignedManifest): SelfUpdateEligibility {
+            evaluations += 1
+            return eligibility
+        }
+        override fun install(apk: java.io.File, expected: SignedManifest): InstallAttempt {
+            installs += 1
+            return snapshot().lastOutcome
+        }
+        override fun handleResult(intent: android.content.Intent, onUserAction: ((android.content.Intent) -> Boolean)?) = snapshot().lastOutcome
+        override fun resumeUserAction(onUserAction: (android.content.Intent) -> Boolean) = snapshot().lastOutcome
+        override fun cancel() = snapshot().lastOutcome
     }
 
     private fun sessionAndStudents() = object : Dispatcher() {
@@ -399,6 +585,14 @@ class ControlViewModelTest {
                 else -> MockResponse().setResponseCode(404)
             }
         }
+    }
+
+    private suspend fun awaitPhase(model: ControlViewModel, phase: ControlSelfUpdatePhase) {
+        repeat(40) {
+            if (model.state.value.selfUpdate.phase == phase) return
+            delay(25)
+        }
+        throw AssertionError("never reached $phase: ${model.state.value.selfUpdate} message=${model.state.value.message}")
     }
 
     private suspend fun awaitHousehold(model: ControlViewModel) {

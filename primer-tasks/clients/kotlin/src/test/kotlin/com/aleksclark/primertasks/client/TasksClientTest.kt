@@ -263,6 +263,22 @@ class TasksClientTest {
     }
 
     @Test
+    fun parentDownloadUsesManagedReleaseApkNotManagementArtifact() = runBlocking {
+        server.enqueue(MockResponse().setBody("apk-bytes"))
+        val out = java.io.ByteArrayOutputStream()
+        val written = TasksClient(
+            server.url("/").toString(),
+            parentCredentials = CredentialProvider { "parent-jwt" },
+            managementCredentials = CredentialProvider { "mgmt-token" },
+        ).downloadManagedReleaseArtifact("rel-2", out)
+        val request = take()
+        assertEquals("/api/managed-releases/rel-2/apk", request.path)
+        assertEquals("Bearer parent-jwt", request.getHeader("Authorization"))
+        assertEquals(9L, written)
+        assertEquals("apk-bytes", out.toString())
+    }
+
+    @Test
     fun binaryArtifactRequiresManagementCredential() = runBlocking {
         try {
             TasksClient(server.url("/").toString(), parentCredentials = CredentialProvider { "parent-jwt" })

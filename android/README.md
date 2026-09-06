@@ -75,12 +75,20 @@ newer than the installed version. The decoded signed manifest must match outer
 package/channel/version/signer/size/hash before download. Device rollout still
 uses `selectedReleaseId`; Control self-update does not.
 
+Catalog discovery downloads and `evaluate`s a candidate APK through the shared
+adapter (hash, signer, ABI, targetSdk vs running OS) **without** opening
+PackageInstaller. `EligibleUnattended` / `EligibleConfirm` are only shown after
+that prepare step. Install is a separate `installPrepared` call and is blocked
+from Failed, Deferred, WaitingConfirmation, and NeedsSettings. Parent APK bytes
+use `/managed-releases/{id}/apk` with the parent JWT, not the management artifact
+route.
+
 Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
-Parent settings may enable catalog checks on resume and a 15-minute-floor periodic
-refresh. Unattended catch-up is opt-in and only when the shared adapter reports
-`EligibleUnattended`; confirmation-required, deferred, and failed states never
-auto-install. Discovery never skips signed-manifest verification. This is not a
-silent-install guarantee and not live Clerk/self-update acceptance. Missing
+Parent settings may enable catalog checks on resume and a 15-minute-floor in-process
+periodic refresh while Control is open (auth-fenced; not WorkManager, not a wake-up
+guarantee). Unattended catch-up is opt-in and only when prepare reported
+`EligibleUnattended`. Discovery never skips signed-manifest verification. This is
+not a silent-install guarantee and not live Clerk/self-update acceptance. Missing
 `PRIMER_RELEASE_TRUST_ROOT` fails closed. minSdk **28**; no `overrideLibrary`; no
 duplicate installer. Production `ReleaseTrust` verifies only; fixture sign helpers
 are not on the production type.
