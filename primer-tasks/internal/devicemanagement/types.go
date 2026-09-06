@@ -8,9 +8,13 @@ import (
 )
 
 const (
-	StudentPackageName  = "com.aleksclark.primer.student"
-	EnrollmentQRScheme  = "primer-management"
-	EnrollmentQRVersion = "v1"
+	StudentPackageName     = "com.aleksclark.primer.student"
+	EnrollmentQRScheme     = "primer-management"
+	EnrollmentQRVersion    = "v1"
+	RecoveryHPKEAlg        = "TINK-HPKE-X25519-HKDF-SHA256-CHACHA20POLY1305-RAW-v1"
+	RecoveryHPKETemplate   = "DHKEM_X25519_HKDF_SHA256_HKDF_SHA256_CHACHA20_POLY1305_RAW"
+	RecoveryContextPrefix  = "primer-management/recovery/v1"
+	ReleaseSigningKeyIDAlg = "ed25519-v1"
 )
 
 type Scope struct {
@@ -60,8 +64,8 @@ type EnrollInput struct {
 	DeviceName       string             `json:"deviceName" minLength:"1" maxLength:"80"`
 	DeviceModel      string             `json:"deviceModel,omitempty" maxLength:"80"`
 	StableDeviceKey  string             `json:"stableDeviceKey,omitempty" minLength:"16" maxLength:"128"`
-	EnrollmentKeyID  string             `json:"enrollmentKeyId,omitempty" minLength:"8" maxLength:"64"`
-	EnrollmentPubKey string             `json:"enrollmentPublicKey,omitempty" minLength:"32" maxLength:"128"`
+	EnrollmentKeyID  string             `json:"enrollmentKeyId,omitempty" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	EnrollmentPubKey string             `json:"enrollmentPublicKey,omitempty" minLength:"32" maxLength:"8192"`
 	Capabilities     DeviceCapabilities `json:"capabilities,omitempty"`
 }
 
@@ -176,6 +180,15 @@ const (
 	ReportStale     PolicyReportStatus = "stale"
 )
 
+type InstalledApp struct {
+	PackageName  string `json:"packageName" minLength:"3" maxLength:"255"`
+	Label        string `json:"label,omitempty" maxLength:"80"`
+	VersionName  string `json:"versionName,omitempty" maxLength:"32"`
+	VersionCode  int64  `json:"versionCode,omitempty" minimum:"0"`
+	SignerSHA256 string `json:"signerSha256" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	Self         bool   `json:"self,omitempty"`
+}
+
 type PolicyReportInput struct {
 	ReportID                string             `json:"reportId" format:"uuid"`
 	PolicyRevision          int64              `json:"policyRevision" minimum:"0"`
@@ -183,6 +196,7 @@ type PolicyReportInput struct {
 	InstalledStudentVersion string             `json:"installedStudentVersion,omitempty" maxLength:"32"`
 	DeviceReportedAt        *time.Time         `json:"deviceReportedAt,omitempty" format:"date-time"`
 	Controls                []ControlResult    `json:"controls,omitempty" maxItems:"64" nullable:"false"`
+	InstalledApps           []InstalledApp     `json:"installedApps,omitempty" maxItems:"64" nullable:"false"`
 }
 
 type PolicyReport struct {
@@ -194,6 +208,7 @@ type PolicyReport struct {
 	Stale                   bool               `json:"stale"`
 	InstalledStudentVersion string             `json:"installedStudentVersion,omitempty"`
 	Controls                []ControlResult    `json:"controls,omitempty" nullable:"false"`
+	InstalledApps           []InstalledApp     `json:"installedApps,omitempty" nullable:"false"`
 	ReceivedAt              time.Time          `json:"receivedAt" format:"date-time"`
 }
 
@@ -204,18 +219,17 @@ const (
 	RecoveryRotateCode       RecoveryKind = "rotate_recovery_code"
 )
 
-// RecoveryEnvelope is a provisional opaque holder. Native encryption is not
-// specified here; a later Tink/HPKE profile will replace alg/nonce/ciphertext
-// semantics without changing this route. Do not treat this as a complete AEAD
-// protocol: there is no sender ephemeral key, KDF, AAD, or intent-id binding yet.
+// RecoveryEnvelope is Google Tink HPKE. Server validates encoding/key binding
+// and never decrypts. Native encrypts with Tink hybrid encrypt using contextInfo
+// UTF-8: primer-management/recovery/v1 NUL deviceId NUL requestId NUL keyId.
 type RecoveryEnvelope struct {
-	KeyID      string `json:"keyId" minLength:"8" maxLength:"64"`
-	Alg        string `json:"alg" enum:"X25519-ChaCha20Poly1305"`
-	Nonce      string `json:"nonce" minLength:"16" maxLength:"64"`
-	Ciphertext string `json:"ciphertext" minLength:"16" maxLength:"4096"`
+	KeyID      string `json:"keyId" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	Alg        string `json:"alg" enum:"TINK-HPKE-X25519-HKDF-SHA256-CHACHA20POLY1305-RAW-v1"`
+	Ciphertext string `json:"ciphertext" minLength:"16" maxLength:"16384"`
 }
 
 type RecoveryIntentInput struct {
+	RequestID              string            `json:"requestId" format:"uuid"`
 	Kind                   RecoveryKind      `json:"kind" enum:"maintenance_lease,rotate_recovery_code"`
 	DeliveryExpiresMinutes int               `json:"deliveryExpiresMinutes,omitempty" minimum:"1" maximum:"60"`
 	LeaseExpiresMinutes    int               `json:"leaseExpiresMinutes,omitempty" minimum:"1" maximum:"30"`
@@ -244,6 +258,7 @@ type DesiredState struct {
 	PolicyRevision *PolicyRevision  `json:"policyRevision,omitempty"`
 	Recovery       []RecoveryIntent `json:"recovery" nullable:"false"`
 	ReleaseTargets []ReleaseTarget  `json:"releaseTargets" nullable:"false"`
+	ServerTime     time.Time        `json:"serverTime" format:"date-time"`
 }
 
 type StateChangeInput struct {
@@ -251,16 +266,19 @@ type StateChangeInput struct {
 }
 
 type ReleaseTarget struct {
-	ID            string `json:"id" format:"uuid"`
-	ReleaseID     string `json:"releaseId" format:"uuid"`
-	PackageName   string `json:"packageName"`
-	Channel       string `json:"channel"`
-	Status        string `json:"status" enum:"queued,downloading,verifying,installing,confirmed,blocked,failed"`
-	VersionCode   int64  `json:"versionCode" minimum:"1"`
-	VersionName   string `json:"versionName"`
-	SHA256        string `json:"sha256" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
-	ByteSize      int64  `json:"byteSize" minimum:"1"`
-	TargetVersion int64  `json:"targetVersion" minimum:"1"`
-	MinSdk        int    `json:"minSdk,omitempty"`
-	SignerSHA256  string `json:"signerSha256,omitempty" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	ID                    string `json:"id" format:"uuid"`
+	ReleaseID             string `json:"releaseId" format:"uuid"`
+	PackageName           string `json:"packageName"`
+	Channel               string `json:"channel"`
+	Status                string `json:"status" enum:"queued,downloading,verifying,installing,confirmed,blocked,failed"`
+	VersionCode           int64  `json:"versionCode" minimum:"1"`
+	VersionName           string `json:"versionName"`
+	SHA256                string `json:"sha256" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	ByteSize              int64  `json:"byteSize" minimum:"1"`
+	TargetVersion         int64  `json:"targetVersion" minimum:"1"`
+	MinSdk                int    `json:"minSdk,omitempty"`
+	SignerSHA256          string `json:"signerSha256,omitempty" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+	ManifestPayloadBase64 string `json:"manifestPayloadBase64,omitempty"`
+	ManifestSignature     string `json:"manifestSignature,omitempty"`
+	SigningKeyID          string `json:"signingKeyId,omitempty"`
 }
