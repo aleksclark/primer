@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/aleksclark/primer/curriculum-studio/internal/artifacts"
 	"github.com/aleksclark/primer/curriculum-studio/internal/outbox"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 )
@@ -44,6 +45,8 @@ type Options struct {
 	// Secrets stores webhook signing secrets by their secret_ref pointer. The
 	// process bootstrap must share this store with the outbox worker.
 	Secrets outbox.SecretStore
+	// Artifacts is required for export creation/download. Nil fails closed.
+	Artifacts artifacts.Store
 }
 
 // Pinger is the subset of a DB pool needed for readiness.
@@ -59,6 +62,7 @@ type Server struct {
 	acceptServiceTokenAlias bool
 	matStub                 bool
 	secrets                 outbox.SecretStore
+	artifacts               artifacts.Store
 	now                     func() time.Time
 	reqTotal                atomic.Int64
 }
@@ -78,7 +82,7 @@ func NewWithPinger(pool Pinger, opts Options) (huma.API, http.Handler) {
 	if secrets == nil {
 		secrets = outbox.NewMemorySecrets()
 	}
-	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, matStub: opts.MatStub, secrets: secrets, now: now}
+	s := &Server{pool: pool, querier: opts.Querier, validator: opts.Validator, acceptServiceTokenAlias: opts.AcceptServiceTokenAlias, matStub: opts.MatStub, secrets: secrets, artifacts: opts.Artifacts, now: now}
 	if s.querier == nil {
 		if q, ok := pool.(repo.Querier); ok {
 			s.querier = q

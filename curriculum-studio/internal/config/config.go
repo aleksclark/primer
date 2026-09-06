@@ -50,8 +50,14 @@ type Config struct {
 	// AcceptServiceTokenAlias enables the migration-only X-Service-Token JWT
 	// alias. It is disabled by default and never accepts static secrets.
 	AcceptServiceTokenAlias bool `envconfig:"ACCEPT_SERVICE_TOKEN_ALIAS" default:"false"`
-	// ArtifactStoreDir is optional filesystem root for later export bytes (S13).
-	ArtifactStoreDir string `envconfig:"ARTIFACT_STORE_DIR"`
+	// ArtifactStore selects durable export storage. S3 buckets are pre-provisioned.
+	ArtifactStore       string `envconfig:"ARTIFACT_STORE" default:"fs"`
+	ArtifactStoreDir    string `envconfig:"ARTIFACT_STORE_DIR" default:"./studio-artifacts"`
+	ArtifactS3Bucket    string `envconfig:"ARTIFACT_S3_BUCKET"`
+	ArtifactS3Endpoint  string `envconfig:"ARTIFACT_S3_ENDPOINT"`
+	ArtifactS3Region    string `envconfig:"ARTIFACT_S3_REGION" default:"us-east-1"`
+	ArtifactS3AccessKey string `envconfig:"ARTIFACT_S3_ACCESS_KEY"`
+	ArtifactS3SecretKey string `envconfig:"ARTIFACT_S3_SECRET_KEY"`
 	// MCPEnabled controls whether the /mcp Streamable HTTP endpoint is registered.
 	// Default: true in non-production; must be explicitly set in production.
 	MCPEnabled bool `envconfig:"MCP_ENABLED" default:"true"`
@@ -185,6 +191,35 @@ func (c *Config) Validate() error {
 	}
 	if c.Env == "production" && c.MatStub {
 		return fmt.Errorf("studio config: materialization stub completer is forbidden in production")
+	}
+	c.ArtifactStore = strings.ToLower(strings.TrimSpace(c.ArtifactStore))
+	if c.ArtifactStore == "" {
+		c.ArtifactStore = "fs"
+	}
+	switch c.ArtifactStore {
+	case "fs":
+		if strings.TrimSpace(c.ArtifactStoreDir) == "" {
+			c.ArtifactStoreDir = "./studio-artifacts"
+		}
+	case "s3":
+		if strings.TrimSpace(c.ArtifactS3Bucket) == "" {
+			return fmt.Errorf("studio config: artifact S3 bucket is required")
+		}
+		u, err := parseIdentityURL("artifact S3 endpoint", c.ArtifactS3Endpoint)
+		if err != nil {
+			return err
+		}
+		if u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			return fmt.Errorf("studio config: invalid artifact S3 endpoint")
+		}
+		if (c.ArtifactS3AccessKey == "") != (c.ArtifactS3SecretKey == "") {
+			return fmt.Errorf("studio config: both artifact S3 access and secret keys are required")
+		}
+		if c.Env == "production" && u.Scheme != "https" {
+			return fmt.Errorf("studio config: artifact S3 endpoint must use https in production")
+		}
+	default:
+		return fmt.Errorf("studio config: artifact store must be fs|s3")
 	}
 	return nil
 }

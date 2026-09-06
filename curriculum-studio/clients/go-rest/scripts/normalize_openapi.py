@@ -3,8 +3,9 @@
 
 The source remains the Huma-emitted 3.1 document. ogen currently accepts the
 same schemas in 3.0 form but not JSON Schema's `type: [T, null]` spelling, so
-this ignored client-build IR only changes nullable spelling and removes the
-3.1 dialect marker.
+this ignored client-build IR changes nullable spelling, removes the 3.1
+dialect marker, and lowers binary contentMediaType (already represented by
+3.0 format: binary and the response Content-Type).
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ import yaml
 def normalize(value):
     if isinstance(value, dict):
         out = {key: normalize(item) for key, item in value.items()}
+        if out.get("format") == "binary":
+            out.pop("contentMediaType", None)
         typ = out.get("type")
         if isinstance(typ, list) and "null" in typ:
             non_null = [item for item in typ if item != "null"]
