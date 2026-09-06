@@ -78,10 +78,12 @@ uses `selectedReleaseId`; Control self-update does not.
 Catalog discovery downloads and `evaluate`s a candidate APK through the shared
 adapter (hash, signer, ABI, targetSdk vs running OS) **without** opening
 PackageInstaller. `EligibleUnattended` / `EligibleConfirm` are only shown after
-that prepare step. Install is a separate `installPrepared` call and is blocked
-from Failed, Deferred, WaitingConfirmation, and NeedsSettings. Parent APK bytes
-use `/managed-releases/{id}/apk` with the parent JWT, not the management artifact
-route.
+that prepare step. Prepared files are uniquely named and swapped under a lock;
+`ui()` never deletes a live prepared APK. Install is a separate `installPrepared`
+call, runs on IO, and is blocked from Failed, Deferred, WaitingConfirmation, and
+NeedsSettings at the coordinator snapshot — not only the ViewModel cache. Parent
+APK bytes use `/managed-releases/{id}/apk` with the parent JWT, not the
+management artifact route.
 
 Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
 Parent settings may enable catalog checks on resume and a 15-minute-floor in-process

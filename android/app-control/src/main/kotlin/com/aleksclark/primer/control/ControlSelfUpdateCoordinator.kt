@@ -11,15 +11,19 @@ import com.aleksclark.primer.control.device.ControlSelfUpdateUi
 import com.aleksclark.primer.updates.SelfUpdateCommands
 import com.aleksclark.primer.updates.SelfUpdateEligibility
 import com.aleksclark.primer.updates.SelfUpdateSession
+import com.aleksclark.primer.updates.SelfUpdateSessionState
 import com.aleksclark.primer.updates.SignedManifest
 import com.aleksclark.primer.updates.SignedManifestCodec
 import com.aleksclark.primertasks.client.Release
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 data class PreparedControlUpdate(
     val expected: SignedManifest,
     val eligibility: SelfUpdateEligibility,
     val apk: File,
+    val generation: Long,
 )
 
 class ControlSelfUpdateCoordinator(
@@ -45,13 +49,14 @@ class ControlSelfUpdateCoordinator(
         )
     },
 ) {
-    @Volatile private var lastPresentation: UserActionPresentation? = null
-    @Volatile private var prepared: PreparedControlUpdate? = null
+    private val lock = Any()
+    private val lastPresentation = AtomicReference<UserActionPresentation?>(null)
+    private val prepared = AtomicReference<PreparedControlUpdate?>(null)
+    private val generation = AtomicLong(0)
 
     fun ui(candidate: Release? = null): ControlSelfUpdateUi {
         val installed = installedVersion()
         if (trustRoot.isBlank()) {
-            dropPrepared()
             return ControlSelfUpdateUi(
                 phase = ControlSelfUpdatePhase.Failed,
                 installedVersion = installed,
@@ -60,20 +65,19 @@ class ControlSelfUpdateCoordinator(
         }
         session.reconcile()
         val state = session.snapshot()
-        val presentation = lastPresentation
+        val presentation = lastPresentation.get()
         val deferred = presentation is UserActionPresentation.Deferred
         val failed = state.lastOutcome.status == "failed" ||
             (state.lastOutcome.status == "blocked" && !state.pendingConfirmation)
         val verified = candidate?.let { runCatching { verify(it) }.getOrNull() }
         val unsigned = candidate != null && verified == null && !state.pendingConfirmation && !state.active
-        val current = prepared?.takeIf { prepared ->
+        val current = publishedPrepared()?.takeIf { prepared ->
             prepared.apk.isFile && when {
                 candidate == null -> true
                 verified == null -> false
                 else -> prepared.expected.sha256.equals(verified.sha256, true)
             }
         }
-        if (current == null) dropPrepared()
         val sources = unknownSourcesAllowed()
         val plan = when {
             !sources -> ControlSelfUpdate.present(
@@ -102,7 +106,7 @@ class ControlSelfUpdateCoordinator(
             candidateVersion = version ?: state.desiredVersion.takeIf { it > 0 },
             status = presentationStatus(state.status, presentation, current),
             plan = plan,
-            canInstall = eligible && !state.active && sources && !state.pendingConfirmation,
+            canInstall = eligible && !state.active && sources && !state.pendingConfirmation && !blocksInstall(state, deferred),
             canOpenSettings = !sources,
             canContinueConfirmation = state.pendingConfirmation && state.installerSessionLive && state.hasConfirmationIntent,
             presentation = when (presentation) {
@@ -115,17 +119,19 @@ class ControlSelfUpdateCoordinator(
     }
 
     fun prepare(download: File, expected: SignedManifest): PreparedControlUpdate {
+        val token = generation.incrementAndGet()
+        var kept: File? = null
         return try {
             val eligibility = session.evaluate(download, expected)
-            val kept = File(download.parentFile, "prepared-${expected.versionCode}.apk")
-            if (kept.exists()) kept.delete()
+            val directory = download.parentFile ?: context.cacheDir
+            kept = File.createTempFile("prepared-${expected.versionCode}-", ".apk", directory)
             check(download.renameTo(kept) || (download.copyTo(kept, overwrite = true).also { download.delete() }.exists())) {
                 "Could not keep the verified Control APK"
             }
-            dropPrepared()
-            PreparedControlUpdate(expected, eligibility, kept).also { prepared = it }
+            val next = PreparedControlUpdate(expected, eligibility, kept, token)
+            publishPrepared(next, token)
         } catch (error: Exception) {
-            dropPrepared()
+            kept?.delete()
             download.delete()
             throw error
         } finally {
@@ -134,34 +140,46 @@ class ControlSelfUpdateCoordinator(
     }
 
     fun installPrepared(): ControlSelfUpdateUi {
-        val current = prepared ?: error("No verified Control update is prepared.")
+        session.reconcile()
+        val state = session.snapshot()
+        val deferred = lastPresentation.get() is UserActionPresentation.Deferred
+        if (blocksInstall(state, deferred)) {
+            error("A failed or pending install confirmation blocks PackageInstaller dispatch.")
+        }
+        val current = publishedPrepared() ?: error("No verified Control update is prepared.")
         try {
             session.install(current.apk, current.expected)
         } finally {
-            dropPrepared()
+            clearPrepared(current.generation)
         }
-        lastPresentation = null
+        lastPresentation.set(null)
         return ui()
     }
 
     fun handleResult(intent: Intent): ControlSelfUpdateUi {
-        lastPresentation = null
+        lastPresentation.set(null)
         session.handleResult(intent) { confirmation ->
             val presented = presenter.present(confirmation)
-            lastPresentation = presented
+            lastPresentation.set(presented)
             presented.shown
         }
         return ui()
     }
 
     fun continueConfirmation(): ControlSelfUpdateUi {
-        lastPresentation = null
+        lastPresentation.set(null)
         session.resumeUserAction { confirmation ->
             val presented = presenter.present(confirmation)
-            lastPresentation = presented
+            lastPresentation.set(presented)
             presented.shown
         }
         return ui()
+    }
+
+    fun invalidatePrepared() {
+        generation.incrementAndGet()
+        clearPrepared()
+        lastPresentation.set(null)
     }
 
     fun settingsIntent(): Intent =
@@ -175,9 +193,41 @@ class ControlSelfUpdateCoordinator(
         return decoded
     }
 
-    private fun dropPrepared() {
-        prepared?.apk?.delete()
-        prepared = null
+    private fun blocksInstall(state: SelfUpdateSessionState, deferred: Boolean): Boolean {
+        if (state.pendingConfirmation) return true
+        if (deferred) return true
+        if (!unknownSourcesAllowed()) return true
+        val status = state.lastOutcome.status
+        return status == "failed" || (status == "blocked" && !state.pendingConfirmation)
+    }
+
+    private fun publishedPrepared(): PreparedControlUpdate? {
+        val current = prepared.get() ?: return null
+        if (!current.apk.isFile) {
+            prepared.compareAndSet(current, null)
+            return null
+        }
+        return current
+    }
+
+    private fun publishPrepared(next: PreparedControlUpdate, token: Long): PreparedControlUpdate {
+        synchronized(lock) {
+            if (token != generation.get()) {
+                next.apk.delete()
+                error("Prepared Control update was cancelled.")
+            }
+            val previous = prepared.getAndSet(next)
+            if (previous != null && previous.apk != next.apk) previous.apk.delete()
+            return next
+        }
+    }
+
+    private fun clearPrepared(expectedGeneration: Long? = null) {
+        synchronized(lock) {
+            val current = prepared.get() ?: return
+            if (expectedGeneration != null && current.generation != expectedGeneration) return
+            if (prepared.compareAndSet(current, null)) current.apk.delete()
+        }
     }
 
     private fun presentationStatus(

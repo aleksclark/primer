@@ -474,7 +474,10 @@ class ControlViewModel(
             }
             val latest = _state.value.selfUpdate
             if (blocksInstall(latest.phase, latest.canContinueConfirmation) || !latest.canInstall) return@mutate
-            updater?.installPrepared()
+            withContext(io) {
+                if (!stillValid(ctx)) return@withContext
+                updater?.installPrepared()
+            }
             if (stillValid(ctx)) refreshSelfUpdate(ctx)
         }
     }
@@ -664,14 +667,14 @@ class ControlViewModel(
 
     private suspend fun applyDiscovery(ctx: AuthContext, catalogOnly: Boolean = false) {
         val snapshot = _state.value
-        if (catalogOnly || ControlUpdateDiscovery.shouldRefreshCatalog(snapshot.discovery, clock())) {
+        if (ControlUpdateDiscovery.shouldRefreshCatalog(snapshot.discovery, clock(), catalogPeriodMs)) {
             refreshDevices(ctx)
             if (!stillValid(ctx)) return
             val next = _state.value.discovery.copy(lastCatalogCheckAtMs = clock())
-            commit(ctx) { it.copy(discovery = next) }
+            commit(ctx) { it.copy(discovery = next, selfUpdate = it.selfUpdate.copy(discovery = next)) }
             discoveryStore?.save(next)
             refreshSelfUpdate(ctx)
-            if (stillValid(ctx)) prepareCurrentCandidate(ctx)
+            if (!catalogOnly && stillValid(ctx)) prepareCurrentCandidate(ctx)
         }
         val latest = _state.value.selfUpdate
         if (
@@ -715,6 +718,10 @@ class ControlViewModel(
                     download.delete()
                     return@withContext
                 }
+                if (!stillValid(ctx)) {
+                    download.delete()
+                    return@withContext
+                }
                 coordinator.prepare(download, expected)
             } catch (error: Exception) {
                 download.delete()
@@ -732,26 +739,32 @@ class ControlViewModel(
     }
 
     private fun syncCatalogTicker() {
-        catalogJob?.cancel()
-        if (!_state.value.discovery.periodicEnabled) return
+        if (!_state.value.discovery.periodicEnabled) {
+            catalogJob?.cancel()
+            catalogJob = null
+            return
+        }
+        if (catalogJob?.isActive == true) return
         catalogJob = viewModelScope.launch {
             while (isActive) {
+                val wait = remainingCatalogDelay()
+                if (wait > 0) delay(wait)
                 val tick = workScope.launch {
                     val ctx = try {
                         captureAuth()
                     } catch (error: CancellationException) {
                         throw error
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        _state.value = _state.value.copy(message = controlMessage(error))
                         null
                     } ?: return@launch
-                    applyDiscovery(ctx, catalogOnly = true)
+                    runAct(ctx, ConflictResource.None) { applyDiscovery(it, catalogOnly = true) }
                 }
                 try {
                     tick.join()
                 } catch (_: CancellationException) {
                     // Auth fence cancelled an in-flight catalog tick; the next period retries.
                 }
-                delay(catalogPeriodMs)
             }
         }
     }
@@ -804,7 +817,7 @@ class ControlViewModel(
         try {
             tasksFor(ctx).session()
             commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false) }
-            syncCatalogTicker()
+            if (_state.value.discovery.periodicEnabled && catalogJob?.isActive != true) syncCatalogTicker()
             if (stillValid(ctx)) refreshStudents(ctx)
         } catch (error: CancellationException) {
             throw error
@@ -822,8 +835,16 @@ class ControlViewModel(
         }
     }
 
+    private fun remainingCatalogDelay(): Long {
+        val last = _state.value.discovery.lastCatalogCheckAtMs
+        if (last <= 0) return catalogPeriodMs
+        val elapsed = clock() - last
+        return (catalogPeriodMs - elapsed).coerceAtLeast(0L)
+    }
+
     private fun fence() {
         epoch.bump()
+        updater?.invalidatePrepared()
         workJob.cancel()
         workJob = SupervisorJob(viewModelScope.coroutineContext.job)
     }
