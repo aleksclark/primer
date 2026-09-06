@@ -145,12 +145,11 @@ tv-release-sidecar:
 	cd server && go run ./cmd/tv-release-sidecar $(SIDECAR_ARGS)
 
 ## Required executable CLI acceptance for tv-release-sidecar.
-## Builds the binary, requires aapt2/apksigner and a signed TV APK, and runs
-## the inspectable-APK CLI test. Ordinary `go test ./cmd/tv-release-sidecar`
-## stays skip-on-missing for the server unit job.
+## The test builds and executes the binary in its private temporary directory.
+## Requires aapt2/apksigner and a signed TV APK; missing prerequisites fail.
+## Ordinary server unit runs leave this explicit acceptance case disabled.
 tv-release-sidecar-acceptance:
 	cd server && go test ./cmd/tv-release-sidecar -count=1
-	cd server && go build -o /tmp/tv-release-sidecar ./cmd/tv-release-sidecar
 	cd server && TV_RELEASE_SIDECAR_ACCEPTANCE=1 go test ./cmd/tv-release-sidecar -count=1 -run TestStageCLIProducesSignedSidecarFromInspectableAPK
 
 ## Generate the TV TypeScript client from the TV OpenAPI spec.

@@ -120,19 +120,35 @@ func TestParseSignerRequiresExactCertificateLine(t *testing.T) {
 
 func TestRenameNoReplaceDoesNotClobberExisting(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src")
-	dest := filepath.Join(dir, "dest")
-	require.NoError(t, os.Mkdir(src, 0o700))
-	require.NoError(t, os.Mkdir(dest, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(dest, "keep"), []byte("old"), 0o600))
-	err := renameNoReplace(src, dest)
-	require.Error(t, err)
-	got, err := os.ReadFile(filepath.Join(dest, "keep"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("old"), got)
-	_, err = os.Stat(src)
-	require.NoError(t, err, "source staging dir must remain after a refused rename")
+	for _, populated := range []bool{false, true} {
+		name := "empty"
+		if populated {
+			name = "populated"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src")
+			dest := filepath.Join(dir, "dest")
+			require.NoError(t, os.Mkdir(src, 0o700))
+			require.NoError(t, os.Mkdir(dest, 0o700))
+			if populated {
+				require.NoError(t, os.WriteFile(filepath.Join(dest, "keep"), []byte("old"), 0o600))
+			}
+			before, err := os.Stat(dest)
+			require.NoError(t, err)
+			require.Error(t, renameNoReplace(src, dest))
+			after, err := os.Stat(dest)
+			require.NoError(t, err)
+			require.True(t, os.SameFile(before, after), "existing destination inode must not be replaced")
+			if populated {
+				got, err := os.ReadFile(filepath.Join(dest, "keep"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("old"), got)
+			}
+			_, err = os.Stat(src)
+			require.NoError(t, err, "source staging dir must remain after a refused rename")
+		})
+	}
 }
 
 func TestSnapshotFIFODoesNotBlock(t *testing.T) {
@@ -247,13 +263,31 @@ func TestStageCLIProducesSignedSidecarFromInspectableAPK(t *testing.T) {
 	n, err := snapshotRegularFile(src, copied, maxAPKBytes)
 	require.NoError(t, err)
 	require.Greater(t, n, int64(0))
+	binary := filepath.Join(dir, "tv-release-sidecar")
+	build := exec.Command("go", "build", "-o", binary, ".")
+	build.Dir = wd
+	output, err := build.CombinedOutput()
+	require.NoError(t, err, "build executable: %s", output)
 	_, priv, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	dest := filepath.Join(dir, "staging")
 	t.Setenv("TV_AAPT2", aapt2)
 	t.Setenv("TV_APKSIGNER", apksigner)
-	require.NoError(t, run(copied, dest, "stable", fmtHex(priv), ""))
-	require.Error(t, run(copied, dest, "stable", fmtHex(priv), ""))
+	// The test key never enters command arguments, logs, or production custody.
+	t.Setenv("TV_RELEASE_SIGNING_KEY", fmtHex(priv))
+	t.Setenv("TV_RELEASE_DIR", "")
+	invoke := func() ([]byte, error) {
+		cmd := exec.Command(binary, "-apk", copied, "-out", dest, "-channel", "stable")
+		return cmd.CombinedOutput()
+	}
+	output, err = invoke()
+	require.NoError(t, err, "execute CLI: %s", output)
+	output, err = invoke()
+	require.Error(t, err, "a second CLI invocation must refuse to overwrite its output")
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, string(output), "already exists")
 	body, err := os.ReadFile(filepath.Join(dest, sidecarName))
 	require.NoError(t, err)
 	var doc sidecar
