@@ -4,6 +4,11 @@ import com.aleksclark.primer.updates.generated.ReleaseManifest
 import java.util.Base64
 import kotlinx.serialization.json.Json
 
+/**
+ * Maps the generated OpenAPI ReleaseManifest wire document onto the domain
+ * [SignedManifest]. This is not a Tasks client DTO and is not a handwritten
+ * copy of Go fields.
+ */
 object SignedManifestCodec {
     const val MAX_PAYLOAD_BASE64 = 16_384
     private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
