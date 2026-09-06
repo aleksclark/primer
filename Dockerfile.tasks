@@ -15,19 +15,33 @@ COPY primer-tasks/cmd/tasks-server/ ./cmd/tasks-server/
 COPY primer-tasks/cmd/tasks-migrate/ ./cmd/tasks-migrate/
 COPY primer-tasks/cmd/tasks-bootstrap/ ./cmd/tasks-bootstrap/
 COPY primer-tasks/cmd/openapi-gen/ ./cmd/openapi-gen/
+COPY primer-tasks/cmd/agent-protocol-gen/ ./cmd/agent-protocol-gen/
 
 FROM source AS spec
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go run ./cmd/openapi-gen -out /openapi.yaml
+    go run ./cmd/agent-protocol-gen -bundle /client-contract
 
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS web
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS web-inputs
 WORKDIR /src/primer-tasks
 COPY primer-tasks/clients/typescript/ ./clients/typescript/
 COPY primer-tasks/web/package.json primer-tasks/web/package-lock.json ./web/
 RUN npm --prefix web ci --no-audit --no-fund
 COPY primer-tasks/web/ ./web/
+# Existing web unit checks read these source-only HMR contracts; no dev scripts
+# are executed here or copied into the final runtime image.
+COPY primer-tasks/scripts/prove-host.sh primer-tasks/scripts/prove-dev.sh primer-tasks/scripts/prove-hmr.py ./scripts/
 COPY design-system/generated/ /src/design-system/generated/
-COPY --from=spec /openapi.yaml ./build/openapi.yaml
+# Generated host output is excluded from the context. This one COPY binds all
+# REST/WS contracts and integrity metadata to the current Go-capable spec stage.
+COPY --from=spec /client-contract/ ./build/client-contract/
+ENV TASKS_CLIENT_CONTRACT_BUNDLE=/src/primer-tasks/build/client-contract
+# Secret-free target proves actual Node-only consumption and client/UI checks.
+RUN ! command -v go && \
+    npm --prefix clients/typescript ci --no-audit --no-fund && \
+    npm --prefix clients/typescript run generate && \
+    npm --prefix web run typecheck && npm --prefix web run test:unit
+
+FROM web-inputs AS web
 ARG VITE_TASKS_BASE_PATH=/tasks/
 ARG VITE_TASKS_API_BASE=/tasks/api
 # This is a public browser identifier, not a Clerk secret key. Transport it as

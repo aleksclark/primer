@@ -14,7 +14,15 @@ import (
 func main() {
 	out := flag.String("out", "build/agent-protocol.schema.json", "output path")
 	types := flag.String("typescript", "clients/typescript/generated/agent-protocol.ts", "TypeScript output path")
+	bundle := flag.String("bundle", "", "emit a complete REST/WS client contract bundle to this directory")
 	flag.Parse()
+	if *bundle != "" {
+		if err := emitBundle(*bundle); err != nil {
+			panic(err)
+		}
+		fmt.Printf("generated client contract bundle %s\n", *bundle)
+		return
+	}
 	data, err := api.AgentSocketSchema()
 	if err != nil {
 		panic(err)

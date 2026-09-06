@@ -8,6 +8,7 @@
   },
   "scripts": {
     "generate": "node ./generate-client.mjs",
+    "test:generation": "node --test generate-client.test.mjs",
     "check:boundary": "node ./scripts/check-agent-boundary.mjs"
   },
   "dependencies": {
