@@ -47,7 +47,7 @@ object QrFrameDecoder {
         )
     }
 
-    /** Decodes a bounded Photo Picker bitmap with the same ZXing reader as CameraX. */
+    /** Decodes a bounded Photo Picker bitmap. CameraX frames must not use this path. */
     fun decode(bitmap: Bitmap): String? {
         val width = bitmap.width
         val height = bitmap.height
@@ -58,11 +58,21 @@ object QrFrameDecoder {
         val pixels = IntArray(width * height)
         return try {
             bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-            decodeRgb(pixels, width, height, rotationDegrees = 0)
+            decodeSelectedRgb(pixels, width, height)
         } finally {
-            // Do not leave image pixels in a heap buffer after decoding.
             pixels.fill(0)
         }
+    }
+
+    /**
+     * Selected-image decode: keep configured hints (`decode(bitmap, hints)`),
+     * then try PURE_BARCODE only after normal detection fails. CameraX must not
+     * call this; live frames are not a clean still QR.
+     */
+    internal fun decodeSelectedRgb(rgb: IntArray, width: Int, height: Int): String? {
+        require(width > 0 && height > 0)
+        val source = RGBLuminanceSource(width, height, rgb)
+        return decodeWithHints(source) ?: decodeWithHints(source, pureBarcode = true)
     }
 
     private fun decodeRgb(
@@ -73,14 +83,18 @@ object QrFrameDecoder {
     ): String? {
         val (decodedWidth, decodedHeight) = rotatedSize(width, height, rotationDegrees)
         val source = RGBLuminanceSource(decodedWidth, decodedHeight, rgb)
-        val reader = MultiFormatReader().apply { setHints(hints) }
-        val bitmap = BinaryBitmap(HybridBinarizer(source))
-        return runCatching { reader.decode(bitmap).text }
-            .recoverCatching {
-                reader.reset()
-                reader.decode(BinaryBitmap(GlobalHistogramBinarizer(source))).text
-            }
-            .getOrNull()
+        return decodeWithHints(source)
+    }
+
+    private fun decodeWithHints(source: RGBLuminanceSource, pureBarcode: Boolean = false): String? {
+        val combined = EnumMap(hints)
+        if (pureBarcode) combined[DecodeHintType.PURE_BARCODE] = true
+        val reader = MultiFormatReader()
+        // MultiFormatReader.decode(image) calls setHints(null) and drops TRY_HARDER.
+        // decode(image, hints) / decodeWithState keep the configured reader state.
+        fun attempt(binarizer: com.google.zxing.Binarizer): String? =
+            runCatching { reader.decode(BinaryBitmap(binarizer), combined).text }.getOrNull()
+        return attempt(HybridBinarizer(source)) ?: attempt(GlobalHistogramBinarizer(source))
     }
 
     private fun RgbaFrame.toRotatedRgb(rotationDegrees: Int): IntArray {
