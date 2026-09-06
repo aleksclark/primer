@@ -154,6 +154,21 @@ func TestAppReleaseOversizedSidecarIsRejected(t *testing.T) {
 	assert.Nil(t, body.ManifestPayloadBase64)
 }
 
+func TestAppReleaseResolvesAncestorSymlinks(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	real := filepath.Join(root, "real", "rel-1")
+	require.NoError(t, os.MkdirAll(real, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(real, "primer-tv.apk"), []byte("apk-v1"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(real, "version"), []byte("1\n"), 0o600))
+	alias := filepath.Join(root, "alias")
+	require.NoError(t, os.Symlink(filepath.Join(root, "real"), alias))
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{ReleaseDir: filepath.Join(alias, "rel-1")})
+	_, token := factory.PairedDevice(t, q)
+	body := decode[api.AppRelease](t, h.Get("/app/release", "Authorization: Bearer "+token).Body.Bytes())
+	assert.Equal(t, 1, body.VersionCode)
+}
+
 func TestAppReleaseResolvesSymlinkToImmutableDirectory(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

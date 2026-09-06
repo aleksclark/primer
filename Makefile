@@ -12,7 +12,7 @@ STUDIO_COVER_MIN := 85
 IDENTITY_COVER_MIN := 80
 
 .PHONY: all build test cover openapi openapi-tv client web bundle docker docker-tv deploy \
-	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server tv-release-sidecar \
+	dev-db dev-db-tv migrate migrate-tv lint tv-build tv-test tv-server tv-release-sidecar tv-release-sidecar-acceptance \
 	tv-client tv-web tv-bundle ingest-build ingest-plan ingest-review ingest-apply design-system \
 	activity-validate activity-publish student-build student-deploy student-acceptance \
 	student-stub student-harness \
@@ -143,6 +143,15 @@ tv-server:
 ## Requires TV_RELEASE_SIGNING_KEY. Does not publish live or talk to Tasks.
 tv-release-sidecar:
 	cd server && go run ./cmd/tv-release-sidecar $(SIDECAR_ARGS)
+
+## Required executable CLI acceptance for tv-release-sidecar.
+## Builds the binary, requires aapt2/apksigner and a signed TV APK, and runs
+## the inspectable-APK CLI test. Ordinary `go test ./cmd/tv-release-sidecar`
+## stays skip-on-missing for the server unit job.
+tv-release-sidecar-acceptance:
+	cd server && go test ./cmd/tv-release-sidecar -count=1
+	cd server && go build -o /tmp/tv-release-sidecar ./cmd/tv-release-sidecar
+	cd server && TV_RELEASE_SIDECAR_ACCEPTANCE=1 go test ./cmd/tv-release-sidecar -count=1 -run TestStageCLIProducesSignedSidecarFromInspectableAPK
 
 ## Generate the TV TypeScript client from the TV OpenAPI spec.
 tv-client: openapi-tv

@@ -138,18 +138,18 @@ func (s *Server) resolvedReleaseDir() (string, error) {
 	if s.releaseDir == "" {
 		return "", huma.Error404NotFound("app releases are not configured on this server")
 	}
-	info, err := os.Lstat(s.releaseDir)
+	target, err := filepath.EvalSymlinks(s.releaseDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", huma.Error404NotFound("app releases are not configured on this server")
 		}
 		return "", huma.Error500InternalServerError("cannot read the published release")
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		return s.releaseDir, nil
-	}
-	target, err := filepath.EvalSymlinks(s.releaseDir)
+	info, err := os.Stat(target)
 	if err != nil {
+		return "", huma.Error500InternalServerError("cannot read the published release")
+	}
+	if !info.IsDir() {
 		return "", huma.Error500InternalServerError("cannot read the published release")
 	}
 	return target, nil
