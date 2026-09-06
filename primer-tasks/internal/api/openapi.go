@@ -320,6 +320,7 @@ func (s *Server) humaAPI() huma.API {
 
 	s.registerPhase2(api)
 	s.registerManagement(api)
+	s.registerReleases(api)
 	return api
 }
 

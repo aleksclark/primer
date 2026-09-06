@@ -54,9 +54,6 @@ ALTER TABLE management_recovery_intents
 
 ALTER TABLE management_audit_records
     DROP CONSTRAINT IF EXISTS management_audit_records_device_tenant_fk;
-ALTER TABLE management_audit_records
-    ADD CONSTRAINT management_audit_records_device_tenant_fk
-    FOREIGN KEY (tenant_id, device_id) REFERENCES management_devices(tenant_id, id);
 
 ALTER TABLE management_devices
     DROP CONSTRAINT IF EXISTS management_devices_latest_report_fk;
