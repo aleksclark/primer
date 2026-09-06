@@ -109,6 +109,8 @@ class TasksClient(
         io { api.managedDevicesPolicy(id, body) }
     suspend fun createManagedRecovery(id: String, body: RecoveryIntentInput): RecoveryIntent =
         io { api.managedDevicesRecovery(id, body) }
+    suspend fun listManagedRecoveryHistory(id: String): RecoveryHistoryPage =
+        io { api.managedDevicesRecoveryHistory(id) }
     suspend fun quarantineManagedDevice(id: String, body: StateChangeInput): ManagedDevice =
         io { api.managedDevicesQuarantine(id, body) }
     suspend fun revokeManagedDevice(id: String, body: StateChangeInput): ManagedDevice =

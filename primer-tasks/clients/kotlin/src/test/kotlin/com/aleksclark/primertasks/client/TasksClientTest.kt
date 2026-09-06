@@ -279,6 +279,36 @@ class TasksClientTest {
     }
 
     @Test
+    fun recoveryHistoryUsesParentGetOnManagedDeviceRecovery() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"items":[]}"""))
+        TasksClient(
+            server.url("/").toString(),
+            parentCredentials = CredentialProvider { "parent-jwt" },
+        ).listManagedRecoveryHistory("device-1")
+        val request = take()
+        assertEquals("/api/managed-devices/device-1/recovery", request.path)
+        assertEquals("GET", request.method)
+        assertEquals("Bearer parent-jwt", request.getHeader("Authorization"))
+    }
+
+    @Test
+    fun occurrenceRetryDecodesCanonicalRequirementAndPreviousAttempt() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"occurrenceId":"occ-1","requirementId":"req-1","previousAttemptId":"att-1","attemptNumber":2,"status":"open"}""",
+            ),
+        )
+        val retry = TasksClient(
+            server.url("/").toString(),
+            parentCredentials = CredentialProvider { "parent-jwt" },
+        ).retryOccurrence("occ-1")
+        assertEquals("req-1", retry.requirementId)
+        assertEquals("att-1", retry.previousAttemptId)
+        assertEquals(2L, retry.attemptNumber)
+        assertEquals("/api/occurrences/occ-1/retry", take().path)
+    }
+
+    @Test
     fun binaryArtifactRequiresManagementCredential() = runBlocking {
         try {
             TasksClient(server.url("/").toString(), parentCredentials = CredentialProvider { "parent-jwt" })

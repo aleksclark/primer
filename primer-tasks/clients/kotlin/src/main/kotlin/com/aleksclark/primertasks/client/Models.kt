@@ -114,6 +114,7 @@ typealias PolicyReport = GeneratedPolicyReport
 typealias RecoveryEnvelope = GeneratedRecoveryEnvelope
 typealias RecoveryIntentInput = GeneratedRecoveryIntentInput
 typealias RecoveryIntent = GeneratedRecoveryIntent
+typealias RecoveryHistoryPage = com.aleksclark.primertasks.generated.RecoveryHistoryPage
 typealias RecoveryConfirmInput = GeneratedRecoveryConfirmInput
 typealias DesiredState = GeneratedDesiredState
 typealias StateChangeInput = GeneratedStateChangeInput
