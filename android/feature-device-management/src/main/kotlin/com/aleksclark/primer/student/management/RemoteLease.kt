@@ -10,18 +10,41 @@ data class RemoteLease(
     val receivedBoot: Int,
 )
 
+data class ConservativeLease(
+    val effectiveServerNowMs: Long,
+    val remainingMs: Long,
+)
+
 object RemoteLeasePolicy {
+    fun conservative(
+        lease: RemoteLease,
+        requestElapsedMs: Long,
+        applyElapsedMs: Long,
+        requestBoot: Int,
+        applyBoot: Int,
+    ): ConservativeLease? {
+        if (requestBoot < 0 || requestBoot != applyBoot || lease.receivedBoot != requestBoot) return null
+        if (applyElapsedMs < requestElapsedMs) return null
+        val delayMs = applyElapsedMs - requestElapsedMs
+        val effectiveServerNow = lease.serverNowMs + delayMs
+        if (effectiveServerNow >= lease.deliveryExpiresAtMs) return null
+        val leaseExpires = lease.leaseExpiresAtMs ?: return null
+        if (effectiveServerNow >= leaseExpires) return null
+        val remaining = leaseExpires - effectiveServerNow
+        if (remaining <= 0) return null
+        return ConservativeLease(effectiveServerNow, remaining)
+    }
+
+    fun canOpen(
+        lease: RemoteLease,
+        requestElapsedMs: Long,
+        responseElapsedMs: Long,
+        requestBoot: Int,
+        responseBoot: Int,
+    ): Boolean = conservative(lease, requestElapsedMs, responseElapsedMs, requestBoot, responseBoot) != null
+
     fun remainingMs(lease: RemoteLease): Long {
         val remaining = lease.leaseExpiresAtMs?.let { it - lease.serverNowMs } ?: return -1
         return remaining
-    }
-
-    fun canOpen(lease: RemoteLease, requestElapsedMs: Long, responseElapsedMs: Long, requestBoot: Int, responseBoot: Int): Boolean {
-        if (requestBoot < 0 || requestBoot != responseBoot || lease.receivedBoot != requestBoot) return false
-        if (lease.serverNowMs >= lease.deliveryExpiresAtMs) return false
-        val remaining = remainingMs(lease)
-        if (remaining <= 0) return false
-        if (responseElapsedMs < requestElapsedMs) return false
-        return responseElapsedMs < requestElapsedMs + remaining
     }
 }

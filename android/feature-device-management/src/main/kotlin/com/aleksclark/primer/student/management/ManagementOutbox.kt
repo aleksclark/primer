@@ -21,6 +21,8 @@ interface ManagementOutbox {
     suspend fun markAttempt(id: String, deadLetter: String? = null)
     suspend fun remove(id: String)
     suspend fun undelivered(origin: String, deviceId: String): Boolean
+    suspend fun hasRetryable(origin: String, deviceId: String): Boolean
+    suspend fun hasDeadLetter(origin: String, deviceId: String): Boolean
 }
 
 class InMemoryManagementOutbox : ManagementOutbox {
@@ -39,7 +41,11 @@ class InMemoryManagementOutbox : ManagementOutbox {
     }
     override suspend fun remove(id: String) { items.remove(id) }
     override suspend fun undelivered(origin: String, deviceId: String): Boolean =
-        items.values.any { it.origin == origin && it.deviceId == deviceId }
+        items.values.any { it.origin == origin && it.deviceId == deviceId && it.deadLetter == null }
+    override suspend fun hasRetryable(origin: String, deviceId: String): Boolean =
+        items.values.any { it.origin == origin && it.deviceId == deviceId && it.deadLetter == null }
+    override suspend fun hasDeadLetter(origin: String, deviceId: String): Boolean =
+        items.values.any { it.origin == origin && it.deviceId == deviceId && it.deadLetter != null }
 }
 
 object ManagementAuth {

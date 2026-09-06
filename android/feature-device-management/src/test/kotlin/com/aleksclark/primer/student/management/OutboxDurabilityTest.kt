@@ -82,7 +82,10 @@ class OutboxDurabilityTest {
             box.putIfAbsent(entry("old", "{}", origin = "https://old.test", device = "device-old"))
             box.putIfAbsent(entry("new", "{}", origin = "https://new.test", device = "device-new"))
             assertEquals(1, box.pending("https://new.test", "device-new").size)
-            assertTrue(box.undelivered("https://old.test", "device-old"))
+            assertTrue(box.hasRetryable("https://old.test", "device-old"))
+            box.markAttempt("old", deadLetter = "rejected")
+            assertEquals(false, box.hasRetryable("https://old.test", "device-old"))
+            assertEquals(true, box.hasDeadLetter("https://old.test", "device-old"))
         }
     }
 }
