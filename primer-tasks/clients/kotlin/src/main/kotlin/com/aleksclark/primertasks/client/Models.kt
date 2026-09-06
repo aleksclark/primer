@@ -35,7 +35,12 @@ import com.aleksclark.primertasks.generated.RecoveryConfirmInput as GeneratedRec
 import com.aleksclark.primertasks.generated.RecoveryEnvelope as GeneratedRecoveryEnvelope
 import com.aleksclark.primertasks.generated.RecoveryIntent as GeneratedRecoveryIntent
 import com.aleksclark.primertasks.generated.RecoveryIntentInput as GeneratedRecoveryIntentInput
+import com.aleksclark.primertasks.generated.Release as GeneratedRelease
+import com.aleksclark.primertasks.generated.ReleasePage as GeneratedReleasePage
+import com.aleksclark.primertasks.generated.ReleaseReceipt as GeneratedReleaseReceipt
+import com.aleksclark.primertasks.generated.ReleaseReceiptInput as GeneratedReleaseReceiptInput
 import com.aleksclark.primertasks.generated.ReleaseTarget as GeneratedReleaseTarget
+import com.aleksclark.primertasks.generated.ReleaseTargetInput as GeneratedReleaseTargetInput
 import com.aleksclark.primertasks.generated.Requirement as GeneratedRequirement
 import com.aleksclark.primertasks.generated.Schedule2 as GeneratedSchedule
 import com.aleksclark.primertasks.generated.ScheduleInput2 as GeneratedScheduleInput
@@ -111,3 +116,8 @@ typealias RecoveryConfirmInput = GeneratedRecoveryConfirmInput
 typealias DesiredState = GeneratedDesiredState
 typealias StateChangeInput = GeneratedStateChangeInput
 typealias ReleaseTarget = GeneratedReleaseTarget
+typealias ReleaseTargetInput = GeneratedReleaseTargetInput
+typealias Release = GeneratedRelease
+typealias ReleasePage = GeneratedReleasePage
+typealias ReleaseReceipt = GeneratedReleaseReceipt
+typealias ReleaseReceiptInput = GeneratedReleaseReceiptInput

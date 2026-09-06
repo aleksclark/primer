@@ -111,12 +111,32 @@ function jsonSchema(object) {
   return object?.content?.["application/json"]?.schema ?? null;
 }
 
+function isBinarySchema(schema) {
+  if (!schema || typeof schema !== "object" || schema.$ref) return false;
+  const { schema: value } = unwrap(schema);
+  return value.format === "binary" || value.format === "byte" || value.contentEncoding === "base64";
+}
+
+function isBinaryContent(content) {
+  if (!content || typeof content !== "object") return false;
+  for (const [type, media] of Object.entries(content)) {
+    if (type !== "application/json" && (type.startsWith("application/") || type === "application/octet-stream")) return true;
+    if (isBinarySchema(media?.schema)) return true;
+  }
+  return false;
+}
+
 function successOf(operation) {
   const responses = operation.responses ?? {};
   for (const code of ["200", "201", "204"]) {
-    if (responses[code]) return { code, schema: jsonSchema(responses[code]) };
+    if (!responses[code]) continue;
+    const content = responses[code].content ?? {};
+    if (isBinaryContent(content)) return { code, schema: null, binary: true };
+    const schema = jsonSchema(responses[code]);
+    if (isBinarySchema(schema)) return { code, schema: null, binary: true };
+    return { code, schema, binary: false };
   }
-  return { code: null, schema: null };
+  return { code: null, schema: null, binary: false };
 }
 
 function authKind(pathname, operationId) {
@@ -210,10 +230,12 @@ for (const entry of operations) {
   if (queryParams.length) args.push(`query: ${queryTypeName(operationId)} = ${queryTypeName(operationId)}()`);
   if (bodySchema) args.push(`body: ${kotlinType(bodySchema)}`);
   args.push("token: String? = null");
-  const returnType = success.schema ? kotlinType(success.schema) : "Unit";
+  const returnType = success.binary ? "ByteArray" : success.schema ? kotlinType(success.schema) : "Unit";
   const bodyLine = bodySchema ? `json.encodeToString(${kotlinType(bodySchema)}.serializer(), body)` : "null";
   const queryBuild = queryParams.length ? `        val httpUrl = url(${pathExpr(entry.pathname, pathParams)})\n${queryPuts(operationId, queryParams)}\n        val requestUrl = httpUrl.build()` : `        val requestUrl = url(${pathExpr(entry.pathname, pathParams)}).build()`;
-  const decode = returnType === "Unit"
+  const decode = success.binary
+    ? `        return executeBytes(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token)`
+    : returnType === "Unit"
     ? "        execute(method = " + JSON.stringify(entry.method) + ", url = requestUrl, body = " + bodyLine + ", auth = AuthKind." + authKind(entry.pathname, operationId) + ", token = token, expectBody = false)\n        return"
     : `        val payload = execute(method = ${JSON.stringify(entry.method)}, url = requestUrl, body = ${bodyLine}, auth = AuthKind.${authKind(entry.pathname, operationId)}, token = token, expectBody = true)\n        return json.decodeFromString(${returnType}.serializer(), payload)`;
   methods.push(`    fun ${toCamel(operationId)}(${args.join(", ")}): ${returnType} {
@@ -234,6 +256,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
 
 object PrimerTasksOperations {
 ${consts.join("\n")}
@@ -250,25 +273,53 @@ internal class GeneratedTasksApi(
     private val http: OkHttpClient,
     private val json: Json,
     private val credentials: (AuthKind) -> String?,
+    private val maxBinaryBytes: Long,
 ) {
 ${methods.join("\n\n")}
 
     private fun url(path: String): HttpUrl.Builder = (apiBaseUrl + path).toHttpUrl().newBuilder()
 
     private fun execute(method: String, url: HttpUrl, body: String?, auth: AuthKind, token: String?, expectBody: Boolean): String {
-        val builder = Request.Builder().url(url).method(method, requestBody(method, body))
-        val resolved = token ?: if (auth == AuthKind.NONE) null else credentials(auth)
-        if (auth != AuthKind.NONE) {
-            if (resolved.isNullOrBlank()) throw TasksTransportException(401, "missing credential", "unauthorized")
-            builder.header("Authorization", "Bearer " + resolved)
-        }
-        http.newCall(builder.build()).execute().use { response ->
+        http.newCall(authorized(method, url, body, auth, token)).execute().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw decodeError(response.code, payload)
             if (!expectBody) return ""
             if (payload.isEmpty()) throw TasksTransportException(response.code, "empty response")
             return payload
         }
+    }
+
+    private fun executeBytes(method: String, url: HttpUrl, body: String?, auth: AuthKind, token: String?): ByteArray {
+        http.newCall(authorized(method, url, body, auth, token)).execute().use { response ->
+            val responseBody = response.body ?: throw TasksTransportException(response.code, "empty response")
+            if (!response.isSuccessful) throw decodeError(response.code, responseBody.string())
+            val declared = response.header("Content-Length")?.toLongOrNull()
+            if (declared != null && declared > maxBinaryBytes) {
+                throw TasksTransportException(413, "artifact exceeds size cap", "too_large")
+            }
+            val source = responseBody.source()
+            val buffer = okio.Buffer()
+            while (!source.exhausted()) {
+                val read = source.read(buffer, 8192)
+                if (read < 0) break
+                if (buffer.size > maxBinaryBytes) {
+                    throw TasksTransportException(413, "artifact exceeds size cap", "too_large")
+                }
+            }
+            val bytes = buffer.readByteArray()
+            if (bytes.isEmpty()) throw TasksTransportException(response.code, "empty response")
+            return bytes
+        }
+    }
+
+    private fun authorized(method: String, url: HttpUrl, body: String?, auth: AuthKind, token: String?): Request {
+        val builder = Request.Builder().url(url).method(method, requestBody(method, body))
+        val resolved = token ?: if (auth == AuthKind.NONE) null else credentials(auth)
+        if (auth != AuthKind.NONE) {
+            if (resolved.isNullOrBlank()) throw TasksTransportException(401, "missing credential", "unauthorized")
+            builder.header("Authorization", "Bearer " + resolved)
+        }
+        return builder.build()
     }
 
     private fun requestBody(method: String, body: String?) = when {

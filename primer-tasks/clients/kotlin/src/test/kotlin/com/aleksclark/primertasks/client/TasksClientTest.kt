@@ -215,6 +215,63 @@ class TasksClientTest {
         assertEquals(0, created.requirements.orEmpty().first().config.size)
     }
 
+    @Test
+    fun binaryArtifactStreamsExactBytesAndManagementAuth() = runBlocking {
+        val apk = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00, 0x01, 0x02, 0xFF.toByte())
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/vnd.android.package-archive")
+                .setHeader("Content-Length", apk.size.toString())
+                .setBody(okio.Buffer().write(apk)),
+        )
+        val got = TasksClient(
+            server.url("/").toString(),
+            managementCredentials = CredentialProvider { "mgmt-token" },
+            parentCredentials = CredentialProvider { "parent-jwt" },
+        ).managementDeviceArtifact("rel-1")
+        val request = take()
+        assertEquals("/api/management-device/artifacts/rel-1", request.path)
+        assertEquals("Bearer mgmt-token", request.getHeader("Authorization"))
+        assertEquals("GET", request.method)
+        assertTrue(got.contentEquals(apk))
+    }
+
+    @Test
+    fun binaryArtifactRejectsOversizeDeclaredLengthWithoutConsumingBody() = runBlocking {
+        val apk = ByteArray(32) { 0x7A }
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/vnd.android.package-archive")
+                .setHeader("Content-Length", "64")
+                .setBody(okio.Buffer().write(apk)),
+        )
+        try {
+            TasksClient(
+                server.url("/").toString(),
+                managementCredentials = CredentialProvider { "mgmt-token" },
+                maxBinaryBytes = 16,
+            ).managementDeviceArtifact("rel-1")
+            fail("expected size cap")
+        } catch (error: TasksHttpException) {
+            assertEquals(413, error.statusCode)
+            assertEquals("too_large", error.code)
+        }
+        take()
+        Unit
+    }
+
+    @Test
+    fun binaryArtifactRequiresManagementCredential() = runBlocking {
+        try {
+            TasksClient(server.url("/").toString(), parentCredentials = CredentialProvider { "parent-jwt" })
+                .managementDeviceArtifact("rel-1")
+            fail("expected missing credential")
+        } catch (error: TasksHttpException) {
+            assertEquals(401, error.statusCode)
+        }
+        assertEquals(0, server.requestCount)
+    }
+
     private fun take() = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
 
     private fun studentJson() =
