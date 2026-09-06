@@ -113,7 +113,8 @@ async function themes(page, info, prefix) {
   await button(page, 'Switch to dark theme').click();
 }
 
-test('S17 real multi-principal collaboration and policy publication', async ({}, info) => {
+test('S17 real multi-principal collaboration and policy publication', async ({ browserName }, info) => {
+  expect(browserName).toBe('chromium'); // Option fixture only; does not launch a browser.
   info.setTimeout(180_000); // Full fixture build/container + multi-persona journey budget; no retries.
   const host = await startS17Fixture(studioRoot, console.log);
   // Launch after Docker has established the disposable network, not before.

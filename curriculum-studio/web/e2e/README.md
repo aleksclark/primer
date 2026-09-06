@@ -6,9 +6,12 @@ From `curriculum-studio/web`:
 (cd .. && GOWORK=off make clients-generate)
 npm ci --ignore-scripts --no-audit --no-fund
 npx playwright install chromium
-npm run build
 npm run test:e2e:s17
 ```
+
+The npm `pretest:e2e:s17` hook runs the existing `npm run build` before each
+normal test invocation, so the fixture serves a fresh SPA. Generated clients and
+the Playwright Chromium installation remain prerequisites as shown above.
 
 Docker must be available. The runner starts the existing opt-in
 `../scripts/browser-fixture.sh`, unsets external `STUDIO_TEST_DATABASE_URL`, and
@@ -35,8 +38,12 @@ Failures close all owned contexts and signal only the verified fixture host;
 the Go host cleans its container and the launcher removes its directory. Startup
 failure signals only the detached owned process group. Readiness and shutdown
 are bounded; cleanup failures surface. Runner logs print safe PID/URL/directory
-only, never the 0600 database URL. Evidence lives in
-`.paseo-e2e/s17-collaboration/playwright/` at the repository root, not in commits.
+only, never the 0600 database URL. Automated screenshots, attachments, and runner
+state live in `curriculum-studio/web/test-results/s17-collaboration/`, covered by
+the existing web-local `/test-results/` ignore rule. Check a generated file with
+`git check-ignore -v <path>` from the repository root. No automated runner output
+is written to root `.paseo-e2e/`; historical manual agent evidence there is
+separate and is preserved.
 
 ## Promotion handoff
 

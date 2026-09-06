@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint .",
     "preview": "vite preview",
+    "pretest:e2e:s17": "npm run build",
     "test:e2e:s17": "playwright test -c playwright.s17.config.mjs"
   },
   "dependencies": {

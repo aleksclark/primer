@@ -7,7 +7,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 180_000,
-  outputDir: '../../.paseo-e2e/s17-collaboration/playwright',
+  outputDir: './test-results/s17-collaboration',
   use: { trace: 'off' }, // Never record fixture cookies in traces.
   reporter: [['list']],
 });
