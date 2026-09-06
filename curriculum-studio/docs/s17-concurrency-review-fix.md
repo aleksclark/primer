@@ -2,8 +2,9 @@
 
 Follow-up to blocked backend commit `80021bdf72e52b42fe7a645caaf532c4d338da18`.
 Same `impl/s17-collab` writer/workspace; no runtime changes, agents, reset, push,
-PR, deployment, or production activity. **Awaiting reviewer b010fc06; not full
-S17 acceptance.**
+PR, deployment, or production activity. **Accepted by reviewer b010fc06 at d98ac903; not full
+S17 acceptance.** Later application-surface work is documented separately in
+[s17-application-surfaces.md](s17-application-surfaces.md) and needs new review.
 
 ## Corrected protocol
 

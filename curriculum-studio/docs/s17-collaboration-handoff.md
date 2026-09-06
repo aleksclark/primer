@@ -1,7 +1,8 @@
 # S17 backend implementation handoff
 
-Status: **backend concurrency corrections awaiting re-review; full phase 17 is
-not complete**. Reviewer b010fc06 blocked `80021bdf` on real PostgreSQL races.
+Status: **backend accepted at d98ac903; application surfaces awaiting independent
+browser and whole-phase review**. See [the application handoff](s17-application-surfaces.md)
+for the newer unit. Reviewer b010fc06 originally blocked `80021bdf` on real PostgreSQL races.
 See [the concurrency-fix handoff](s17-concurrency-review-fix.md) for the corrected
 locking protocol, permanent regressions, and current verification. The original
 verification table below is historical evidence for `80021bdf`, not acceptance
@@ -101,7 +102,13 @@ Local run logs: `/tmp/primer-s17-focused.log`, `/tmp/primer-s17-full.log`,
 `/tmp/primer-s17-clients.log`, `/tmp/primer-s17-python.log`,
 `/tmp/primer-s17-coverage.log`.
 
-## Unmet phase gates / next owner
+## Historical gaps at 80021bdf (superseded by the application handoff)
+
+The UI/item/policy gaps below describe the earlier backend-only slice, not the
+current application implementation. Browser and whole-phase acceptance are still
+pending; consult the application handoff for current evidence.
+
+### Original unmet gates
 
 - **No new SPA UI in this slice.** P17-S2 diff rendering and the comment inspector
   drawer are still missing. The existing shell build is not browser evidence.
