@@ -1,14 +1,23 @@
 [versions]
-agp = "8.7.3"
-kotlin = "2.0.21"
-coroutines = "1.9.0"
-serialization = "1.7.3"
+# Smallest supported alignment for Clerk 0.1.31 (POM + Gradle metadata):
+# Kotlin stdlib 2.1.20, serialization 1.9.0 (Kotlin 2.2 metadata), coroutines 1.10.2,
+# androidx.browser 1.9.0 (minAGP 8.9.1), Compose BOM 2026.01.00 / runtime 1.10.1.
+# Compose 1.10.1 RememberInCompositionDetector requires KaSimpleVariableAccessCall as an
+# interface (AGP 8.8+ kotlin-compiler; AGP 8.7.3 still ships it as a class).
+# Official matrices: AGP 8.10.x requires Gradle 8.11.1 and JDK 17, max API 36;
+# KGP 2.2.0 supports AGP 7.3.1–8.10.0. androidx.browser 1.9.0 needs minAGP 8.9.1
+# and minCompileSdk 36, so AGP 8.10.0 is the smallest verified pin that stays
+# inside KGP 2.2.0's AGP range. Pins are exact published versions, not unpinned latest.
+agp = "8.10.0"
+kotlin = "2.2.0"
+coroutines = "1.10.2"
+serialization = "1.9.0"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 retrofitSerialization = "1.0.0"
-composeBom = "2024.10.01"
+composeBom = "2026.01.00"
 activityCompose = "1.9.3"
-lifecycle = "2.8.7"
+lifecycle = "2.10.0"
 navigation = "2.8.4"
 media3 = "1.4.1"
 datastore = "1.1.1"
