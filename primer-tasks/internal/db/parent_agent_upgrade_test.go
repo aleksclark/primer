@@ -84,7 +84,7 @@ func testParentAgentUpgrade(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatal("P3 upgrade changed released identity/student/revision/applied history")
 	}
 	var n int
-	if err = upgrade.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&n); err != nil || n != 11 {
+	if err = upgrade.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations WHERE version<='00011_dialogue_evaluation_criteria.sql'`).Scan(&n); err != nil || n != 11 {
 		t.Fatalf("incoming migration count %d: %v", n, err)
 	}
 }

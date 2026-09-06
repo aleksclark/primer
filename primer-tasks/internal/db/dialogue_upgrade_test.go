@@ -52,7 +52,7 @@ func TestDialogueMigrationsPreserveReleasedP3AndFenceEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&n); err != nil || n != 11 {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations WHERE version<='00011_dialogue_evaluation_criteria.sql'`).Scan(&n); err != nil || n != 11 {
 		t.Fatalf("fresh migration count %d: %v", n, err)
 	}
 
@@ -95,7 +95,7 @@ func TestDialogueMigrationsPreserveReleasedP3AndFenceEvidence(t *testing.T) {
 		if !reflect.DeepEqual(before, after) {
 			t.Fatal("upgrade changed canonical identity/student/manual/P3 history")
 		}
-		if e = upgrade.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations`).Scan(&n); e != nil || n != 11 {
+		if e = upgrade.QueryRow(ctx, `SELECT count(*) FROM tasks_schema_migrations WHERE version<='00011_dialogue_evaluation_criteria.sql'`).Scan(&n); e != nil || n != 11 {
 			t.Fatalf("upgrade migration count %d: %v", n, e)
 		}
 	})

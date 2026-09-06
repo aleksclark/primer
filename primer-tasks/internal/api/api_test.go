@@ -61,7 +61,7 @@ func TestRoutesExposeCallbackAndGeneratedContract(t *testing.T) {
 		}
 	}
 	paths := New(nil, "test").humaAPI().OpenAPI().Paths
-	for _, path := range []string{"/auth/callback", "/students/{id}/pairing", "/device/pair"} {
+	for _, path := range []string{"/auth/callback", "/students/{id}/pairing", "/device/pair", "/managed-devices/enrollments", "/management-device/enroll"} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("contract omitted %s", path)
 		}
@@ -534,4 +534,50 @@ func hmacSHA256(key, value []byte) []byte {
 	m := hmac.New(sha256.New, key)
 	_, _ = m.Write(value)
 	return m.Sum(nil)
+}
+
+func TestLoadReleaseSigningKeyAndBearer(t *testing.T) {
+	t.Setenv("TASKS_RELEASE_SIGNING_KEY", "")
+	if loadReleaseSigningKey() != nil {
+		t.Fatal("empty key")
+	}
+	t.Setenv("TASKS_RELEASE_SIGNING_KEY", "not-a-key")
+	if loadReleaseSigningKey() != nil {
+		t.Fatal("malformed key")
+	}
+	key := make([]byte, 64)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	t.Setenv("TASKS_RELEASE_SIGNING_KEY", hexEncode(key))
+	if got := loadReleaseSigningKey(); len(got) != 64 {
+		t.Fatalf("hex key len %d", len(got))
+	}
+	if _, err := bearerToken("token-without-scheme"); err == nil {
+		t.Fatal("raw token accepted")
+	}
+	if tok, err := bearerToken("Bearer abc"); err != nil || tok != "abc" {
+		t.Fatalf("bearer = %q %v", tok, err)
+	}
+	s := New(nil, "test")
+	s.Management = nil
+	if s.management() == nil {
+		t.Fatal("management fallback")
+	}
+	if err := s.wrapParentErr(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.wrapParentErr(context.Canceled); err != context.Canceled {
+		t.Fatal(err)
+	}
+}
+
+func hexEncode(b []byte) string {
+	const hexdigits = "0123456789abcdef"
+	out := make([]byte, len(b)*2)
+	for i, v := range b {
+		out[i*2] = hexdigits[v>>4]
+		out[i*2+1] = hexdigits[v&0x0f]
+	}
+	return string(out)
 }

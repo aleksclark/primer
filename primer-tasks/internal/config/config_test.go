@@ -45,6 +45,24 @@ func TestClerkNeedsNoIdentityOrParentSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestAuthorizedPartiesStayAdditive(t *testing.T) {
+	c := validConfig()
+	c.ClerkAuthorizedParties = []string{"com.aleksclark.primer.control", c.PublicOrigin}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got := c.AuthorizedParties()
+	if got[0] != c.PublicOrigin {
+		t.Fatalf("web origin must remain first, got %q", got)
+	}
+	if len(got) != 2 || got[1] != "com.aleksclark.primer.control" {
+		t.Fatalf("authorized parties = %v", got)
+	}
+	c.ClerkAuthorizedParties = []string{"not a party"}
+	if c.Validate() == nil {
+		t.Fatal("invalid extra azp must fail")
+	}
+}
 func TestLoadDefaultsAndClerk(t *testing.T) {
 	for _, key := range []string{"TASKS_ENV", "TASKS_DATABASE_URL", "TASKS_AUTH_MODE", "TASKS_ISSUER_URL", "TASKS_PUBLIC_ORIGIN", "TASKS_CLERK_ISSUER", "TASKS_CLERK_JWKS_URL", "TASKS_CLERK_AUDIENCE", "TASKS_BASE_PATH", "TASKS_SESSION_SECRET"} {
 		t.Setenv(key, "")

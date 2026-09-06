@@ -35,7 +35,7 @@ func (s *Server) parentBoundary(next http.Handler) http.Handler {
 	}))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/health" || path == "/openapi.json" || path == "/openapi.yaml" || path == "/auth/login" || path == "/auth/callback" || strings.HasPrefix(path, "/student/") || strings.HasPrefix(path, "/device/") {
+		if path == "/health" || path == "/openapi.json" || path == "/openapi.yaml" || path == "/auth/login" || path == "/auth/callback" || strings.HasPrefix(path, "/student/") || strings.HasPrefix(path, "/device/") || strings.HasPrefix(path, "/management-device/") {
 			next.ServeHTTP(w, r)
 			return
 		}

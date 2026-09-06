@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	tasksdb "primer-tasks/internal/db"
+	"primer-tasks/internal/devicemanagement"
 	"strings"
 	"time"
 )
@@ -35,18 +36,22 @@ type Server struct {
 	ParentPolicy        auth.AuthenticationPolicy
 	BasePath            string
 	agentHub            *agentHub
+	Management          *devicemanagement.Service
 }
 type scope struct{ Tenant, Subject string }
 
 type AuthConfig struct {
-	Mode            string
-	IssuerURL       string
-	PublicIssuerURL string
-	ClientID        string
-	RedirectURL     string
-	PublicOrigin    string
-	SessionSecret   []byte
-	IssuerSecret    []byte
+	Mode                  string
+	IssuerURL             string
+	PublicIssuerURL       string
+	ClientID              string
+	RedirectURL           string
+	PublicOrigin          string
+	SessionSecret         []byte
+	IssuerSecret          []byte
+	ReleasePublisherToken string
+	ReleaseSigningKey     []byte
+	ArtifactDir           string
 }
 
 func authConfigFromEnv(env string) AuthConfig {
@@ -59,7 +64,10 @@ func authConfigFromEnv(env string) AuthConfig {
 		ClientID:     envOr("TASKS_OIDC_CLIENT_ID", "primer-tasks-web"),
 		RedirectURL:  envOr("TASKS_OIDC_REDIRECT_URL", envOr("TASKS_PUBLIC_ORIGIN", "http://127.0.0.1:8080")+"/auth/callback"),
 		PublicOrigin: envOr("TASKS_PUBLIC_ORIGIN", "http://127.0.0.1:8080"), SessionSecret: []byte(secret),
-		IssuerSecret: []byte(envOr("TASKS_TEST_ISSUER_SECRET", "primer-tasks-test-issuer-secret")),
+		IssuerSecret:          []byte(envOr("TASKS_TEST_ISSUER_SECRET", "primer-tasks-test-issuer-secret")),
+		ReleasePublisherToken: os.Getenv("TASKS_RELEASE_PUBLISHER_TOKEN"),
+		ReleaseSigningKey:     loadReleaseSigningKey(),
+		ArtifactDir:           os.Getenv("TASKS_RELEASE_ARTIFACT_DIR"),
 	}
 }
 
@@ -85,7 +93,14 @@ func NewWithAuth(db *pgxpool.Pool, env string, auth AuthConfig) *Server {
 	if auth.Mode == "" {
 		auth.Mode = defaults.Mode
 	}
-	return &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC(), agentHub: newAgentHub()}
+	origin := auth.PublicOrigin
+	if origin == "" {
+		origin = defaults.PublicOrigin
+	}
+	mgmt := &devicemanagement.Service{DB: db, PublicOrigin: origin, ArtifactDir: auth.ArtifactDir, ReleasePublisherToken: auth.ReleasePublisherToken, ReleaseSigningKey: auth.ReleaseSigningKey}
+	srv := &Server{DB: db, Env: env, SecureCookie: env == "production", Auth: auth, jwks: &jwksCache{}, httpClient: oidcHTTPClient, StartedAt: time.Now().UTC(), agentHub: newAgentHub(), Management: mgmt}
+	mgmt.BasePath = srv.BasePath
+	return srv
 }
 func (s *Server) Routes() http.Handler { return s.parentBoundary(s.humaAPI().Adapter()) }
 
