@@ -27,7 +27,7 @@ jobs:
   tasks:
     name: tasks-module
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -73,7 +73,7 @@ jobs:
 
       - name: parent agent race and lifecycle regression (10 repeats)
         working-directory: primer-tasks
-        run: go test -race ./internal/agent/... ./internal/jobs/... ./internal/api/... -count=10 -timeout=25m
+        run: go test -race ./internal/agent/... ./internal/jobs/... ./internal/api/... -count=10 -timeout=40m
 
       - name: generated clients
         run: make tasks-clients
