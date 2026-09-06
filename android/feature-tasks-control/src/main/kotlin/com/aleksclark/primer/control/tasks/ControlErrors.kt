@@ -21,5 +21,6 @@ fun controlMessage(error: Throwable): String = when (error) {
         409 -> "The record changed. Refresh and try again."
         else -> error.detail ?: error.message ?: "The Tasks service could not complete that request."
     }
+    is IllegalArgumentException, is IllegalStateException -> error.message ?: "The Tasks service could not complete that request."
     else -> "The Tasks service could not complete that request."
 }

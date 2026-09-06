@@ -120,6 +120,7 @@ typealias StateChangeInput = GeneratedStateChangeInput
 typealias ReleaseTarget = GeneratedReleaseTarget
 typealias ReleaseTargetInput = GeneratedReleaseTargetInput
 typealias Release = GeneratedRelease
+typealias ReleaseManifest = com.aleksclark.primertasks.generated.ReleaseManifest
 typealias ReleasePage = GeneratedReleasePage
 typealias ReleaseReceipt = GeneratedReleaseReceipt
 typealias ReleaseReceiptInput = GeneratedReleaseReceiptInput

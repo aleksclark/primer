@@ -3,9 +3,12 @@ package com.aleksclark.primer.identity
 import android.app.Application
 import com.clerk.api.Clerk
 import com.clerk.api.network.serialization.ClerkResult
+import com.clerk.api.session.GetTokenOptions
 import com.clerk.api.session.fetchToken
 import com.clerk.api.signin.SignIn
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.first
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Official Clerk Android SDK 0.1.31, pinned because 1.1.x ships Kotlin 2.4 metadata
@@ -18,60 +21,88 @@ class ClerkParentIdentity(
     private val publishableKey: String,
 ) : ParentIdentity {
     override val configured: Boolean = publishableKey.isNotBlank()
-    @Volatile private var initialized = false
+    private val initialized = AtomicBoolean(false)
 
     fun initialize() {
-        if (!configured || initialized) return
+        if (!configured || !initialized.compareAndSet(false, true)) return
         Clerk.initialize(application, publishableKey)
-        initialized = true
     }
 
     override suspend fun ready(): Boolean {
         if (!configured) return true
         initialize()
-        return Clerk.isInitialized.first { it }
+        return try {
+            withTimeout(READY_TIMEOUT_MS) { Clerk.isInitialized.first { it } }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     override suspend fun isSignedIn(): Boolean {
         if (!configured) return false
-        ready()
+        if (!ready()) return false
         return Clerk.session != null
     }
 
-    override suspend fun sessionToken(): String? {
+    override suspend fun sessionId(): String? = Clerk.session?.id
+
+    override suspend fun sessionToken(skipCache: Boolean): String? {
         val session = Clerk.session ?: return null
-        return when (val result = session.fetchToken()) {
+        val options = GetTokenOptions(skipCache = skipCache, expirationBuffer = TOKEN_BUFFER_MS)
+        return when (val result = session.fetchToken(options)) {
             is ClerkResult.Success -> result.value.jwt
             is ClerkResult.Failure -> null
         }
     }
 
-    override suspend fun signIn() {
-        if (!configured) return
-        ready()
-        // Hosted Account Portal is not in 0.1.31. Control uses Clerk's official
-        // password SignIn.create from that SDK version. Live Clerk acceptance is
-        // still a parent/physical gate.
-    }
-
-    override suspend fun signIn(email: String, password: String): Boolean {
-        if (!configured) return false
-        ready()
+    override suspend fun signIn(email: String, password: String): SignInOutcome {
+        if (!configured) return SignInOutcome.Failed("Clerk publishable key is not set on this build.")
+        if (!ready()) return SignInOutcome.Failed("Clerk did not become ready. Check the network and try again.")
         val signIn = when (
-            val result = SignIn.create(SignIn.CreateParams.Strategy.Password(identifier = email, password = password))
+            val result = runCatching {
+                SignIn.create(SignIn.CreateParams.Strategy.Password(identifier = email, password = password))
+            }.getOrElse { return SignInOutcome.Failed("Unable to reach Clerk. Check your connection and try again.") }
         ) {
             is ClerkResult.Success -> result.value
-            is ClerkResult.Failure -> return false
+            is ClerkResult.Failure -> return SignInOutcome.Failed(clerkFailure(result, "Clerk sign-in failed. Check the account and try again."))
         }
-        val sessionId = signIn.createdSessionId ?: return Clerk.session != null
-        return when (Clerk.setActive(sessionId)) {
-            is ClerkResult.Success -> Clerk.session != null
-            is ClerkResult.Failure -> false
+        val sessionId = ClerkSignInPolicy.completedSessionId(signIn.status.name, signIn.createdSessionId)
+            ?: return SignInOutcome.Incomplete(ClerkSignInPolicy.incompleteMessage(signIn.status.name))
+        val activated = when (val result = runCatching { Clerk.setActive(sessionId) }.getOrElse {
+            return SignInOutcome.Failed("Unable to activate the Clerk session. Try again.")
+        }) {
+            is ClerkResult.Success -> result.value.id
+            is ClerkResult.Failure -> return SignInOutcome.Failed(clerkFailure(result, "Clerk could not activate the new session."))
+        }
+        return if (ClerkSignInPolicy.activated(sessionId, activated ?: Clerk.session?.id)) {
+            SignInOutcome.SignedIn(sessionId)
+        } else {
+            SignInOutcome.Failed("Clerk did not activate the newly created session.")
         }
     }
 
-    override suspend fun signOutProvider() {
-        if (!configured) return
-        Clerk.signOut()
+    override suspend fun signOutProvider(): SignOutOutcome {
+        if (!configured) return SignOutOutcome.SignedOut
+        return when (val result = runCatching { Clerk.signOut() }.getOrElse {
+            return SignOutOutcome.Failed("Unable to sign out of Clerk. Try again.")
+        }) {
+            is ClerkResult.Success -> SignOutOutcome.SignedOut
+            is ClerkResult.Failure -> SignOutOutcome.Failed(clerkFailure(result, "Clerk sign-out failed. Try again."))
+        }
+    }
+
+    private fun clerkFailure(result: ClerkResult.Failure<*>, fallback: String): String {
+        val error = result.error
+        val fromSdk = (error as? com.clerk.api.network.model.error.ClerkErrorResponse)
+            ?.errors
+            ?.firstOrNull()
+            ?.longMessage
+            ?: (error as? com.clerk.api.network.model.error.ClerkErrorResponse)?.errors?.firstOrNull()?.message
+        return fromSdk ?: result.throwable?.message ?: fallback
+    }
+
+    companion object {
+        private const val READY_TIMEOUT_MS = 8_000L
+        private const val TOKEN_BUFFER_MS = 60_000L
     }
 }

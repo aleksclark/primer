@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -33,16 +34,41 @@ class DeviceRepositoryTest {
         assertEquals("Bearer parent-jwt", request?.getHeader("Authorization"))
     }
 
-    @Test(expected = IllegalStateException::class)
-    fun rotateRecoveryRequiresOffDeviceAcknowledgement() = runBlocking {
-        DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" }).rotateRecovery(
-            "device-1",
-            DeviceRepository.PreparedRotation(
-                requestId = "req-1",
-                codes = listOf("code-1"),
-                publicJson = byteArrayOf(1, 2, 3),
-            ),
-            acknowledged = false,
+    @Test
+    fun rotateRecoveryRejectsUnboundDevice() = runBlocking {
+        val prepared = RecoveryPrep.bind(
+            deviceId = "device-a",
+            enrollmentPublicKey = "key-a",
+            requestId = "req-1",
+            codes = listOf("c1"),
+            publicJson = ByteArray(8) { 1 },
         )
+        try {
+            DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" })
+                .rotateRecovery("device-b", prepared, acknowledged = true)
+            throw AssertionError("expected device mismatch")
+        } catch (error: IllegalStateException) {
+            assertTrue(error.message!!.contains("different device"))
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun rotateRecoveryRequiresAcknowledgement() = runBlocking {
+        val prepared = RecoveryPrep.bind(
+            deviceId = "device-a",
+            enrollmentPublicKey = "key-a",
+            requestId = "req-1",
+            codes = listOf("c1"),
+            publicJson = ByteArray(8) { 1 },
+        )
+        try {
+            DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" })
+                .rotateRecovery("device-a", prepared, acknowledged = false)
+            throw AssertionError("expected acknowledgement")
+        } catch (error: IllegalStateException) {
+            assertTrue(error.message!!.contains("Store recovery codes"))
+        }
+        assertEquals(0, server.requestCount)
     }
 }

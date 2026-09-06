@@ -1,6 +1,7 @@
 package com.aleksclark.primer.control
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -12,9 +13,13 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,6 +51,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as ControlApp
         val apiBase = ControlOriginPolicy.apiBase(BuildConfig.CONFIGURED_API_ORIGIN, BuildConfig.DEBUG)
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             PrimerTheme {
                 val model: ControlViewModel = viewModel(
@@ -75,6 +81,15 @@ private fun ControlAppScreen(
     originConfigured: Boolean,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, model) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) model.onResume()
+            if (event == Lifecycle.Event.ON_STOP) model.clearPassword()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     if (!state.ready) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
             PrimerStatus("Loading sign-in…", tone = PrimerStatusTone.Neutral)
@@ -249,24 +264,35 @@ private fun ControlAppScreen(
                         enrollment = state.enrollment,
                         message = state.message,
                         onIssue = model::issueEnrollment,
-                        onOpen = { item -> model.update { it.copy(selectedDevice = item) } },
+                        onOpen = model::openDevice,
                     )
                 } else {
                     DeviceDetailScreen(
                         device = device,
+                        desired = state.desired,
+                        syncStatus = state.syncStatus,
                         releases = state.releases,
                         selectedRelease = state.selectedReleaseId,
                         onRelease = { value -> model.update { it.copy(selectedReleaseId = value) } },
                         message = state.message,
-                        recoveryCodes = state.recoveryCodes,
-                        acknowledged = state.recoveryAcknowledged,
-                        onAcknowledge = { value -> model.update { it.copy(recoveryAcknowledged = value) } },
+                        recovery = state.recovery,
+                        approvedAppDraft = state.approvedAppDraft,
+                        onApprovedPackage = { value -> model.update { it.copy(approvedAppDraft = it.approvedAppDraft.copy(packageName = value)) } },
+                        onApprovedSigner = { value -> model.update { it.copy(approvedAppDraft = it.approvedAppDraft.copy(signerSha256 = value)) } },
+                        onApprovedLabel = { value -> model.update { it.copy(approvedAppDraft = it.approvedAppDraft.copy(label = value)) } },
+                        onApprovedRequired = { value -> model.update { it.copy(approvedAppDraft = it.approvedAppDraft.copy(required = value)) } },
+                        onAddApprovedApp = model::addApprovedApp,
+                        onRemoveApprovedApp = model::removeApprovedApp,
+                        onParentUnlock = model::setParentUnlock,
+                        onAcknowledge = model::acknowledgeRecovery,
                         onPrepareRecovery = model::prepareRecovery,
                         onRotateRecovery = model::rotateRecovery,
                         onQuarantine = model::quarantineDevice,
                         onRevoke = model::revokeDevice,
-                        onTarget = model::targetRelease,
-                        onBack = { model.update { it.copy(selectedDevice = null, recoveryCodes = emptyList(), recoveryAcknowledged = false) } },
+                        onTarget = { model.targetRelease(false) },
+                        onRequeue = { model.targetRelease(true) },
+                        onBack = model::closeDevice,
+                        mutating = state.mutating,
                     )
                 }
             }

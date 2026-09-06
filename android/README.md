@@ -48,7 +48,9 @@ physical acceptance. Needed configuration, without changing canonical auth here:
 
 - Register Android application ID `com.aleksclark.primer.control` in the Clerk dashboard.
 - Publishable key only in the APK (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secrets stay out of the binary.
-- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control uses official password `SignIn.create` then `Clerk.setActive`.
+- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control uses official password `SignIn.create` then `Clerk.setActive` of the **new** session ID only.
+- Declared 0.1.31 coordinates (POM, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0, coroutines 1.10.2, androidx.browser 1.9.0. Those artifacts ship Kotlin 2.2 metadata. `:core-parent-identity` alone forces stdlib 2.0.21 / serialization 1.7.3 / coroutines 1.9.0 / browser 1.8.0 so the Kotlin 2.0.21 / AGP 8.7.3 tree can compile. There is no root-wide force and no `-Xskip-metadata-version-check`. Unit tests do not initialize a live Clerk backend.
+- Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set; live Clerk JWT azp is still not claimed.
 - Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
 
 
