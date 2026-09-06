@@ -1,5 +1,7 @@
 import createClient from "openapi-fetch";
-import type { paths } from "../../../clients/ts-rest/generated/schema";
+import type { components, paths } from "../../../clients/ts-rest/generated/schema";
+
+export type ExportFormat = components["schemas"]["ExportFormat"];
 
 export const studioClient = createClient<paths>({ baseUrl: "/" });
 
@@ -34,6 +36,9 @@ export async function validateRevision(revisionId: string) {
 export async function publishRevision(revisionId: string) {
   return studioClient.POST("/studio/v1/revisions/{revisionId}/publish", { credentials: "include", params: { path: { revisionId } } });
 }
-export async function exportRevision(revisionId: string, format: "markdown" | "pdf") {
+export async function exportRevision(revisionId: string, format: ExportFormat) {
   return studioClient.POST("/studio/v1/revisions/{revisionId}/exports", { credentials: "include", params: { path: { revisionId } }, body: { format } });
+}
+export async function downloadExport(exportId: string) {
+  return studioClient.GET("/studio/v1/exports/{exportId}/download", { credentials: "include", params: { path: { exportId } }, parseAs: "blob" });
 }

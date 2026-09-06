@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +15,6 @@ import (
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/authz"
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
-	studioexport "github.com/aleksclark/primer/curriculum-studio/internal/export"
 	"github.com/aleksclark/primer/curriculum-studio/internal/repo"
 	"github.com/aleksclark/primer/curriculum-studio/internal/validation"
 )
@@ -433,43 +430,6 @@ func (s *Server) registerGraphRoutes(api huma.API) {
 		}
 		_ = ws
 		return nil, nil
-	})
-}
-
-func (s *Server) registerExportRoutes(api huma.API) {
-	huma.Register(api, huma.Operation{OperationID: "createExport", Method: http.MethodPost, Path: "/studio/v1/revisions/{revisionId}/exports", Tags: []string{"Exports"}, DefaultStatus: http.StatusAccepted}, func(ctx context.Context, in *createExportInput) (*exportResponse, error) {
-		rev, ws, m, e := s.revisionForCaller(ctx, in.RevisionID)
-		if e != nil {
-			return nil, planError(e)
-		}
-		if e = requireAuthor(ctx, m); e != nil {
-			return nil, e
-		}
-		if in.Body.Format != "markdown" && in.Body.Format != "pdf" {
-			return nil, huma.Error400BadRequest("format must be markdown or pdf")
-		}
-		graph, e := repo.NewPlanGraphRepo(s.querier).Load(ctx, ws, rev.ID)
-		if e != nil {
-			return nil, planError(e)
-		}
-		var data []byte
-		if in.Body.Format == "markdown" {
-			data = studioexport.Markdown(graph)
-		} else {
-			data = studioexport.PDF(graph)
-		}
-		sum := sha256.Sum256(data)
-		principal, _ := AuthFromContext(ctx)
-		created, e := repo.NewExportRepo(s.querier).Create(ctx, &domain.Export{WorkspaceID: ws, PlanRevisionID: &rev.ID, Format: string(in.Body.Format), RequestedBySubjectRef: principal.SubjectRef})
-		if e != nil {
-			return nil, planError(e)
-		}
-		artifact := "memory://studio/exports/" + created.ID.String()
-		ready, e := repo.NewExportRepo(s.querier).Complete(ctx, ws, created.ID, artifact, hex.EncodeToString(sum[:]))
-		if e != nil {
-			return nil, planError(e)
-		}
-		return &exportResponse{Body: ExportJob{ID: ready.ID.String(), RevisionID: revisionID(rev.ID), Format: ExportFormat(ready.Format), Status: MaterializationStatus(ready.Status), ArtifactURI: ready.ArtifactRef, CreatedAt: ready.CreatedAt, CompletedAt: ready.CompletedAt}}, nil
 	})
 }
 

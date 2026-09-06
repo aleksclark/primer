@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BookOpen, Compass, FolderKanban, LogIn, Moon, Settings2, Sun } from "lucide-react";
-import { createCurriculum, currentSession, createRevision, exportRevision, listCurricula, listRevisions, publishRevision, validateRevision } from "./api/client";
+import { createCurriculum, currentSession, createRevision, downloadExport, exportRevision, listCurricula, listRevisions, publishRevision, validateRevision } from "./api/client";
+import type { ExportFormat } from "./api/client";
 
 type Theme = "dark" | "light";
 type Workspace = { workspaceId: string; workspaceName: string; role: string };
@@ -24,6 +25,8 @@ export default function App() {
   const [selected, setSelected] = useState<Curriculum | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [revision, setRevision] = useState<Revision | null>(null);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("markdown");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -63,12 +66,32 @@ export default function App() {
   async function newDraft() {
     if (!selected) return; const result = await createRevision(selected.id); if (result.data && "id" in result.data) { const next = result.data as Revision; setRevisions((items) => [next, ...items]); setRevision(next); setMessage("Draft revision created."); }
   }
-  async function revisionAction(action: "validate" | "publish" | "markdown" | "pdf") {
+  async function revisionAction(action: "validate" | "publish") {
     if (!revision) return;
     if (action === "validate") await validateRevision(revision.id);
     if (action === "publish") await publishRevision(revision.id);
-    if (action === "markdown" || action === "pdf") await exportRevision(revision.id, action);
-    setMessage(action === "validate" ? "Validation report saved." : action === "publish" ? "Revision published." : `Preparing ${action} export.`);
+    setMessage(action === "validate" ? "Validation report saved." : "Revision published.");
+  }
+  async function exportPlan() {
+    if (!revision || exporting) return;
+    setExporting(true); setMessage("Rendering and storing export…");
+    try {
+      const result = await exportRevision(revision.id, exportFormat);
+      if (!result.data || result.data.status !== "ready") {
+        setMessage(result.data?.errorMessage || result.error?.detail || "Export failed. No download is ready.");
+        return;
+      }
+      const download = await downloadExport(result.data.id);
+      if (!download.data) { setMessage("Export stored, but the download failed. Please try again."); return; }
+      const url = URL.createObjectURL(download.data);
+      const link = document.createElement("a");
+      const extensions: Record<ExportFormat, string> = { markdown: "md", pdf: "pdf", docx: "docx", csv_coverage: "csv", json_bundle: "json", ical: "ics" };
+      link.href = url; link.download = `${result.data.id}.${extensions[exportFormat]}`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage("Export ready and downloaded.");
+    } catch { setMessage("Export or download failed. Please try again."); }
+    finally { setExporting(false); }
   }
 
   async function search(value: string) {
@@ -92,7 +115,7 @@ export default function App() {
         <form className="create-form" onSubmit={submit}><label htmlFor="curriculum-name">New curriculum brief</label><input id="curriculum-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Grade 6 mathematics" /><button className="primary" type="submit">Create draft <span aria-hidden>↗</span></button></form>
         {message && <p className="feedback" role="status">{message}</p>}
         {curricula.length === 0 ? <div className="empty-state"><div className="empty-mark">01</div><div><span className="eyebrow">No curricula found</span><h3>Start with a brief.</h3><p>Create a draft above. The server owns search, pagination, and durable identity; this view never filters a bulk client-side collection.</p></div></div> : <div className="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Updated</th><th>ID</th></tr></thead><tbody>{curricula.map((item) => <tr key={item.id} onClick={() => openCurriculum(item)}><th scope="row">{item.name}</th><td><span className="status-text">● {item.status}</span></td><td>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "—"}</td><td><code>{item.id}</code></td></tr>)}</tbody></table></div>}
-        {selected && <div className="plan-panel"><div><span className="eyebrow">Configure / {selected.name}</span><h3>{revision ? `Revision ${revision.revisionNumber ?? "draft"}` : "No revision"}</h3><p>{message}</p></div><div className="plan-actions"><button className="secondary" type="button" onClick={newDraft}>New draft</button>{revision && <><button className="secondary" type="button" onClick={() => revisionAction("validate")}>Validate</button><button className="primary" type="button" onClick={() => revisionAction("publish")}>Publish</button><button className="plain-button" type="button" onClick={() => revisionAction("markdown")}>Export MD</button><button className="plain-button" type="button" onClick={() => revisionAction("pdf")}>Export PDF</button></>}</div></div>}
+        {selected && <div className="plan-panel"><div><span className="eyebrow">Configure / {selected.name}</span><h3>{revision ? `Revision ${revision.revisionNumber ?? "draft"}` : "No revision"}</h3><p>{message}</p></div><div className="plan-actions"><button className="secondary" type="button" onClick={newDraft}>New draft</button>{revision && <><button className="secondary" type="button" onClick={() => revisionAction("validate")}>Validate</button><button className="primary" type="button" onClick={() => revisionAction("publish")}>Publish</button><select className="secondary" aria-label="Export format" value={exportFormat} disabled={exporting} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}><option value="markdown">Markdown</option><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="csv_coverage">CSV coverage</option><option value="json_bundle">JSON download subset</option><option value="ical">iCal schedule</option></select><button className="plain-button" type="button" disabled={exporting} onClick={exportPlan}>{exporting ? "Exporting…" : "Export and download"}</button></>}</div></div>}
       </section>
       <footer className="footer"><span>Studio shell · dark-first Editorial Instrument</span><span>Bearer tokens stay server-side · host-only session cookie</span></footer>
     </main>

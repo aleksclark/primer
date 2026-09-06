@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/api"
+	"github.com/aleksclark/primer/curriculum-studio/internal/artifacts"
 	"github.com/aleksclark/primer/curriculum-studio/internal/authn"
 	"github.com/aleksclark/primer/curriculum-studio/internal/config"
 	studiodb "github.com/aleksclark/primer/curriculum-studio/internal/db"
@@ -96,11 +97,27 @@ func Run(ctx context.Context, opts Options) error {
 	// credential-free default is intentionally process-local; production must
 	// replace it with a durable secret manager keyed by secret_ref.
 	secrets := outbox.NewMemorySecrets()
+	var store artifacts.Store
+	switch cfg.ArtifactStore {
+	case "fs":
+		fs, err := artifacts.NewFsStore(cfg.ArtifactStoreDir)
+		if err != nil {
+			return fmt.Errorf("configure artifact store: %w", err)
+		}
+		defer fs.Close()
+		store = fs
+	case "s3":
+		store, err = artifacts.NewS3Store(artifacts.S3Options{Endpoint: cfg.ArtifactS3Endpoint, Bucket: cfg.ArtifactS3Bucket, Region: cfg.ArtifactS3Region, AccessKey: cfg.ArtifactS3AccessKey, SecretKey: cfg.ArtifactS3SecretKey})
+		if err != nil {
+			return fmt.Errorf("configure artifact store: %w", err)
+		}
+	}
 	_, apiHandler := api.New(pool, api.Options{
 		Validator:               validator,
 		AcceptServiceTokenAlias: cfg.AcceptServiceTokenAlias,
 		MatStub:                 cfg.MatStub,
 		Secrets:                 secrets,
+		Artifacts:               store,
 	})
 
 	// Mount /mcp Streamable HTTP endpoint when enabled.

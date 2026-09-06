@@ -367,6 +367,11 @@ type ExportJob struct {
 	Format            ExportFormat          `json:"format"`
 	Status            MaterializationStatus `json:"status"`
 	ArtifactURI       string                `json:"artifactUri,omitempty"`
+	DownloadURL       string                `json:"downloadUrl,omitempty"`
+	ManifestURL       string                `json:"manifestUrl,omitempty"`
+	CreatedBy         string                `json:"createdBy"`
+	Checksum          string                `json:"checksum,omitempty"`
+	ErrorMessage      string                `json:"errorMessage,omitempty"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	CompletedAt       *time.Time            `json:"completedAt,omitempty"`
 }
