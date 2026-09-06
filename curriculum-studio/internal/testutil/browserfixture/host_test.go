@@ -4,6 +4,7 @@ package browserfixture_test
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,6 +33,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+// A real 32x32 PNG-backed ICO, rasterized from the adjacent SVG's existing
+// house i-learn artwork. Embedded only in this test binary, never a Studio API.
+//
+//go:embed testdata/favicon.ico
+var fixtureFavicon []byte
 
 type persona struct {
 	Name      string
@@ -147,9 +155,26 @@ func newFixture(t *testing.T, webRoot string) *fixture {
 			http.Error(w, "fixture same-origin request required", 403)
 			return
 		}
+		if r.URL.Path == "/favicon.ico" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			// Keep the fixture's no-store policy: no cached failures or cross-run
+			// assumptions. Only this exact static path is public.
+			w.Header().Set("Content-Type", "image/vnd.microsoft.icon")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Content-Length", strconv.Itoa(len(fixtureFavicon)))
+			if r.Method == http.MethodGet {
+				_, _ = w.Write(fixtureFavicon)
+			}
+			return
+		}
 		if r.URL.Path == "/_fixture" || r.URL.Path == "/_fixture/" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			require.NoError(t, template.Must(template.New("fixture").Parse(`<h1>S17 loopback test fixture</h1><p>Not live identity/BFF acceptance. Choose a fixture principal in each independent browser context.</p><form action="/_fixture/session" method="post"><label>Persona <select name="persona">{{range $key,$p := .}}<option value="{{$key}}">{{$p.Name}} ({{$p.Role}})</option>{{end}}</select></label><button>Start fixture session</button></form><p><a href="/_fixture/evidence">Fixture IDs and workspaces</a></p>`)).Execute(w, personas))
+			require.NoError(t, template.Must(template.New("fixture").Parse(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>S17 loopback test fixture</title><link rel="icon" type="image/vnd.microsoft.icon" sizes="32x32" href="/favicon.ico"></head><body><h1>S17 loopback test fixture</h1><p>Not live identity/BFF acceptance. Choose a fixture principal in each independent browser context.</p><form action="/_fixture/session" method="post"><label>Persona <select name="persona">{{range $key,$p := .}}<option value="{{$key}}">{{$p.Name}} ({{$p.Role}})</option>{{end}}</select></label><button>Start fixture session</button></form><p><a href="/_fixture/evidence">Fixture IDs and workspaces</a></p></body></html>`)).Execute(w, personas))
 			return
 		}
 		if r.URL.Path == "/_fixture/evidence" && r.Method == "GET" {
@@ -232,6 +257,10 @@ func TestFixtureSessionsUseRealValidatorAndLocalMemberships(t *testing.T) {
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
 		response.Body.Close()
 		require.Equal(t, domain.HumanSubjectRef(f.Personas[which].Subject), body.SubjectRef)
+		response, err = client.Get(f.Server.URL + "/studio/v1/favicon.ico")
+		require.NoError(t, err)
+		response.Body.Close()
+		require.Equal(t, http.StatusNotFound, response.StatusCode, "authenticated API paths must not become favicon aliases")
 	}
 	req, err := http.NewRequest("POST", f.Server.URL+"/_fixture/session", strings.NewReader("persona=owner"))
 	require.NoError(t, err)
