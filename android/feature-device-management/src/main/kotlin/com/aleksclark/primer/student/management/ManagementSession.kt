@@ -64,12 +64,16 @@ class ManagementSession(
 ) {
     suspend fun enroll(rawQr: String, replace: Boolean = false): ManagementSyncResult {
         if (replace) ManagementAuthorization.revoke()
-        return mutex.withLock { enrollLocked(rawQr, replace) }
+        val epoch = ManagementAuthorization.current()
+        return mutex.withLock { enrollLocked(rawQr, replace, epoch) }
     }
 
-    suspend fun sync(): ManagementSyncResult = mutex.withLock { syncLocked() }
+    suspend fun sync(): ManagementSyncResult {
+        val epoch = ManagementAuthorization.current()
+        return mutex.withLock { syncLocked(epoch) }
+    }
 
-    private suspend fun enrollLocked(rawQr: String, replace: Boolean): ManagementSyncResult {
+    private suspend fun enrollLocked(rawQr: String, replace: Boolean, epoch: Long): ManagementSyncResult {
         val qr = ManagementEnrollmentQrParser.parse(rawQr, configuredHttpsOrigin, allowEmulatorOrigin)
             ?: return ManagementSyncResult("That QR is not a trusted Primer management enrollment code")
         val origin = qr.origin + qr.mount.ifBlank { "" }
@@ -97,6 +101,9 @@ class ManagementSession(
                     ),
                 ),
             )
+            if (ManagementAuthorization.current() != epoch) {
+                return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+            }
             val binding = ManagementBinding(
                 token = result.token,
                 origin = origin,
@@ -104,7 +111,10 @@ class ManagementSession(
                 keyId = keyId,
             )
             credentials.save(binding)
-            val lease = ManagementAuthorization.capture(binding) { credentials.snapshot() }
+            val lease = ManagementAuthorization.captureAt(epoch, binding) { credentials.snapshot() }
+            if (!lease.authorized()) {
+                return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+            }
             applyDesired(result.desired, elapsedMs(), boot(), binding, lease)
         } catch (cancelled: CancellationException) {
             ManagementAuthorization.revoke()
@@ -121,14 +131,20 @@ class ManagementSession(
         }
     }
 
-    private suspend fun syncLocked(): ManagementSyncResult {
+    private suspend fun syncLocked(epoch: Long): ManagementSyncResult {
         val binding = credentials.read() ?: return ManagementSyncResult("Management is not enrolled")
         if (binding.token.isBlank()) {
             return ManagementSyncResult("Management credential was revoked. Last-known policy remains; local recovery still works.")
         }
+        if (ManagementAuthorization.current() != epoch) {
+            return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+        }
+        val lease = ManagementAuthorization.captureAt(epoch, binding) { credentials.snapshot() }
+        if (!lease.authorized()) {
+            return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+        }
         val requestElapsed = elapsedMs()
         val requestBoot = boot()
-        val lease = ManagementAuthorization.capture(binding) { credentials.snapshot() }
         val client = clientFactory(binding.origin) { binding.token }
         return try {
             val flush = flushOutbox(binding)
@@ -153,9 +169,10 @@ class ManagementSession(
             live.keyId == expected.keyId &&
             live.token.isNotBlank()
 
-    private suspend fun requireLiveBinding(expected: ManagementBinding): ManagementBinding? {
+    private suspend fun requireLiveBinding(expected: ManagementBinding, lease: ManagementAuthorization? = null): ManagementBinding? {
+        if (lease != null && !lease.authorized()) return null
         val live = credentials.read()
-        return live.takeIf { sameBinding(expected, it) }
+        return live.takeIf { sameBinding(expected, it) && (lease == null || lease.authorized()) }
     }
 
     private suspend fun applyDesired(
@@ -165,7 +182,7 @@ class ManagementSession(
         requestBinding: ManagementBinding,
         lease: ManagementAuthorization,
     ): ManagementSyncResult {
-        val binding = requireLiveBinding(requestBinding)
+        val binding = requireLiveBinding(requestBinding, lease)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         if (desired.device.id != binding.deviceId) {
             return ManagementSyncResult("Desired state is for a different device. Local recovery still works.")
@@ -174,10 +191,10 @@ class ManagementSession(
             ?: return ManagementSyncResult("Management desired state is missing a valid serverTime.")
         val responseElapsed = elapsedMs()
         val responseBoot = boot()
-        val boundForRecovery = requireLiveBinding(binding)
+        val boundForRecovery = requireLiveBinding(binding, lease)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
-        desired.recovery.forEach { intent -> applyRecovery(intent, serverNow, boundForRecovery, requestElapsedMs, requestBoot, responseElapsed, responseBoot) }
-        val boundForPolicy = requireLiveBinding(boundForRecovery)
+        desired.recovery.forEach { intent -> applyRecovery(intent, serverNow, boundForRecovery, requestElapsedMs, requestBoot, responseElapsed, responseBoot, lease) }
+        val boundForPolicy = requireLiveBinding(boundForRecovery, lease)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         val revision = desired.policyRevision
         val application = if (revision != null) {
@@ -196,15 +213,17 @@ class ManagementSession(
             val apps = revision.policy.approvedApps.map { app ->
                 ApprovedApp(app.packageName, app.label ?: app.packageName, setOf(app.signerSha256))
             }
-            applyPolicy(revision.revision, apps, extras, boundForPolicy.origin, boundForPolicy.deviceId)
+            val stillAuthorized = requireLiveBinding(boundForPolicy, lease)
+                ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
+            applyPolicy(revision.revision, apps, extras, stillAuthorized.origin, stillAuthorized.deviceId)
         } else {
             PolicyApplication(0, "requested", emptyList(), "No remote policy yet")
         }
-        val boundForReport = requireLiveBinding(boundForPolicy)
+        val boundForReport = requireLiveBinding(boundForPolicy, lease)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         enqueuePolicyReport(boundForReport, application)
         val reports = flushOutbox(boundForReport)
-        val boundForReleases = requireLiveBinding(boundForReport)
+        val boundForReleases = requireLiveBinding(boundForReport, lease)
             ?: return ManagementSyncResult("Management enrollment changed. Last-known policy remains; local recovery still works.")
         applyReleases(desired.releaseTargets, boundForReleases, lease)
         val receipts = flushOutbox(boundForReleases)
@@ -231,11 +250,13 @@ class ManagementSession(
         requestBoot: Int,
         responseElapsedMs: Long,
         responseBoot: Int,
+        operation: ManagementAuthorization,
     ) {
+        if (!operation.authorized()) return
         if (intent.deviceId != binding.deviceId) return
         val deliveryMs = runCatching { Instant.parse(intent.deliveryExpiresAt).toEpochMilli() }.getOrNull() ?: return
         val leaseMs = intent.leaseExpiresAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-        val lease = RemoteLease(
+        val remoteLease = RemoteLease(
             intentId = intent.id,
             kind = intent.kind,
             deliveryExpiresAtMs = deliveryMs,
@@ -244,7 +265,7 @@ class ManagementSession(
             receivedElapsedMs = requestElapsedMs,
             receivedBoot = requestBoot,
         )
-        val conservative = RemoteLeasePolicy.conservative(lease, requestElapsedMs, responseElapsedMs, requestBoot, responseBoot)
+        val conservative = RemoteLeasePolicy.conservative(remoteLease, requestElapsedMs, responseElapsedMs, requestBoot, responseBoot)
         when (intent.kind) {
             "rotate_recovery_code" -> {
                 if (conservative == null) return
@@ -256,12 +277,14 @@ class ManagementSession(
                 val payload = RecoveryHpke.decryptCodes(handle, envelope, binding.deviceId, intent.id, binding.keyId)
                 val afterDecrypt = elapsedMs()
                 val afterBoot = boot()
-                if (RemoteLeasePolicy.conservative(lease, requestElapsedMs, afterDecrypt, requestBoot, afterBoot) == null) return
+                if (RemoteLeasePolicy.conservative(remoteLease, requestElapsedMs, afterDecrypt, requestBoot, afterBoot) == null) return
+                if (!operation.authorized()) return
                 val ackId = applyRemoteRecovery(intent.id, payload.codes)
                 enqueueRecoveryAck(binding, intent.id, ackId)
             }
             "maintenance_lease" -> {
                 if (conservative == null) return
+                if (!operation.authorized()) return
                 val ackId = applyRemoteLease(intent.id, conservative.remainingMs)
                 enqueueRecoveryAck(binding, intent.id, ackId)
             }

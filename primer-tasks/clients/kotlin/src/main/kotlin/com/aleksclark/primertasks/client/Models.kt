@@ -15,6 +15,7 @@ import com.aleksclark.primertasks.generated.EnrollInput as GeneratedEnrollInput
 import com.aleksclark.primertasks.generated.EnrollResult as GeneratedEnrollResult
 import com.aleksclark.primertasks.generated.Enrollment as GeneratedEnrollment
 import com.aleksclark.primertasks.generated.Health as GeneratedHealth
+import com.aleksclark.primertasks.generated.InstalledApp as GeneratedInstalledApp
 import com.aleksclark.primertasks.generated.IssueEnrollmentInput as GeneratedIssueEnrollmentInput
 import com.aleksclark.primertasks.generated.LockTaskPolicy as GeneratedLockTaskPolicy
 import com.aleksclark.primertasks.generated.MaintenancePolicy as GeneratedMaintenancePolicy
@@ -101,6 +102,7 @@ typealias DeviceCapabilities = GeneratedDeviceCapabilities
 typealias ManagedDevice = GeneratedManagedDevice
 typealias ManagedDevicePage = GeneratedManagedDevicePage
 typealias ApprovedApp = GeneratedApprovedApp
+typealias InstalledApp = GeneratedInstalledApp
 typealias LockTaskPolicy = GeneratedLockTaskPolicy
 typealias MaintenancePolicy = GeneratedMaintenancePolicy
 typealias Policy = GeneratedPolicy
@@ -118,6 +120,7 @@ typealias StateChangeInput = GeneratedStateChangeInput
 typealias ReleaseTarget = GeneratedReleaseTarget
 typealias ReleaseTargetInput = GeneratedReleaseTargetInput
 typealias Release = GeneratedRelease
+typealias ReleaseManifest = com.aleksclark.primertasks.generated.ReleaseManifest
 typealias ReleasePage = GeneratedReleasePage
 typealias ReleaseReceipt = GeneratedReleaseReceipt
 typealias ReleaseReceiptInput = GeneratedReleaseReceiptInput

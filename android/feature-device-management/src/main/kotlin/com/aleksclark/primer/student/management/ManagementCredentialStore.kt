@@ -107,7 +107,7 @@ class ManagementCredentialStore(private val context: Context) : ManagementSecret
         ManagementAuthorization.revoke()
     }
 
-    override suspend fun expectedToken(): String? = snapshot()?.token
+    override suspend fun expectedToken(): String? = read()?.token
 
     override fun snapshot(): ManagementBinding? = cached
 

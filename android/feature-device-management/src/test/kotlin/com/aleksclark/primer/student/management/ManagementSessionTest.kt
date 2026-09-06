@@ -260,6 +260,57 @@ class ManagementSessionTest {
     }
 
     @Test
+    fun replacementRequestedDuringDesiredFencesPolicy() = runBlocking {
+        val origin = server.url("/").toString().trimEnd('/')
+        val host = java.net.URI(origin).let { "${it.host}:${it.port}" }
+        val deviceId = "11111111-1111-1111-1111-111111111111"
+        secrets.binding = ManagementBinding("old-token", origin, deviceId, "a".repeat(64))
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val blockDesired = java.util.concurrent.atomic.AtomicBoolean(false)
+        val desired = """{"device":{"id":"$deviceId","displayName":"Student","deviceModel":"SM-S166V","state":"active","desiredRevision":1,"appliedRevision":0,"createdAt":"2026-01-01T00:00:00Z"},"policyRevision":{"id":"33333333-3333-3333-3333-333333333333","deviceId":"$deviceId","revision":1,"policy":{"approvedApps":[],"lockTask":{"enabled":true,"packages":["com.aleksclark.primer.student"]},"maintenance":{"allowParentUnlock":true}},"createdAt":"2026-01-01T00:00:00Z"},"recovery":[],"releaseTargets":[],"serverTime":"2026-01-01T00:00:00Z"}"""
+        kotlinx.serialization.json.Json.decodeFromString(com.aleksclark.primertasks.client.DesiredState.serializer(), desired)
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
+                "/api/management-device/desired" -> {
+                    if (blockDesired.get()) {
+                        entered.countDown()
+                        check(release.await(3, TimeUnit.SECONDS))
+                    }
+                    MockResponse().setBody(desired)
+                }
+                "/api/management-device/reports" -> MockResponse().setBody("""{"id":"r1","reportId":"22222222-2222-2222-2222-222222222222","deviceId":"$deviceId","policyRevision":1,"status":"applied","stale":false,"receivedAt":"2026-01-01T00:00:00Z"}""")
+                "/api/management-device/enroll" -> MockResponse().setResponseCode(410).setBody("""{"code":"gone","message":"expired"}""")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val applied = mutableListOf<Long>()
+        val subject = session(applied = applied)
+        // Establish that the same valid response really reaches the policy effect.
+        subject.sync()
+        assertEquals(listOf(1L), applied)
+        applied.clear()
+        blockDesired.set(true)
+        val syncing = async { subject.sync() }
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                assertTrue("desired request never reached HTTP boundary", entered.await(3, TimeUnit.SECONDS))
+            }
+            // Runs revocation immediately, then waits on the same session mutex.
+            val replacing = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                subject.enroll("primer-management:v1:http://$host/management-device/enroll#00112233445566778899AABBCCDDEEFF", replace = true)
+            }
+            release.countDown()
+            syncing.await()
+            replacing.await()
+            assertTrue("revoked generation applied the old policy: $applied", applied.isEmpty())
+        } finally {
+            release.countDown()
+            syncing.cancelAndJoin()
+        }
+    }
+
+    @Test
     fun confirmedReceiptRequiresObservedInstalledVersion() = runBlocking {
         val deviceId = "11111111-1111-1111-1111-111111111111"
         secrets.binding = ManagementBinding("mgmt-token", server.url("/").toString().trimEnd('/'), deviceId, "a".repeat(64))
