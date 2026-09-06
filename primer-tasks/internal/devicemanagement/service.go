@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -86,7 +87,49 @@ func canonicalReport(in PolicyReportInput) ([]byte, error) {
 	if in.Controls == nil {
 		in.Controls = []ControlResult{}
 	}
+	if in.InstalledApps == nil {
+		in.InstalledApps = []InstalledApp{}
+	}
 	return marshalJSON(in)
+}
+
+func enrollmentKeyIDFromPublic(pub string) (string, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(pub))
+	if err != nil || len(decoded) == 0 {
+		return "", fmt.Errorf("%w: enrollmentPublicKey must be base64url Tink public keyset JSON", ErrInvalid)
+	}
+	if len(decoded) > 8192 {
+		return "", fmt.Errorf("%w: enrollmentPublicKey too large", ErrInvalid)
+	}
+	if !json.Valid(decoded) {
+		return "", fmt.Errorf("%w: enrollmentPublicKey is not Tink public keyset JSON", ErrInvalid)
+	}
+	sum := sha256.Sum256(decoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func validateInstalledApps(apps []InstalledApp) error {
+	seen := map[string]struct{}{}
+	self := 0
+	for _, app := range apps {
+		if !packageNameRE.MatchString(app.PackageName) || !hex64RE.MatchString(app.SignerSHA256) {
+			return fmt.Errorf("%w: invalid installed app identity", ErrInvalid)
+		}
+		if _, ok := seen[app.PackageName]; ok {
+			return fmt.Errorf("%w: duplicate installed package", ErrInvalid)
+		}
+		seen[app.PackageName] = struct{}{}
+		if app.Self {
+			self++
+			if app.PackageName != StudentPackageName {
+				return fmt.Errorf("%w: self package must be Student", ErrInvalid)
+			}
+		}
+	}
+	if len(apps) > 0 && self != 1 {
+		return fmt.Errorf("%w: inventory must include exactly one self package", ErrInvalid)
+	}
+	return nil
 }
 
 func parseUUID(v, name string) (uuid.UUID, error) {
@@ -217,7 +260,21 @@ func (s *Service) Enroll(ctx context.Context, in EnrollInput) (EnrollResult, err
 	if strings.TrimSpace(in.StableDeviceKey) != "" {
 		stableHash = hashSecret(strings.TrimSpace(in.StableDeviceKey))
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO management_devices(id,tenant_id,enrollment_id,display_name,device_model,stable_device_key_hash,capabilities,enrollment_public_key,enrollment_key_id,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())`, deviceID, tenantUUID, enrollmentUUID, name, strings.TrimSpace(in.DeviceModel), stableHash, caps, strings.TrimSpace(in.EnrollmentPubKey), strings.TrimSpace(in.EnrollmentKeyID)); err != nil {
+	pub := strings.TrimSpace(in.EnrollmentPubKey)
+	keyID := strings.TrimSpace(in.EnrollmentKeyID)
+	if pub != "" {
+		derived, err := enrollmentKeyIDFromPublic(pub)
+		if err != nil {
+			return EnrollResult{}, err
+		}
+		if keyID != "" && keyID != derived {
+			return EnrollResult{}, fmt.Errorf("%w: enrollmentKeyId must be SHA-256 of the public keyset", ErrInvalid)
+		}
+		keyID = derived
+	} else if keyID != "" {
+		return EnrollResult{}, fmt.Errorf("%w: enrollmentKeyId requires enrollmentPublicKey", ErrInvalid)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO management_devices(id,tenant_id,enrollment_id,display_name,device_model,stable_device_key_hash,capabilities,enrollment_public_key,enrollment_key_id,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())`, deviceID, tenantUUID, enrollmentUUID, name, strings.TrimSpace(in.DeviceModel), stableHash, caps, pub, keyID); err != nil {
 		return EnrollResult{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO management_device_credentials(id,tenant_id,device_id,token_hash) VALUES($1,$2,$3,$4)`, credentialID, tenantUUID, deviceID, hashSecret(token)); err != nil {
@@ -519,7 +576,7 @@ func (s *Service) DesiredState(ctx context.Context, sc DeviceScope) (DesiredStat
 	if err != nil {
 		return DesiredState{}, err
 	}
-	return DesiredState{Device: d, PolicyRevision: policy, Recovery: recovery, ReleaseTargets: targets}, nil
+	return DesiredState{Device: d, PolicyRevision: policy, Recovery: recovery, ReleaseTargets: targets, ServerTime: s.now()}, nil
 }
 
 func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyReportInput) (PolicyReport, error) {
@@ -529,6 +586,9 @@ func (s *Service) ReportPolicy(ctx context.Context, sc DeviceScope, in PolicyRep
 	}
 	if in.PolicyRevision < 0 || !validPolicyStatus(string(in.Status)) {
 		return PolicyReport{}, ErrInvalid
+	}
+	if err := validateInstalledApps(in.InstalledApps); err != nil {
+		return PolicyReport{}, err
 	}
 	payload, err := canonicalReport(in)
 	if err != nil {
@@ -639,9 +699,13 @@ func scanPolicyReport(row pgx.Row) (PolicyReport, error) {
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &in)
 		out.Controls = in.Controls
+		out.InstalledApps = in.InstalledApps
 	}
 	if out.Controls == nil {
 		out.Controls = []ControlResult{}
+	}
+	if out.InstalledApps == nil {
+		out.InstalledApps = []InstalledApp{}
 	}
 	return out, nil
 }
@@ -721,6 +785,10 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 	if in.Kind != RecoveryMaintenanceLease && in.Kind != RecoveryRotateCode {
 		return RecoveryIntent{}, ErrInvalid
 	}
+	requestID, err := parseUUID(in.RequestID, "requestId")
+	if err != nil {
+		return RecoveryIntent{}, err
+	}
 	id, err := parseUUID(deviceID, "deviceId")
 	if err != nil {
 		return RecoveryIntent{}, err
@@ -749,8 +817,8 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 		return RecoveryIntent{}, fmt.Errorf("%w: rotation has no maintenance lease", ErrInvalid)
 	}
 	if in.Kind == RecoveryRotateCode {
-		if in.Envelope == nil || in.Envelope.Alg != "X25519-ChaCha20Poly1305" || in.Envelope.KeyID == "" || in.Envelope.Nonce == "" || in.Envelope.Ciphertext == "" {
-			return RecoveryIntent{}, fmt.Errorf("%w: rotation requires provisional recovery envelope", ErrInvalid)
+		if err := validateRecoveryEnvelope(in.Envelope); err != nil {
+			return RecoveryIntent{}, err
 		}
 		if !in.ParentAcknowledged {
 			return RecoveryIntent{}, fmt.Errorf("%w: parent must acknowledge one-time custody before rotation", ErrInvalid)
@@ -767,8 +835,8 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 		return RecoveryIntent{}, err
 	}
 	defer tx.Rollback(ctx)
-	var state, keyID string
-	if err = tx.QueryRow(ctx, `SELECT state,enrollment_key_id FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, id).Scan(&state, &keyID); errors.Is(err, pgx.ErrNoRows) {
+	var state, keyID, pub string
+	if err = tx.QueryRow(ctx, `SELECT state,enrollment_key_id,enrollment_public_key FROM management_devices WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tenantID, id).Scan(&state, &keyID, &pub); errors.Is(err, pgx.ErrNoRows) {
 		return RecoveryIntent{}, ErrNotFound
 	} else if err != nil {
 		return RecoveryIntent{}, err
@@ -777,14 +845,53 @@ func (s *Service) CreateRecoveryIntent(ctx context.Context, sc Scope, deviceID s
 		return RecoveryIntent{}, ErrForbidden
 	}
 	if in.Kind == RecoveryRotateCode {
-		if keyID == "" {
+		if pub == "" || keyID == "" {
 			return RecoveryIntent{}, fmt.Errorf("%w: device has no enrolled recovery encryption key", ErrInvalid)
 		}
 		if in.Envelope.KeyID != keyID {
 			return RecoveryIntent{}, fmt.Errorf("%w: envelope keyId does not match enrolled device key", ErrInvalid)
 		}
 	}
-	intentID := uuid.New()
+	var existing RecoveryIntent
+	var existingRaw []byte
+	err = tx.QueryRow(ctx, `SELECT id,device_id,kind,status,delivery_expires_at,lease_expires_at,envelope,parent_acknowledged_at IS NOT NULL,created_at FROM management_recovery_intents WHERE tenant_id=$1 AND device_id=$2 AND id=$3`, tenantID, id, requestID).Scan(&existing.ID, &existing.DeviceID, &existing.Kind, &existing.Status, &existing.DeliveryExpiresAt, &existing.LeaseExpiresAt, &existingRaw, &existing.ParentAcknowledged, &existing.CreatedAt)
+	if err == nil {
+		want, err := marshalJSON(in)
+		if err != nil {
+			return RecoveryIntent{}, err
+		}
+		var stored RecoveryIntentInput
+		stored.RequestID = existing.ID
+		stored.Kind = existing.Kind
+		stored.ParentAcknowledged = existing.ParentAcknowledged
+		if len(existingRaw) > 0 && string(existingRaw) != "null" && string(existingRaw) != "{}" {
+			var env RecoveryEnvelope
+			if json.Unmarshal(existingRaw, &env) == nil {
+				stored.Envelope = &env
+			}
+		}
+		got, err := marshalJSON(stored)
+		if err != nil {
+			return RecoveryIntent{}, err
+		}
+		if string(want) != string(got) {
+			return RecoveryIntent{}, fmt.Errorf("%w: recovery request payload changed", ErrConflict)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return RecoveryIntent{}, err
+		}
+		if len(existingRaw) > 0 && string(existingRaw) != "null" && string(existingRaw) != "{}" {
+			var env RecoveryEnvelope
+			if json.Unmarshal(existingRaw, &env) == nil && env.KeyID != "" {
+				existing.Envelope = &env
+			}
+		}
+		return existing, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return RecoveryIntent{}, err
+	}
+	intentID := requestID
 	delivery := s.now().Add(time.Duration(deliveryMins) * time.Minute)
 	var lease any
 	if leaseMins > 0 {
@@ -904,6 +1011,23 @@ func (s *Service) ConfirmRecoveryIntent(ctx context.Context, sc DeviceScope, int
 		return ErrConflict
 	}
 	return tx.Commit(ctx)
+}
+
+func validateRecoveryEnvelope(env *RecoveryEnvelope) error {
+	if env == nil {
+		return fmt.Errorf("%w: rotation requires Tink HPKE envelope", ErrInvalid)
+	}
+	if env.Alg != RecoveryHPKEAlg {
+		return fmt.Errorf("%w: unsupported recovery alg", ErrInvalid)
+	}
+	if !hex64RE.MatchString(env.KeyID) {
+		return fmt.Errorf("%w: envelope keyId must be 64 lowercase hex chars", ErrInvalid)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(env.Ciphertext)
+	if err != nil || len(decoded) < 16 || len(decoded) > 16384 {
+		return fmt.Errorf("%w: ciphertext must be bounded base64url Tink hybrid-encrypt output", ErrInvalid)
+	}
+	return nil
 }
 
 func insertAudit(ctx context.Context, tx txIface, tenantID uuid.UUID, deviceID *uuid.UUID, actorKind, actorRef, action string, metadata []byte) error {

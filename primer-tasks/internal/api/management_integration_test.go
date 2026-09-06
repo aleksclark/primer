@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -169,10 +170,10 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 		t.Fatalf("parent latest report missing: %s", got.Body.String())
 	}
 
-	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"rotate_recovery_code","parentAcknowledged":true,"envelope":{"keyId":"device-key-1","alg":"X25519-ChaCha20Poly1305","nonce":"n1n1n1n1n1n1n1n1","ciphertext":"cipher-cipher-cipher"}}`); rec.Code != http.StatusBadRequest {
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"requestId":"`+uuid.NewString()+`","kind":"rotate_recovery_code","parentAcknowledged":true,"envelope":{"keyId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","alg":"TINK-HPKE-X25519-HKDF-SHA256-CHACHA20POLY1305-RAW-v1","ciphertext":"`+base64URLPad("cipher-cipher-cipher-cipher")+`"}}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("rotation without enrolled key = %d %s", rec.Code, rec.Body.String())
 	}
-	recovery := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"maintenance_lease","deliveryExpiresMinutes":15,"leaseExpiresMinutes":10}`)
+	recovery := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"requestId":"`+uuid.NewString()+`","kind":"maintenance_lease","deliveryExpiresMinutes":15,"leaseExpiresMinutes":10}`)
 	if recovery.Code != http.StatusCreated || !strings.Contains(recovery.Body.String(), `"status":"pending"`) {
 		t.Fatalf("recovery intent = %d %s", recovery.Code, recovery.Body.String())
 	}
@@ -209,7 +210,7 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/revoke", "parent-a", `{"reason":"lost"}`); rec.Code != http.StatusOK {
 		t.Fatalf("revoke management = %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"kind":"maintenance_lease"}`); rec.Code != http.StatusForbidden {
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/"+enrolled.Device.ID+"/recovery", "parent-a", `{"requestId":"`+uuid.NewString()+`","kind":"maintenance_lease"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("recovery on revoked device = %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := requestBearer(t, h, http.MethodGet, "/management-device/desired", enrolled.Token); rec.Code != http.StatusUnauthorized {
@@ -220,6 +221,10 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	}
 
 	_ = bob
+}
+
+func base64URLPad(v string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(v))
 }
 
 func requestBearerJSON(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
