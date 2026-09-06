@@ -1,6 +1,6 @@
 package com.aleksclark.primer.student.management
 
-import com.aleksclark.primer.updates.ReleaseTrust
+import com.aleksclark.primer.updates.GoSignedReleaseVectors
 import com.aleksclark.primertasks.client.ReleaseTarget
 import java.util.Base64
 import org.junit.Assert.assertEquals
@@ -8,36 +8,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReleaseDeliveryTest {
-    private val keys = ReleaseTrust.newKeyPair()
-    private val trust = Base64.getUrlEncoder().withoutPadding().encodeToString(keys.first)
+    private val trust = GoSignedReleaseVectors.TRUST_ROOT_BASE64URL
 
-    private fun target(payload: ByteArray, versionName: String = "0.2.0"): ReleaseTarget {
-        val signature = ReleaseTrust.sign(keys.second, payload)
-        return ReleaseTarget(
-            byteSize = 12,
-            channel = "stable",
-            id = "11111111-1111-1111-1111-111111111111",
-            manifestPayloadBase64 = Base64.getUrlEncoder().withoutPadding().encodeToString(payload),
-            manifestSignature = signature,
-            minSdk = 28,
-            packageName = "com.aleksclark.primer.student",
-            releaseId = "22222222-2222-2222-2222-222222222222",
-            sha256 = "b".repeat(64),
-            signerSha256 = "a".repeat(64),
-            signingKeyId = "ed25519-v1",
-            status = "queued",
-            targetVersion = 1,
-            versionCode = 2,
-            versionName = versionName,
-        )
-    }
+    private fun target(
+        payloadBase64: String,
+        signature: String,
+        packageName: String = "com.aleksclark.primer.student",
+        versionName: String = "0.2.0",
+    ): ReleaseTarget = ReleaseTarget(
+        byteSize = 12,
+        channel = "stable",
+        id = "11111111-1111-1111-1111-111111111111",
+        manifestPayloadBase64 = payloadBase64,
+        manifestSignature = signature,
+        minSdk = 28,
+        packageName = packageName,
+        releaseId = "22222222-2222-2222-2222-222222222222",
+        sha256 = GoSignedReleaseVectors.SHA256,
+        signerSha256 = GoSignedReleaseVectors.SIGNER_SHA256,
+        signingKeyId = GoSignedReleaseVectors.SIGNING_KEY_ID,
+        status = "queued",
+        targetVersion = 1,
+        versionCode = 2,
+        versionName = versionName,
+    )
 
     @Test
     fun verifiesExactGoOrderedBytesIncludingUnicode() {
         val versionName = "Primer \"N+1\" 测试"
-        val payload = """{"packageName":"com.aleksclark.primer.student","channel":"stable","versionCode":2,"versionName":"Primer \"N+1\" 测试","minSdk":28,"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}"""
-            .toByteArray(Charsets.UTF_8)
-        val manifest = ReleaseDelivery.verify(target(payload, versionName), trust)
+        val manifest = ReleaseDelivery.verify(
+            target(
+                payloadBase64 = GoSignedReleaseVectors.STUDENT_UNICODE_PAYLOAD_BASE64URL,
+                signature = GoSignedReleaseVectors.STUDENT_UNICODE_SIGNATURE_BASE64URL,
+                versionName = versionName,
+            ),
+            trust,
+        )
         assertEquals(versionName, manifest.versionName)
         assertEquals("stable", manifest.channel)
         assertEquals(28, manifest.minSdk)
@@ -46,31 +52,38 @@ class ReleaseDeliveryTest {
 
     @Test
     fun tamperedPayloadFailsClosed() {
-        val payload = """{"packageName":"com.aleksclark.primer.student","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":28,"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}"""
-            .toByteArray(Charsets.UTF_8)
-        val signed = target(payload)
-        val tampered = signed.copy(
-            manifestPayloadBase64 = Base64.getUrlEncoder().withoutPadding().encodeToString(payload + 1),
+        val payload = GoSignedReleaseVectors.STUDENT_PLAIN_PAYLOAD.toByteArray(Charsets.UTF_8)
+        val tampered = target(
+            payloadBase64 = Base64.getUrlEncoder().withoutPadding().encodeToString(payload + 1),
+            signature = GoSignedReleaseVectors.STUDENT_PLAIN_SIGNATURE_BASE64URL,
         )
         org.junit.Assert.assertThrows(IllegalStateException::class.java) { ReleaseDelivery.verify(tampered, trust) }
     }
 
     @Test
     fun currentVersionShortcutStillRequiresTrust() {
-        val payload = """{"packageName":"com.other","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":28,"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}"""
-            .toByteArray(Charsets.UTF_8)
-        val verified = ReleaseDelivery.verify(target(payload).copy(packageName = "com.other"), trust)
+        val verified = ReleaseDelivery.verify(
+            target(
+                payloadBase64 = GoSignedReleaseVectors.STUDENT_OTHER_PAYLOAD_BASE64URL,
+                signature = GoSignedReleaseVectors.STUDENT_OTHER_SIGNATURE_BASE64URL,
+                packageName = "com.other",
+            ),
+            trust,
+        )
         assertEquals("com.other", verified.packageName)
         assertTrue(verified.packageName != ReleaseDelivery.STUDENT_PACKAGE)
     }
 
     @Test
     fun minSdkOutOfIntRangeFailsClosed() {
-        val payload = """{"packageName":"com.aleksclark.primer.student","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":${Int.MAX_VALUE.toLong() + 1},"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}"""
-            .toByteArray(Charsets.UTF_8)
         org.junit.Assert.assertThrows(IllegalStateException::class.java) {
-            ReleaseDelivery.verify(target(payload), trust)
+            ReleaseDelivery.verify(
+                target(
+                    payloadBase64 = GoSignedReleaseVectors.STUDENT_MINSDK_OVERFLOW_PAYLOAD_BASE64URL,
+                    signature = GoSignedReleaseVectors.STUDENT_MINSDK_OVERFLOW_SIGNATURE_BASE64URL,
+                ),
+                trust,
+            )
         }
-        assertTrue(true)
     }
 }

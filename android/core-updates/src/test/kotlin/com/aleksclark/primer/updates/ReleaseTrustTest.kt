@@ -7,20 +7,7 @@ import org.junit.Test
 import java.util.Base64
 
 class ReleaseTrustTest {
-    private val keys = ReleaseTrust.newKeyPair()
-    private val publicKey = keys.first
-    private val privateKey = keys.second
-    private val manifest = SignedManifest(
-        packageName = "com.aleksclark.primer.student",
-        channel = "stable",
-        versionCode = 2,
-        versionName = "0.2.0",
-        minSdk = 28,
-        supportedAbis = listOf("arm64-v8a"),
-        signerSha256 = "a".repeat(64),
-        sha256 = "b".repeat(64),
-        byteSize = 12,
-    )
+    private val publicKey = GoSignedReleaseVectors.publicKey()
 
     @Test
     fun missingTrustKeyFailsClosed() {
@@ -29,21 +16,41 @@ class ReleaseTrustTest {
     }
 
     @Test
-    fun tinkEd25519VerifiesCanonicalBytesOnPinnedKey() {
-        val encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(publicKey)
-        assertEquals(32, ReleaseTrust.decodePinnedKey(encoded).size)
-        val message = ReleaseTrust.canonicalBytes(manifest)
-        val signature = ReleaseTrust.sign(privateKey, message)
-        assertTrue(ReleaseTrust.verifyEd25519(publicKey, message, signature))
-        assertFalse(ReleaseTrust.verifyEd25519(publicKey, message + 1, signature))
-        assertFalse(ReleaseTrust.verifyEd25519(publicKey, message, ReleaseTrust.sign(privateKey, message + 1)))
-        val digestFallback = java.security.MessageDigest.getInstance("SHA-256").digest(publicKey + message) + ByteArray(32)
+    fun rfc8032Test1EmptyMessageVerifiesAndForgeryIsRejected() {
+        assertEquals(32, ReleaseTrust.decodePinnedKey(GoSignedReleaseVectors.TRUST_ROOT_BASE64URL).size)
+        val emptySig = GoSignedReleaseVectors.emptySignatureBase64Url()
+        assertTrue(ReleaseTrust.verifyEd25519(publicKey, ByteArray(0), emptySig))
+        assertFalse(ReleaseTrust.verifyEd25519(publicKey, byteArrayOf(1), emptySig))
         assertFalse(
             ReleaseTrust.verifyEd25519(
                 publicKey,
-                message,
-                Base64.getUrlEncoder().withoutPadding().encodeToString(digestFallback),
+                ByteArray(0),
+                GoSignedReleaseVectors.digestZerosForgery(publicKey, ByteArray(0)),
             ),
         )
+    }
+
+    @Test
+    fun goProducedReleaseManifestVerifiesAndDigestZerosIsRejected() {
+        val payload = GoSignedReleaseVectors.TV_PAYLOAD.toByteArray(Charsets.UTF_8)
+        assertTrue(ReleaseTrust.verifyEd25519(publicKey, payload, GoSignedReleaseVectors.TV_SIGNATURE_BASE64URL))
+        assertFalse(ReleaseTrust.verifyEd25519(publicKey, payload + 1, GoSignedReleaseVectors.TV_SIGNATURE_BASE64URL))
+        assertFalse(
+            ReleaseTrust.verifyEd25519(
+                publicKey,
+                payload,
+                GoSignedReleaseVectors.digestZerosForgery(publicKey, payload),
+            ),
+        )
+        val decoded = Base64.getUrlDecoder().decode(GoSignedReleaseVectors.TV_PAYLOAD_BASE64URL)
+        assertTrue(decoded.contentEquals(payload))
+        val manifest = SignedManifestCodec.verifyEnvelope(
+            trustRoot = GoSignedReleaseVectors.TRUST_ROOT_BASE64URL,
+            payloadBase64 = GoSignedReleaseVectors.TV_PAYLOAD_BASE64URL,
+            signature = GoSignedReleaseVectors.TV_SIGNATURE_BASE64URL,
+            signingKeyId = GoSignedReleaseVectors.SIGNING_KEY_ID,
+        )
+        assertEquals("com.aleksclark.primer.tv", manifest.packageName)
+        assertEquals("Primer \"N+1\" 测试", manifest.versionName)
     }
 }

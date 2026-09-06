@@ -7,10 +7,17 @@ plugins {
 android {
     namespace = "com.aleksclark.primer.updates"
     compileSdk = 35
-    defaultConfig { minSdk = 28 }
+    defaultConfig {
+        minSdk = 28
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    sourceSets {
+        getByName("test").java.srcDir("src/testShared/kotlin")
+        getByName("androidTest").java.srcDir("src/testShared/kotlin")
     }
 }
 
@@ -36,4 +43,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.tink.android)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }
