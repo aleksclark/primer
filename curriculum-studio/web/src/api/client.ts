@@ -47,6 +47,22 @@ export async function getRevisionGraph(revisionId: string) {
   return studioClient.GET("/studio/v1/revisions/{revisionId}/graph", { credentials: "include", params: { path: { revisionId } } });
 }
 
-export async function createPlanNode(revisionId: string, body: { kind: "project"; title: string; body?: string; attributes?: Record<string, string> }) {
-  return studioClient.POST("/studio/v1/revisions/{revisionId}/nodes", { credentials: "include", params: { path: { revisionId } }, body });
+export async function createPlanNode(revisionId: string, body: { kind: string; title: string; body?: string; standardCodes?: string[]; attributes?: Record<string, string> }) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/nodes", { credentials: "include", params: { path: { revisionId } }, body: body as never });
+}
+
+export async function createPlanEdge(revisionId: string, body: { kind: string; fromNodeId: string; toNodeId: string; note?: string }) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/edges", { credentials: "include", params: { path: { revisionId } }, body: body as never });
+}
+
+export async function createResource(workspaceId: string, body: { kind: string; title: string }) {
+  return studioClient.POST("/studio/v1/workspaces/{workspaceId}/resources", { credentials: "include", params: { path: { workspaceId } }, body: body as never });
+}
+
+export async function materializeRevision(revisionId: string, body: { window: { availableMinutes: number }; attributes?: Record<string, string> }) {
+  return studioClient.POST("/studio/v1/revisions/{revisionId}/materializations", { credentials: "include", params: { path: { revisionId } }, body: body as never });
+}
+
+export async function listMaterializedItems(materializationId: string) {
+  return studioClient.GET("/studio/v1/materializations/{materializationId}/items", { credentials: "include", params: { path: { materializationId }, query: { limit: 50, offset: 0 } } });
 }

@@ -182,6 +182,7 @@ type PlanNode struct {
 }
 
 type PlanNodeWrite struct {
+	ID               string            `json:"id,omitempty"`
 	Kind             NodeKind          `json:"kind"`
 	Title            string            `json:"title"`
 	Body             string            `json:"body,omitempty"`

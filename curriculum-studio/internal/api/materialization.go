@@ -344,32 +344,59 @@ func (s *Server) registerMaterializationRoutes(api huma.API) {
 				inserted = false
 			}
 			if inserted {
-				if _, e := repo.NewOutboxRepo(q).Enqueue(ctx, &domain.OutboxEvent{
-					WorkspaceID:   &ws,
-					EventType:     domain.EventMaterializationRequested,
-					AggregateKind: "materialization_run",
-					AggregateID:   created.ID,
-					Payload:       json.RawMessage(`{"version":1}`),
-				}); e != nil {
-					return e
-				}
-				if inserted && len(phaseItems) > 0 {
+				if len(phaseItems) > 0 {
+					// Phase windows are deterministic and terminal. Enqueuing
+					// materialization.requested would let the generic workflow
+					// runner attach unscoped fixture lessons to this run.
 					if e := persistPhaseItems(ctx, q, ws, created, phaseItems); e != nil {
 						return e
 					}
-				}
-				if s.matStub && created.Status == domain.MaterializationStatusRequested {
-					if _, e := repo.NewMaterializationRunRepo(q).Start(ctx, ws, created.ID); e != nil {
+					if created.Status == domain.MaterializationStatusRequested {
+						if _, e := repo.NewMaterializationRunRepo(q).Start(ctx, ws, created.ID); e != nil {
+							return e
+						}
+						if _, e := repo.NewMaterializationRunRepo(q).Ready(ctx, ws, created.ID); e != nil {
+							return e
+						}
+						ready, e := repo.NewMaterializationRunRepo(q).Get(ctx, ws, created.ID)
+						if e != nil {
+							return e
+						}
+						created = ready
+					}
+					payload, _ := json.Marshal(map[string]any{"materialization_id": created.ID.String(), "projectPhaseId": true})
+					if _, e := repo.NewOutboxRepo(q).Enqueue(ctx, &domain.OutboxEvent{
+						WorkspaceID:   &ws,
+						EventType:     domain.EventMaterializationReady,
+						AggregateKind: "materialization_run",
+						AggregateID:   created.ID,
+						Payload:       payload,
+					}); e != nil {
 						return e
 					}
-					if _, e := repo.NewMaterializationRunRepo(q).Ready(ctx, ws, created.ID); e != nil {
+				} else {
+					if _, e := repo.NewOutboxRepo(q).Enqueue(ctx, &domain.OutboxEvent{
+						WorkspaceID:   &ws,
+						EventType:     domain.EventMaterializationRequested,
+						AggregateKind: "materialization_run",
+						AggregateID:   created.ID,
+						Payload:       json.RawMessage(`{"version":1}`),
+					}); e != nil {
 						return e
 					}
-					ready, e := repo.NewMaterializationRunRepo(q).Get(ctx, ws, created.ID)
-					if e != nil {
-						return e
+					if s.matStub && created.Status == domain.MaterializationStatusRequested {
+						if _, e := repo.NewMaterializationRunRepo(q).Start(ctx, ws, created.ID); e != nil {
+							return e
+						}
+						if _, e := repo.NewMaterializationRunRepo(q).Ready(ctx, ws, created.ID); e != nil {
+							return e
+						}
+						ready, e := repo.NewMaterializationRunRepo(q).Get(ctx, ws, created.ID)
+						if e != nil {
+							return e
+						}
+						created = ready
 					}
-					created = ready
 				}
 			}
 			if key := strings.TrimSpace(in.Headers.IdempotencyKey); key != "" {
