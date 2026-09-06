@@ -219,6 +219,11 @@ func TestResolveOrCreateStytchMappingExhaustsThreeRetryableAttemptsAndRollsBack(
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "40P01", pgErr.Code)
+	info := repo.RetryFailureDetails(err)
+	require.Equal(t, "deadlock", info.Class().String())
+	require.Equal(t, 3, info.Attempts())
+	require.Equal(t, 3, info.Limit())
+	require.True(t, info.Exhausted())
 
 	var attempts int64
 	require.NoError(t, pool.QueryRow(ctx, fmt.Sprintf(`SELECT last_value FROM %s`, sequenceName)).Scan(&attempts))
@@ -240,6 +245,10 @@ func TestResolveOrCreateStytchMappingDoesNotRetryNonretryableSQLState(t *testing
 	_, err := repo.ResolveOrCreateStytchMapping(ctx, pool, input)
 	require.Error(t, err)
 	require.ErrorIs(t, err, domain.ErrInvalid)
+	info := repo.RetryFailureDetails(err)
+	require.Equal(t, "invalid", info.Class().String())
+	require.Equal(t, 1, info.Attempts())
+	require.False(t, info.Exhausted())
 
 	var attempts int64
 	require.NoError(t, pool.QueryRow(ctx, fmt.Sprintf(`SELECT last_value FROM %s`, sequenceName)).Scan(&attempts))

@@ -6,10 +6,13 @@ import (
 	"errors"
 	"html"
 	"io"
+	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -24,6 +27,61 @@ const (
 	brokerCSP          = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	loginPath          = "/broker/stytch/login"
 )
+
+// CallbackCapture is test diagnostic plumbing, not an HTTP endpoint. It stores
+// only the safe projection; listener/request keys are private in-memory routing
+// and are never included in diagnostic output. Captures are explicitly removed.
+type CallbackCapture struct {
+	mu       sync.Mutex
+	failure  broker.CallbackFailure
+	captured bool
+}
+
+func (c *CallbackCapture) Snapshot() (broker.CallbackFailure, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.failure, c.captured
+}
+
+type callbackCaptureKey struct{ address, requestID string }
+
+var callbackCaptures sync.Map
+
+// CaptureBrokerCallbackForTest correlates a real network request without
+// scraping process-global slog buffers (concurrent app.Run instances replace
+// that logger). requestID uses the existing X-Request-ID middleware contract;
+// no diagnostic header or public response is added. Only tests register sinks.
+func CaptureBrokerCallbackForTest(address, requestID string) (*CallbackCapture, func()) {
+	if address == "" || requestID == "" {
+		panic("callback capture requires private routing keys")
+	}
+	key := callbackCaptureKey{address, requestID}
+	capture := &CallbackCapture{}
+	if _, exists := callbackCaptures.LoadOrStore(key, capture); exists {
+		panic("duplicate callback capture")
+	}
+	return capture, func() { callbackCaptures.CompareAndDelete(key, capture) }
+}
+
+func reportCallbackFailure(ctx context.Context, r *http.Request, d broker.CallbackFailure) {
+	// No err.Error(), HTTP data, identifiers, SQL details or request IDs here.
+	slog.WarnContext(ctx, "broker_callback_failure", "stage", d.Stage(), "class", d.Class(), "attempts", d.Attempts(), "limit", d.Limit(), "exhausted", d.Exhausted(), "mapping_calls", d.MappingCalls())
+	if r == nil {
+		return
+	}
+	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return
+	}
+	key := callbackCaptureKey{addr.String(), RequestIDFromContext(ctx)}
+	if sink, ok := callbackCaptures.Load(key); ok {
+		capture := sink.(*CallbackCapture)
+		capture.mu.Lock()
+		capture.failure = d
+		capture.captured = true
+		capture.mu.Unlock()
+	}
+}
 
 type requestKey struct{}
 
@@ -194,6 +252,7 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 	}, func(ctx context.Context, _ *callbackIn) (*callbackOut, error) {
 		r := requestOf(ctx)
 		if r == nil {
+			reportCallbackFailure(ctx, r, broker.CallbackInputFailure())
 			return nil, s.brokerLocalError(true)
 		}
 		cookie := ""
@@ -202,11 +261,13 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 		}
 		_, in, ok := parseCallbackInput(r.URL.Query())
 		if !ok || cookie == "" || s.broker == nil {
+			reportCallbackFailure(ctx, r, broker.CallbackInputFailure())
 			return nil, s.brokerLocalError(true)
 		}
 		in.CookieValue = cookie
 		result, err := s.broker.CompleteCallback(ctx, in)
 		if err != nil {
+			reportCallbackFailure(ctx, r, broker.CallbackFailureDetails(err))
 			if errors.Is(err, broker.ErrProviderUnavailable) {
 				return nil, s.brokerUnavailableError()
 			}
@@ -228,6 +289,7 @@ func (s *Server) registerBrokerRoutes(api huma.API) {
 		}
 		loc, err := callbackRedirect(result)
 		if err != nil {
+			reportCallbackFailure(ctx, r, broker.CallbackRedirectFailure())
 			return nil, s.brokerLocalError(true)
 		}
 		expired := s.brokerCookie(cookie, -1)

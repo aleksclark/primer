@@ -76,29 +76,31 @@ func ResolveOrCreateStytchMapping(ctx context.Context, pool *pgxpool.Pool, in do
 	const maxAttempts = 3
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return nil, wrapf("resolve or create stytch mapping", err)
+			return nil, withRetryFailure(wrapf("resolve or create stytch mapping", err), attempt-1, maxAttempts, false)
 		}
 
 		tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 		if err != nil {
-			return nil, wrapf("resolve or create stytch mapping", err)
+			return nil, withRetryFailure(wrapf("resolve or create stytch mapping", err), attempt, maxAttempts, false)
 		}
 
 		account, bodyErr := resolveOrCreateStytchMappingTx(ctx, tx, in)
 		if bodyErr != nil {
 			_ = tx.Rollback(context.Background())
-			if isRetryableStytchMappingError(bodyErr) && attempt < maxAttempts {
+			retryable := isRetryableStytchMappingError(bodyErr)
+			if retryable && attempt < maxAttempts {
 				continue
 			}
-			return nil, bodyErr
+			return nil, withRetryFailure(bodyErr, attempt, maxAttempts, retryable && attempt == maxAttempts)
 		}
 
 		if err := tx.Commit(ctx); err != nil {
 			_ = tx.Rollback(context.Background())
-			if isRetryableStytchMappingError(err) && attempt < maxAttempts {
+			retryable := isRetryableStytchMappingError(err)
+			if retryable && attempt < maxAttempts {
 				continue
 			}
-			return nil, wrapf("resolve or create stytch mapping commit", err)
+			return nil, withRetryFailure(wrapf("resolve or create stytch mapping commit", err), attempt, maxAttempts, retryable && attempt == maxAttempts)
 		}
 		return account, nil
 	}

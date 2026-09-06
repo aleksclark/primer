@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,6 +22,128 @@ import (
 	"github.com/aleksclark/primer/identity/internal/secrethash"
 	"github.com/aleksclark/primer/identity/internal/stateseal"
 )
+
+// CallbackFailure is a safe, request-local diagnostic projection. It never
+// stores the underlying error, request, identifiers or provider artifacts.
+// Only the original visible error is retained by the private wrapper below.
+type CallbackFailure struct {
+	stage                         callbackStage
+	class                         repo.FailureClass
+	attempts, limit, mappingCalls int
+	exhausted                     bool
+}
+type callbackStage uint8
+
+const (
+	stageUnknown callbackStage = iota
+	stageInput
+	stageCookieHash
+	stageBinding
+	stageAdvance
+	stageProvider
+	stageRelease
+	stageMapping
+	stageMappingLookup
+	stageCodeGeneration
+	stageCodeHash
+	stageLifetime
+	stageIssuance
+	stageStateRecovery
+	stageRedirect
+)
+
+func (s callbackStage) String() string {
+	switch s {
+	case stageInput:
+		return "input"
+	case stageCookieHash:
+		return "cookie_hash"
+	case stageBinding:
+		return "binding"
+	case stageAdvance:
+		return "advance"
+	case stageProvider:
+		return "provider"
+	case stageRelease:
+		return "release"
+	case stageMapping:
+		return "tuple_mapping"
+	case stageMappingLookup:
+		return "mapping_lookup"
+	case stageCodeGeneration:
+		return "code_generation"
+	case stageCodeHash:
+		return "code_hash"
+	case stageLifetime:
+		return "lifetime"
+	case stageIssuance:
+		return "issuance"
+	case stageStateRecovery:
+		return "state_recovery"
+	case stageRedirect:
+		return "redirect"
+	default:
+		return "unknown"
+	}
+}
+func (d CallbackFailure) Stage() string     { return d.stage.String() }
+func (d CallbackFailure) Class() string     { return d.class.String() }
+func (d CallbackFailure) Attempts() int     { return d.attempts }
+func (d CallbackFailure) Limit() int        { return d.limit }
+func (d CallbackFailure) MappingCalls() int { return d.mappingCalls }
+func (d CallbackFailure) Exhausted() bool   { return d.exhausted }
+func (d CallbackFailure) String() string {
+	return fmt.Sprintf("stage=%s class=%s attempts=%d limit=%d exhausted=%t mapping_calls=%d", d.Stage(), d.Class(), d.attempts, d.limit, d.exhausted, d.mappingCalls)
+}
+func (d CallbackFailure) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Stage        string `json:"stage"`
+		Class        string `json:"class"`
+		Attempts     int    `json:"attempts"`
+		Limit        int    `json:"limit"`
+		Exhausted    bool   `json:"exhausted"`
+		MappingCalls int    `json:"mappingCalls"`
+	}{d.Stage(), d.Class(), d.attempts, d.limit, d.exhausted, d.mappingCalls})
+}
+
+type attributedCallbackError struct {
+	visible error
+	failure CallbackFailure
+}
+
+func (e *attributedCallbackError) Error() string { return e.visible.Error() }
+func (e *attributedCallbackError) Unwrap() error { return e.visible }
+func attributedCallback(stage callbackStage, cause, visible error, mappingCalls int) error {
+	// Preserve a more specific diagnostic from an inner state-recovery failure.
+	var existing *attributedCallbackError
+	if errors.As(visible, &existing) {
+		return visible
+	}
+	retry := repo.RetryFailureDetails(cause)
+	class := retry.Class()
+	switch {
+	case errors.Is(cause, ErrProviderUnavailable), errors.Is(cause, brokerprovider.ErrProviderUnavailable):
+		class = repo.FailureUnavailable
+	case errors.Is(cause, ErrProviderDenied), errors.Is(cause, brokerprovider.ErrDefinitiveDenial):
+		class = repo.FailureDenied
+	case errors.Is(cause, ErrIncompleteMFA):
+		class = repo.FailureIncomplete
+	}
+	return &attributedCallbackError{visible: visible, failure: CallbackFailure{stage: stage, class: class, attempts: retry.Attempts(), limit: retry.Limit(), exhausted: retry.Exhausted(), mappingCalls: mappingCalls}}
+}
+func CallbackFailureDetails(err error) CallbackFailure {
+	var failure *attributedCallbackError
+	if errors.As(err, &failure) {
+		return failure.failure
+	}
+	return CallbackFailure{class: repo.ClassifyFailure(err)}
+}
+func CallbackInputFailure() CallbackFailure {
+	return CallbackFailure{stage: stageInput, class: repo.FailureInvalid}
+}
+func CallbackRedirectFailure() CallbackFailure {
+	return CallbackFailure{stage: stageRedirect, class: repo.FailureInvalid}
+}
 
 // Lifetimes and sizes frozen by the IB0 contract.
 const (
@@ -297,13 +420,13 @@ type CallbackResult struct {
 func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (CallbackResult, error) {
 	if in.CookieValue == "" || len(in.CookieValue) > maxCookieValueLen ||
 		in.Artifact == "" || len(in.Artifact) > maxArtifactByteLen {
-		return CallbackResult{}, ErrUnboundCallback
+		return CallbackResult{}, attributedCallback(stageInput, domain.ErrInvalid, ErrUnboundCallback, 0)
 	}
 
 	cookieHash, err := secrethash.Hash(secrethash.Peppers(s.secrets.BrokerCookiePeppers),
 		s.secrets.BrokerCookieActiveVersion, cookieHashContext, []byte(in.CookieValue))
 	if err != nil {
-		return CallbackResult{}, ErrUnboundCallback
+		return CallbackResult{}, attributedCallback(stageCookieHash, err, ErrUnboundCallback, 0)
 	}
 
 	binding, err := s.loadLiveBinding(ctx, cookieHash)
@@ -327,22 +450,22 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 			// Transient: release ownership and leave the transaction
 			// recoverable. Never negative-cached, never terminalized.
 			if err := s.releaseValidating(ctx, &binding); err != nil {
-				return CallbackResult{}, ErrProviderUnavailable
+				return CallbackResult{}, attributedCallback(stageRelease, err, ErrProviderUnavailable, 0)
 			}
-			return CallbackResult{}, ErrProviderUnavailable
+			return CallbackResult{}, attributedCallback(stageProvider, providerErr, ErrProviderUnavailable, 0)
 		default:
-			return CallbackResult{}, s.deniedTrustedRedirect(ctx, binding)
+			return CallbackResult{}, attributedCallback(stageProvider, providerErr, s.deniedTrustedRedirect(ctx, binding), 0)
 		}
 	}
 	if result.Outcome == brokerprovider.OutcomeIncompleteMFA {
 		// Identity-only continuation: no authority, transaction stays live.
 		if err := s.releaseValidating(ctx, &binding); err != nil {
-			return CallbackResult{}, ErrIncompleteMFA
+			return CallbackResult{}, attributedCallback(stageRelease, err, ErrIncompleteMFA, 0)
 		}
-		return CallbackResult{}, ErrIncompleteMFA
+		return CallbackResult{}, attributedCallback(stageProvider, ErrIncompleteMFA, ErrIncompleteMFA, 0)
 	}
 	if !result.Authenticated() {
-		return CallbackResult{}, s.deniedTrustedRedirect(ctx, binding)
+		return CallbackResult{}, attributedCallback(stageProvider, ErrProviderDenied, s.deniedTrustedRedirect(ctx, binding), 0)
 	}
 
 	// Exact tuple mapping. Email never links identities. Serializable first-login
@@ -361,28 +484,28 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 			break
 		}
 		if !isRetryableMapping(err) || attempt == 5 {
-			return CallbackResult{}, fmt.Errorf("broker callback: tuple mapping unavailable")
+			return CallbackResult{}, attributedCallback(stageMapping, err, fmt.Errorf("broker callback: tuple mapping unavailable"), attempt)
 		}
 	}
 	mappingID, err := s.mappingID(ctx, result)
 	if err != nil {
-		return CallbackResult{}, fmt.Errorf("broker callback: tuple mapping unavailable")
+		return CallbackResult{}, attributedCallback(stageMappingLookup, err, fmt.Errorf("broker callback: tuple mapping unavailable"), 0)
 	}
 
 	code, err := s.randomToken(CodeEntropyBytes)
 	if err != nil {
-		return CallbackResult{}, fmt.Errorf("broker callback: code generation failed")
+		return CallbackResult{}, attributedCallback(stageCodeGeneration, err, fmt.Errorf("broker callback: code generation failed"), 0)
 	}
 	codeHash, err := secrethash.Hash(secrethash.Peppers(s.secrets.AuthorizationCodePeppers),
 		s.secrets.AuthorizationCodeActiveVersion, codeHashContext, []byte(code))
 	if err != nil {
-		return CallbackResult{}, fmt.Errorf("broker callback: code hash failed")
+		return CallbackResult{}, attributedCallback(stageCodeHash, err, fmt.Errorf("broker callback: code hash failed"), 0)
 	}
 
 	issuedAt := s.now().UTC()
 	grantNotAfter, codeExpiresAt, err := capGrantAndCode(issuedAt, result.MemberSessionExpiresAt)
 	if err != nil {
-		return CallbackResult{}, s.deniedTrustedRedirect(ctx, binding)
+		return CallbackResult{}, attributedCallback(stageLifetime, err, s.deniedTrustedRedirect(ctx, binding), 0)
 	}
 	_, err = repo.IssueCallbackArtifacts(ctx, s.pool, repo.IssueCallbackArtifactsInput{
 		BrokerID: binding.transactionID, ExpectedVersion: binding.version,
@@ -402,9 +525,9 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		if errors.Is(err, repo.ErrStaleCAS) {
 			// A concurrent callback committed first. The loser never receives
 			// the winner's code.
-			return CallbackResult{}, ErrLostRace
+			return CallbackResult{}, attributedCallback(stageIssuance, err, ErrLostRace, 0)
 		}
-		return CallbackResult{}, fmt.Errorf("broker callback: issuance failed")
+		return CallbackResult{}, attributedCallback(stageIssuance, err, fmt.Errorf("broker callback: issuance failed"), 0)
 	}
 
 	// Only after commit is the exact original state recovered for the redirect.
@@ -414,7 +537,7 @@ func (s *Service) CompleteCallback(ctx context.Context, in CallbackInput) (Callb
 		Audience: binding.audience,
 	})
 	if err != nil {
-		return CallbackResult{}, fmt.Errorf("broker callback: state recovery failed")
+		return CallbackResult{}, attributedCallback(stageStateRecovery, err, fmt.Errorf("broker callback: state recovery failed"), 0)
 	}
 	recovered := append([]byte(nil), state...)
 	stateseal.Zero(state)
@@ -434,7 +557,7 @@ func (s *Service) recoverBindingState(b liveBinding) ([]byte, error) {
 		Audience: b.audience,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("broker callback: state recovery failed")
+		return nil, attributedCallback(stageStateRecovery, err, fmt.Errorf("broker callback: state recovery failed"), 0)
 	}
 	return state, nil
 }
@@ -517,9 +640,9 @@ WHERE t.broker_cookie_hash = $1
 		&b.stateKeyVersion, &b.status, &b.version)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return liveBinding{}, ErrUnboundCallback
+			return liveBinding{}, attributedCallback(stageBinding, err, ErrUnboundCallback, 0)
 		}
-		return liveBinding{}, ErrUnboundCallback
+		return liveBinding{}, attributedCallback(stageBinding, err, ErrUnboundCallback, 0)
 	}
 	return b, nil
 }
@@ -531,7 +654,7 @@ WHERE t.broker_cookie_hash = $1
 // makes concurrent callbacks resolve to exactly one committed code.
 func (s *Service) advanceToValidating(ctx context.Context, b *liveBinding) error {
 	if b.status == domain.BrokerStatusProviderValidating {
-		return ErrLostRace
+		return attributedCallback(stageAdvance, repo.ErrStaleCAS, ErrLostRace, 0)
 	}
 	for b.status != domain.BrokerStatusProviderValidating {
 		var next string
@@ -541,11 +664,11 @@ func (s *Service) advanceToValidating(ctx context.Context, b *liveBinding) error
 		case domain.BrokerStatusProviderStarted:
 			next = domain.BrokerStatusProviderValidating
 		default:
-			return ErrUnboundCallback
+			return attributedCallback(stageAdvance, domain.ErrInvalid, ErrUnboundCallback, 0)
 		}
 		if _, err := repo.TransitionBrokerTransaction(ctx, s.pool, b.transactionID,
 			b.version, b.status, next); err != nil {
-			return ErrLostRace
+			return attributedCallback(stageAdvance, err, ErrLostRace, 0)
 		}
 		b.status = next
 		b.version++

@@ -16,6 +16,131 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// FailureClass is an internal, closed diagnostic vocabulary. Never classify by
+// error text: it can contain SQL values, identifiers or credential material.
+type FailureClass uint8
+
+const (
+	FailureUnknown FailureClass = iota
+	FailureSerialization
+	FailureDeadlock
+	FailureNotFound
+	FailureConflict
+	FailureInvalid
+	FailureCanceled
+	FailureDeadline
+	FailureCapacity
+	FailureQueryCanceled
+	FailureUnavailable
+	FailureDenied
+	FailureIncomplete
+)
+
+func (c FailureClass) String() string {
+	switch c {
+	case FailureSerialization:
+		return "serialization_conflict"
+	case FailureDeadlock:
+		return "deadlock"
+	case FailureNotFound:
+		return "not_found"
+	case FailureConflict:
+		return "conflict"
+	case FailureInvalid:
+		return "invalid"
+	case FailureCanceled:
+		return "canceled"
+	case FailureDeadline:
+		return "deadline"
+	case FailureCapacity:
+		return "capacity"
+	case FailureQueryCanceled:
+		return "query_canceled"
+	case FailureUnavailable:
+		return "unavailable"
+	case FailureDenied:
+		return "denied"
+	case FailureIncomplete:
+		return "incomplete"
+	default:
+		return "unknown"
+	}
+}
+
+func ClassifyFailure(err error) FailureClass {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		switch pe.Code {
+		case "40001":
+			return FailureSerialization
+		case "40P01":
+			return FailureDeadlock
+		case "23505":
+			return FailureConflict
+		case "23503":
+			return FailureNotFound
+		case "23514":
+			return FailureInvalid
+		case "53300":
+			return FailureCapacity
+		case "57014":
+			return FailureQueryCanceled
+		default:
+			return FailureUnknown
+		}
+	}
+	switch {
+	case errors.Is(err, domain.ErrRetryableSerialization):
+		return FailureSerialization
+	case errors.Is(err, context.Canceled):
+		return FailureCanceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return FailureDeadline
+	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, domain.ErrNotFound):
+		return FailureNotFound
+	case errors.Is(err, domain.ErrConflict), errors.Is(err, ErrStaleCAS):
+		return FailureConflict
+	case errors.Is(err, domain.ErrInvalid):
+		return FailureInvalid
+	default:
+		return FailureUnknown
+	}
+}
+
+// RetryFailureInfo contains only safe scalars. Its private fields prevent raw
+// strings from entering a diagnostic projection. Recovered retries emit nothing.
+type RetryFailureInfo struct {
+	class           FailureClass
+	attempts, limit int
+	exhausted       bool
+}
+
+func (d RetryFailureInfo) Class() FailureClass { return d.class }
+func (d RetryFailureInfo) Attempts() int       { return d.attempts }
+func (d RetryFailureInfo) Limit() int          { return d.limit }
+func (d RetryFailureInfo) Exhausted() bool     { return d.exhausted }
+
+type retryFailure struct {
+	cause error
+	info  RetryFailureInfo
+}
+
+func (e *retryFailure) Error() string { return e.cause.Error() }
+func (e *retryFailure) Unwrap() error { return e.cause }
+func withRetryFailure(err error, attempts, limit int, exhausted bool) error {
+	if err == nil {
+		return nil
+	}
+	return &retryFailure{cause: err, info: RetryFailureInfo{ClassifyFailure(err), attempts, limit, exhausted}}
+}
+func RetryFailureDetails(err error) RetryFailureInfo {
+	var failure *retryFailure
+	if errors.As(err, &failure) {
+		return failure.info
+	}
+	return RetryFailureInfo{class: ClassifyFailure(err)}
+}
+
 var ErrStaleCAS = errors.New("stale CAS")
 
 type IssueCallbackArtifactsInput struct {
@@ -437,18 +562,19 @@ func WithSerializableRetry(ctx context.Context, p *pgxpool.Pool, fn func(pgx.Tx)
 	var last error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return err
+			return withRetryFailure(err, attempt-1, maxAttempts, false)
 		}
 		tx, err := p.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 		if err != nil {
-			if isRetryableSerialization(err) && attempt < maxAttempts {
+			retryable := isRetryableSerialization(err)
+			if retryable && attempt < maxAttempts {
 				last = err
 				if sleepErr := sleepSerializableBackoff(ctx, attempt, baseBackoff, maxBackoff, jitterCeiling); sleepErr != nil {
-					return sleepErr
+					return withRetryFailure(sleepErr, attempt, maxAttempts, false)
 				}
 				continue
 			}
-			return err
+			return withRetryFailure(err, attempt, maxAttempts, retryable && attempt == maxAttempts)
 		}
 		err = fn(tx)
 		if err == nil {
@@ -463,15 +589,16 @@ func WithSerializableRetry(ctx context.Context, p *pgxpool.Pool, fn func(pgx.Tx)
 			return nil
 		}
 		last = err
-		if isRetryableSerialization(err) && attempt < maxAttempts {
+		retryable := isRetryableSerialization(err)
+		if retryable && attempt < maxAttempts {
 			if sleepErr := sleepSerializableBackoff(ctx, attempt, baseBackoff, maxBackoff, jitterCeiling); sleepErr != nil {
-				return sleepErr
+				return withRetryFailure(sleepErr, attempt, maxAttempts, false)
 			}
 			continue
 		}
-		return err
+		return withRetryFailure(err, attempt, maxAttempts, retryable && attempt == maxAttempts)
 	}
-	return last
+	return withRetryFailure(last, maxAttempts, maxAttempts, true)
 }
 
 func sleepSerializableBackoff(ctx context.Context, attempt int, base, capDelay time.Duration, jitterCeiling int) error {
