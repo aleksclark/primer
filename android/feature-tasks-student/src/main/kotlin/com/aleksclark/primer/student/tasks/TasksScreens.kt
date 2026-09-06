@@ -57,11 +57,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun StudentTasksRoute(
     deepLink: Uri? = null,
     onLeave: (() -> Unit)? = null,
+    onDeepLinkConsumed: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val session = remember { TasksSession(context) }
-    StudentTasksApp(session = session, deepLink = deepLink, onLeave = onLeave, modifier = modifier)
+    StudentTasksApp(
+        session = session,
+        deepLink = deepLink,
+        onLeave = onLeave,
+        onDeepLinkConsumed = onDeepLinkConsumed,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -69,6 +76,7 @@ fun StudentTasksApp(
     session: TasksSession,
     deepLink: Uri? = null,
     onLeave: (() -> Unit)? = null,
+    onDeepLinkConsumed: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -104,6 +112,7 @@ fun StudentTasksApp(
                     upcoming = emptyList()
                     selectedOccurrence = null
                     scanning = false
+                    deepLinkUnavailable = false
                 } else {
                     token = result.retainedToken
                     metadata = result.retainedMetadata
@@ -114,20 +123,81 @@ fun StudentTasksApp(
         }
     }
 
-    LaunchedEffect(Unit) {
-        val restored = session.restore()
-        apply(restored)
-        val occurrenceId = occurrenceIdFromDeepLink(deepLink)
-        val paired = restored as? TasksRestoreResult.Paired
-        if (paired != null && occurrenceId != null) {
-            when (val lookup = session.loadOccurrence(paired.token, paired.metadata.origin, occurrenceId)) {
-                is OccurrenceLookup.Found -> selectedOccurrence = lookup.occurrence
-                OccurrenceLookup.Unavailable -> {
-                    deepLinkUnavailable = true
-                    message = "This task is unavailable."
-                }
+    fun applyLookup(lookup: OccurrenceLookup) {
+        when (lookup) {
+            is OccurrenceLookup.Found -> {
+                selectedOccurrence = lookup.occurrence
+                deepLinkUnavailable = false
+            }
+            OccurrenceLookup.Unavailable -> {
+                selectedOccurrence = null
+                deepLinkUnavailable = true
+                message = "This task is unavailable."
+            }
+            is OccurrenceLookup.Failed -> {
+                deepLinkUnavailable = false
+                message = lookup.message
+            }
+            is OccurrenceLookup.Revoked -> {
+                token = null
+                metadata = null
+                checklist = emptyList()
+                occurrences = emptyList()
+                upcoming = emptyList()
+                selectedOccurrence = null
+                scanning = false
+                deepLinkUnavailable = false
+                message = lookup.message
+                busy = false
             }
         }
+    }
+
+    fun applyAction(result: OccurrenceActionResult) {
+        when (result) {
+            is OccurrenceActionResult.Updated -> {
+                selectedOccurrence = result.occurrence
+                message = null
+            }
+            is OccurrenceActionResult.Conflict -> {
+                selectedOccurrence = result.occurrence
+                message = result.message
+            }
+            is OccurrenceActionResult.Failed -> message = result.message
+            is OccurrenceActionResult.Revoked -> {
+                token = null
+                metadata = null
+                checklist = emptyList()
+                occurrences = emptyList()
+                upcoming = emptyList()
+                selectedOccurrence = null
+                scanning = false
+                deepLinkUnavailable = false
+                message = result.message
+                busy = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        apply(session.restore())
+    }
+
+    LaunchedEffect(deepLink) {
+        val occurrenceId = occurrenceIdFromDeepLink(deepLink) ?: return@LaunchedEffect
+        val savedToken = token
+        val savedMetadata = metadata
+        if (savedToken != null && savedMetadata != null) {
+            applyLookup(session.loadOccurrence(savedToken, savedMetadata.origin, occurrenceId))
+        } else {
+            val restored = session.restore()
+            apply(restored)
+            val paired = restored as? TasksRestoreResult.Paired
+            if (paired != null) {
+                applyLookup(session.loadOccurrence(paired.token, paired.metadata.origin, occurrenceId))
+            }
+        }
+        onDeepLinkConsumed?.invoke()
     }
 
     fun pair(raw: String) {
@@ -157,32 +227,24 @@ fun StudentTasksApp(
             )
             metadata != null && token != null && selectedOccurrence != null -> OccurrenceDetailScreen(
                 occurrence = selectedOccurrence!!,
+                message = message,
                 onBack = {
                     selectedOccurrence = null
                     onLeave?.invoke()
                 },
                 onRefresh = {
                     scope.launch {
-                        when (val lookup = session.loadOccurrence(token!!, metadata!!.origin, selectedOccurrence!!.id)) {
-                            is OccurrenceLookup.Found -> selectedOccurrence = lookup.occurrence
-                            OccurrenceLookup.Unavailable -> message = "Unable to refresh this task."
-                        }
+                        applyLookup(session.loadOccurrence(token!!, metadata!!.origin, selectedOccurrence!!.id))
                     }
                 },
                 onStart = {
                     scope.launch {
-                        when (val result = session.start(token!!, metadata!!.origin, selectedOccurrence!!.id)) {
-                            is OccurrenceActionResult.Updated -> selectedOccurrence = result.occurrence
-                            is OccurrenceActionResult.Failed -> message = result.message
-                        }
+                        applyAction(session.start(token!!, metadata!!.origin, selectedOccurrence!!.id))
                     }
                 },
                 onSubmit = {
                     scope.launch {
-                        when (val result = session.submit(token!!, metadata!!.origin, selectedOccurrence!!.id)) {
-                            is OccurrenceActionResult.Updated -> selectedOccurrence = result.occurrence
-                            is OccurrenceActionResult.Failed -> message = result.message
-                        }
+                        applyAction(session.submit(token!!, metadata!!.origin, selectedOccurrence!!.id))
                     }
                 },
             )
@@ -409,6 +471,7 @@ private fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
 @Composable
 private fun OccurrenceDetailScreen(
     occurrence: OccurrenceResponse,
+    message: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onStart: () -> Unit,
@@ -418,6 +481,7 @@ private fun OccurrenceDetailScreen(
         PrimerSectionHeader(label = "Task detail", title = occurrence.title)
         Text(occurrence.instructions, style = PrimerTheme.typography.body)
         Text("Status: ${occurrence.status}", style = PrimerTheme.typography.sectionTitle)
+        if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
         PrimerRecordRow(
             label = "Status",
             value = occurrence.status,
