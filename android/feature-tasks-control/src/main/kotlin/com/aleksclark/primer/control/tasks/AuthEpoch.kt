@@ -3,13 +3,20 @@ package com.aleksclark.primer.control.tasks
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/** Rejects late results after logout or account switch. */
+/** Monotonic fence. Operations capture the value into [AuthContext]; there is no current-action global. */
 class AuthEpoch {
     private val value = AtomicLong(0)
     fun current(): Long = value.get()
     fun bump(): Long = value.incrementAndGet()
     fun isCurrent(snapshot: Long): Boolean = snapshot == value.get()
 }
+
+/** Immutable credentials for one in-flight Control operation. */
+data class AuthContext(
+    val sessionId: String,
+    val epoch: Long,
+    val token: String,
+)
 
 class MutationGate {
     private val busy = AtomicBoolean(false)
@@ -18,21 +25,29 @@ class MutationGate {
     fun isBusy(): Boolean = busy.get()
 }
 
+data class LogoutAttempt(
+    val sessionId: String,
+    val token: String,
+    val serverRevoked: Boolean,
+)
+
 sealed class LogoutDecision {
     data object ClearSession : LogoutDecision()
-    data class Incomplete(val message: String) : LogoutDecision()
+    data class Incomplete(val message: String, val serverRevoked: Boolean) : LogoutDecision()
 }
 
 object FailClosedLogout {
     fun decide(serverRevoked: Boolean, providerSignedOut: Boolean, serverError: String?, providerError: String?): LogoutDecision {
         if (!serverRevoked) {
             return LogoutDecision.Incomplete(
-                serverError ?: "Tasks could not revoke the parent session. Stay signed in and try again.",
+                message = serverError ?: "Tasks could not revoke the parent session. Stay signed in and try again.",
+                serverRevoked = false,
             )
         }
         if (!providerSignedOut) {
             return LogoutDecision.Incomplete(
-                providerError ?: "Clerk could not sign out. The Tasks session was revoked; retry sign-out.",
+                message = providerError ?: "Clerk could not sign out. The Tasks session was revoked; retry sign-out.",
+                serverRevoked = true,
             )
         }
         return LogoutDecision.ClearSession

@@ -45,7 +45,7 @@ class DeviceRepositoryTest {
         )
         try {
             DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" })
-                .rotateRecovery("device-b", prepared, acknowledged = true)
+                .rotateRecovery("device-b", "key-a", prepared, acknowledged = true)
             throw AssertionError("expected device mismatch")
         } catch (error: IllegalStateException) {
             assertTrue(error.message!!.contains("different device"))
@@ -64,7 +64,7 @@ class DeviceRepositoryTest {
         )
         try {
             DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" })
-                .rotateRecovery("device-a", prepared, acknowledged = false)
+                .rotateRecovery("device-a", "key-a", prepared, acknowledged = false)
             throw AssertionError("expected acknowledgement")
         } catch (error: IllegalStateException) {
             assertTrue(error.message!!.contains("Store recovery codes"))

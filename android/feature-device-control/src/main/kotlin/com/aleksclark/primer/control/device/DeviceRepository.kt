@@ -18,7 +18,8 @@ import java.util.UUID
 class DeviceRepository(
     apiBase: String,
     token: CredentialProvider,
-    private val client: TasksClient = TasksClient(baseUrl = apiBase, parentCredentials = token),
+    http: okhttp3.OkHttpClient = okhttp3.OkHttpClient(),
+    private val client: TasksClient = TasksClient(baseUrl = apiBase, http = http, parentCredentials = token),
 ) {
     suspend fun list() = client.listManagedDevices()
     suspend fun get(id: String) = client.getManagedDevice(id)
@@ -74,8 +75,13 @@ class DeviceRepository(
         )
     }
 
-    suspend fun rotateRecovery(selectedDeviceId: String, prepared: RecoveryBinding?, acknowledged: Boolean) {
-        val target = RecoveryPrep.submitTarget(prepared, selectedDeviceId, acknowledged)
+    suspend fun rotateRecovery(
+        selectedDeviceId: String,
+        enrollmentPublicKey: String?,
+        prepared: RecoveryBinding?,
+        acknowledged: Boolean,
+    ) {
+        val target = RecoveryPrep.submitTarget(prepared, selectedDeviceId, enrollmentPublicKey, acknowledged)
         val envelope = RecoveryHpke.encryptCodes(target.publicJson, target.deviceId, target.requestId, target.codes)
         client.createManagedRecovery(
             target.deviceId,

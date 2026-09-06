@@ -53,9 +53,16 @@ object RecoveryPrep {
         )
     }
 
-    fun submitTarget(prepared: RecoveryBinding?, selectedDeviceId: String, acknowledged: Boolean): RecoveryBinding {
+    fun submitTarget(
+        prepared: RecoveryBinding?,
+        selectedDeviceId: String,
+        enrollmentPublicKey: String?,
+        acknowledged: Boolean,
+    ): RecoveryBinding {
         check(prepared != null) { "Prepare recovery codes first." }
-        check(prepared.deviceId == selectedDeviceId) { "Recovery codes belong to a different device. Prepare again." }
+        check(prepared.matches(selectedDeviceId, enrollmentPublicKey)) {
+            "Recovery codes belong to a different device. Prepare again."
+        }
         check(acknowledged || prepared.acknowledged) { "Store recovery codes off this device before rotating." }
         return prepared
     }

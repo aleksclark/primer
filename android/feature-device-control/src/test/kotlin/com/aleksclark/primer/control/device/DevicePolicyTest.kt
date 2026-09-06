@@ -16,15 +16,24 @@ import org.junit.Test
 class DevicePolicyTest {
     @Test
     fun syncStatusCoversAppliedPendingPartialStale() {
-        assertEquals(DeviceSyncStatus.Applied, DeviceSync.status(1, 1, null))
+        assertEquals(DeviceSyncStatus.NoPolicy, DeviceSync.status(0, 0, null))
+        assertEquals(DeviceSyncStatus.Unknown, DeviceSync.status(1, 1, null))
         assertEquals(DeviceSyncStatus.Pending, DeviceSync.status(2, 1, null))
         assertEquals(
             DeviceSyncStatus.Partial,
-            DeviceSync.status(2, 2, report("partial", stale = false)),
+            DeviceSync.status(2, 2, report("partial", stale = false, revision = 2)),
         )
         assertEquals(
             DeviceSyncStatus.Stale,
-            DeviceSync.status(2, 1, report("ok", stale = true)),
+            DeviceSync.status(2, 1, report("ok", stale = true, revision = 1)),
+        )
+        assertEquals(
+            DeviceSyncStatus.Failed,
+            DeviceSync.status(1, 1, report("failed", stale = false, revision = 1)),
+        )
+        assertEquals(
+            DeviceSyncStatus.Applied,
+            DeviceSync.status(1, 1, report("applied", stale = false, revision = 1)),
         )
     }
 
@@ -68,7 +77,7 @@ class DevicePolicyTest {
             publicJson = ByteArray(8) { 1 },
         )
         try {
-            RecoveryPrep.submitTarget(prepared, "device-b", acknowledged = true)
+            RecoveryPrep.submitTarget(prepared, "device-b", "key-a", acknowledged = true)
             throw AssertionError("expected device mismatch")
         } catch (error: IllegalStateException) {
             assertTrue(error.message!!.contains("different device"))
@@ -85,7 +94,7 @@ class DevicePolicyTest {
             publicJson = ByteArray(8) { 1 },
         )
         try {
-            RecoveryPrep.submitTarget(prepared, "device-a", acknowledged = false)
+            RecoveryPrep.submitTarget(prepared, "device-a", "key-a", acknowledged = false)
             throw AssertionError("expected acknowledgement")
         } catch (error: IllegalStateException) {
             assertTrue(error.message!!.contains("Store recovery codes"))
@@ -151,10 +160,10 @@ class DevicePolicyTest {
         assertEquals(0, ReleaseCas.baseTargetVersion(null))
     }
 
-    private fun report(status: String, stale: Boolean) = PolicyReport(
+    private fun report(status: String, stale: Boolean, revision: Long = 1) = PolicyReport(
         deviceId = "d1",
         id = "r1",
-        policyRevision = 1,
+        policyRevision = revision,
         receivedAt = "2026-01-01T00:00:00Z",
         reportId = "rep-1",
         stale = stale,
