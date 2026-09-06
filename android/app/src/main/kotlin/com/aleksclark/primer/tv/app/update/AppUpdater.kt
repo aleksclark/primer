@@ -30,14 +30,13 @@ sealed interface UpdateState {
 internal object ApkChecks {
     private val sha256Pattern = Regex("^[0-9a-fA-F]{64}$")
 
-    fun validExpectedDigest(expected: String): Boolean =
-        expected.isBlank() || sha256Pattern.matches(expected)
+    fun validExpectedDigest(expected: String): Boolean = sha256Pattern.matches(expected)
 
     fun digestMatches(expected: String, actual: String): Boolean =
-        expected.isBlank() || expected.equals(actual, ignoreCase = true)
+        expected.equals(actual, ignoreCase = true)
 
     fun sizeMatches(expected: Long, actual: Long): Boolean =
-        expected <= 0L || expected == actual
+        expected > 0L && expected == actual
 }
 
 class AppUpdater(
@@ -51,8 +50,8 @@ class AppUpdater(
 
     suspend fun download(baseUrl: String, release: AppRelease, token: String?): UpdateState =
         withContext(Dispatchers.IO) {
-            if (!ApkChecks.validExpectedDigest(release.sha256)) {
-                return@withContext UpdateState.Failed("The server published an invalid update checksum.")
+            if (!ApkChecks.validExpectedDigest(release.sha256) || release.sizeBytes <= 0L) {
+                return@withContext UpdateState.Failed("TV release metadata is missing mandatory trust fields. Upgrade the TV server; verification will not be weakened.")
             }
 
             val directory = File(context.cacheDir, "updates").apply { mkdirs() }

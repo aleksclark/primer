@@ -13,6 +13,28 @@ class ArchiveChecksTest {
     private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test fun `accepts newer same-package same-current-signer compatible archive`() { validate(newer) }
+    @Test fun `first install of approved package requires exact signer`() {
+        ArchiveChecks.validateArchive(
+            installed = null,
+            archive = newer.copy(packageName = "com.aleksclark.primer.tv"),
+            sdk = 36,
+            abis = setOf("arm64-v8a"),
+            expectedPackage = "com.aleksclark.primer.tv",
+            expectedSigners = setOf("key-a"),
+            allowFirstInstall = true,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.validateArchive(
+                installed = null,
+                archive = newer.copy(packageName = "com.aleksclark.primer.tv"),
+                sdk = 36,
+                abis = setOf("arm64-v8a"),
+                expectedPackage = "com.aleksclark.primer.tv",
+                expectedSigners = setOf("key-a"),
+                allowFirstInstall = false,
+            )
+        }
+    }
     @Test fun `wrong package rejected`() { assertThrows(IllegalArgumentException::class.java) { validate(newer.copy(packageName = "other")) } }
     @Test fun `same version and downgrade rejected`() {
         for (version in listOf(0L, 1L)) assertThrows(IllegalArgumentException::class.java) { validate(newer.copy(version = version)) }
@@ -50,10 +72,33 @@ class ArchiveChecksTest {
             ArchiveChecks.copyVerified(ByteArrayInputStream(bytes), ByteArrayOutputStream(), bytes.size.toLong(), "0".repeat(64))
         }
     }
+    @Test fun `same-size substituted bytes fail digest`() {
+        val original = "test bytes".toByteArray()
+        val substitute = "xxxx bytes".toByteArray()
+        assertEquals(original.size, substitute.size)
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.copyVerified(ByteArrayInputStream(substitute), ByteArrayOutputStream(), original.size.toLong(), digest(original))
+        }
+    }
     @Test fun `over-limit chunk is not written`() {
         val bytes = ByteArray(100)
         val output = ByteArrayOutputStream()
         assertThrows(IllegalArgumentException::class.java) { ArchiveChecks.copyVerified(ByteArrayInputStream(bytes), output, 1, digest(bytes)) }
         assertEquals(0, output.size())
+    }
+    @Test fun `digesting sink verifies length and digest on close`() {
+        val bytes = "test bytes".toByteArray()
+        val output = ByteArrayOutputStream()
+        ArchiveChecks.digestingSink(output, bytes.size.toLong(), digest(bytes)).use { it.write(bytes) }
+        assertArrayEquals(bytes, output.toByteArray())
+        val truncated = ByteArrayOutputStream()
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.digestingSink(truncated, bytes.size.toLong(), digest(bytes)).use { it.write(bytes, 0, bytes.size - 1) }
+        }
+        val overflow = ByteArrayOutputStream()
+        assertThrows(IllegalArgumentException::class.java) {
+            ArchiveChecks.digestingSink(overflow, 1, digest(bytes)).use { it.write(bytes) }
+        }
+        assertEquals(0, overflow.size())
     }
 }

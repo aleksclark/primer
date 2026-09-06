@@ -16,6 +16,15 @@ class RecoveryTest {
         assertFalse(result.state.maintenanceActive(now.copy(elapsedMs = now.elapsedMs + Recovery.LEASE_MS)))
         assertFalse(Recovery.attempt(result.state, code, now).accepted)
     }
+    @Test fun `remote lease cannot extend an existing remaining window`() {
+        val opened = Recovery.attempt(initial(), code, now).state
+        val remaining = opened.remainingLeaseMs(now)
+        val shortened = Recovery.openLease(opened, now, remaining / 2)
+        assertTrue(shortened.leaseUntilElapsedMs < opened.leaseUntilElapsedMs)
+        val replay = Recovery.openLease(shortened, now, remaining)
+        assertEquals(shortened.leaseUntilElapsedMs, replay.leaseUntilElapsedMs)
+        assertFalse(replay.maintenanceActive(now.copy(boot = 8, elapsedMs = 0)))
+    }
     @Test fun `reboot closes lease regardless of wall time`() {
         val state = Recovery.attempt(initial(), code, now).state
         assertFalse(state.maintenanceActive(now.copy(boot = 8, elapsedMs = 0)))

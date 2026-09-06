@@ -39,11 +39,62 @@ object ArchiveChecks {
         validate(written == size) { "APK is incomplete" }
         validate(digest.digest().hex().equals(sha256, true)) { "APK checksum mismatch" }
     }
-    fun validateArchive(installed: ArchiveIdentity, archive: ArchiveIdentity, sdk: Int, abis: Set<String>) {
-        validate(archive.packageName == installed.packageName) { "APK belongs to another application" }
-        validate(archive.version > installed.version) { "APK must have a newer version code" }
-        // v1 deliberately requires the exact current signer set, not intersecting history.
-        validate(installed.signers.isNotEmpty() && archive.signers == installed.signers) { "APK signing identity differs" }
+
+    fun digestingSink(output: OutputStream, size: Long, sha256: String): OutputStream {
+        validateExpected(size, sha256)
+        return DigestingOutputStream(output, size, sha256)
+    }
+
+    private class DigestingOutputStream(
+        private val dest: OutputStream,
+        private val expectedSize: Long,
+        private val expectedSha256: String,
+    ) : OutputStream() {
+        private val digest = MessageDigest.getInstance("SHA-256")
+        private var written = 0L
+        private var closed = false
+        override fun write(b: Int) {
+            write(byteArrayOf(b.toByte()), 0, 1)
+        }
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            if (len <= 0) return
+            written += len
+            if (written > expectedSize) throw ArchiveRejected("APK exceeds published size")
+            digest.update(b, off, len)
+            dest.write(b, off, len)
+        }
+        override fun flush() = dest.flush()
+        override fun close() {
+            if (closed) return
+            closed = true
+            dest.close()
+            if (written != expectedSize) throw ArchiveRejected("APK is incomplete")
+            if (!digest.digest().hex().equals(expectedSha256, true)) throw ArchiveRejected("APK checksum mismatch")
+        }
+    }
+    fun validateArchive(
+        installed: ArchiveIdentity?,
+        archive: ArchiveIdentity,
+        sdk: Int,
+        abis: Set<String>,
+        expectedPackage: String? = installed?.packageName,
+        expectedSigners: Set<String>? = installed?.signers,
+        allowFirstInstall: Boolean = false,
+    ) {
+        if (expectedPackage != null) validate(archive.packageName == expectedPackage) { "APK belongs to another application" }
+        if (installed != null) {
+            validate(archive.packageName == installed.packageName) { "APK belongs to another application" }
+            validate(archive.version > installed.version) { "APK must have a newer version code" }
+            validate(installed.signers.isNotEmpty() && archive.signers == installed.signers) { "APK signing identity differs" }
+        } else {
+            validate(allowFirstInstall) { "APK is not already installed" }
+            validate(expectedSigners != null && expectedSigners.isNotEmpty() && archive.signers == expectedSigners) {
+                "APK signing identity differs"
+            }
+        }
+        if (expectedSigners != null && expectedSigners.isNotEmpty()) {
+            validate(archive.signers == expectedSigners) { "APK signing identity differs" }
+        }
         validate(archive.minSdk <= sdk) { "APK requires a newer Android version" }
         validate(archive.abis.isEmpty() || archive.abis.intersect(abis).isNotEmpty()) { "APK has no compatible native ABI" }
     }

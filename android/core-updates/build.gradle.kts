@@ -20,6 +20,7 @@ val generateReleaseManifest by tasks.registering(Exec::class) {
     workingDir = rootProject.projectDir.parentFile
     commandLine("node", "android/core-updates/generate-release-manifest.mjs")
     inputs.file(rootProject.projectDir.parentFile.resolve("primer-tasks/build/openapi.json"))
+    inputs.file(layout.projectDirectory.file("generate-release-manifest.mjs"))
     outputs.dir(layout.buildDirectory.dir("generated/releaseManifest"))
 }
 

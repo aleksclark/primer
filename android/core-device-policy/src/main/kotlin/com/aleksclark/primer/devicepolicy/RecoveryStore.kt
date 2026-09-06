@@ -14,76 +14,108 @@ class RecoveryStore(context: Context) {
     fun clock() = RecoveryClock(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
         Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1))
 
-    fun read(): RecoveryState = synchronized(lock) {
+    fun read(): RecoveryState = synchronized(lock) { snapshot().state }
+
+    fun snapshot(): RecoverySnapshot = synchronized(lock) {
         val json = JSONObject(prefs.getString("state", "{}")!!)
-        RecoveryState(
-            verifiers = json.optJSONArray("verifiers").strings(),
-            failures = json.optInt("failures"),
-            retryWallMs = json.optLong("retryWallMs"),
-            retryElapsedMs = json.optLong("retryElapsedMs"),
-            retryBoot = json.optInt("retryBoot", -1),
-            backoffMs = json.optLong("backoffMs"),
-            leaseUntilElapsedMs = json.optLong("leaseUntilElapsedMs"),
-            leaseBoot = json.optInt("leaseBoot", -1),
+        RecoverySnapshot(
+            state = RecoveryState(
+                verifiers = json.optJSONArray("verifiers").strings(),
+                failures = json.optInt("failures"),
+                retryWallMs = json.optLong("retryWallMs"),
+                retryElapsedMs = json.optLong("retryElapsedMs"),
+                retryBoot = json.optInt("retryBoot", -1),
+                backoffMs = json.optLong("backoffMs"),
+                leaseUntilElapsedMs = json.optLong("leaseUntilElapsedMs"),
+                leaseBoot = json.optInt("leaseBoot", -1),
+            ),
+            audit = JSONArray(prefs.getString("audit", "[]")!!).strings(),
+            consumed = RecoveryJournal.decodeConsumed(prefs.getString("consumedRequests", "[]")),
         )
     }
 
-    // Pending plaintext stays only in the parent's current UI session. Nothing is
-    // replaced in storage until explicit off-device-custody confirmation.
     fun prepareCodes(): List<String> = Recovery.generate()
 
     fun activateCodes(codes: List<String>, bootstrap: Boolean) = synchronized(lock) {
-        val state = read()
-        check(bootstrap || state.maintenanceActive(clock())) { "Parent maintenance expired before code activation" }
-        save(Recovery.rotate(state, codes), "recovery_rotated")
+        val current = snapshot()
+        check(bootstrap || current.state.maintenanceActive(clock())) { "Parent maintenance expired before code activation" }
+        commit(current.copy(state = Recovery.rotate(current.state, codes), audit = current.audit + "${clock().wallMs}:recovery_rotated"))
     }
 
-    fun consumedRequestIds(): Set<String> = synchronized(lock) {
-        JSONArray(prefs.getString("consumedRequests", "[]")!!).strings().toSet()
-    }
+    fun consumedRequestIds(): Set<String> = synchronized(lock) { snapshot().consumed.keys }
+
+    fun ackReportId(requestId: String): String? = synchronized(lock) { snapshot().consumed[requestId]?.ackReportId }
 
     /** Atomic remote rotation. Replay of a consumed requestId cannot reset used codes. */
-    fun activateRemoteCodes(requestId: String, codes: List<String>): Boolean = synchronized(lock) {
-        require(requestId.isNotBlank())
-        val consumed = JSONArray(prefs.getString("consumedRequests", "[]")!!).strings()
-        if (requestId in consumed) return false
-        save(Recovery.rotate(read(), codes), "recovery_remote_rotated:$requestId")
-        val next = (consumed + requestId).takeLast(200)
-        check(prefs.edit().putString("consumedRequests", JSONArray(next).toString()).commit()) {
-            "Remote recovery request could not be marked consumed"
+    fun activateRemoteCodes(requestId: String, codes: List<String>): RemoteIntentResult = synchronized(lock) {
+        val current = snapshot()
+        val now = clock()
+        val existing = current.consumed[requestId]
+        if (existing != null) {
+            return RemoteIntentResult(current, firstApply = false, ackReportId = existing.ackReportId)
         }
-        true
+        val result = RecoveryJournal.consume(
+            snapshot = current,
+            requestId = requestId,
+            kind = "rotate_recovery_code",
+            nextState = Recovery.rotate(current.state, codes),
+            event = "recovery_remote_rotated:$requestId",
+            nowWallMs = now.wallMs,
+        )
+        commit(result.snapshot)
+        result
+    }
+
+    fun alreadyConsumed(requestId: String): Boolean = ackReportId(requestId) != null
+
+    fun openRemoteLease(requestId: String, durationMs: Long): RemoteIntentResult = synchronized(lock) {
+        val current = snapshot()
+        val now = clock()
+        val existing = current.consumed[requestId]
+        if (existing != null) {
+            return RemoteIntentResult(current, firstApply = false, ackReportId = existing.ackReportId)
+        }
+        val result = RecoveryJournal.consume(
+            snapshot = current,
+            requestId = requestId,
+            kind = "maintenance_lease",
+            nextState = Recovery.openLease(current.state, now, durationMs),
+            event = "recovery_remote_lease:$requestId",
+            nowWallMs = now.wallMs,
+        )
+        commit(result.snapshot)
+        result
     }
 
     fun authorize(code: String): RecoveryAttempt = synchronized(lock) {
-        val result = Recovery.attempt(read(), code, clock())
-        // Commit consumption, throttle and audit BEFORE callers can open maintenance.
-        save(result.state, result.event)
+        val result = Recovery.attempt(snapshot().state, code, clock())
+        val current = snapshot()
+        commit(current.copy(state = result.state, audit = current.audit + "${clock().wallMs}:${result.event}"))
         result
     }
 
     fun close() = synchronized(lock) {
-        val old = read()
-        if (old.leaseUntilElapsedMs != 0L) save(old.copy(leaseUntilElapsedMs = 0, leaseBoot = -1), "maintenance_closed")
+        val current = snapshot()
+        if (current.state.leaseUntilElapsedMs != 0L) {
+            commit(
+                current.copy(
+                    state = current.state.copy(leaseUntilElapsedMs = 0, leaseBoot = -1),
+                    audit = current.audit + "${clock().wallMs}:maintenance_closed",
+                ),
+            )
+        }
     }
 
-    fun audit(): List<String> = synchronized(lock) { JSONArray(prefs.getString("audit", "[]")!!).strings() }
+    fun audit(): List<String> = synchronized(lock) { snapshot().audit }
 
-    private fun save(state: RecoveryState, event: String) {
-        val json = JSONObject().apply {
-            put("verifiers", JSONArray(state.verifiers))
-            put("failures", state.failures)
-            put("retryWallMs", state.retryWallMs)
-            put("retryElapsedMs", state.retryElapsedMs)
-            put("retryBoot", state.retryBoot)
-            put("backoffMs", state.backoffMs)
-            put("leaseUntilElapsedMs", state.leaseUntilElapsedMs)
-            put("leaseBoot", state.leaseBoot)
-        }
-        val events = (audit() + "${System.currentTimeMillis()}:$event").takeLast(200)
-        check(prefs.edit().putString("state", json.toString()).putString("audit", JSONArray(events).toString()).commit()) {
-            "Recovery state could not be persisted; no maintenance access granted."
-        }
+    private fun commit(snapshot: RecoverySnapshot) {
+        check(
+            prefs.edit()
+                .putString("state", RecoveryJournal.encodeState(snapshot.state))
+                .putString("audit", RecoveryJournal.encodeAudit(snapshot.audit))
+                .putString("consumedRequests", RecoveryJournal.encodeConsumed(snapshot.consumed))
+                .commit(),
+        ) { "Recovery state could not be persisted; no maintenance access granted." }
     }
 
     private fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else

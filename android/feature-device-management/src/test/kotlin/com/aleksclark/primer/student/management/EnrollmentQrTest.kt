@@ -55,8 +55,38 @@ class RemoteLeasePolicyTest {
             receivedElapsedMs = 100,
             receivedBoot = 7,
         )
-        assertEquals(true, RemoteLeasePolicy.canOpen(lease, nowWallMs = 1_100, elapsedMs = 150, boot = 7))
-        assertEquals(false, RemoteLeasePolicy.canOpen(lease, nowWallMs = 2_100, elapsedMs = 150, boot = 7))
-        assertEquals(false, RemoteLeasePolicy.canOpen(lease, nowWallMs = 1_100, elapsedMs = 150, boot = 8))
+        assertEquals(true, RemoteLeasePolicy.canOpen(lease, requestElapsedMs = 100, responseElapsedMs = 150, requestBoot = 7, responseBoot = 7))
+        assertEquals(false, RemoteLeasePolicy.canOpen(lease, requestElapsedMs = 100, responseElapsedMs = 150, requestBoot = 7, responseBoot = 8))
+        assertEquals(false, RemoteLeasePolicy.canOpen(lease, requestElapsedMs = 100, responseElapsedMs = 700, requestBoot = 7, responseBoot = 7))
+    }
+
+    @Test
+    fun delayedWithinLeaseButAfterDeliveryCannotOpen() {
+        val lease = RemoteLease(
+            intentId = "r1",
+            kind = "maintenance_lease",
+            deliveryExpiresAtMs = 1_000 + 60_000,
+            leaseExpiresAtMs = 1_000 + 300_000,
+            serverNowMs = 1_000,
+            receivedElapsedMs = 100,
+            receivedBoot = 7,
+        )
+        assertEquals(null, RemoteLeasePolicy.conservative(lease, 100, 100 + 90_000, 7, 7))
+    }
+
+    @Test
+    fun partialDelayShortensGrantedDuration() {
+        val lease = RemoteLease(
+            intentId = "r1",
+            kind = "maintenance_lease",
+            deliveryExpiresAtMs = 1_000 + 300_000,
+            leaseExpiresAtMs = 1_000 + 300_000,
+            serverNowMs = 1_000,
+            receivedElapsedMs = 100,
+            receivedBoot = 7,
+        )
+        val granted = RemoteLeasePolicy.conservative(lease, 100, 100 + 40_000, 7, 7)
+        assertEquals(260_000L, granted?.remainingMs)
+        assertEquals(41_000L, granted?.effectiveServerNowMs)
     }
 }

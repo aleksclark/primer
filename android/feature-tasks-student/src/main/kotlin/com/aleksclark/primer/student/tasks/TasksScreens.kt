@@ -58,6 +58,8 @@ fun StudentTasksRoute(
     deepLink: Uri? = null,
     onLeave: (() -> Unit)? = null,
     onDeepLinkConsumed: (() -> Unit)? = null,
+    pairing: com.aleksclark.primer.devicepolicy.PairingCapability? = null,
+    onRequestParentCameraGrant: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -67,6 +69,8 @@ fun StudentTasksRoute(
         deepLink = deepLink,
         onLeave = onLeave,
         onDeepLinkConsumed = onDeepLinkConsumed,
+        pairing = pairing,
+        onRequestParentCameraGrant = onRequestParentCameraGrant,
         modifier = modifier,
     )
 }
@@ -77,6 +81,8 @@ fun StudentTasksApp(
     deepLink: Uri? = null,
     onLeave: (() -> Unit)? = null,
     onDeepLinkConsumed: (() -> Unit)? = null,
+    pairing: com.aleksclark.primer.devicepolicy.PairingCapability? = null,
+    onRequestParentCameraGrant: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -257,14 +263,32 @@ fun StudentTasksApp(
                 onOpen = { selectedOccurrence = it },
                 onBack = onLeave,
             )
-            scanning -> PairingScanner(onQr = ::pair, onCancel = { scanning = false })
+            scanning -> PairingScanner(
+                onQr = ::pair,
+                onCancel = { scanning = false },
+                pairing = pairing,
+                onRequestParentCameraGrant = onRequestParentCameraGrant,
+            )
             else -> PairingScreen(
                 message = message,
-                onScan = { message = null; scanning = true },
-                onImportImage = {
-                    message = null
-                    imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                pairing = pairing,
+                onScan = {
+                    if (pairing?.canScan == false) {
+                        message = pairing.message
+                    } else {
+                        message = null
+                        scanning = true
+                    }
                 },
+                onImportImage = {
+                    if (pairing != null && !pairing.canImportImage) {
+                        message = pairing.importMessage
+                    } else {
+                        message = null
+                        imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
+                },
+                onRequestParentCameraGrant = onRequestParentCameraGrant,
                 onBack = onLeave,
             )
         }
@@ -283,6 +307,8 @@ internal fun PairingScreen(
     message: String?,
     onScan: () -> Unit,
     onImportImage: () -> Unit,
+    pairing: com.aleksclark.primer.devicepolicy.PairingCapability? = null,
+    onRequestParentCameraGrant: (() -> Unit)? = null,
     onBack: (() -> Unit)? = null,
 ) {
     Column(
@@ -301,28 +327,40 @@ internal fun PairingScreen(
             variant = PrimerButtonVariant.Secondary,
             modifier = Modifier.semantics { contentDescription = "Import pairing QR image" },
         )
+        if (pairing != null && !pairing.canScan) {
+            PrimerStatus(pairing.message, tone = PrimerStatusTone.Attention)
+            if (pairing.parentCanGrantCamera && onRequestParentCameraGrant != null) {
+                PrimerButton(text = "Grant camera for pairing", onClick = onRequestParentCameraGrant)
+            }
+        }
         if (onBack != null) PrimerButton(text = "Back to Student", onClick = onBack, variant = PrimerButtonVariant.Quiet)
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
     }
 }
 
 @Composable
-private fun PairingScanner(onQr: (String) -> Unit, onCancel: () -> Unit) {
+private fun PairingScanner(
+    onQr: (String) -> Unit,
+    onCancel: () -> Unit,
+    pairing: com.aleksclark.primer.devicepolicy.PairingCapability? = null,
+    onRequestParentCameraGrant: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
-    var cameraGranted by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        cameraGranted = it
-    }
+    val granted = pairing?.canScan
+        ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PrimerSectionHeader(label = "Primer Tasks", title = "Scan pairing QR")
-        if (cameraGranted) {
+        if (granted) {
             CameraQrScanner(onQr = onQr, modifier = Modifier.fillMaxWidth().weight(1f))
         } else {
             Spacer(Modifier.weight(1f))
-            Text("Camera access is needed to scan a pairing QR.", style = PrimerTheme.typography.body)
-            PrimerButton(text = "Allow camera", onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) })
+            PrimerStatus(
+                pairing?.message ?: "Camera access is needed to scan a pairing QR. Ask a parent to open maintenance and grant camera; the system permission screen is blocked in lock-task.",
+                tone = PrimerStatusTone.Attention,
+            )
+            if (pairing?.parentCanGrantCamera == true && onRequestParentCameraGrant != null) {
+                PrimerButton(text = "Grant camera for pairing", onClick = onRequestParentCameraGrant)
+            }
         }
         PrimerButton(text = "Cancel", onClick = onCancel, variant = PrimerButtonVariant.Secondary)
     }

@@ -30,3 +30,54 @@ class PolicyGuardTest {
         assertEquals("failed", PolicyGuard.overallStatus(controls))
     }
 }
+
+class PairingCapabilityPolicyTest {
+    @Test
+    fun lockTaskWithoutGrantDoesNotPretendSystemPermissionUiWorks() {
+        val capability = PairingCapabilityPolicy.evaluate(
+            cameraGranted = false,
+            owner = true,
+            inMaintenance = false,
+            permissionControllerPackage = "com.android.permissioncontroller",
+            photoPickerPackage = "com.android.providers.media.module",
+        )
+        assertEquals(false, capability.canScan)
+        assertEquals(false, capability.parentCanGrantCamera)
+        assertTrue(capability.message.contains("open maintenance"))
+    }
+
+    @Test
+    fun parentMaintenanceCanGrantWithoutPermanentSettingsAllowlist() {
+        val capability = PairingCapabilityPolicy.evaluate(
+            cameraGranted = false,
+            owner = true,
+            inMaintenance = true,
+            permissionControllerPackage = "com.android.permissioncontroller",
+            photoPickerPackage = "com.google.android.photopicker",
+        )
+        assertEquals(true, capability.parentCanGrantCamera)
+        assertEquals(true, capability.canImportImage)
+        assertEquals(
+            listOf("com.android.permissioncontroller", "com.google.android.photopicker", "com.android.documentsui"),
+            PairingCapabilityPolicy.maintenanceDelegates(
+                "com.android.permissioncontroller",
+                "com.google.android.photopicker",
+                "com.android.documentsui",
+            ),
+        )
+    }
+
+    @Test
+    fun cameraGrantDoesNotEnableNormalModeMediaPicker() {
+        val capability = PairingCapabilityPolicy.evaluate(
+            cameraGranted = true,
+            owner = true,
+            inMaintenance = false,
+            permissionControllerPackage = "com.android.permissioncontroller",
+            photoPickerPackage = "com.google.android.photopicker",
+        )
+        assertEquals(true, capability.canScan)
+        assertEquals(false, capability.canImportImage)
+        assertTrue(capability.importMessage.contains("parent maintenance"))
+    }
+}

@@ -49,7 +49,6 @@ import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
-import com.aleksclark.primer.student.management.ManagementEnrollmentQrParser
 import com.aleksclark.primer.student.tasks.StudentTasksRoute
 import com.aleksclark.primer.student.tasks.TasksDeepLinkRouting
 import com.aleksclark.primer.student.tasks.TasksNavState
@@ -163,6 +162,7 @@ private fun StudentScreen(
     var busy by remember { mutableStateOf(false) }
     var confirmRemoval by remember { mutableStateOf(false) }
     var enrollmentQr by remember { mutableStateOf("") }
+    var replaceEnrollment by remember { mutableStateOf(false) }
     var tasksNav by remember { mutableStateOf(TasksDeepLinkRouting.incoming(TasksNavState(), deepLink)) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -232,6 +232,13 @@ private fun StudentScreen(
             deepLink = pending,
             onLeave = { tasksNav = TasksDeepLinkRouting.leave(tasksNav) },
             onDeepLinkConsumed = { tasksNav = TasksDeepLinkRouting.consumed(tasksNav) },
+            pairing = runtime.policy.pairingCapability(),
+            onRequestParentCameraGrant = {
+                action {
+                    message = runtime.policy.grantCameraForPairing()
+                }
+            },
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         )
         return
     }
@@ -312,6 +319,32 @@ private fun StudentScreen(
                         savedCodes = false
                         available = runtime.policy.availableApps()
                         editing = true
+                    }
+                },
+            )
+            PrimerTextField(
+                value = enrollmentQr,
+                onValueChange = { enrollmentQr = it },
+                label = "Management enrollment QR",
+            )
+            PrimerButton(
+                text = "Enroll management (parent only)",
+                enabled = !busy,
+                onClick = {
+                    val raw = enrollmentQr
+                    enrollmentQr = ""
+                    busy = true
+                    scope.launch {
+                        try {
+                            message = runtime.enrollManagement(raw).message
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = "Management enrollment failed: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            busy = false
+                            tick++
+                        }
                     }
                 },
             )
@@ -450,18 +483,31 @@ private fun StudentScreen(
                 onValueChange = { enrollmentQr = it },
                 label = "Management enrollment QR",
             )
+            PrimerCheckboxRow(
+                text = "Replace existing management enrollment",
+                checked = replaceEnrollment,
+                onCheckedChange = { replaceEnrollment = it },
+            )
             PrimerButton(
                 text = "Enroll management (parent only)",
+                enabled = !busy,
                 onClick = {
-                    action {
-                        check(runtime.policy.inMaintenance)
-                        val parsed = ManagementEnrollmentQrParser.parse(
-                            enrollmentQr,
-                            configuredHttpsOrigin = BuildConfig.CONFIGURED_API_ORIGIN,
-                            allowEmulatorOrigin = BuildConfig.DEBUG,
-                        ) ?: error("That QR is not a trusted Primer management enrollment code")
-                        enrollmentQr = ""
-                        message = "Parsed management enrollment for ${parsed.origin}${parsed.mount}. HTTP enroll waits on :tasks-client artifact contract."
+                    val raw = enrollmentQr
+                    enrollmentQr = ""
+                    busy = true
+                    scope.launch {
+                        try {
+                            check(runtime.policy.inMaintenance)
+                            message = runtime.enrollManagement(raw, replaceEnrollment).message
+                            replaceEnrollment = false
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = "Management enrollment failed: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            busy = false
+                            tick++
+                        }
                     }
                 },
             )
@@ -474,6 +520,10 @@ private fun StudentScreen(
                         editing = true
                     }
                 },
+            )
+            PrimerButton(
+                text = "Grant camera for pairing",
+                onClick = { action { message = runtime.policy.grantCameraForPairing() } },
             )
             PrimerButton(text = "Open device settings", onClick = { action { runtime.policy.openSettings() } })
             Text(

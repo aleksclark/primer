@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
  * copy of Go fields.
  */
 object SignedManifestCodec {
+    const val MAX_PAYLOAD_BASE64 = 16_384
     private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
 
     fun parseVerified(payload: ByteArray): SignedManifest {
@@ -32,11 +33,13 @@ object SignedManifestCodec {
     }
 
     fun verifyEnvelope(trustRoot: String, payloadBase64: String, signature: String, signingKeyId: String): SignedManifest {
+        check(payloadBase64.length in 1..MAX_PAYLOAD_BASE64) { "Release manifest is missing" }
         check(signingKeyId == "ed25519-v1") { "Release trust root is not configured" }
         val key = ReleaseTrust.decodePinnedKey(trustRoot)
         val payload = runCatching { Base64.getUrlDecoder().decode(payloadBase64) }.getOrElse {
             error("Release manifest is missing")
         }
+        check(payload.isNotEmpty() && payload.size <= MAX_PAYLOAD_BASE64) { "Release manifest is missing" }
         check(ReleaseTrust.verifyEd25519(key, payload, signature)) { "Release manifest signature is invalid" }
         return parseVerified(payload)
     }

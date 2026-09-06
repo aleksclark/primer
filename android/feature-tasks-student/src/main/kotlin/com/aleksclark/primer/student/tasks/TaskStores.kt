@@ -31,12 +31,21 @@ data class TasksNavState(
 )
 
 object TasksDeepLinkRouting {
-    fun incoming(state: TasksNavState, uri: android.net.Uri?): TasksNavState {
-        val id = occurrenceIdFromDeepLink(uri) ?: return state
-        val serialized = uri.toString()
-        if (serialized == state.pendingOccurrenceLink && state.showTasks) return state
-        return TasksNavState(showTasks = true, pendingOccurrenceLink = serialized)
+    fun incomingLink(
+        state: TasksNavState,
+        scheme: String?,
+        host: String?,
+        lastPathSegment: String?,
+        serialized: String?,
+    ): TasksNavState {
+        val id = occurrenceIdFromParts(scheme, host, lastPathSegment) ?: return state
+        val link = serialized ?: return state
+        if (link == state.pendingOccurrenceLink && state.showTasks) return state
+        return TasksNavState(showTasks = true, pendingOccurrenceLink = link)
     }
+
+    fun incoming(state: TasksNavState, uri: android.net.Uri?): TasksNavState =
+        incomingLink(state, uri?.scheme, uri?.host, uri?.lastPathSegment, uri?.toString())
 
     fun leave(state: TasksNavState): TasksNavState =
         TasksNavState(showTasks = false, pendingOccurrenceLink = null)
