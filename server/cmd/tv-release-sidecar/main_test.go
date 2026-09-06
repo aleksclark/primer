@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -116,6 +118,43 @@ func TestParseSignerRequiresExactCertificateLine(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestRenameNoReplaceDoesNotClobberExisting(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dest := filepath.Join(dir, "dest")
+	require.NoError(t, os.Mkdir(src, 0o700))
+	require.NoError(t, os.Mkdir(dest, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dest, "keep"), []byte("old"), 0o600))
+	err := renameNoReplace(src, dest)
+	require.Error(t, err)
+	got, err := os.ReadFile(filepath.Join(dest, "keep"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("old"), got)
+	_, err = os.Stat(src)
+	require.NoError(t, err, "source staging dir must remain after a refused rename")
+}
+
+func TestSnapshotFIFODoesNotBlock(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "fifo")
+	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
+	dest := filepath.Join(dir, "snap.apk")
+	done := make(chan error, 1)
+	go func() {
+		_, err := snapshotRegularFile(fifo, dest, maxAPKBytes)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a regular file")
+	case <-time.After(2 * time.Second):
+		t.Fatal("FIFO snapshot blocked instead of failing closed")
+	}
+}
+
 func TestStageRefusesClobberAndSourceDest(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -139,6 +178,32 @@ func mustDecode(v string) []byte {
 		panic(err)
 	}
 	return b
+}
+
+func acceptanceRequested() bool {
+	v := strings.TrimSpace(os.Getenv("TV_RELEASE_SIDECAR_ACCEPTANCE"))
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+func requiredAPK(t *testing.T, wd string) string {
+	t.Helper()
+	if explicit := strings.TrimSpace(os.Getenv("TV_RELEASE_SIDECAR_APK")); explicit != "" {
+		info, err := os.Stat(explicit)
+		require.NoError(t, err, "TV_RELEASE_SIDECAR_APK is required for acceptance")
+		require.True(t, info.Mode().IsRegular())
+		return explicit
+	}
+	candidates := []string{
+		filepath.Clean(filepath.Join(wd, "../../../android/app/build/outputs/apk/debug/app-debug.apk")),
+		filepath.Clean(filepath.Join(wd, "../../android/app/build/outputs/apk/debug/app-debug.apk")),
+	}
+	for _, src := range candidates {
+		if info, err := os.Stat(src); err == nil && info.Mode().IsRegular() {
+			return src
+		}
+	}
+	t.Fatalf("tv-release-sidecar-acceptance requires a signed TV APK (assemble :app:assembleDebug or set TV_RELEASE_SIDECAR_APK)")
+	return ""
 }
 
 func lookTool(name string) string {
@@ -167,17 +232,16 @@ func fmtHex(b []byte) string {
 }
 
 func TestStageCLIProducesSignedSidecarFromInspectableAPK(t *testing.T) {
+	if !acceptanceRequested() {
+		t.Skip("ordinary unit job; run make tv-release-sidecar-acceptance for the required executable CLI gate")
+	}
 	aapt2 := lookTool("aapt2")
 	apksigner := lookTool("apksigner")
-	if aapt2 == "" || apksigner == "" {
-		t.Skip("android build-tools not available")
-	}
+	require.NotEmpty(t, aapt2, "aapt2 is required for tv-release-sidecar-acceptance")
+	require.NotEmpty(t, apksigner, "apksigner is required for tv-release-sidecar-acceptance")
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	src := filepath.Clean(filepath.Join(wd, "../../../android/app/build/outputs/apk/debug/app-debug.apk"))
-	if _, err := os.Stat(src); err != nil {
-		t.Skip("no debug TV APK assembled in this checkout")
-	}
+	src := requiredAPK(t, wd)
 	dir := t.TempDir()
 	copied := filepath.Join(dir, "in.apk")
 	n, err := snapshotRegularFile(src, copied, maxAPKBytes)

@@ -137,16 +137,20 @@ not match the verified payload are rejected.
    APK `versionCode`, `sha256`/`byteSize`/`signerSha256`/`minSdk` match the
    APK, and `signingKeyId` is `ed25519-v1`. Payload base64url is capped at 16KiB.
 5. Point `TV_RELEASE_DIR` at a **symlink** whose target is an immutable
-   directory (`primer-tv.apk`, `version`, `release-manifest.json`). Replace the
-   symlink atomically on the same filesystem (`ln -sfn`). `mv current prev &&
-   mv staging current` is not atomic and must not be used. One-time migration
-   if the current path is a real directory:
+   directory (`primer-tv.apk`, `version`, `release-manifest.json`). Replace it
+   with an explicit same-directory temp symlink plus `rename` (do not assume
+   every `ln -sfn` implementation does this; GNU coreutils 9.11 on this host
+   uses a temp symlink + `renameat`, but that is not a portable contract).
+   `mv current prev && mv staging current` is not atomic and must not be used.
+   One-time migration if the current path is a real directory:
 
    ```bash
    # example only; do not run against a live household from this lane
    mv "$TV_RELEASE_DIR" "$TV_RELEASE_DIR.legacy"
    ln -s "$TV_RELEASE_DIR.legacy" "$TV_RELEASE_DIR"
-   ln -sfn /srv/tv-releases/rel-NEW "$TV_RELEASE_DIR"
+   tmp="$(dirname "$TV_RELEASE_DIR")/.current.$$"
+   ln -s /srv/tv-releases/rel-NEW "$tmp"
+   mv -T "$tmp" "$TV_RELEASE_DIR"
    ```
 
 The server resolves that symlink once per metadata or download request so one

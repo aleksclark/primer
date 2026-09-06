@@ -171,7 +171,7 @@ func run(apkPath, outPath, channel, keyRaw, liveReleaseDir string) error {
 	if err := os.WriteFile(filepath.Join(staging, sidecarName), append(encoded, '\n'), 0o600); err != nil {
 		return err
 	}
-	if err := os.Rename(staging, absOut); err != nil {
+	if err := renameNoReplace(staging, absOut); err != nil {
 		return fmt.Errorf("publish staging directory: %w", err)
 	}
 	fmt.Printf("wrote %s versionCode=%d sha256=%s\n", absOut, meta.VersionCode, meta.SHA256)
@@ -215,18 +215,11 @@ func samePath(a, b string) bool {
 }
 
 func snapshotRegularFile(src, dest string, maxBytes int64) (int64, error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return 0, fmt.Errorf("apk missing")
-	}
-	defer in.Close()
-	info, err := in.Stat()
+	in, info, err := openRegularFile(src)
 	if err != nil {
 		return 0, err
 	}
-	if !info.Mode().IsRegular() {
-		return 0, fmt.Errorf("apk is not a regular file")
-	}
+	defer in.Close()
 	if info.Size() <= 0 || info.Size() > maxBytes {
 		return 0, fmt.Errorf("apk size out of bounds")
 	}
