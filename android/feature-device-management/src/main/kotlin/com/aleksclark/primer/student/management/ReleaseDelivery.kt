@@ -31,6 +31,8 @@ interface RemoteReleaseSink {
         manifest: SignedManifest,
         authorized: () -> Boolean,
         approved: ApprovedPackage?,
+        targetId: String? = null,
+        targetVersion: Long? = null,
     ): InstallOutcome
 }
 

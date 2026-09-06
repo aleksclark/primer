@@ -27,6 +27,8 @@ import com.aleksclark.primer.updates.SignedManifest
 import com.aleksclark.primertasks.client.CredentialProvider
 import com.aleksclark.primertasks.client.TasksClient
 import java.io.File
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class StudentRuntime(private val context: Context) {
     val policy = DevicePolicyController(context, ComponentName(context, PrimerDeviceAdminReceiver::class.java),
@@ -76,16 +78,25 @@ class StudentRuntime(private val context: Context) {
                 manifest: SignedManifest,
                 authorized: () -> Boolean,
                 approved: ApprovedPackage?,
+                targetId: String?,
+                targetVersion: Long?,
             ): InstallOutcome {
-                if (approved == null) return InstallOutcome("blocked", null, "Package is not approved")
+                val liveApproved = approvedPackage(manifest.packageName)
+                if (liveApproved == null) return InstallOutcome("blocked", installedVersion(manifest.packageName), "Package is not approved")
+                if (liveApproved.signers.isNotEmpty() && manifest.signerSha256 !in liveApproved.signers) {
+                    return InstallOutcome("blocked", installedVersion(manifest.packageName), "APK signing identity differs")
+                }
                 val attempt = updater.installVerifiedFile(
                     file,
                     manifest,
                     authorized = { authorized() && policy.isOwner && policy.store.configured },
-                    approvedSigners = approved.signers,
-                    allowFirstInstall = approved.installedVersion == null && manifest.packageName != ReleaseDelivery.STUDENT_PACKAGE,
+                    approvedSigners = liveApproved.signers,
+                    allowFirstInstall = liveApproved.installedVersion == null && manifest.packageName != ReleaseDelivery.STUDENT_PACKAGE,
+                    targetId = targetId,
+                    targetVersion = targetVersion,
                 )
-                return InstallOutcome(attempt.status, attempt.versionCode, attempt.error)
+                val observed = installedVersion(manifest.packageName) ?: attempt.versionCode
+                return InstallOutcome(attempt.status, observed, attempt.error)
             }
         },
         trustRoot = BuildConfig.RELEASE_TRUST_ROOT,
@@ -133,20 +144,21 @@ class StudentRuntime(private val context: Context) {
         return policy.reconcile()
     }
 
-    suspend fun enrollManagement(rawQr: String, replace: Boolean = false): ManagementSyncResult {
+    suspend fun enrollManagement(rawQr: String, replace: Boolean = false): ManagementSyncResult = lock.withLock {
         check(policy.isOwner && (policy.inMaintenance || !policy.store.configured)) { "Parent setup or maintenance required" }
         val result = managementSession().enroll(rawQr, replace)
         val scheduled = ManagementSyncWorker.schedule(context)
         if (!scheduled) policy.store.record("WorkManager catch-up could not be scheduled")
         policy.applyLastKnownRemote()
-        return result
+        result
     }
 
-    suspend fun syncManagement(): ManagementSyncResult {
+    suspend fun syncManagement(): ManagementSyncResult = lock.withLock {
         if (!policy.isOwner || !policy.store.configured) {
-            return ManagementSyncResult("Managed parent setup required")
+            ManagementSyncResult("Managed parent setup required")
+        } else {
+            managementSession().sync()
         }
-        return managementSession().sync()
     }
 
     fun applyRemoteRecovery(requestId: String, codes: List<String>): String {
@@ -188,4 +200,8 @@ class StudentRuntime(private val context: Context) {
     private fun expiryIntent() = PendingIntent.getBroadcast(context, 1,
         Intent(context, MaintenanceExpiryReceiver::class.java).setAction("com.aleksclark.primer.student.END_MAINTENANCE"),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    companion object {
+        private val lock = Mutex()
+    }
 }

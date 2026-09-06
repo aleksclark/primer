@@ -81,6 +81,8 @@ class ManagedUpdater(
         authorized: () -> Boolean,
         approvedSigners: Set<String>? = null,
         allowFirstInstall: Boolean = false,
+        targetId: String? = null,
+        targetVersion: Long? = null,
     ): InstallAttempt = synchronized(lock) {
         check(authorized()) { "Authorization required" }
         check(context.getSystemService(DevicePolicyManager::class.java).isDeviceOwnerApp(context.packageName)) {
@@ -90,7 +92,7 @@ class ManagedUpdater(
         check(!active) { "An installation is already in progress" }
         var sessionId: Int? = null
         return try {
-            sessionId = commitVerified(verified, expected, authorized, approvedSigners, allowFirstInstall)
+            sessionId = commitVerified(verified, expected, authorized, approvedSigners, allowFirstInstall, targetId, targetVersion)
             lastOutcome
         } catch (e: Exception) {
             sessionId?.let { id -> runCatching { installer.abandonSession(id) } }
@@ -108,6 +110,8 @@ class ManagedUpdater(
         authorized: () -> Boolean,
         approvedSigners: Set<String>? = null,
         allowFirstInstall: Boolean = false,
+        targetId: String? = null,
+        targetVersion: Long? = null,
     ): Int {
         @Suppress("DEPRECATION")
         val archive = context.packageManager.getPackageArchiveInfo(verified.path, PackageManager.GET_SIGNING_CERTIFICATES)
@@ -150,7 +154,7 @@ class ManagedUpdater(
                     session.openWrite("base.apk", 0, verified.length()).use { output -> input.copyTo(output); session.fsync(output) }
                 }
                 check(authorized()) { "Authorization expired before commit" }
-                persistAttempt(sessionId, candidate.version, expected)
+                persistAttempt(sessionId, candidate.version, expected, targetId, targetVersion)
                 val intent = Intent(ACTION_RESULT).setComponent(resultReceiver)
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                     if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
@@ -228,7 +232,13 @@ class ManagedUpdater(
         ) { "Cannot persist new update attempt" }
     }
 
-    private fun persistAttempt(sessionId: Int, versionCode: Long, expected: SignedManifest?) {
+    private fun persistAttempt(
+        sessionId: Int,
+        versionCode: Long,
+        expected: SignedManifest?,
+        targetId: String? = null,
+        targetVersion: Long? = null,
+    ) {
         val editor = prefs.edit()
             .putBoolean("active", true)
             .putInt("session", sessionId)
@@ -241,6 +251,8 @@ class ManagedUpdater(
                 .putLong("expectedSize", expected.byteSize)
                 .putString("expectedSigner", expected.signerSha256)
         }
+        if (!targetId.isNullOrBlank()) editor.putString("releaseTargetId", targetId) else editor.remove("releaseTargetId")
+        if (targetVersion != null && targetVersion > 0) editor.putLong("releaseTargetVersion", targetVersion) else editor.remove("releaseTargetVersion")
         check(editor.commit()) { "Could not persist install attempt" }
     }
 
