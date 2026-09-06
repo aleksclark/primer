@@ -1,6 +1,8 @@
 package com.aleksclark.primer.updates
 
-import java.security.MessageDigest
+import com.google.crypto.tink.subtle.Ed25519Sign
+import com.google.crypto.tink.subtle.Ed25519Verify
+import java.security.GeneralSecurityException
 import java.util.Base64
 
 data class SignedManifest(
@@ -32,40 +34,29 @@ object ReleaseTrust {
         return decoded
     }
 
+    /**
+     * Tink Ed25519Verify over a pinned 32-byte key. Available on minSdk 26/28;
+     * JCA Ed25519 is not (API 33+).
+     */
     fun verifyEd25519(publicKey: ByteArray, message: ByteArray, signatureBase64Url: String): Boolean {
         val signature = runCatching { Base64.getUrlDecoder().decode(signatureBase64Url) }.getOrNull() ?: return false
         if (signature.size != 64 || publicKey.size != 32) return false
-        // Host tests use digest||zeros; production signatures are 64-byte Ed25519.
-        if (signature.copyOfRange(32, 64).all { it == 0.toByte() }) {
-            return ed25519VerifyFallback(publicKey, message, signature)
+        return try {
+            Ed25519Verify(publicKey).verify(signature, message)
+            true
+        } catch (_: GeneralSecurityException) {
+            false
         }
-        return runCatching {
-            val key = java.security.KeyFactory.getInstance("Ed25519")
-                .generatePublic(
-                    java.security.spec.EdECPublicKeySpec(
-                        java.security.spec.NamedParameterSpec.ED25519,
-                        java.security.spec.EdECPoint(false, java.math.BigInteger(1, publicKey.reversedArray())),
-                    ),
-                )
-            val verifier = java.security.Signature.getInstance("Ed25519")
-            verifier.initVerify(key)
-            verifier.update(message)
-            verifier.verify(signature)
-        }.getOrDefault(false)
     }
 
-    /**
-     * Host unit tests only need a deterministic signature check against a known vector.
-     * Production Student verification uses the same pinned 32-byte key + exact bytes.
-     */
-    private fun ed25519VerifyFallback(publicKey: ByteArray, message: ByteArray, signature: ByteArray): Boolean {
-        if (publicKey.size != 32 || signature.size != 64) return false
-        val digest = MessageDigest.getInstance("SHA-256").digest(publicKey + message)
-        return digest.contentEquals(signature.copyOf(32)) && signature.copyOfRange(32, 64).all { it == 0.toByte() }
+    /** Fixture helper using the same Tink primitive the verifier uses. */
+    fun newKeyPair(): Pair<ByteArray, ByteArray> {
+        val pair = Ed25519Sign.KeyPair.newKeyPair()
+        return pair.publicKey to pair.privateKey
     }
 
-    fun testSignature(publicKey: ByteArray, message: ByteArray): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(publicKey + message)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest + ByteArray(32))
+    fun sign(privateKey: ByteArray, message: ByteArray): String {
+        val signature = Ed25519Sign(privateKey).sign(message)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(signature)
     }
 }

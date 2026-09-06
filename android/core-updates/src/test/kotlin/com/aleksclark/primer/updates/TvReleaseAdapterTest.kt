@@ -6,10 +6,10 @@ import org.junit.Test
 import java.util.Base64
 
 class TvReleaseAdapterTest {
-    private val key = ByteArray(32) { it.toByte() }
-    private val trust = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+    private val keys = ReleaseTrust.newKeyPair()
+    private val trust = Base64.getUrlEncoder().withoutPadding().encodeToString(keys.first)
     private val payload = """{"packageName":"com.aleksclark.primer.tv","channel":"stable","versionCode":2,"versionName":"0.2.0","minSdk":28,"supportedAbis":["arm64-v8a"],"signerSha256":"${"a".repeat(64)}","sha256":"${"b".repeat(64)}","byteSize":12}""".toByteArray()
-    private val signature = ReleaseTrust.testSignature(key, payload)
+    private val signature = ReleaseTrust.sign(keys.second, payload)
 
     private fun release(
         versionCode: Long = 2,

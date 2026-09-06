@@ -206,6 +206,24 @@ fun sessionJson(
 fun problemJson(status: Int, detail: String, title: String = "Error"): String =
     """{"status":$status,"title":"$title","detail":"$detail"}"""
 
+/** A `GET /app/release` body. Extra signed-manifest fields are optional. */
+fun appReleaseJson(
+    available: Boolean = true,
+    versionCode: Int = 2,
+    sizeBytes: Long = 12,
+    sha256: String = "b".repeat(64),
+    downloadUrl: String = "/api/v1/app/release/apk",
+    extra: String = "",
+): String = """
+{
+  "available": $available,
+  "versionCode": $versionCode,
+  "sizeBytes": $sizeBytes,
+  "sha256": "$sha256",
+  "downloadUrl": "$downloadUrl"$extra
+}
+""".trimIndent()
+
 /** A domain catalog entry, for tests that skip the wire format. */
 fun entry(
     id: String,
