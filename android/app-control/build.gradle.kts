@@ -14,18 +14,62 @@ val releaseTrustRoot = providers.gradleProperty("primerReleaseTrustRoot")
     .orElse(providers.environmentVariable("PRIMER_RELEASE_TRUST_ROOT"))
     .getOrElse("")
 
+// Control custody is independent from TV and Student signing identities.
+val storePath = providers.environmentVariable("PRIMER_CONTROL_KEYSTORE")
+val signingStorePassword = providers.environmentVariable("PRIMER_CONTROL_STORE_PASSWORD")
+val signingKeyAlias = providers.environmentVariable("PRIMER_CONTROL_KEY_ALIAS")
+val signingKeyPassword = providers.environmentVariable("PRIMER_CONTROL_KEY_PASSWORD")
+val signingValues = listOf(
+    storePath.orNull,
+    signingStorePassword.orNull,
+    signingKeyAlias.orNull,
+    signingKeyPassword.orNull,
+)
+check(signingValues.all { it != null } || signingValues.all { it == null }) {
+    "Set all four PRIMER_CONTROL signing variables, or none."
+}
+
+val controlVersionCode = providers.gradleProperty("controlVersionCode")
+    .orElse(providers.environmentVariable("PRIMER_CONTROL_VERSION_CODE"))
+    .orElse("1")
+val controlVersionName = providers.gradleProperty("controlVersionName")
+    .orElse(providers.environmentVariable("PRIMER_CONTROL_VERSION_NAME"))
+    .orElse("0.1.0")
+
 android {
     namespace = "com.aleksclark.primer.control"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "com.aleksclark.primer.control"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = controlVersionCode.get().toInt().also {
+            require(it > 0) { "controlVersionCode must be a positive integer" }
+        }
+        versionName = controlVersionName.get().also {
+            require(it.isNotBlank()) { "controlVersionName must not be blank" }
+        }
         buildConfigField("String", "CONFIGURED_API_ORIGIN", configuredApiOrigin.quoteForBuildConfig())
         buildConfigField("String", "CLERK_PUBLISHABLE_KEY", clerkPublishableKey.quoteForBuildConfig())
         buildConfigField("String", "RELEASE_TRUST_ROOT", releaseTrustRoot.quoteForBuildConfig())
+    }
+    signingConfigs {
+        if (signingValues.all { it != null }) {
+            create("control") {
+                storeFile = file(storePath.get())
+                storePassword = signingStorePassword.get()
+                keyAlias = signingKeyAlias.get()
+                keyPassword = signingKeyPassword.get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (signingValues.all { it != null }) {
+                signingConfig = signingConfigs.getByName("control")
+            }
+            isMinifyEnabled = false
+        }
     }
     buildFeatures {
         compose = true
@@ -40,20 +84,21 @@ android {
 
 kotlin { jvmToolchain(17) }
 
-// Clerk 0.1.31 POM: Kotlin 2.1.20 / serialization 1.9.0 / browser 1.9.0. Those
-// artifacts ship Kotlin 2.2 metadata and browser 1.9 needs AGP 8.9. Pin only
-// this Clerk consumer (with :core-parent-identity), not the rest of the tree.
-configurations.configureEach {
-    resolutionStrategy {
-        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
-        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21")
-        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21")
-        force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-        force("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-        force("org.jetbrains.kotlinx:kotlinx-serialization-core:1.7.3")
-        force("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-        force("androidx.browser:browser:1.8.0")
+abstract class RequireControlSigningTask : DefaultTask() {
+    @get:Input
+    abstract val signingConfigured: Property<Boolean>
+
+    @TaskAction
+    fun verifySigning() {
+        check(signingConfigured.get()) { "Control release APK requires explicit signing custody." }
     }
+}
+
+val requireControlSigning by tasks.registering(RequireControlSigningTask::class) {
+    signingConfigured.set(signingValues.all { it != null })
+}
+tasks.matching { it.name == "packageRelease" || it.name == "bundleRelease" }.configureEach {
+    dependsOn(requireControlSigning)
 }
 
 dependencies {

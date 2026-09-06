@@ -23,7 +23,7 @@ scheduled linear stream with a fully locked player) is a later phase.
 | `app`  | Android: Compose UI (tablet + leanback), ExoPlayer host, DataStore persistence. |
 | `feature-tasks-student` | Migrated Tasks pairing/checklist/start/submit for Student. Entry: `StudentTasksRoute`. |
 | `app-student` | Device-owner launcher. Tasks, approved apps, and parent maintenance; recovery stays in `StudentRuntime`. |
-| `core-parent-identity` | Official Clerk Android SDK 0.1.31 password sign-in adapter (Kotlin 2.0.21 pin). Publishable key only. Live Clerk acceptance is not claimed. |
+| `core-parent-identity` | Official Clerk Android SDK 0.1.31 password sign-in adapter. Publishable key only. Live Clerk acceptance is not claimed. |
 | `feature-tasks-control` | Native parent roster/tasks/schedules/review using `:tasks-client`. |
 | `feature-device-control` | Unprivileged parent device/release surfaces using generated parent JWT calls. |
 | `app-control` | Primer Control (`com.aleksclark.primer.control`). Not a device owner. |
@@ -37,6 +37,10 @@ Unprivileged parent app (`:app-control`, package `com.aleksclark.primer.control`
 It is not a device owner. Screens talk only through `:tasks-client` with a parent JWT.
 **minSdk is 28** so Control can consume `:core-updates` `SelfUpdateSession`. There is no
 accepted API 26 Control deployment; do not `overrideLibrary` or duplicate the installer.
+`:app-control` and `:core-parent-identity` compile against API 36 because Clerk 0.1.31
+pulls `androidx.browser:browser:1.9.0` (`minCompileSdk=36`). Other modules still compile
+against 35 until their owners raise them; TV/Student consumers of Clerk/browser need the
+same compileSdk 36 bump before they can depend on those artifacts.
 
 ```bash
 cd android
@@ -49,8 +53,8 @@ External Clerk setup is parent-owned. This tree does not claim live JWT azp or
 physical acceptance. Needed configuration, without changing canonical auth here:
 
 - Publishable key only in the APK (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secrets stay out of the binary.
-- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata and this Gradle tree is Kotlin 2.0.21. Hosted Account Portal is not in 0.1.31; Control currently implements official `SignIn.create` password then `Clerk.setActive` of the **new** session ID only. If the live instance requires another factor, extend that native flow — do not weaken server policy.
-- Declared 0.1.31 coordinates (POM, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0, coroutines 1.10.2, androidx.browser 1.9.0. Those artifacts ship Kotlin 2.2 metadata. `:core-parent-identity` and `:app-control` force stdlib 2.0.21 / serialization 1.7.3 / coroutines 1.9.0 / browser 1.8.0 so Kotlin 2.0.21 / AGP 8.7.3 can compile. Compile success is not runtime-compatibility evidence. There is no root-wide force and no `-Xskip-metadata-version-check`. Unit tests do not initialize a live Clerk backend.
+- Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata. Hosted Account Portal is not in 0.1.31; Control currently implements official `SignIn.create` password then `Clerk.setActive` of the **new** session ID only. If the live instance requires another factor, extend that native flow — do not weaken server policy.
+- Declared 0.1.31 coordinates (POM / Gradle metadata, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0 (Kotlin 2.2 metadata), coroutines 1.10.2, androidx.browser 1.9.0 (`minAndroidGradlePluginVersion=8.9.1`, `minCompileSdk=36`), Compose BOM 2026.01.00 / runtime 1.10.1. The catalog pins AGP **8.10.0**, Gradle **8.11.1**, Kotlin **2.2.0**, serialization **1.9.0**, coroutines **1.10.2**, lifecycle **2.10.0**, and Compose BOM **2026.01.00** so those artifacts resolve without forced downgrades, `-Xskip-metadata-version-check`, or lint disable/baseline. `:app-control` and `:core-parent-identity` compile against API 36; minSdk remains **28** and targetSdk remains 35. Compile/lint success is not live Clerk runtime evidence. Unit tests do not initialize a live Clerk backend.
 - Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set. Live Clerk JWT claims are unmeasured here.
 - Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
 
@@ -154,7 +158,7 @@ before Clerk.signOut.
 
 ## Build
 
-Requires JDK 17 (AGP 8.7 rejects newer JDKs) and the Android SDK.
+Requires JDK 17 (AGP 8.10.0 rejects newer JDKs as the Gradle JVM) and the Android SDK.
 
 ```bash
 cd android
@@ -164,15 +168,20 @@ cd android
 
 Production versions are supplied by `primerVersionCode` / `primerVersionName`
 Gradle properties (or `PRIMER_ANDROID_VERSION_CODE` /
-`PRIMER_ANDROID_VERSION_NAME`). Version codes must increase for every update.
-Production signing is enabled only when all four environment variables are set:
-`PRIMER_ANDROID_KEYSTORE`, `PRIMER_ANDROID_STORE_PASSWORD`,
-`PRIMER_ANDROID_KEY_ALIAS`, and `PRIMER_ANDROID_KEY_PASSWORD`. The equivalent
-Gradle properties are `primerSigningStoreFile`, `primerSigningStorePassword`,
-`primerSigningKeyAlias`, and `primerSigningKeyPassword`; keep them in the ignored
-`keystore.properties` file and pass `-PprimerSigning...` when building locally.
-Devices must be provisioned initially with that same production signing identity;
-Android will reject later APKs signed with another key.
+`PRIMER_ANDROID_VERSION_NAME`). Control uses independent `controlVersionCode` /
+`controlVersionName` (or `PRIMER_CONTROL_VERSION_CODE` /
+`PRIMER_CONTROL_VERSION_NAME`). Version codes must be positive and must increase
+for every update. Production signing is enabled only when all four environment
+variables for that app are set. TV: `PRIMER_ANDROID_KEYSTORE`,
+`PRIMER_ANDROID_STORE_PASSWORD`, `PRIMER_ANDROID_KEY_ALIAS`, and
+`PRIMER_ANDROID_KEY_PASSWORD` (Gradle properties `primerSigningStoreFile`,
+`primerSigningStorePassword`, `primerSigningKeyAlias`, `primerSigningKeyPassword`).
+Student: `PRIMER_STUDENT_*`. Control: `PRIMER_CONTROL_KEYSTORE`,
+`PRIMER_CONTROL_STORE_PASSWORD`, `PRIMER_CONTROL_KEY_ALIAS`, and
+`PRIMER_CONTROL_KEY_PASSWORD`. Keep secrets in ignored local files; never commit
+them. `packageRelease` / `bundleRelease` fail closed if Control signing custody is
+missing. Devices must be provisioned initially with that same production signing
+identity; Android will reject later APKs signed with another key.
 
 Self-update from `GET /app/release` requires a signed sidecar. Unsigned
 metadata (no `release-manifest.json`) is a normal legacy server and the client
