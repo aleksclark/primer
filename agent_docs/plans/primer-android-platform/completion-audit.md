@@ -81,6 +81,13 @@ Executed with Java 17 and `/opt/android-sdk`:
   exposes an internal source type. This is not the previously reported client
   artifact mismatch. Fixes were returned to A, along with queued-vs-blocked
   multi-package handling and strict OS-only confirmation readback.
+- Student compile correction `0976c695` is integrated as `3ab1489b`. Parent's
+  combined Student/module tests, `lintDebug`, and debug assembly now **PASS**
+  against the committed parent client. The old compile errors are resolved.
+  Authorization remains open: `ManagementAuthorization.revoke()` is wired to
+  credential-denial paths but not actual enrollment replacement/cancellation.
+  The helper test manually revoking a lease does not prove those lifecycle paths;
+  production wiring and session-level cancellation/replacement tests were requested.
 - The current Control debug APK opened successfully on the isolated API-28 AVD
   `primer-release-api28` as an ordinary app (no device owner). It displayed the
   unconfigured-Clerk screen, and no Control crash appeared. This is startup/error
