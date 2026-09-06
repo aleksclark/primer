@@ -4,7 +4,12 @@ export type Model<K extends keyof components['schemas']> = components['schemas']
 export class ApiFailure extends Error { constructor(public status: number, message: string) { super(message); } }
 export function problem(error: unknown): string {
  if (error instanceof Error) return error.message;
- if (typeof error === 'object' && error && 'detail' in error) return String(error.detail);
+ if (typeof error === 'object' && error && 'detail' in error) {
+  const findings='errors' in error && Array.isArray(error.errors)
+   ? error.errors.flatMap(f=>typeof f==='object'&&f&&'message' in f?[String(f.message)]:[])
+   : [];
+  return [String(error.detail),...findings].join(' ');
+ }
  return 'The request failed. Reload and try again.';
 }
 async function value<T>(request: Promise<{data?: T; error?: unknown; response: Response}>): Promise<T> {
@@ -42,4 +47,6 @@ export const policy=(workspaceId:string,signal?:AbortSignal)=>value(studioClient
 export const setPolicy=(workspaceId:string,body:Model<'CollaborationPolicy'>)=>value(studioClient.PUT('/studio/v1/workspaces/{workspaceId}/collaboration-policy',{credentials,params:{path:{workspaceId}},body}));
 export const runs=(revisionId:string,offset:number,signal?:AbortSignal)=>value(studioClient.GET('/studio/v1/revisions/{revisionId}/materializations',{credentials,signal,params:{path:{revisionId},query:query(offset)}}));
 export const items=(materializationId:string,offset:number,signal?:AbortSignal)=>value(studioClient.GET('/studio/v1/materializations/{materializationId}/items',{credentials,signal,params:{path:{materializationId},query:query(offset)}}));
-export const addNode=(revisionId:string,kind:'unit'|'outcome',title:string)=>value(studioClient.POST('/studio/v1/revisions/{revisionId}/nodes',{credentials,params:{path:{revisionId}},body:{kind,title,attributes:kind==='outcome'?{evidenceKind:'portfolio',evidenceDescription:'Demonstrate mastery'}:{}}}));
+export const addNode=(revisionId:string,kind:'unit'|'outcome',title:string,standardCode:string)=>value(studioClient.POST('/studio/v1/revisions/{revisionId}/nodes',{credentials,params:{path:{revisionId}},body:{kind,title,standardCodes:kind==='outcome'?[standardCode]:[],attributes:kind==='outcome'?{evidenceKind:'portfolio',evidenceDescription:'Demonstrate mastery'}:{}}}));
+export const visibleCatalogs=(workspaceId:string,offset:number,signal?:AbortSignal)=>value(studioClient.GET('/studio/v1/workspaces/{workspaceID}/standards-catalogs',{credentials,signal,params:{path:{workspaceID:workspaceId},query:query(offset)}}));
+export const catalogStandards=(catalogId:string,offset:number,q:string,signal?:AbortSignal)=>value(studioClient.GET('/studio/v1/standards-catalogs/{catalogId}/standards',{credentials,signal,params:{path:{catalogId},query:{...query(offset),q}}}));

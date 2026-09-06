@@ -19,7 +19,16 @@
 .comment-thread li { padding-block: 16px; border-bottom: 1px solid var(--house-rule-subtle); }
 .comment-thread p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .collaboration button:disabled,.collab-section button:disabled { cursor: not-allowed; opacity: .55; }
+.outcome-standards { min-inline-size: 0; display: grid; gap: 12px; border: 1px solid var(--house-rule-subtle); padding: 12px; }
 @media(max-width:760px) {
+ /* Keep the layout viewport equal to the device viewport: the old single-row
+    create form overflowed to 406px at 390px, offsetting Chrome mobile hit tests. */
+ .library > .section-heading { flex-wrap: wrap; }
+ .library > .section-heading input { min-width: 0; width: 100%; }
+ .library > .create-form { display: grid; grid-template-columns: minmax(0,1fr); }
+ .library > .create-form input { min-width: 0; width: 100%; }
+ .library > .create-form .primary { margin-top: 0; }
+ .library .curriculum-open { min-height: 44px; min-width: 44px; margin-top: 0; width: auto; text-align: left; }
  .diff-columns { grid-template-columns: 1fr; }
  .collab-list li { align-items: start; flex-direction: column; }
  .collaboration button,.collab-section button,.comment-inspector button,.collab-form input:not([type=checkbox]),.collab-actions select { min-height: 44px; }

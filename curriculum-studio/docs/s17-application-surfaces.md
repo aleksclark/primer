@@ -1,5 +1,11 @@
 # S17 application surfaces — browser / review handoff
 
+**Browser CALL1 failed at a0ec0cf1.** Read [B17 diagnosis and re-exploration
+instructions](s17-b17-browser-fixes.md) before the next run: Add outcome now
+requires an explicitly selected real standard. Invalid approved drafts remain
+unpublishable; the successful-publication and stale-review criteria must both
+be re-exercised by the same independent browser leaf.
+
 **Not whole-phase acceptance.** The serialization backend was accepted by
 b010fc06 at `d98ac903`. This newer unit adds product paths, UI and a test-only host;
 it needs independent backend/UI/browser and whole-phase review. No push, PR,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/aleksclark/primer/curriculum-studio/internal/domain"
 	"github.com/aleksclark/primer/curriculum-studio/internal/validation"
@@ -143,8 +142,8 @@ func (r *PlanRevisionRepo) PublishAuthorized(ctx context.Context, ws, revision u
 		if err != nil {
 			return err
 		}
-		if validation.Run(graph).Status == "failed" {
-			return fmt.Errorf("%w: graph validation failed", ErrInvalidTransition)
+		if result := validation.Run(graph); result.Status == "failed" {
+			return &GraphValidationError{Findings: result.Findings}
 		}
 		return publishRevision(ctx, q, revision, subject)
 	}))

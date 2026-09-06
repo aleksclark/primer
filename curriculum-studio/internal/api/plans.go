@@ -117,7 +117,20 @@ func requireAuthor(ctx context.Context, m MembershipView) error {
 	return nil
 }
 func planError(err error) error {
+	var invalid *repo.GraphValidationError
 	switch {
+	case errors.As(err, &invalid):
+		details := []error{}
+		for _, f := range invalid.Findings {
+			if f.Severity == "error" {
+				location := "graph"
+				if f.NodeID != nil {
+					location += "." + f.NodeKind + "." + f.NodeID.String()
+				}
+				details = append(details, &huma.ErrorDetail{Location: location, Message: f.Code + ": " + f.Message})
+			}
+		}
+		return huma.Error409Conflict("Revision validation failed. Fix the listed graph findings, validate again, and obtain a fresh review before publishing.", details...)
 	case errors.Is(err, repo.ErrRoleDenied), errors.Is(err, repo.ErrPolicyDenied):
 		return huma.Error403Forbidden(err.Error())
 	case errors.Is(err, repo.ErrApprovalRequired):
