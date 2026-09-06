@@ -68,6 +68,20 @@ object PrimerQrMark {
     }
 }
 
+data class PrimerQrRender(
+    val bitmap: Bitmap? = null,
+    val error: String? = null,
+)
+
+fun PrimerQrMark.encodeError(payload: String): String? =
+    runCatching { matrix(payload); null }.getOrElse { it.message ?: "QR could not be encoded." }
+
+fun PrimerQrMark.render(payload: String, modulePx: Int = 8): PrimerQrRender {
+    encodeError(payload)?.let { return PrimerQrRender(error = it) }
+    return runCatching { PrimerQrRender(bitmap = encode(payload, modulePx)) }
+        .getOrElse { PrimerQrRender(error = it.message ?: "QR could not be encoded.") }
+}
+
 @Composable
 fun PrimerQrMark(
     payload: String,
@@ -75,21 +89,24 @@ fun PrimerQrMark(
     modifier: Modifier = Modifier,
     size: Dp = 220.dp,
 ) {
-    val bitmap = remember(payload) { runCatching { PrimerQrMark.encode(payload) }.getOrNull() }
+    val rendered = remember(payload) { PrimerQrMark.render(payload) }
+    if (rendered.error != null) {
+        PrimerStatus(rendered.error, tone = PrimerStatusTone.Attention)
+        return
+    }
+    val bitmap = rendered.bitmap ?: return
     Box(
         modifier
             .background(Color.White)
             .padding((size.value / 16f).dp)
             .semantics { this.contentDescription = contentDescription },
     ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.size(size),
-                contentScale = ContentScale.FillBounds,
-                filterQuality = FilterQuality.None,
-            )
-        }
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.size(size),
+            contentScale = ContentScale.FillBounds,
+            filterQuality = FilterQuality.None,
+        )
     }
 }

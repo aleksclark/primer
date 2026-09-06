@@ -237,12 +237,21 @@ private fun ControlAppScreen(
                         onMoreTasks = { model.loadTasks(reset = false) },
                         studentsHasMore = state.studentsHasMore,
                         tasksHasMore = state.tasksHasMore,
-                        onKind = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(kind = value)) } },
-                        onDate = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(date = value)) } },
-                        onTime = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(time = value)) } },
-                        onTimezone = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(timezone = value)) } },
+                        onKind = { value ->
+                            model.update {
+                                it.copy(
+                                    scheduleDraft = it.scheduleDraft.copy(
+                                        kind = value,
+                                        rrule = if (value == "one_off") "" else it.scheduleDraft.rrule,
+                                    ),
+                                )
+                            }
+                        },
+                        onDate = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(date = value, originalStartAt = null)) } },
+                        onTime = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(time = value, originalStartAt = null)) } },
+                        onTimezone = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(timezone = value, originalStartAt = null)) } },
                         onRrule = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(rrule = value)) } },
-                        onDueOffset = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(dueOffsetMinutes = value.toLongOrNull() ?: 0)) } },
+                        onDueOffset = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(dueOffsetText = value)) } },
                         onEndAt = { value -> model.update { it.copy(scheduleDraft = it.scheduleDraft.copy(endAt = value)) } },
                         onSave = model::saveSchedule,
                         onClose = { model.update { it.copy(editingSchedule = null, scheduleStudentId = "", scheduleTaskId = "", creatingSchedule = false, scheduleDraft = ScheduleDraft()) } },
@@ -266,8 +275,8 @@ private fun ControlAppScreen(
                     ReviewScreen(
                         occurrences = state.occurrences,
                         message = state.message,
-                        onApprove = { item -> model.decide(true, occurrence = item, reason = "Approved ${item.title}") },
-                        onReject = { item -> model.decide(false, occurrence = item, reason = "Rejected ${item.title}") },
+                        onApprove = { item -> model.update { it.copy(selectedOccurrence = item, decisionReason = "") } },
+                        onReject = { item -> model.update { it.copy(selectedOccurrence = item, decisionReason = "") } },
                         onRetry = { item -> model.retryOccurrence(item) },
                         onOpen = { item -> model.update { it.copy(selectedOccurrence = item) } },
                         hasMore = state.occurrencesHasMore,

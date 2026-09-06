@@ -394,7 +394,12 @@ class ControlViewModel(
             _state.value = snapshot.copy(message = "Choose a student.")
             return
         }
-        val body = snapshot.scheduleDraft.toInput(studentId, revision.templateId, revision.revisionId)
+        val body = try {
+            snapshot.scheduleDraft.toInput(studentId, revision.templateId, revision.revisionId)
+        } catch (error: Exception) {
+            _state.value = snapshot.copy(message = controlMessage(error))
+            return
+        }
         val editingId = snapshot.editingSchedule?.id
         mutate(ConflictResource.Schedule) { ctx ->
             if (editingId == null) tasksFor(ctx).createSchedule(body) else tasksFor(ctx).updateSchedule(editingId, body)

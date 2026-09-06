@@ -53,4 +53,11 @@ class PrimerQrMarkTest {
             PrimerQrMark.matrix("x".repeat(PrimerQrMark.MAX_PAYLOAD_BYTES + 1))
         }
     }
+
+    @Test
+    fun encodeFailureMessageIsVisibleToCallers() {
+        val error = PrimerQrMark.encodeError("")
+        org.junit.Assert.assertTrue(error!!.contains("QR payload"))
+        org.junit.Assert.assertNull(PrimerQrMark.encodeError("abc"))
+    }
 }
