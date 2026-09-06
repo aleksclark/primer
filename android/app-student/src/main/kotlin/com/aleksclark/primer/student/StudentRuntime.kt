@@ -53,8 +53,14 @@ class StudentRuntime(private val context: Context) {
                 try { scheduleExpiry() } catch (_: RuntimeException) { recovery.close() }
             } else recovery.close()
             updater.reconcile()
+            policy.applyLastKnownRemote()
         }
         return policy.reconcile()
+    }
+
+    fun applyRemoteRecovery(requestId: String, codes: List<String>): Boolean {
+        check(policy.isOwner && policy.store.configured) { "Managed parent setup required" }
+        return recovery.activateRemoteCodes(requestId, codes)
     }
 
     fun startHome() {
