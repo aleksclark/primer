@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -56,6 +55,10 @@ type Deps struct {
 	// SyncWait / SyncPollInterval control Jellyfin scan waiting.
 	SyncWait         time.Duration
 	SyncPollInterval time.Duration
+
+	// JellyfinCollectionName is the exact BoxSet Collection to ensure after import.
+	// Empty disables the collection stage (operator-intentional disable).
+	JellyfinCollectionName string
 
 	// ManifestPath / ReviewPath are rewritten when resolve fills provider IDs.
 	ManifestPath string
@@ -159,6 +162,11 @@ func (e *Engine) Run(ctx context.Context, m *manifest.Manifest, review *manifest
 		if err := e.importItems(ctx, m, rep, opts); err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("import: %v", err))
 		}
+	}
+	// Named Collection membership after import: only successfully imported /
+	// currently eligible Jellyfin IDs. Plan mode is non-mutating.
+	if err := e.ensureCollection(ctx, m, rep, opts); err != nil {
+		rep.Errors = append(rep.Errors, fmt.Sprintf("collection: %v", err))
 	}
 	if !opts.SkipSync && !opts.DryRun {
 		if err := e.syncTV(ctx, rep); err != nil {
@@ -577,10 +585,9 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				ShowTitle:          it.Title,
 			}
 			if err := e.deps.YtDlp.Download(ctx, dlOpts); err != nil {
-				if leftoverExit1Complete(e.deps.YtDlpOutputDir, it.ID, dlOpts.ArchivePath, err) {
-					rep.AcquiredYouTube = append(rep.AcquiredYouTube, fmt.Sprintf("%s (archive complete; leftover exit 1 ignored)", it.ID))
-					continue
-				}
+				// Keep the error in the report even when older files already exist.
+				// ExecRunner still finalizes completed valid bundles; import/collection
+				// then proceed for those successful files.
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s yt-dlp: %v", it.ID, err))
 				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
@@ -701,38 +708,173 @@ func (e *Engine) syncTV(ctx context.Context, rep *Report) error {
 	return nil
 }
 
-// leftoverExit1Complete reports leftover yt-dlp exit 1 after a complete
-// per-show archive and at least one final playable file. That is not a new fail.
-func leftoverExit1Complete(outputDir, slug, archive string, err error) bool {
-	if err == nil || outputDir == "" || slug == "" {
-		return false
+// ensureCollection creates or locates the named BoxSet Collection and adds only
+// currently eligible imported Jellyfin IDs. Existing unrelated members stay.
+// Exact name match only; BoxSet pages and members are paged. Empty name disables.
+func (e *Engine) ensureCollection(ctx context.Context, m *manifest.Manifest, rep *Report, opts Options) error {
+	name := strings.TrimSpace(e.deps.JellyfinCollectionName)
+	if name == "" {
+		return nil
 	}
-	msg := strings.ToLower(err.Error())
-	if !strings.Contains(msg, "exit status 1") && !strings.Contains(msg, "exit code 1") {
-		return false
+	if e.deps.Jellyfin == nil {
+		return nil
 	}
-	st, statErr := os.Stat(archive)
-	if statErr != nil || st.Size() == 0 {
-		return false
+	desired, err := e.eligibleCollectionIDs(ctx, m, rep)
+	if err != nil {
+		return err
 	}
-	season := filepath.Join(ytdlp.ShowDir(outputDir, slug), "Season 01")
-	entries, readErr := os.ReadDir(season)
-	if readErr != nil {
-		return false
+	coll, err := e.findNamedCollection(ctx, name)
+	if err != nil {
+		return err
 	}
-	for _, ent := range entries {
-		if ent.IsDir() {
+	if opts.DryRun {
+		switch {
+		case coll == nil && len(desired) == 0:
+			rep.Collection = fmt.Sprintf("would ensure collection %q (no eligible items yet)", name)
+		case coll == nil:
+			rep.Collection = fmt.Sprintf("would create collection %q and add %d item(s)", name, len(desired))
+		default:
+			missing, _, err := e.collectionAdds(ctx, coll.ID, desired)
+			if err != nil {
+				return err
+			}
+			if len(missing) == 0 {
+				rep.Collection = fmt.Sprintf("collection %q already holds %d eligible item(s)", name, len(desired))
+			} else {
+				rep.Collection = fmt.Sprintf("would add %d item(s) to collection %q", len(missing), name)
+			}
+		}
+		return nil
+	}
+	admin, ok := e.deps.Jellyfin.(jellyfin.CollectionAdmin)
+	if !ok {
+		return fmt.Errorf("jellyfin client does not support collections")
+	}
+	if coll == nil {
+		id, err := admin.CreateCollection(ctx, name, nil)
+		if err != nil {
+			return fmt.Errorf("create collection %q: %w", name, err)
+		}
+		coll = &jellyfin.Item{ID: id, Name: name, Type: "BoxSet"}
+		rep.CollectionCreated = true
+	}
+	missing, already, err := e.collectionAdds(ctx, coll.ID, desired)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		if err := admin.AddToCollection(ctx, coll.ID, missing); err != nil {
+			return fmt.Errorf("add to collection %q: %w", name, err)
+		}
+	}
+	rep.CollectionAdded = append(rep.CollectionAdded, missing...)
+	rep.CollectionAlready = already
+	rep.Collection = fmt.Sprintf("%s id=%s added=%d already=%d", name, coll.ID, len(missing), already)
+	return nil
+}
+
+func (e *Engine) findNamedCollection(ctx context.Context, name string) (*jellyfin.Item, error) {
+	hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
+		IncludeItemTypes: "BoxSet",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list collections: %w", err)
+	}
+	var matches []jellyfin.Item
+	for _, it := range hits {
+		if it.Name == name {
+			matches = append(matches, it)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &matches[0], nil
+	default:
+		ids := make([]string, 0, len(matches))
+		for _, it := range matches {
+			ids = append(ids, it.ID)
+		}
+		return nil, fmt.Errorf("ambiguous collection name %q: %s", name, strings.Join(ids, ", "))
+	}
+}
+
+func (e *Engine) collectionAdds(ctx context.Context, collectionID string, desired []string) (missing []string, already int, err error) {
+	members, err := e.browseAll(ctx, jellyfin.BrowseParams{
+		ParentID: collectionID,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list collection members: %w", err)
+	}
+	have := make(map[string]struct{}, len(members))
+	for _, it := range members {
+		have[it.ID] = struct{}{}
+	}
+	for _, id := range desired {
+		if _, ok := have[id]; ok {
+			already++
 			continue
 		}
-		name := strings.ToLower(ent.Name())
-		if strings.HasSuffix(name, ".part") {
+		missing = append(missing, id)
+	}
+	return missing, already, nil
+}
+
+// eligibleCollectionIDs returns playable Jellyfin IDs that import would accept
+// this run: exclusions and caps apply; series parents and excluded episodes do not.
+func (e *Engine) eligibleCollectionIDs(ctx context.Context, m *manifest.Manifest, rep *Report) ([]string, error) {
+	out := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, it := range m.SortedByPriority() {
+		jfItems, err := e.findJellyfinItems(ctx, it)
+		if err != nil {
+			rep.Errors = append(rep.Errors, fmt.Sprintf("%s collection lookup: %v", it.ID, err))
 			continue
 		}
-		if strings.HasSuffix(name, ".mkv") || strings.HasSuffix(name, ".mp4") {
-			return true
+		youtube := it.Kind == manifest.KindYouTubeChannel || it.Kind == manifest.KindYouTubePlaylist
+		imported := 0
+		for _, jf := range jfItems {
+			if jf.ID == "" {
+				continue
+			}
+			if youtube {
+				if !youtubeImportable(jf) {
+					continue
+				}
+				youtubeID, episodeKey, _ := youtubeIdentity(jf)
+				if manifest.ExcludedVideo(it, youtubeID, episodeKey) {
+					continue
+				}
+				if it.CapsImports() && imported >= it.ImportLimit() {
+					continue
+				}
+				imported++
+			} else {
+				switch jf.Type {
+				case "Movie", "Episode", "Video":
+				default:
+					continue
+				}
+				if jf.Type == "Episode" {
+					key := jf.EpisodeKey()
+					if key != "" && it.Excluded(key) {
+						continue
+					}
+					if it.MaxEpisodes > 0 && imported >= it.MaxEpisodes {
+						continue
+					}
+					imported++
+				}
+			}
+			if _, ok := seen[jf.ID]; ok {
+				continue
+			}
+			seen[jf.ID] = struct{}{}
+			out = append(out, jf.ID)
 		}
 	}
-	return false
+	return out, nil
 }
 
 // importItems matches Jellyfin items to the manifest and upserts TV media_items.

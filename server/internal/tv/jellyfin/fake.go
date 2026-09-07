@@ -31,10 +31,26 @@ type Fake struct {
 
 	// BrowseCalls counts Browse invocations.
 	BrowseCalls int
+
+	// Collections maps collection id → member item ids (unrelated members preserved).
+	Collections map[string][]string
+	// CollectionNames maps collection id → exact name.
+	CollectionNames map[string]string
+	// CreateCollectionCalls records CreateCollection invocations.
+	CreateCollectionCalls []struct {
+		Name string
+		IDs  []string
+	}
+	// AddToCollectionCalls records AddToCollection invocations.
+	AddToCollectionCalls []struct {
+		CollectionID string
+		IDs          []string
+	}
 }
 
 var _ Client = (*Fake)(nil)
 var _ LibraryAdmin = (*Fake)(nil)
+var _ CollectionAdmin = (*Fake)(nil)
 
 // NewFake builds a fake client seeded with the given items.
 func NewFake(items ...Item) *Fake {
@@ -78,6 +94,12 @@ func (f *Fake) BrowsePage(_ context.Context, p BrowseParams) (Page, error) {
 			wantTypes[strings.TrimSpace(t)] = true
 		}
 	}
+	collectionMembers := map[string]struct{}{}
+	if p.ParentID != "" {
+		for _, id := range f.Collections[p.ParentID] {
+			collectionMembers[id] = struct{}{}
+		}
+	}
 	unfiltered := make([]Item, 0, len(f.Items))
 	for _, it := range f.Items {
 		if len(wantTypes) > 0 && !wantTypes[it.Type] {
@@ -98,8 +120,11 @@ func (f *Fake) BrowsePage(_ context.Context, p BrowseParams) (Page, error) {
 				continue
 			}
 		}
-		if p.ParentID != "" && it.ParentID != p.ParentID && it.SeriesID != p.ParentID {
-			continue
+		if p.ParentID != "" {
+			_, inCollection := collectionMembers[it.ID]
+			if !inCollection && it.ParentID != p.ParentID && it.SeriesID != p.ParentID && it.ID != p.ParentID {
+				continue
+			}
 		}
 		unfiltered = append(unfiltered, it)
 	}
@@ -134,6 +159,68 @@ func (f *Fake) RefreshLibrary(context.Context) error {
 		return f.Err
 	}
 	f.RefreshCalls++
+	return nil
+}
+
+// CreateCollection records a named BoxSet and optionally seeds members.
+func (f *Fake) CreateCollection(_ context.Context, name string, ids []string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return "", f.Err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("jellyfin: collection name is required")
+	}
+	copied := append([]string{}, ids...)
+	f.CreateCollectionCalls = append(f.CreateCollectionCalls, struct {
+		Name string
+		IDs  []string
+	}{Name: name, IDs: copied})
+	id := fmt.Sprintf("col-%d", len(f.CreateCollectionCalls))
+	if f.Collections == nil {
+		f.Collections = map[string][]string{}
+	}
+	if f.CollectionNames == nil {
+		f.CollectionNames = map[string]string{}
+	}
+	f.CollectionNames[id] = name
+	f.Collections[id] = uniqueIDs(ids)
+	f.Items = append(f.Items, Item{ID: id, Name: name, Type: "BoxSet"})
+	return id, nil
+}
+
+// AddToCollection appends missing members; existing unrelated entries stay.
+func (f *Fake) AddToCollection(_ context.Context, collectionID string, ids []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	collectionID = strings.TrimSpace(collectionID)
+	if collectionID == "" {
+		return fmt.Errorf("jellyfin: collection id is required")
+	}
+	copied := append([]string{}, ids...)
+	f.AddToCollectionCalls = append(f.AddToCollectionCalls, struct {
+		CollectionID string
+		IDs          []string
+	}{CollectionID: collectionID, IDs: copied})
+	if f.Collections == nil {
+		f.Collections = map[string][]string{}
+	}
+	have := map[string]struct{}{}
+	for _, id := range f.Collections[collectionID] {
+		have[id] = struct{}{}
+	}
+	for _, id := range uniqueIDs(ids) {
+		if _, ok := have[id]; ok {
+			continue
+		}
+		f.Collections[collectionID] = append(f.Collections[collectionID], id)
+		have[id] = struct{}{}
+	}
 	return nil
 }
 

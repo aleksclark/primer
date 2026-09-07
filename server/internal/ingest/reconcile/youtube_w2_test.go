@@ -306,7 +306,7 @@ func TestYouTubeUnresolvedPlaylistFailsClosed(t *testing.T) {
 	assert.Contains(t, strings.Join(res.Report.Errors, "\n"), "unresolved playlist")
 }
 
-func TestYouTubeLeftoverExit1AfterCompleteArchiveIsNotNewFail(t *testing.T) {
+func TestYouTubeExit1WithOldMediaStillReportsError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	out := filepath.Join(dir, "media")
@@ -317,10 +317,16 @@ func TestYouTubeLeftoverExit1AfterCompleteArchiveIsNotNewFail(t *testing.T) {
 
 	yt := &ytdlp.FakeRunner{Err: errors.New("yt-dlp: download failed: exit status 1")}
 	tv := tvclient.NewFake()
+	jf := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-ps-1", Name: "Dovetails", Type: "Video",
+		Path:    filepath.Join(show, "paul-sellers - S01E001 - Dovetails [dQw4w9wgxcQ].mkv"),
+		Runtime: 20 * time.Minute,
+	})
 	eng := reconcile.New(reconcile.Deps{
-		YtDlp: yt, TV: tv,
-		YtDlpOutputDir: out,
-		ReportDir:      filepath.Join(dir, "reports"),
+		YtDlp: yt, TV: tv, Jellyfin: jf,
+		YtDlpOutputDir:         out,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
 	})
 	m := &manifest.Manifest{Items: []manifest.Item{{
 		ID: "paul-sellers", Title: "Paul Sellers",
@@ -328,10 +334,19 @@ func TestYouTubeLeftoverExit1AfterCompleteArchiveIsNotNewFail(t *testing.T) {
 		Class: manifest.ClassMixed,
 	}}}
 	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
-		SkipSync: true, SkipImport: true,
+		SkipSync: true,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, tv.AttemptCalls, "leftover exit 1 after complete archive is not a new fail")
+	assert.Contains(t, strings.Join(res.Report.Errors, "\n"), "yt-dlp")
+	assert.NotEmpty(t, tv.AttemptCalls, "exit 1 is still an acquisition attempt")
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.True(t, ids["jf-ps-1"], "successful files still import after yt-dlp exit 1")
+	assert.NotEmpty(t, jf.CreateCollectionCalls, "collection proceeds for successful files")
 	joined := strings.Join(append(append([]string{}, res.Report.Errors...), res.Report.AcquiredYouTube...), "\n")
 	assert.NotContains(t, strings.ToLower(joined), "--cookies")
 	assert.NotContains(t, strings.ToLower(joined), "yt-dlp --")

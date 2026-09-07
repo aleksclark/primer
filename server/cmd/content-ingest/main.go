@@ -32,24 +32,23 @@ func main() {
 	}
 }
 
-func run() error {
-	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: content-ingest <plan|review|apply>")
-	}
-	cmd := os.Args[1]
-	switch cmd {
-	case "help", "-h", "--help":
-		fmt.Fprint(os.Stdout, `content-ingest — converge the media stack toward curriculum/content-manifest.yaml
+const usageText = `content-ingest — converge the media stack toward curriculum/content-manifest.yaml
 
 Commands:
   plan    Show what would change (writes review.yaml candidates + a report)
   review  Interactive TUI: pick the right candidate for each review.yaml entry
-  apply   Resolve, acquire, sync, import, and write a report
+  apply   Resolve, acquire, sync, import, collection, and write a report
+
+Flags (plan and apply):
+  --skip-acquire  Skip Radarr/Sonarr/yt-dlp. Sync, import, and collection still run.
+                  Use for an import-only recovered-library pass. Bound the catalog
+                  with INGEST_MANIFEST_PATH rather than an --only flag.
 
 Typical loop:
   make ingest-plan
   make ingest-review    # answer ambiguous matches
   make ingest-apply
+  content-ingest apply --skip-acquire   # import/collection only; no fresh downloads
 
 Environment: INGEST_* (see internal/ingest/config). Key vars:
   INGEST_MANIFEST_PATH   default curriculum/content-manifest.yaml
@@ -60,17 +59,61 @@ Environment: INGEST_* (see internal/ingest/config). Key vars:
   INGEST_SONARR_BASE_URL / INGEST_SONARR_API_KEY / INGEST_SONARR_ROOT_FOLDER
   INGEST_SONARR_QUALITY_PROFILE_ID
   INGEST_JELLYFIN_BASE_URL / INGEST_JELLYFIN_API_KEY / INGEST_JELLYFIN_USER_ID
+  INGEST_JELLYFIN_COLLECTION_NAME  default Primer; empty disables collection stage
   INGEST_TV_BASE_URL     e.g. http://localhost:8081/api/v1
   INGEST_TV_ADMIN_KEY
   INGEST_YTDLP_OUTPUT_DIR / INGEST_YTDLP_ARCHIVE_PATH / INGEST_YTDLP_PATH
-`)
+`
+
+type cliCommand struct {
+	Name        string
+	SkipAcquire bool
+}
+
+func parseArgs(args []string) (cliCommand, error) {
+	if len(args) < 1 {
+		return cliCommand{}, fmt.Errorf("usage: content-ingest <plan|review|apply>")
+	}
+	cmd := args[0]
+	switch cmd {
+	case "help", "-h", "--help":
+		return cliCommand{Name: "help"}, nil
+	case "review":
+		if len(args) > 1 {
+			return cliCommand{}, fmt.Errorf("unknown flag %q (review takes no flags)", args[1])
+		}
+		return cliCommand{Name: "review"}, nil
+	case "plan", "apply":
+		skipAcquire := false
+		for _, flag := range args[1:] {
+			switch flag {
+			case "--skip-acquire":
+				skipAcquire = true
+			default:
+				return cliCommand{}, fmt.Errorf("unknown flag %q", flag)
+			}
+		}
+		return cliCommand{Name: cmd, SkipAcquire: skipAcquire}, nil
+	default:
+		return cliCommand{}, fmt.Errorf("unknown command %q (want plan, review, or apply)", cmd)
+	}
+}
+
+func run() error {
+	parsed, err := parseArgs(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	switch parsed.Name {
+	case "help":
+		fmt.Fprint(os.Stdout, usageText)
 		return nil
 	case "review":
 		return runReview()
 	case "plan", "apply":
-		return runReconcile(cmd == "plan")
+		return runReconcile(parsed.Name == "plan", parsed.SkipAcquire)
 	default:
-		return fmt.Errorf("unknown command %q (want plan, review, or apply)", cmd)
+		return fmt.Errorf("unknown command %q (want plan, review, or apply)", parsed.Name)
 	}
 }
 
@@ -117,7 +160,7 @@ func runReview() error {
 	return nil
 }
 
-func runReconcile(dryRun bool) error {
+func runReconcile(dryRun, skipAcquire bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -140,7 +183,7 @@ func runReconcile(dryRun bool) error {
 		return err
 	}
 	eng := reconcile.New(deps)
-	res, err := eng.Run(ctx, m, review, reconcile.Options{DryRun: dryRun})
+	res, err := eng.Run(ctx, m, review, reconcile.Options{DryRun: dryRun, SkipAcquire: skipAcquire})
 	if err != nil {
 		return err
 	}
@@ -175,6 +218,7 @@ func buildDeps(cfg *config.Config) (reconcile.Deps, error) {
 		YtDlpJSRuntime:         cfg.YtDlpJSRuntime,
 		SyncWait:               cfg.SyncWait,
 		SyncPollInterval:       cfg.SyncPollInterval,
+		JellyfinCollectionName: cfg.JellyfinCollectionName,
 		ManifestPath:           cfg.ManifestPath,
 		ReviewPath:             cfg.ReviewPath,
 		ReportDir:              cfg.ReportDir,

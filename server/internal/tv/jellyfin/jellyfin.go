@@ -115,6 +115,16 @@ type Client interface {
 	FetchImage(ctx context.Context, itemID, imageType, tag string) (data []byte, contentType string, err error)
 }
 
+// CollectionAdmin extends LibraryAdmin with named Collection create/add used by content-ingest.
+// Collections are BoxSet items, not a separate Library / virtual folder.
+type CollectionAdmin interface {
+	LibraryAdmin
+	// CreateCollection POSTs /Collections?name=… and returns the new BoxSet id.
+	CreateCollection(ctx context.Context, name string, ids []string) (string, error)
+	// AddToCollection POSTs /Collections/{id}/Items?ids=… (additive; existing members stay).
+	AddToCollection(ctx context.Context, collectionID string, ids []string) error
+}
+
 // LibraryAdmin extends Client with library-scan operations used by content-ingest.
 type LibraryAdmin interface {
 	Client
@@ -145,6 +155,8 @@ type HTTPClient struct {
 }
 
 var _ Client = (*HTTPClient)(nil)
+var _ LibraryAdmin = (*HTTPClient)(nil)
+var _ CollectionAdmin = (*HTTPClient)(nil)
 
 // New builds a Jellyfin client. The base URL's trailing slash is optional.
 func New(opts Options) (*HTTPClient, error) {
@@ -365,6 +377,62 @@ func ProviderMatch(it Item, expr string) bool {
 // RefreshLibrary triggers a full Jellyfin library scan.
 func (c *HTTPClient) RefreshLibrary(ctx context.Context) error {
 	return c.post(ctx, "/Library/Refresh", nil, nil)
+}
+
+// CreateCollection POSTs /Collections with the collection name as a query param.
+// ids, when non-empty, are seeded on create (Jellyfin accepts a comma-delimited ids query).
+func (c *HTTPClient) CreateCollection(ctx context.Context, name string, ids []string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("jellyfin: collection name is required")
+	}
+	q := url.Values{}
+	q.Set("name", name)
+	if cleaned := uniqueIDs(ids); len(cleaned) > 0 {
+		q.Set("ids", strings.Join(cleaned, ","))
+	}
+	var out struct {
+		ID string `json:"Id"`
+	}
+	if err := c.post(ctx, "/Collections", q, &out); err != nil {
+		return "", err
+	}
+	if out.ID == "" {
+		return "", errors.New("jellyfin: create collection: empty id")
+	}
+	return out.ID, nil
+}
+
+// AddToCollection POSTs /Collections/{id}/Items. Empty ids is a no-op.
+func (c *HTTPClient) AddToCollection(ctx context.Context, collectionID string, ids []string) error {
+	collectionID = strings.TrimSpace(collectionID)
+	if collectionID == "" {
+		return errors.New("jellyfin: collection id is required")
+	}
+	cleaned := uniqueIDs(ids)
+	if len(cleaned) == 0 {
+		return nil
+	}
+	q := url.Values{}
+	q.Set("ids", strings.Join(cleaned, ","))
+	return c.post(ctx, "/Collections/"+url.PathEscape(collectionID)+"/Items", q, nil)
+}
+
+func uniqueIDs(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 // ScanRunning reports whether any scheduled task named like a library scan is running.

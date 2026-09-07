@@ -50,6 +50,11 @@ type Config struct {
 	JellyfinAPIKey string `envconfig:"JELLYFIN_API_KEY"`
 	// JellyfinUserID scopes library browsing to a Jellyfin user.
 	JellyfinUserID string `envconfig:"JELLYFIN_USER_ID"`
+	// JellyfinCollectionName is the exact BoxSet Collection to create/add to
+	// after import (not a separate Library). Default "Primer". An operator who
+	// intentionally sets INGEST_JELLYFIN_COLLECTION_NAME empty disables the
+	// collection stage; unset uses the default.
+	JellyfinCollectionName string `envconfig:"JELLYFIN_COLLECTION_NAME" default:"Primer"`
 
 	// TVBaseURL is the root of the TV server admin API (including /api/v1).
 	TVBaseURL string `envconfig:"TV_BASE_URL"`

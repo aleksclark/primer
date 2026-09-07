@@ -533,3 +533,184 @@ func TestFakeBrowseProviderPathAndAdmin(t *testing.T) {
 	assert.Equal(t, "S01E02", byPath[0].EpisodeKey())
 	assert.Equal(t, "", jellyfin.Item{Type: "Movie"}.EpisodeKey())
 }
+
+func TestCreateCollectionPostsNameAndAuth(t *testing.T) {
+	t.Parallel()
+	var gotPath, gotToken, gotAuth string
+	var gotQuery url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		gotToken = r.Header.Get("X-Emby-Token")
+		gotAuth = r.Header.Get("Authorization")
+		assert.Equal(t, http.MethodPost, r.Method)
+		_, _ = w.Write([]byte(`{"Id":"col-primer"}`))
+	}))
+
+	id, err := client.CreateCollection(context.Background(), "Primer", []string{"jf-a", "jf-a", " jf-b "})
+	require.NoError(t, err)
+	assert.Equal(t, "col-primer", id)
+	assert.Equal(t, "/Collections", gotPath)
+	assert.Equal(t, "Primer", gotQuery.Get("name"))
+	assert.Equal(t, "jf-a,jf-b", gotQuery.Get("ids"))
+	assert.Equal(t, "secret-key", gotToken)
+	assert.Contains(t, gotAuth, `Token="secret-key"`)
+}
+
+func TestCreateCollectionValidatesNameAndErrors(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	_, err := client.CreateCollection(context.Background(), "  ", nil)
+	assert.Error(t, err)
+
+	_, err = client.CreateCollection(context.Background(), "Primer", nil)
+	assert.Error(t, err)
+
+	emptyID, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"Id":""}`))
+	}))
+	_, err = emptyID.CreateCollection(context.Background(), "Primer", nil)
+	assert.Error(t, err)
+}
+
+func TestAddToCollectionPostsIDsAndAuth(t *testing.T) {
+	t.Parallel()
+	var gotPath, gotToken string
+	var gotQuery url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		gotToken = r.Header.Get("X-Emby-Token")
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	require.NoError(t, client.AddToCollection(context.Background(), "col 1", []string{"a", "b"}))
+	assert.Equal(t, "/Collections/col 1/Items", gotPath)
+	assert.Equal(t, "a,b", gotQuery.Get("ids"))
+	assert.Equal(t, "secret-key", gotToken)
+}
+
+func TestAddToCollectionEmptyIDsIsNoop(t *testing.T) {
+	t.Parallel()
+	hits := 0
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	require.NoError(t, client.AddToCollection(context.Background(), "col-1", nil))
+	require.NoError(t, client.AddToCollection(context.Background(), "col-1", []string{"", " "}))
+	assert.Equal(t, 0, hits)
+
+	err := client.AddToCollection(context.Background(), "", []string{"a"})
+	assert.Error(t, err)
+}
+
+func TestAddToCollectionPropagatesHTTPError(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	assert.Error(t, client.AddToCollection(context.Background(), "col-1", []string{"a"}))
+}
+
+func TestBrowsePagesCollectionsAndMembers(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case q.Get("IncludeItemTypes") == "BoxSet":
+			start := q.Get("StartIndex")
+			if start == "" || start == "0" {
+				_, _ = w.Write([]byte(`{
+					"TotalRecordCount": 3,
+					"Items": [
+						{"Id":"other-1","Name":"Other","Type":"BoxSet"},
+						{"Id":"other-2","Name":"Also Other","Type":"BoxSet"}
+					]
+				}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{
+				"TotalRecordCount": 3,
+				"Items": [{"Id":"col-primer","Name":"Primer","Type":"BoxSet"}]
+			}`))
+		case q.Get("ParentId") == "col-primer":
+			start := q.Get("StartIndex")
+			if start == "" || start == "0" {
+				_, _ = w.Write([]byte(`{
+					"TotalRecordCount": 3,
+					"Items": [
+						{"Id":"m1","Name":"Member 1","Type":"Movie"},
+						{"Id":"m2","Name":"Member 2","Type":"Episode"}
+					]
+				}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{
+				"TotalRecordCount": 3,
+				"Items": [{"Id":"m3","Name":"Member 3","Type":"Video"}]
+			}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+
+	page, err := client.BrowsePage(context.Background(), jellyfin.BrowseParams{
+		IncludeItemTypes: "BoxSet",
+		Limit:            2,
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, 3, page.TotalRecordCount)
+	assert.Equal(t, 2, page.RawPageLen)
+
+	next, err := client.BrowsePage(context.Background(), jellyfin.BrowseParams{
+		IncludeItemTypes: "BoxSet",
+		Limit:            2,
+		StartIndex:       2,
+	})
+	require.NoError(t, err)
+	require.Len(t, next.Items, 1)
+	assert.Equal(t, "col-primer", next.Items[0].ID)
+	assert.Equal(t, "Primer", next.Items[0].Name)
+
+	members, err := client.BrowsePage(context.Background(), jellyfin.BrowseParams{
+		ParentID: "col-primer",
+		Limit:    2,
+	})
+	require.NoError(t, err)
+	require.Len(t, members.Items, 2)
+	assert.Equal(t, 3, members.TotalRecordCount)
+
+	rest, err := client.BrowsePage(context.Background(), jellyfin.BrowseParams{
+		ParentID:   "col-primer",
+		Limit:      2,
+		StartIndex: 2,
+	})
+	require.NoError(t, err)
+	require.Len(t, rest.Items, 1)
+	assert.Equal(t, "m3", rest.Items[0].ID)
+}
+
+func TestFakeCreateCollectionIsIdempotentOnAdd(t *testing.T) {
+	t.Parallel()
+	fake := jellyfin.NewFake(jellyfin.Item{ID: "unrelated", Name: "Keep Me", Type: "Movie"})
+	id, err := fake.CreateCollection(context.Background(), "Primer", []string{"jf-a"})
+	require.NoError(t, err)
+	require.NoError(t, fake.AddToCollection(context.Background(), id, []string{"jf-a", "jf-b"}))
+	require.NoError(t, fake.AddToCollection(context.Background(), id, []string{"jf-b"}))
+	assert.Equal(t, []string{"jf-a", "jf-b"}, fake.Collections[id])
+	assert.Equal(t, "Primer", fake.CollectionNames[id])
+}
+
+func TestFakeCollectionSurfacesConfiguredError(t *testing.T) {
+	t.Parallel()
+	fake := jellyfin.NewFake()
+	fake.Err = assert.AnError
+	_, err := fake.CreateCollection(context.Background(), "Primer", nil)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.ErrorIs(t, fake.AddToCollection(context.Background(), "col", []string{"a"}), assert.AnError)
+}
