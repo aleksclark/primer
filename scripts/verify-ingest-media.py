@@ -6,6 +6,7 @@ INGEST_JELLYFIN_USER_ID, INGEST_TV_BASE_URL, INGEST_TV_ADMIN_KEY. Credentials ar
 passed to ffmpeg. This does not create schedules, grants, or playback sessions.
 """
 import argparse
+import datetime as dt
 import hashlib
 import json
 import os
@@ -64,6 +65,39 @@ def digest(path):
         return hashlib.file_digest(f, "sha256").hexdigest()
 
 
+def normalize_calendar_date(value):
+    if not value:
+        return ""
+    if isinstance(value, str):
+        if re.fullmatch(r"\d{8}", value):
+            return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            return value
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        try:
+            return dt.datetime.fromisoformat(value).date().isoformat()
+        except ValueError:
+            return ""
+    if isinstance(value, (int, float)):
+        return dt.datetime.fromtimestamp(value, tz=dt.timezone.utc).date().isoformat()
+    return ""
+
+
+def info_calendar_date(info):
+    for key in ("upload_date", "release_date", "release_timestamp", "timestamp"):
+        calendar = normalize_calendar_date(info.get(key))
+        if calendar:
+            return calendar
+    raise RuntimeError("Unable to derive upload-date calendar from info.json")
+
+
+def provider_id(item, key):
+    ids = item.get("ProviderIds") or {}
+    lowered = {str(k).lower(): v for k, v in ids.items()}
+    return lowered.get(key.lower(), "")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--youtube-id", required=True, action="append", dest="ids")
@@ -92,7 +126,7 @@ def main():
         require(bool(re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug)), "Invalid manifest slug")
         require(record["jellyfinItemId"] in members, f"{video_id}: absent from Collection")
         require(record["directPlayOk"], f"{video_id}: TV marks direct play incompatible")
-        items = jf.items({"Ids": record["jellyfinItemId"], "Recursive": "true", "Fields": "Path,MediaStreams,ProviderIds"})
+        items = jf.items({"Ids": record["jellyfinItemId"], "Recursive": "true", "Fields": "Path,MediaStreams,ProviderIds,Overview,PremiereDate"})
         require(len(items) == 1, f"{video_id}: missing Jellyfin item")
         item = items[0]
         require(item["Type"] in ("Episode", "Video"), "A folder was imported instead of a video")
@@ -107,10 +141,28 @@ def main():
         require(info["id"] == video_id, "Sidecar identity mismatch")
         nfo = ET.parse(media.with_suffix(".nfo"))
         require(nfo.findtext("uniqueid[@type='youtube']") == video_id, "NFO identity mismatch")
+        require(nfo.findtext("uniqueid[@type='primer-slug']") == slug, "NFO slug identity mismatch")
+        expected_title = (nfo.findtext("title") or "").strip()
+        require(bool(expected_title), "NFO title missing")
+        expected_show = (nfo.findtext("showtitle") or "").strip()
+        require(bool(expected_show), "NFO showtitle missing")
+        expected_plot = (nfo.findtext("plot") or "")
+        expected_calendar = normalize_calendar_date(nfo.findtext("premiered")) or info_calendar_date(info)
+        require(item["Name"] == expected_title, "Jellyfin title does not match authored NFO title")
+        require(provider_id(item, "youtube") == video_id, "Jellyfin missing YouTube provider id")
+        require(provider_id(item, "primer-slug") == slug, "Jellyfin missing primer-slug provider id")
+        if expected_plot:
+            require((item.get("Overview") or "") == expected_plot, "Jellyfin overview does not match authored NFO plot")
+        require(normalize_calendar_date(item.get("PremiereDate")) == expected_calendar,
+                "Jellyfin premiere date calendar mismatch")
         ledger = json.loads((season.parent / ".primer-index.json").read_text())
         ep = ledger["episodes"][video_id]
         expected_key = f"S{ep['season']:02d}E{ep['episode']:03d}"
         require(record["episodeKey"] == expected_key, "TV/ledger episode key mismatch")
+        require(record["title"] == f"{expected_show} {expected_key} — {expected_title}",
+                "TV title does not match authored NFO title")
+        require(normalize_calendar_date(record.get("uploadDate")) == expected_calendar,
+                "TV upload-date calendar mismatch")
         archive = (season.parent / ".ytdlp-archive.txt").read_text().splitlines()
         require(archive.count("youtube " + video_id) == 1, "Missing/duplicate durable archive identity")
         stream = "/Videos/" + record["jellyfinItemId"] + "/stream"
@@ -137,6 +189,7 @@ def main():
                     f"{video_id}: actual streamed audio/video failed decoding")
         evidence["videos"].append({"youtubeVideoId": video_id, "manifestSlug": slug,
             "mediaItemId": record["id"], "jellyfinItemId": item["Id"], "title": record["title"],
+            "expectedTitle": expected_title, "expectedUploadDate": expected_calendar,
             "episodeKey": expected_key, "type": item["Type"], "runtimeSeconds": record["runtimeSeconds"],
             "bytes": media.stat().st_size, "sha256": sha, "range": range_header,
             "decodedFrames": max(frames), "decodedAudio": True, "seekSeconds": seek})

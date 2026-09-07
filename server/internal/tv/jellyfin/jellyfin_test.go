@@ -2,6 +2,7 @@ package jellyfin_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -844,4 +845,39 @@ func TestFakeCollectionSurfacesConfiguredError(t *testing.T) {
 	_, err := fake.CreateCollection(context.Background(), "Primer", nil)
 	assert.ErrorIs(t, err, assert.AnError)
 	assert.ErrorIs(t, fake.AddToCollection(context.Background(), "col", []string{"a"}), assert.AnError)
+}
+
+func TestRefreshLocalMetadataUnlocksThenQueuesRefresh(t *testing.T) {
+	t.Parallel()
+	var calls []string
+	var gotUpdate map[string]any
+	var gotRefresh url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/Users/user-1/Items/abc123":
+			_, _ = w.Write([]byte(`{"Id":"abc123","Name":"raw title","LockData":true,"ProviderIds":{}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/Items/abc123":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&gotUpdate))
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/Items/abc123/Refresh":
+			gotRefresh = r.URL.Query()
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	require.NoError(t, client.RefreshLocalMetadata(context.Background(), "abc123"))
+	assert.Equal(t, []string{
+		http.MethodGet + " /Users/user-1/Items/abc123",
+		http.MethodPost + " /Items/abc123",
+		http.MethodPost + " /Items/abc123/Refresh",
+	}, calls)
+	require.NotNil(t, gotUpdate)
+	assert.Equal(t, false, gotUpdate["LockData"])
+	assert.Equal(t, "FullRefresh", gotRefresh.Get("metadataRefreshMode"))
+	assert.Equal(t, "None", gotRefresh.Get("imageRefreshMode"))
+	assert.Equal(t, "true", gotRefresh.Get("replaceAllMetadata"))
+	assert.Equal(t, "false", gotRefresh.Get("replaceAllImages"))
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -992,6 +993,16 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 				}
 			}
 
+			if youtube && !opts.DryRun && !opts.SkipSync {
+				fresh, err := e.refreshYouTubeLocalMetadata(ctx, jf, it.ID)
+				if err != nil {
+					rep.Errors = append(rep.Errors, fmt.Sprintf("%s refresh metadata %s: %v", it.ID, jf.ID, err))
+					continue
+				}
+				jf = fresh
+				youtubeID, episodeKey, uploadDate = youtubeIdentity(jf)
+			}
+
 			class := it.Class
 			tags := append([]string{}, it.SubjectTags...)
 			codes := append([]string{}, it.StandardCodes...)
@@ -1366,6 +1377,59 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+func (e *Engine) refreshYouTubeLocalMetadata(ctx context.Context, jf jellyfin.Item, slug string) (jellyfin.Item, error) {
+	if !needsYouTubeLocalMetadataRefresh(jf, slug) {
+		return jf, nil
+	}
+	if err := e.deps.Jellyfin.RefreshLocalMetadata(ctx, jf.ID); err != nil {
+		return jf, err
+	}
+	wait := e.deps.SyncWait
+	if wait <= 0 || wait > 2*time.Minute {
+		wait = 2 * time.Minute
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	for {
+		item, err := e.deps.Jellyfin.Item(refreshCtx, jf.ID)
+		if err != nil {
+			return jf, err
+		}
+		if !needsYouTubeLocalMetadataRefresh(*item, slug) {
+			return *item, nil
+		}
+		select {
+		case <-refreshCtx.Done():
+			return jf, fmt.Errorf("metadata still filename-derived after refresh")
+		case <-time.After(e.deps.SyncPollInterval):
+		}
+	}
+}
+
+func needsYouTubeLocalMetadataRefresh(jf jellyfin.Item, slug string) bool {
+	youtubeID, _, _ := youtubeIdentity(jf)
+	if youtubeID != "" && jf.ProviderID("youtube") != youtubeID {
+		return true
+	}
+	if slug != "" && jf.ProviderID("primer-slug") != slug {
+		return true
+	}
+	fallback := youtubeFilenameTitle(jf.Path)
+	return fallback != "" && jf.Name == fallback
+}
+
+func youtubeFilenameTitle(mediaPath string) string {
+	if mediaPath == "" {
+		return ""
+	}
+	base := filepath.Base(mediaPath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	if id, ok := ytdlp.ParseYouTubeID(base); ok {
+		stem = strings.TrimSuffix(stem, " ["+id+"]")
+	}
+	return stem
 }
 
 // youtubeImportable reports whether a Jellyfin hit is a finalized playable

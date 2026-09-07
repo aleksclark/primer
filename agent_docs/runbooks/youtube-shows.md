@@ -78,8 +78,15 @@ the new library (existing all-library access needs no policy change).
 - Identity is **YouTube ID + manifest slug + Jellyfin item ID**.
 - `.primer-index.json` assigns ordinals once, initially by upload date then ID;
   later discoveries append. It is not a curriculum sequence or `playlist_index`.
-- Show and episode NFOs set `<lockdata>true</lockdata>`. Per-video identity stays
-  embedded in the filename and episode NFO.
+- Show and episode NFOs set `<lockdata>false</lockdata>` so first import can
+  read the authored title/overview instead of freezing a filename-derived name.
+  Remote provider isolation is a library policy, not an initial NFO lock.
+  Jellyfin 10.11 can still surface a fresh YouTube item with the filename as its
+  title on the first scan; `content-ingest` now detects that state, unlocks the
+  item, queues a local metadata refresh, waits for the authored NFO title /
+  provider IDs, and only then imports or re-syncs the TV row. TV curator locks
+  are separate and remain respected. Per-video identity stays embedded in the
+  filename and episode NFO.
 - MP4 progressive fallbacks and existing 240p/360p files remain valid; do not
   transcode or copy them merely to change extensions. New downloads prefer
   H.264/H.265 up to 1080p; the TV direct-play compatibility gate still applies.

@@ -42,9 +42,10 @@ func WriteShowNFO(outputDir, slug, title, channelID string) (string, error) {
 	b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>`)
 	b.WriteByte('\n')
 	b.WriteString("<tvshow>\n")
-	// These are curated YouTube identities, not TVDB episode numbers. Do not
-	// let remote television metadata overwrite locally authored identity.
-	writeTag(&b, "lockdata", "true")
+	// Leave initial metadata import unlocked: Jellyfin can otherwise freeze
+	// filename-derived names before reading the NFO. The dedicated source
+	// library disables remote providers; TV curator locks are independent.
+	writeTag(&b, "lockdata", "false")
 	writeTag(&b, "title", title)
 	writeTag(&b, "originaltitle", title)
 	writeTag(&b, "sorttitle", title)
@@ -84,7 +85,7 @@ func WriteEpisodeNFO(mediaPath string, meta EpisodeNFO) (string, error) {
 	b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>`)
 	b.WriteByte('\n')
 	b.WriteString("<episodedetails>\n")
-	writeTag(&b, "lockdata", "true")
+	writeTag(&b, "lockdata", "false")
 	writeTag(&b, "title", meta.Title)
 	writeTag(&b, "showtitle", meta.ShowTitle)
 	writeTag(&b, "season", fmt.Sprintf("%d", meta.Season))

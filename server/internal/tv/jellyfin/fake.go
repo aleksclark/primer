@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/aleksclark/primer/server/internal/ingest/ytdlp"
 )
 
 // Fake is an in-memory Client for tests and local development without a
@@ -28,6 +32,10 @@ type Fake struct {
 	Scanning bool
 	// RefreshCalls counts RefreshLibrary invocations.
 	RefreshCalls int
+	// RefreshLocalMetadataCalls records item-level local metadata refreshes.
+	RefreshLocalMetadataCalls []string
+	// RefreshedItems swaps in corrected metadata when RefreshLocalMetadata is called.
+	RefreshedItems map[string]Item
 
 	// BrowseCalls counts Browse invocations.
 	BrowseCalls int
@@ -160,6 +168,71 @@ func (f *Fake) RefreshLibrary(context.Context) error {
 	}
 	f.RefreshCalls++
 	return nil
+}
+
+// RefreshLocalMetadata records an item-level metadata reread and swaps in any configured replacement.
+func (f *Fake) RefreshLocalMetadata(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	f.RefreshLocalMetadataCalls = append(f.RefreshLocalMetadataCalls, id)
+	for i := range f.Items {
+		if f.Items[i].ID != id {
+			continue
+		}
+		if next, ok := f.RefreshedItems[id]; ok {
+			f.Items[i] = next
+			return nil
+		}
+		next := f.Items[i]
+		if next.ProviderIds == nil {
+			next.ProviderIds = map[string]string{}
+		}
+		if youtubeID, ok := ytdlp.ParseYouTubeID(next.Path); ok && next.ProviderID("youtube") == "" {
+			next.ProviderIds["youtube"] = youtubeID
+		}
+		if slug := fakeSlugFromPath(next.Path); slug != "" && next.ProviderID("primer-slug") == "" {
+			next.ProviderIds["primer-slug"] = slug
+		}
+		if raw, err := os.ReadFile(strings.TrimSuffix(next.Path, filepath.Ext(next.Path)) + ".nfo"); err == nil {
+			if title := fakeXMLTag(string(raw), "title"); title != "" {
+				next.Name = title
+			}
+			if plot := fakeXMLTag(string(raw), "plot"); plot != "" {
+				next.Overview = plot
+			}
+		}
+		f.Items[i] = next
+		return nil
+	}
+	return ErrNotFound
+}
+
+func fakeSlugFromPath(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "Shows" {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+func fakeXMLTag(s, name string) string {
+	open := "<" + name + ">"
+	close := "</" + name + ">"
+	i := strings.Index(s, open)
+	if i < 0 {
+		return ""
+	}
+	i += len(open)
+	j := strings.Index(s[i:], close)
+	if j < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[i : i+j])
 }
 
 // CreateCollection records a named BoxSet and optionally seeds members.

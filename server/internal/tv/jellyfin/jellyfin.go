@@ -5,6 +5,7 @@
 package jellyfin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -137,6 +138,10 @@ type LibraryAdmin interface {
 	Client
 	// RefreshLibrary triggers a full library scan.
 	RefreshLibrary(ctx context.Context) error
+	// RefreshLocalMetadata unlocks one item and queues a local-metadata reread.
+	// content-ingest uses this when Jellyfin imports a YouTube file with a
+	// filename-derived title before reading the authored NFO.
+	RefreshLocalMetadata(ctx context.Context, id string) error
 	// ScanRunning reports whether a library scan is in progress.
 	ScanRunning(ctx context.Context) (bool, error)
 }
@@ -402,6 +407,36 @@ func (c *HTTPClient) RefreshLibrary(ctx context.Context) error {
 	return c.post(ctx, "/Library/Refresh", nil, nil)
 }
 
+// RefreshLocalMetadata unlocks one item and queues a full local-metadata reread.
+func (c *HTTPClient) RefreshLocalMetadata(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("jellyfin: item id is required")
+	}
+	getPath := "/Items/" + url.PathEscape(id)
+	if c.userID != "" {
+		getPath = "/Users/" + url.PathEscape(c.userID) + "/Items/" + url.PathEscape(id)
+	}
+	var dto map[string]any
+	if err := c.get(ctx, getPath, nil, &dto); err != nil {
+		return fmt.Errorf("jellyfin: read item %s: %w", id, err)
+	}
+	dto["LockData"] = false
+	itemPath := "/Items/" + url.PathEscape(id)
+	if err := c.postJSON(ctx, itemPath, nil, dto, nil); err != nil {
+		return fmt.Errorf("jellyfin: unlock item %s: %w", id, err)
+	}
+	q := url.Values{}
+	q.Set("metadataRefreshMode", "FullRefresh")
+	q.Set("imageRefreshMode", "None")
+	q.Set("replaceAllMetadata", "true")
+	q.Set("replaceAllImages", "false")
+	if err := c.post(ctx, itemPath+"/Refresh", q, nil); err != nil {
+		return fmt.Errorf("jellyfin: refresh item %s: %w", id, err)
+	}
+	return nil
+}
+
 // CreateCollection POSTs /Collections with the collection name as a query param.
 // ids, when non-empty, are seeded on create (Jellyfin accepts a comma-delimited ids query).
 func (c *HTTPClient) CreateCollection(ctx context.Context, name string, ids []string) (string, error) {
@@ -520,7 +555,7 @@ func (c *HTTPClient) ItemsByID(ctx context.Context, ids []string) (map[string]It
 	q := url.Values{}
 	q.Set("Ids", strings.Join(wanted, ","))
 	q.Set("Limit", strconv.Itoa(len(wanted)))
-	q.Set("Fields", "Overview,MediaStreams,SortName,Container")
+	q.Set("Fields", "Overview,MediaStreams,SortName,Container,ProviderIds,Path")
 	if c.userID != "" {
 		q.Set("UserId", c.userID)
 	}
@@ -617,19 +652,34 @@ func (c *HTTPClient) get(ctx context.Context, path string, query url.Values, out
 }
 
 func (c *HTTPClient) post(ctx context.Context, path string, query url.Values, out any) error {
-	return c.do(ctx, http.MethodPost, path, query, out)
+	return c.doWithBody(ctx, http.MethodPost, path, query, nil, "", out)
+}
+
+func (c *HTTPClient) postJSON(ctx context.Context, path string, query url.Values, body any, out any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("jellyfin: encode %s: %w", path, err)
+	}
+	return c.doWithBody(ctx, http.MethodPost, path, query, bytes.NewReader(payload), "application/json", out)
 }
 
 func (c *HTTPClient) do(ctx context.Context, method, path string, query url.Values, out any) error {
+	return c.doWithBody(ctx, method, path, query, nil, "", out)
+}
+
+func (c *HTTPClient) doWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string, out any) error {
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return fmt.Errorf("jellyfin: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	c.authorize(req)
 
 	resp, err := c.http.Do(req)
