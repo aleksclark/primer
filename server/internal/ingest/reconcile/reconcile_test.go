@@ -2,6 +2,8 @@ package reconcile_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -622,6 +624,71 @@ func TestImportDoesNotCrossWireForeignLibrary(t *testing.T) {
 
 	// Only the two genuine hits.
 	assert.Equal(t, 2, len(res.Report.Imported), "got: %v", res.Report.Imported)
+}
+
+func TestImportIgnoresLibraryDumpWhenSeriesIdQueryUnknown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.URL.Query().Get("SeriesId"), "must not send unknown SeriesId")
+		switch r.URL.Query().Get("IncludeItemTypes") {
+		case "Series":
+			_, _ = w.Write([]byte(`{
+				"Items": [{"Id":"series-lp","Name":"The Living Planet","Type":"Series","ProviderIds":{"Tvdb":"79165"}}],
+				"TotalRecordCount": 1
+			}`))
+		case "Episode":
+			assert.Equal(t, "series-lp", r.URL.Query().Get("ParentId"))
+			assert.Equal(t, "true", r.URL.Query().Get("Recursive"))
+			// Whole-library dump: matching episode, foreign series, blank SeriesId.
+			_, _ = w.Write([]byte(`{
+				"Items": [
+					{"Id":"jf-lp-e1","Name":"The Building of the Earth","Type":"Episode","SeriesId":"series-lp","SeriesName":"The Living Planet","IndexNumber":1,"ParentIndexNumber":1},
+					{"Id":"jf-b5","Name":"Midnight on the Firing Line","Type":"Episode","SeriesId":"series-b5","SeriesName":"Babylon 5","IndexNumber":1,"ParentIndexNumber":1},
+					{"Id":"jf-orphan","Name":"Orphan","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1}
+				],
+				"TotalRecordCount": 3
+			}`))
+		case "BoxSet":
+			_, _ = w.Write([]byte(`{"Items":[],"TotalRecordCount":0}`))
+		default:
+			_, _ = w.Write([]byte(`{"Items":[],"TotalRecordCount":0}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := jellyfin.New(jellyfin.Options{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()})
+	require.NoError(t, err)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin:               client,
+		TV:                     tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "living-planet", Title: "The Living Planet", Year: 1984,
+		Kind: manifest.KindSeries, Provider: manifest.Provider{TVDB: 79165},
+		Class: manifest.ClassEducational,
+	}}}
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.True(t, ids["jf-lp-e1"])
+	assert.False(t, ids["jf-b5"], "foreign episode must never import")
+	assert.False(t, ids["jf-orphan"], "blank SeriesId must never import")
+	assert.NotContains(t, strings.Join(res.Report.Imported, "\n"), "jf-b5")
+	assert.NotContains(t, strings.Join(res.Report.CollectionAdded, "\n"), "jf-b5")
+	assert.NotContains(t, strings.Join(res.Report.CollectionAdded, "\n"), "jf-orphan")
 }
 
 func TestImportSeriesAmbiguousIsError(t *testing.T) {

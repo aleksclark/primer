@@ -109,14 +109,10 @@ func (f *Fake) BrowsePage(_ context.Context, p BrowseParams) (Page, error) {
 			!strings.Contains(strings.ToLower(it.SeriesName), strings.ToLower(p.SearchTerm)) {
 			continue
 		}
-		if p.SeriesID != "" && it.SeriesID != p.SeriesID && it.ID != p.SeriesID {
-			// Episodes carry SeriesID; allow the series row itself through only
-			// when its own ID matches (not used for episode listings).
-			if it.Type == "Episode" || it.Type == "Video" {
-				if it.SeriesID != p.SeriesID {
-					continue
-				}
-			} else if it.ID != p.SeriesID {
+		if p.SeriesID != "" {
+			// Exact SeriesID only. Blank SeriesID never matches (fail closed).
+			// The series row itself is not an episode listing hit.
+			if it.SeriesID != p.SeriesID {
 				continue
 			}
 		}

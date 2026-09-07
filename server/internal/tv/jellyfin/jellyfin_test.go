@@ -120,6 +120,53 @@ func TestBrowse(t *testing.T) {
 	assert.Equal(t, "true", gotQuery.Get("Recursive"))
 }
 
+func TestBrowseSeriesIDUsesParentIdNotSeriesIdQuery(t *testing.T) {
+	t.Parallel()
+	var gotQuery url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = w.Write([]byte(`{"Items":[{
+			"Id":"ep-ok","Name":"Ours","Type":"Episode",
+			"SeriesId":"series-lp","IndexNumber":1,"ParentIndexNumber":1
+		}]}`))
+	}))
+
+	items, err := client.Browse(context.Background(), jellyfin.BrowseParams{
+		SeriesID:         "series-lp",
+		IncludeItemTypes: "Episode",
+	})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "series-lp", gotQuery.Get("ParentId"), "10.11 has no seriesId; send ParentId")
+	assert.Empty(t, gotQuery.Get("SeriesId"), "must not send unknown SeriesId query")
+	assert.Equal(t, "true", gotQuery.Get("Recursive"))
+}
+
+func TestBrowseDropsUnrelatedAndBlankSeriesIDWhenServerIgnoresParent(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.URL.Query().Get("SeriesId"))
+		assert.Equal(t, "series-lp", r.URL.Query().Get("ParentId"))
+		// Simulate Jellyfin 10.11 ignoring an unknown SeriesId and returning the
+		// whole library even when ParentId was set.
+		_, _ = w.Write([]byte(`{
+			"Items": [
+				{"Id":"ours","Name":"Ours","Type":"Episode","SeriesId":"series-lp","IndexNumber":1,"ParentIndexNumber":1},
+				{"Id":"foreign","Name":"Babylon 5","Type":"Episode","SeriesId":"series-b5","IndexNumber":1,"ParentIndexNumber":1},
+				{"Id":"blank","Name":"Orphan","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1}
+			]
+		}`))
+	}))
+
+	items, err := client.Browse(context.Background(), jellyfin.BrowseParams{
+		SeriesID:         "series-lp",
+		IncludeItemTypes: "Episode",
+	})
+	require.NoError(t, err)
+	require.Len(t, items, 1, "foreign and blank SeriesId rows must be dropped")
+	assert.Equal(t, "ours", items[0].ID)
+}
+
 func TestBrowseOmitsEmptyParams(t *testing.T) {
 	t.Parallel()
 	var gotQuery url.Values
@@ -500,6 +547,22 @@ func TestProviderMatch(t *testing.T) {
 	assert.False(t, jellyfin.ProviderMatch(it, "Tvdb=1"))
 	assert.True(t, jellyfin.ProviderMatch(it, "603"), "bare value matches any key")
 	assert.False(t, jellyfin.ProviderMatch(jellyfin.Item{}, "Tmdb=603"))
+}
+
+func TestFakeBrowseBlankSeriesIDDoesNotMatch(t *testing.T) {
+	t.Parallel()
+	fake := jellyfin.NewFake(
+		jellyfin.Item{ID: "ours", Name: "Ours", Type: "Episode", SeriesID: "series-lp"},
+		jellyfin.Item{ID: "blank", Name: "Orphan", Type: "Episode"},
+		jellyfin.Item{ID: "foreign", Name: "Other", Type: "Episode", SeriesID: "series-b5"},
+	)
+	items, err := fake.Browse(context.Background(), jellyfin.BrowseParams{
+		SeriesID:         "series-lp",
+		IncludeItemTypes: "Episode",
+	})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "ours", items[0].ID)
 }
 
 func TestFakeBrowseProviderPathAndAdmin(t *testing.T) {

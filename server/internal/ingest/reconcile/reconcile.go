@@ -1133,7 +1133,8 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 // findJellyfinItems locates Jellyfin library entries for a manifest item.
 // Matching is exact and client-verified:
 //   - movies: only items whose ProviderIds.Tmdb equals the manifest TMDB id
-//   - series: find the Series row by TVDB/TMDB, then list its episodes by SeriesId
+//   - series: find the Series row by TVDB/TMDB, then list episodes under ParentId=seriesID
+//     (Jellyfin 10.11 /Items has no seriesId query). Hits are re-checked for exact SeriesID;
 //   - youtube: path prefix Shows/<manifest-id>/
 //
 // Jellyfin's AnyProviderIdEquals query is treated as a hint only; every hit is
@@ -1170,6 +1171,8 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 			return nil, nil
 		}
 		// Episodes of this series only — never a library-wide provider scan.
+		// BrowseParams.SeriesID is ParentId+Recursive on the wire; we still
+		// drop any row whose SeriesID is blank or not exactly series.ID.
 		eps, err := e.browseAll(ctx, jellyfin.BrowseParams{
 			SeriesID:         series.ID,
 			IncludeItemTypes: "Episode",
@@ -1178,7 +1181,7 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 		if err != nil {
 			return nil, err
 		}
-		return eps, nil
+		return filterBySeriesID(eps, series.ID), nil
 
 	case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
 		// Path-only match. Do not pass SearchTerm: yt-dlp episode titles rarely
@@ -1308,6 +1311,21 @@ func filterByProvider(items []jellyfin.Item, expr string) []jellyfin.Item {
 	out := make([]jellyfin.Item, 0, len(items))
 	for _, it := range items {
 		if jellyfin.ProviderMatch(it, expr) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// filterBySeriesID keeps only items whose SeriesID exactly equals seriesID.
+// Blank SeriesID never matches.
+func filterBySeriesID(items []jellyfin.Item, seriesID string) []jellyfin.Item {
+	if seriesID == "" {
+		return nil
+	}
+	out := make([]jellyfin.Item, 0, len(items))
+	for _, it := range items {
+		if it.SeriesID == seriesID {
 			out = append(out, it)
 		}
 	}

@@ -61,7 +61,9 @@ func (i Item) RuntimeSeconds() int { return int(i.Runtime.Seconds()) }
 type BrowseParams struct {
 	// ParentID restricts results to one library folder or collection.
 	ParentID string
-	// SeriesID restricts results to episodes of one series.
+	// SeriesID restricts results to descendants of one series. Jellyfin 10.11
+	// /Items has no seriesId query; this is sent as ParentId + Recursive=true
+	// and then re-checked client-side against Item.SeriesID (blank does not match).
 	SeriesID string
 	// SearchTerm filters by title.
 	SearchTerm string
@@ -297,11 +299,14 @@ func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, erro
 		fields = append(fields, "Path")
 	}
 	q.Set("Fields", strings.Join(fields, ","))
-	if p.ParentID != "" {
-		q.Set("ParentId", p.ParentID)
+	parentID := p.ParentID
+	if parentID == "" && p.SeriesID != "" {
+		// 10.11 /Items has no seriesId parameter. ParentId + Recursive is the
+		// supported series-scoped listing; SeriesId is never sent as a query.
+		parentID = p.SeriesID
 	}
-	if p.SeriesID != "" {
-		q.Set("SeriesId", p.SeriesID)
+	if parentID != "" {
+		q.Set("ParentId", parentID)
 	}
 	if p.SearchTerm != "" {
 		q.Set("SearchTerm", p.SearchTerm)
@@ -338,6 +343,10 @@ func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, erro
 			// never accept an item that does not actually carry the id.
 			continue
 		}
+		if p.SeriesID != "" && !seriesMatch(it, p.SeriesID) {
+			// Fail closed if the server ignored ParentId or omitted SeriesId.
+			continue
+		}
 		items = append(items, it)
 	}
 	total := resp.TotalRecordCount
@@ -345,6 +354,15 @@ func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, erro
 		total = len(raw)
 	}
 	return Page{Items: items, TotalRecordCount: total, RawPageLen: len(raw)}, nil
+}
+
+// seriesMatch reports whether an item belongs to seriesID. Blank Item.SeriesID
+// never matches: a server that omits SeriesId cannot bypass the filter.
+func seriesMatch(it Item, seriesID string) bool {
+	if seriesID == "" || it.SeriesID == "" {
+		return false
+	}
+	return it.SeriesID == seriesID
 }
 
 // ProviderMatch checks the "Key=Value|…" form against an item's ProviderIds.
