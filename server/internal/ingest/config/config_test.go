@@ -17,6 +17,7 @@ func TestLoadDefaults(t *testing.T) {
 		"INGEST_MANIFEST_PATH", "INGEST_REVIEW_PATH", "INGEST_REPORT_DIR",
 		"INGEST_RADARR_BASE_URL", "INGEST_SONARR_BASE_URL",
 		"INGEST_JELLYFIN_BASE_URL", "INGEST_TV_BASE_URL",
+		"INGEST_JELLYFIN_COLLECTION_NAME",
 		"INGEST_RADARR_TAG", "INGEST_SONARR_TAG", "INGEST_YTDLP_PATH",
 		"INGEST_HTTP_TIMEOUT",
 		"INGEST_YTDLP_COOKIES_PATH", "INGEST_YTDLP_ARCHIVE_DIR",
@@ -32,6 +33,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "curriculum/content-review.yaml", cfg.ReviewPath)
 	assert.Equal(t, "primer", cfg.RadarrTag)
 	assert.Equal(t, "primer", cfg.SonarrTag)
+	assert.Equal(t, "Primer", cfg.JellyfinCollectionName)
 	assert.Equal(t, "yt-dlp", cfg.YtDlpPath)
 	assert.Equal(t, 30*time.Second, cfg.HTTPTimeout)
 	// New YouTube auth/runtime defaults (do not assume cookies file exists).
@@ -54,6 +56,15 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, "http://radarr.test", cfg.RadarrBaseURL)
 	assert.Equal(t, 7, cfg.RadarrQualityProfileID)
 	assert.Equal(t, 5*time.Second, cfg.HTTPTimeout)
+}
+
+func TestLoadEmptyJellyfinCollectionNameDisables(t *testing.T) {
+	// Intentionally empty (not unset) disables the collection stage.
+	t.Setenv("INGEST_JELLYFIN_COLLECTION_NAME", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "", cfg.JellyfinCollectionName)
 }
 
 func TestLoadYtDlpCookieAndRuntimeOverrides(t *testing.T) {

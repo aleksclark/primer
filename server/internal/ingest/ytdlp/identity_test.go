@@ -21,6 +21,14 @@ func TestPathMatches_Boundary(t *testing.T) {
 	assert.False(t, ytdlp.PathMatches("/media/tv/Primer/Shows/paul-sellers-backup", slug))
 }
 
+func TestIsStagingPath(t *testing.T) {
+	t.Parallel()
+	assert.True(t, ytdlp.IsStagingPath("/media/tv/Primer/Shows/slug/Season 01/_staging/slug - Title [dQw4w9wgxcQ].mkv"))
+	assert.True(t, ytdlp.IsStagingPath("Shows/slug/Season 01/_staging"))
+	assert.False(t, ytdlp.IsStagingPath("/media/tv/Primer/Shows/slug/Season 01/slug - S01E001 - Title [dQw4w9wgxcQ].mkv"))
+	assert.False(t, ytdlp.IsStagingPath("/media/tv/Primer/Shows/slug-staging/Season 01/x.mkv"))
+}
+
 func TestParseYouTubeID(t *testing.T) {
 	t.Parallel()
 	id, ok := ytdlp.ParseYouTubeID("essential-craftsman - S01E007 - Fire as a Tool [dQw4w9wgxcQ].mkv")

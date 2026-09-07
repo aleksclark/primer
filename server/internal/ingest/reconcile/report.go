@@ -32,6 +32,12 @@ type Report struct {
 	SkippedExcluded   []string
 	NotInJellyfin     []string
 
+	// Named Jellyfin Collection (BoxSet) membership after import.
+	Collection        string
+	CollectionCreated bool
+	CollectionAdded   []string
+	CollectionAlready int
+
 	// Manifest catalog tracking (TV server content_manifest_entries).
 	ManifestSynced   string
 	AttemptsRecorded []string
@@ -71,7 +77,8 @@ func (r *Report) Markdown() string {
 	fmt.Fprintf(&b, "## Sync\n\n")
 	fmt.Fprintf(&b, "- TV content-manifest catalog: %s\n", dash(r.ManifestSynced))
 	fmt.Fprintf(&b, "- Jellyfin library refresh: %s\n", yn(r.JellyfinRefreshed))
-	fmt.Fprintf(&b, "- TV server metadata sync: %s\n\n", yn(r.TVSynced))
+	fmt.Fprintf(&b, "- TV server metadata sync: %s\n", yn(r.TVSynced))
+	fmt.Fprintf(&b, "- Jellyfin collection: %s\n\n", dash(r.Collection))
 
 	section(&b, "Acquisition attempts recorded", r.AttemptsRecorded)
 	section(&b, "Marked present in TV catalog", r.MarkedPresent)
@@ -79,6 +86,7 @@ func (r *Report) Markdown() string {
 	section(&b, "Updated classification", r.Updated)
 	section(&b, "Skipped (excluded episodes)", r.SkippedExcluded)
 	section(&b, "Not yet in Jellyfin", r.NotInJellyfin)
+	section(&b, "Added to Jellyfin collection", r.CollectionAdded)
 
 	if len(r.Errors) > 0 {
 		section(&b, "Errors", r.Errors)
@@ -92,6 +100,7 @@ func (r *Report) Markdown() string {
 	fmt.Fprintf(&b, "| Awaiting download | %d |\n", len(r.AwaitingDownload))
 	fmt.Fprintf(&b, "| Marked present | %d |\n", len(r.MarkedPresent))
 	fmt.Fprintf(&b, "| Imported | %d |\n", len(r.Imported))
+	fmt.Fprintf(&b, "| Collection added | %d |\n", len(r.CollectionAdded))
 	fmt.Fprintf(&b, "| Updated | %d |\n", len(r.Updated))
 	fmt.Fprintf(&b, "| Manual rip queue | %d |\n", len(r.ManualQueue))
 	fmt.Fprintf(&b, "| Failed (human) | %d |\n", len(r.FailedQueue))

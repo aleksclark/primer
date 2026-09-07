@@ -5,6 +5,7 @@
 package jellyfin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -61,7 +62,9 @@ func (i Item) RuntimeSeconds() int { return int(i.Runtime.Seconds()) }
 type BrowseParams struct {
 	// ParentID restricts results to one library folder or collection.
 	ParentID string
-	// SeriesID restricts results to episodes of one series.
+	// SeriesID restricts results to descendants of one series. Jellyfin 10.11
+	// /Items has no seriesId query; this is sent as ParentId + Recursive=true
+	// and then re-checked client-side against Item.SeriesID (blank does not match).
 	SeriesID string
 	// SearchTerm filters by title.
 	SearchTerm string
@@ -106,6 +109,11 @@ type Client interface {
 	BrowsePage(ctx context.Context, p BrowseParams) (Page, error)
 	// Item fetches metadata for a single item.
 	Item(ctx context.Context, id string) (*Item, error)
+	// ItemsByID fetches metadata for many items in one /Items?Ids= request.
+	// The returned map contains only requested IDs that Jellyfin had; missing
+	// IDs are omitted (callers treat them as not found). Extra/foreign IDs in
+	// the response are an error so sync cannot silently orphan valid rows.
+	ItemsByID(ctx context.Context, ids []string) (map[string]Item, error)
 	// StreamURL builds a direct-play URL for an item.
 	StreamURL(itemID string) string
 	// ImageURL builds an artwork URL for an item.
@@ -115,11 +123,25 @@ type Client interface {
 	FetchImage(ctx context.Context, itemID, imageType, tag string) (data []byte, contentType string, err error)
 }
 
+// CollectionAdmin extends LibraryAdmin with named Collection create/add used by content-ingest.
+// Collections are BoxSet items, not a separate Library / virtual folder.
+type CollectionAdmin interface {
+	LibraryAdmin
+	// CreateCollection POSTs /Collections?name=… and returns the new BoxSet id.
+	CreateCollection(ctx context.Context, name string, ids []string) (string, error)
+	// AddToCollection POSTs /Collections/{id}/Items?ids=… (additive; existing members stay).
+	AddToCollection(ctx context.Context, collectionID string, ids []string) error
+}
+
 // LibraryAdmin extends Client with library-scan operations used by content-ingest.
 type LibraryAdmin interface {
 	Client
 	// RefreshLibrary triggers a full library scan.
 	RefreshLibrary(ctx context.Context) error
+	// RefreshLocalMetadata unlocks one item and queues a local-metadata reread.
+	// content-ingest uses this when Jellyfin imports a YouTube file with a
+	// filename-derived title before reading the authored NFO.
+	RefreshLocalMetadata(ctx context.Context, id string) error
 	// ScanRunning reports whether a library scan is in progress.
 	ScanRunning(ctx context.Context) (bool, error)
 }
@@ -145,6 +167,8 @@ type HTTPClient struct {
 }
 
 var _ Client = (*HTTPClient)(nil)
+var _ LibraryAdmin = (*HTTPClient)(nil)
+var _ CollectionAdmin = (*HTTPClient)(nil)
 
 // New builds a Jellyfin client. The base URL's trailing slash is optional.
 func New(opts Options) (*HTTPClient, error) {
@@ -285,11 +309,14 @@ func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, erro
 		fields = append(fields, "Path")
 	}
 	q.Set("Fields", strings.Join(fields, ","))
-	if p.ParentID != "" {
-		q.Set("ParentId", p.ParentID)
+	parentID := p.ParentID
+	if parentID == "" && p.SeriesID != "" {
+		// 10.11 /Items has no seriesId parameter. ParentId + Recursive is the
+		// supported series-scoped listing; SeriesId is never sent as a query.
+		parentID = p.SeriesID
 	}
-	if p.SeriesID != "" {
-		q.Set("SeriesId", p.SeriesID)
+	if parentID != "" {
+		q.Set("ParentId", parentID)
 	}
 	if p.SearchTerm != "" {
 		q.Set("SearchTerm", p.SearchTerm)
@@ -326,6 +353,10 @@ func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, erro
 			// never accept an item that does not actually carry the id.
 			continue
 		}
+		if p.SeriesID != "" && !seriesMatch(it, p.SeriesID) {
+			// Fail closed if the server ignored ParentId or omitted SeriesId.
+			continue
+		}
 		items = append(items, it)
 	}
 	total := resp.TotalRecordCount
@@ -333,6 +364,15 @@ func (c *HTTPClient) BrowsePage(ctx context.Context, p BrowseParams) (Page, erro
 		total = len(raw)
 	}
 	return Page{Items: items, TotalRecordCount: total, RawPageLen: len(raw)}, nil
+}
+
+// seriesMatch reports whether an item belongs to seriesID. Blank Item.SeriesID
+// never matches: a server that omits SeriesId cannot bypass the filter.
+func seriesMatch(it Item, seriesID string) bool {
+	if seriesID == "" || it.SeriesID == "" {
+		return false
+	}
+	return it.SeriesID == seriesID
 }
 
 // ProviderMatch checks the "Key=Value|…" form against an item's ProviderIds.
@@ -367,6 +407,103 @@ func (c *HTTPClient) RefreshLibrary(ctx context.Context) error {
 	return c.post(ctx, "/Library/Refresh", nil, nil)
 }
 
+// RefreshLocalMetadata unlocks one item and queues a full local-metadata reread.
+func (c *HTTPClient) RefreshLocalMetadata(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("jellyfin: item id is required")
+	}
+	getPath := "/Items/" + url.PathEscape(id)
+	if c.userID != "" {
+		getPath = "/Users/" + url.PathEscape(c.userID) + "/Items/" + url.PathEscape(id)
+	}
+	var dto map[string]any
+	if err := c.get(ctx, getPath, nil, &dto); err != nil {
+		return fmt.Errorf("jellyfin: read item %s: %w", id, err)
+	}
+	dto["LockData"] = false
+	itemPath := "/Items/" + url.PathEscape(id)
+	if err := c.postJSON(ctx, itemPath, nil, dto, nil); err != nil {
+		return fmt.Errorf("jellyfin: unlock item %s: %w", id, err)
+	}
+	q := url.Values{}
+	q.Set("metadataRefreshMode", "FullRefresh")
+	q.Set("imageRefreshMode", "None")
+	q.Set("replaceAllMetadata", "true")
+	q.Set("replaceAllImages", "false")
+	if err := c.post(ctx, itemPath+"/Refresh", q, nil); err != nil {
+		return fmt.Errorf("jellyfin: refresh item %s: %w", id, err)
+	}
+	return nil
+}
+
+// CreateCollection POSTs /Collections with the collection name as a query param.
+// ids, when non-empty, are seeded on create (Jellyfin accepts a comma-delimited ids query).
+func (c *HTTPClient) CreateCollection(ctx context.Context, name string, ids []string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("jellyfin: collection name is required")
+	}
+	q := url.Values{}
+	q.Set("name", name)
+	q.Set("isLocked", "true") // prevent external metadata from renaming our grouping
+	if cleaned := uniqueIDs(ids); len(cleaned) > 0 {
+		q.Set("ids", strings.Join(cleaned, ","))
+	}
+	var out struct {
+		ID string `json:"Id"`
+	}
+	if err := c.post(ctx, "/Collections", q, &out); err != nil {
+		return "", err
+	}
+	if out.ID == "" {
+		return "", errors.New("jellyfin: create collection: empty id")
+	}
+	return out.ID, nil
+}
+
+// AddToCollection POSTs /Collections/{id}/Items. Empty ids is a no-op.
+func (c *HTTPClient) AddToCollection(ctx context.Context, collectionID string, ids []string) error {
+	collectionID = strings.TrimSpace(collectionID)
+	if collectionID == "" {
+		return errors.New("jellyfin: collection id is required")
+	}
+	cleaned := uniqueIDs(ids)
+	if len(cleaned) == 0 {
+		return nil
+	}
+	// IDs are query parameters in Jellyfin's public API. Bound each URI to
+	// comfortably fit proxy request-line limits, even for thousands of videos.
+	// On partial failure, a replay re-lists durable members before adding more.
+	const batchSize = 100
+	for start := 0; start < len(cleaned); start += batchSize {
+		end := min(start+batchSize, len(cleaned))
+		q := url.Values{}
+		q.Set("ids", strings.Join(cleaned[start:end], ","))
+		if err := c.post(ctx, "/Collections/"+url.PathEscape(collectionID)+"/Items", q, nil); err != nil {
+			return fmt.Errorf("collection batch %d: %w", start/batchSize+1, err)
+		}
+	}
+	return nil
+}
+
+func uniqueIDs(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 // ScanRunning reports whether any scheduled task named like a library scan is running.
 func (c *HTTPClient) ScanRunning(ctx context.Context) (bool, error) {
 	var tasks []struct {
@@ -381,8 +518,9 @@ func (c *HTTPClient) ScanRunning(ctx context.Context) (bool, error) {
 		if !strings.EqualFold(t.State, "Running") {
 			continue
 		}
-		name := strings.ToLower(t.Name + " " + t.Key)
-		if strings.Contains(name, "scan") || strings.Contains(name, "library") || strings.Contains(name, "refresh") {
+		// Media-segment/trickplay scans can run for hours; only the actual
+		// library refresh task establishes import visibility.
+		if strings.EqualFold(t.Key, "RefreshLibrary") || (t.Key == "" && strings.EqualFold(t.Name, "Scan Media Library")) {
 			return true, nil
 		}
 	}
@@ -391,13 +529,33 @@ func (c *HTTPClient) ScanRunning(ctx context.Context) (bool, error) {
 
 // Item fetches metadata for a single item.
 func (c *HTTPClient) Item(ctx context.Context, id string) (*Item, error) {
-	if id == "" {
+	got, err := c.ItemsByID(ctx, []string{id})
+	if err != nil {
+		return nil, err
+	}
+	item, ok := got[id]
+	if !ok {
 		return nil, ErrNotFound
 	}
+	return &item, nil
+}
+
+// ItemsByID fetches metadata for many items in one GET /Items?Ids=id1,id2 request.
+// Limit is the requested id count so Jellyfin cannot silently truncate the page.
+// Extra IDs in the response (foreign/unrequested) are an error.
+func (c *HTTPClient) ItemsByID(ctx context.Context, ids []string) (map[string]Item, error) {
+	wanted := uniqueIDs(ids)
+	if len(wanted) == 0 {
+		return map[string]Item{}, nil
+	}
+	want := make(map[string]struct{}, len(wanted))
+	for _, id := range wanted {
+		want[id] = struct{}{}
+	}
 	q := url.Values{}
-	q.Set("Ids", id)
-	q.Set("Recursive", "true")
-	q.Set("Fields", "Overview,MediaStreams,SortName,Container")
+	q.Set("Ids", strings.Join(wanted, ","))
+	q.Set("Limit", strconv.Itoa(len(wanted)))
+	q.Set("Fields", "Overview,MediaStreams,SortName,Container,ProviderIds,Path")
 	if c.userID != "" {
 		q.Set("UserId", c.userID)
 	}
@@ -406,11 +564,24 @@ func (c *HTTPClient) Item(ctx context.Context, id string) (*Item, error) {
 	if err := c.get(ctx, "/Items", q, &resp); err != nil {
 		return nil, err
 	}
-	if len(resp.Items) == 0 {
-		return nil, ErrNotFound
+	if resp.TotalRecordCount > 0 && resp.TotalRecordCount != len(resp.Items) {
+		return nil, fmt.Errorf("jellyfin: incomplete batch response: got %d of %d items", len(resp.Items), resp.TotalRecordCount)
 	}
-	item := resp.Items[0].toItem()
-	return &item, nil
+	out := make(map[string]Item, len(resp.Items))
+	for _, d := range resp.Items {
+		it := d.toItem()
+		if it.ID == "" {
+			return nil, fmt.Errorf("jellyfin: batch response item has no id")
+		}
+		if _, duplicate := out[it.ID]; duplicate {
+			return nil, fmt.Errorf("jellyfin: batch response repeats id %s", it.ID)
+		}
+		if _, ok := want[it.ID]; !ok {
+			return nil, fmt.Errorf("jellyfin: items response included unrequested id %s", it.ID)
+		}
+		out[it.ID] = it
+	}
+	return out, nil
 }
 
 // StreamURL builds a direct-play URL. Transcoding is explicitly disabled: the
@@ -481,19 +652,34 @@ func (c *HTTPClient) get(ctx context.Context, path string, query url.Values, out
 }
 
 func (c *HTTPClient) post(ctx context.Context, path string, query url.Values, out any) error {
-	return c.do(ctx, http.MethodPost, path, query, out)
+	return c.doWithBody(ctx, http.MethodPost, path, query, nil, "", out)
+}
+
+func (c *HTTPClient) postJSON(ctx context.Context, path string, query url.Values, body any, out any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("jellyfin: encode %s: %w", path, err)
+	}
+	return c.doWithBody(ctx, http.MethodPost, path, query, bytes.NewReader(payload), "application/json", out)
 }
 
 func (c *HTTPClient) do(ctx context.Context, method, path string, query url.Values, out any) error {
+	return c.doWithBody(ctx, method, path, query, nil, "", out)
+}
+
+func (c *HTTPClient) doWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string, out any) error {
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return fmt.Errorf("jellyfin: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	c.authorize(req)
 
 	resp, err := c.http.Do(req)

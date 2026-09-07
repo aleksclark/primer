@@ -46,16 +46,21 @@ type Deps struct {
 	// YtDlpOutputDir / YtDlpArchivePath / YtDlpBinary configure downloads.
 	// YtDlpArchivePath is deprecated unused for new downloads; acquire uses
 	// PerShowArchivePath. Cookies/JSRuntime are wired onto DownloadOpts.
-	YtDlpOutputDir   string
-	YtDlpArchivePath string
-	YtDlpArchiveDir  string
-	YtDlpBinary      string
-	YtDlpCookiesPath string
-	YtDlpJSRuntime   string
+	YtDlpOutputDir    string
+	YtDlpArchivePath  string
+	YtDlpArchiveDir   string
+	YtDlpBinary       string
+	YtDlpCookiesPath  string
+	YtDlpJSRuntime    string
+	YtDlpMaxDownloads int
 
 	// SyncWait / SyncPollInterval control Jellyfin scan waiting.
 	SyncWait         time.Duration
 	SyncPollInterval time.Duration
+
+	// JellyfinCollectionName is the exact BoxSet Collection to ensure after import.
+	// Empty disables the collection stage (operator-intentional disable).
+	JellyfinCollectionName string
 
 	// ManifestPath / ReviewPath are rewritten when resolve fills provider IDs.
 	ManifestPath string
@@ -159,6 +164,11 @@ func (e *Engine) Run(ctx context.Context, m *manifest.Manifest, review *manifest
 		if err := e.importItems(ctx, m, rep, opts); err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("import: %v", err))
 		}
+	}
+	// Named Collection membership after import: only successfully imported /
+	// currently eligible Jellyfin IDs. Plan mode is non-mutating.
+	if err := e.ensureCollection(ctx, m, rep, opts); err != nil {
+		rep.Errors = append(rep.Errors, fmt.Sprintf("collection: %v", err))
 	}
 	if !opts.SkipSync && !opts.DryRun {
 		if err := e.syncTV(ctx, rep); err != nil {
@@ -570,6 +580,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				Binary:             e.deps.YtDlpBinary,
 				CookiesPath:        e.deps.YtDlpCookiesPath,
 				JSRuntime:          e.deps.YtDlpJSRuntime,
+				MaxDownloads:       e.deps.YtDlpMaxDownloads,
 				MinDurationSeconds: manifest.EffectiveMinDuration(it.Filters),
 				ExcludeShorts:      &excludeShorts,
 				ExcludeLive:        &excludeLive,
@@ -577,10 +588,9 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				ShowTitle:          it.Title,
 			}
 			if err := e.deps.YtDlp.Download(ctx, dlOpts); err != nil {
-				if leftoverExit1Complete(e.deps.YtDlpOutputDir, it.ID, dlOpts.ArchivePath, err) {
-					rep.AcquiredYouTube = append(rep.AcquiredYouTube, fmt.Sprintf("%s (archive complete; leftover exit 1 ignored)", it.ID))
-					continue
-				}
+				// Keep the error in the report even when older files already exist.
+				// ExecRunner still finalizes completed valid bundles; import/collection
+				// then proceed for those successful files.
 				rep.Errors = append(rep.Errors, fmt.Sprintf("%s yt-dlp: %v", it.ID, err))
 				e.recordAttempt(ctx, it.ID, err.Error(), rep, opts)
 				continue
@@ -669,24 +679,23 @@ func (e *Engine) refreshJellyfin(ctx context.Context, rep *Report) error {
 	if err := e.deps.Jellyfin.RefreshLibrary(ctx); err != nil {
 		return fmt.Errorf("jellyfin refresh: %w", err)
 	}
-	deadline := time.Now().Add(e.deps.SyncWait)
-	for time.Now().Before(deadline) {
-		running, err := e.deps.Jellyfin.ScanRunning(ctx)
+	scanCtx, cancel := context.WithTimeout(ctx, e.deps.SyncWait)
+	defer cancel()
+	for {
+		running, err := e.deps.Jellyfin.ScanRunning(scanCtx)
 		if err != nil {
-			e.log.Warn("scan status check failed", "error", err)
-			break
+			return fmt.Errorf("jellyfin scan status: %w", err)
 		}
 		if !running {
-			break
+			rep.JellyfinRefreshed = true
+			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-scanCtx.Done():
+			return fmt.Errorf("jellyfin scan did not finish within %s: %w", e.deps.SyncWait, scanCtx.Err())
 		case <-time.After(e.deps.SyncPollInterval):
 		}
 	}
-	rep.JellyfinRefreshed = true
-	return nil
 }
 
 // syncTV runs POST /jellyfin/sync after import so constructed titles exist first.
@@ -701,38 +710,193 @@ func (e *Engine) syncTV(ctx context.Context, rep *Report) error {
 	return nil
 }
 
-// leftoverExit1Complete reports leftover yt-dlp exit 1 after a complete
-// per-show archive and at least one final playable file. That is not a new fail.
-func leftoverExit1Complete(outputDir, slug, archive string, err error) bool {
-	if err == nil || outputDir == "" || slug == "" {
-		return false
+// ensureCollection creates or locates the named BoxSet Collection and adds only
+// currently eligible imported Jellyfin IDs. Existing unrelated members stay.
+// Exact name match only; BoxSet pages and members are paged. Empty name disables.
+func (e *Engine) ensureCollection(ctx context.Context, m *manifest.Manifest, rep *Report, opts Options) error {
+	name := strings.TrimSpace(e.deps.JellyfinCollectionName)
+	if name == "" {
+		return nil
 	}
-	msg := strings.ToLower(err.Error())
-	if !strings.Contains(msg, "exit status 1") && !strings.Contains(msg, "exit code 1") {
-		return false
+	if e.deps.Jellyfin == nil {
+		return nil
 	}
-	st, statErr := os.Stat(archive)
-	if statErr != nil || st.Size() == 0 {
-		return false
+	desired, err := e.eligibleCollectionIDs(ctx, m, rep, opts.DryRun)
+	if err != nil {
+		return err
 	}
-	season := filepath.Join(ytdlp.ShowDir(outputDir, slug), "Season 01")
-	entries, readErr := os.ReadDir(season)
-	if readErr != nil {
-		return false
+	coll, err := e.findNamedCollection(ctx, name)
+	if err != nil {
+		return err
 	}
-	for _, ent := range entries {
-		if ent.IsDir() {
+	if opts.DryRun {
+		switch {
+		case coll == nil && len(desired) == 0:
+			rep.Collection = fmt.Sprintf("would ensure collection %q (no eligible items yet)", name)
+		case coll == nil:
+			rep.Collection = fmt.Sprintf("would create collection %q and add %d item(s)", name, len(desired))
+		default:
+			missing, _, err := e.collectionAdds(ctx, coll.ID, desired)
+			if err != nil {
+				return err
+			}
+			if len(missing) == 0 {
+				rep.Collection = fmt.Sprintf("collection %q already holds %d eligible item(s)", name, len(desired))
+			} else {
+				rep.Collection = fmt.Sprintf("would add %d item(s) to collection %q", len(missing), name)
+			}
+		}
+		return nil
+	}
+	admin, ok := e.deps.Jellyfin.(jellyfin.CollectionAdmin)
+	if !ok {
+		return fmt.Errorf("jellyfin client does not support collections")
+	}
+	if coll == nil {
+		id, err := admin.CreateCollection(ctx, name, nil)
+		if err != nil {
+			return fmt.Errorf("create collection %q: %w", name, err)
+		}
+		coll = &jellyfin.Item{ID: id, Name: name, Type: "BoxSet"}
+		rep.CollectionCreated = true
+	}
+	missing, already, err := e.collectionAdds(ctx, coll.ID, desired)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		if err := admin.AddToCollection(ctx, coll.ID, missing); err != nil {
+			return fmt.Errorf("add to collection %q: %w", name, err)
+		}
+	}
+	rep.CollectionAdded = append(rep.CollectionAdded, missing...)
+	rep.CollectionAlready = already
+	rep.Collection = fmt.Sprintf("%s id=%s added=%d already=%d", name, coll.ID, len(missing), already)
+	return nil
+}
+
+func (e *Engine) findNamedCollection(ctx context.Context, name string) (*jellyfin.Item, error) {
+	hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
+		IncludeItemTypes: "BoxSet",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list collections: %w", err)
+	}
+	var matches []jellyfin.Item
+	for _, it := range hits {
+		if it.Name == name {
+			matches = append(matches, it)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &matches[0], nil
+	default:
+		ids := make([]string, 0, len(matches))
+		for _, it := range matches {
+			ids = append(ids, it.ID)
+		}
+		return nil, fmt.Errorf("ambiguous collection name %q: %s", name, strings.Join(ids, ", "))
+	}
+}
+
+func (e *Engine) collectionAdds(ctx context.Context, collectionID string, desired []string) (missing []string, already int, err error) {
+	members, err := e.browseAll(ctx, jellyfin.BrowseParams{
+		ParentID:    collectionID,
+		IncludePath: true, // large collections use the 100k paging ceiling
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list collection members: %w", err)
+	}
+	have := make(map[string]struct{}, len(members))
+	for _, it := range members {
+		have[it.ID] = struct{}{}
+	}
+	for _, id := range desired {
+		if _, ok := have[id]; ok {
+			already++
 			continue
 		}
-		name := strings.ToLower(ent.Name())
-		if strings.HasSuffix(name, ".part") {
+		missing = append(missing, id)
+	}
+	return missing, already, nil
+}
+
+// eligibleCollectionIDs returns playable Jellyfin IDs that import would accept
+// this run: exclusions and caps apply; series parents and excluded episodes do not.
+func (e *Engine) eligibleCollectionIDs(ctx context.Context, m *manifest.Manifest, rep *Report, dryRun bool) ([]string, error) {
+	// A Jellyfin hit alone is not successful TV import. Re-read durable TV
+	// state after import, and never publish an unimported/failed item to the
+	// Collection. Plan mode describes prospective imports without writing.
+	var importedByJF map[string]tvclient.MediaItem
+	if !dryRun {
+		if e.deps.TV == nil {
+			return nil, fmt.Errorf("TV client is required for collection membership")
+		}
+		items, err := e.deps.TV.ListMediaItems(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read imported collection candidates: %w", err)
+		}
+		importedByJF = tvclient.ByJellyfinID(items)
+	}
+	out := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, it := range m.SortedByPriority() {
+		jfItems, err := e.findJellyfinItems(ctx, it)
+		if err != nil {
+			rep.Errors = append(rep.Errors, fmt.Sprintf("%s collection lookup: %v", it.ID, err))
 			continue
 		}
-		if strings.HasSuffix(name, ".mkv") || strings.HasSuffix(name, ".mp4") {
-			return true
+		youtube := it.Kind == manifest.KindYouTubeChannel || it.Kind == manifest.KindYouTubePlaylist
+		imported := 0
+		for _, jf := range jfItems {
+			if jf.ID == "" {
+				continue
+			}
+			if !dryRun {
+				if _, ok := importedByJF[jf.ID]; !ok {
+					continue
+				}
+			}
+			if youtube {
+				if !youtubeImportable(jf, it) {
+					continue
+				}
+				youtubeID, episodeKey, _ := youtubeIdentity(jf)
+				if manifest.ExcludedVideo(it, youtubeID, episodeKey) {
+					continue
+				}
+				if it.CapsImports() && imported >= it.ImportLimit() {
+					continue
+				}
+				imported++
+			} else {
+				switch jf.Type {
+				case "Movie", "Episode", "Video":
+				default:
+					continue
+				}
+				if jf.Type == "Episode" {
+					key := jf.EpisodeKey()
+					if key != "" && it.Excluded(key) {
+						continue
+					}
+					if it.MaxEpisodes > 0 && imported >= it.MaxEpisodes {
+						continue
+					}
+					imported++
+				}
+			}
+			if _, ok := seen[jf.ID]; ok {
+				continue
+			}
+			seen[jf.ID] = struct{}{}
+			out = append(out, jf.ID)
 		}
 	}
-	return false
+	return out, nil
 }
 
 // importItems matches Jellyfin items to the manifest and upserts TV media_items.
@@ -775,7 +939,7 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 		if youtube {
 			playable := make([]jellyfin.Item, 0, len(jfItems))
 			for _, jf := range jfItems {
-				if youtubeImportable(jf) {
+				if youtubeImportable(jf, it) {
 					playable = append(playable, jf)
 				}
 			}
@@ -827,6 +991,16 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 				if it.MaxEpisodes > 0 && imported >= it.MaxEpisodes {
 					continue
 				}
+			}
+
+			if youtube && !opts.DryRun && !opts.SkipSync {
+				fresh, err := e.refreshYouTubeLocalMetadata(ctx, jf, it.ID)
+				if err != nil {
+					rep.Errors = append(rep.Errors, fmt.Sprintf("%s refresh metadata %s: %v", it.ID, jf.ID, err))
+					continue
+				}
+				jf = fresh
+				youtubeID, episodeKey, uploadDate = youtubeIdentity(jf)
 			}
 
 			class := it.Class
@@ -904,7 +1078,7 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 						upd.EpisodeKey = &k
 						changed = true
 					}
-					if uploadDate != "" && existingItem.UploadDate != uploadDate {
+					if uploadDate != "" && calendarDate(existingItem.UploadDate) != uploadDate {
 						d := uploadDate
 						upd.UploadDate = &d
 						changed = true
@@ -991,7 +1165,8 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 // findJellyfinItems locates Jellyfin library entries for a manifest item.
 // Matching is exact and client-verified:
 //   - movies: only items whose ProviderIds.Tmdb equals the manifest TMDB id
-//   - series: find the Series row by TVDB/TMDB, then list its episodes by SeriesId
+//   - series: find the Series row by TVDB/TMDB, then list episodes under ParentId=seriesID
+//     (Jellyfin 10.11 /Items has no seriesId query). Hits are re-checked for exact SeriesID;
 //   - youtube: path prefix Shows/<manifest-id>/
 //
 // Jellyfin's AnyProviderIdEquals query is treated as a hint only; every hit is
@@ -1028,6 +1203,8 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 			return nil, nil
 		}
 		// Episodes of this series only — never a library-wide provider scan.
+		// BrowseParams.SeriesID is ParentId+Recursive on the wire; we still
+		// drop any row whose SeriesID is blank or not exactly series.ID.
 		eps, err := e.browseAll(ctx, jellyfin.BrowseParams{
 			SeriesID:         series.ID,
 			IncludeItemTypes: "Episode",
@@ -1036,7 +1213,7 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 		if err != nil {
 			return nil, err
 		}
-		return eps, nil
+		return filterBySeriesID(eps, series.ID), nil
 
 	case manifest.KindYouTubeChannel, manifest.KindYouTubePlaylist:
 		// Path-only match. Do not pass SearchTerm: yt-dlp episode titles rarely
@@ -1045,14 +1222,18 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 		// Movie,Episode,Video and filter with PathMatches so an empty first
 		// filtered page cannot hide a later hit.
 		hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
-			IncludePath:      true,
-			IncludeItemTypes: "Movie,Episode,Video",
+			IncludePath:        true,
+			IncludeProviderIDs: true,
+			IncludeItemTypes:   "Movie,Episode,Video",
 		})
 		if err != nil {
 			return nil, err
 		}
 		out := make([]jellyfin.Item, 0, len(hits))
 		for _, h := range hits {
+			if ytdlp.IsStagingPath(h.Path) {
+				continue
+			}
 			if ytdlp.PathMatches(h.Path, it.ID) {
 				out = append(out, h)
 			}
@@ -1172,6 +1353,21 @@ func filterByProvider(items []jellyfin.Item, expr string) []jellyfin.Item {
 	return out
 }
 
+// filterBySeriesID keeps only items whose SeriesID exactly equals seriesID.
+// Blank SeriesID never matches.
+func filterBySeriesID(items []jellyfin.Item, seriesID string) []jellyfin.Item {
+	if seriesID == "" {
+		return nil
+	}
+	out := make([]jellyfin.Item, 0, len(items))
+	for _, it := range items {
+		if it.SeriesID == seriesID {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 type parts []string
 
 func (p parts) Join(sep string) string { return strings.Join(p, sep) }
@@ -1184,16 +1380,74 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-// youtubeImportable reports whether a Jellyfin hit is a playable YouTube
-// Episode or Video (runtime >= 60s and a YouTube identity). Folder/Series
-// and short clips never import and never markPresent.
-func youtubeImportable(jf jellyfin.Item) bool {
+func (e *Engine) refreshYouTubeLocalMetadata(ctx context.Context, jf jellyfin.Item, slug string) (jellyfin.Item, error) {
+	if !needsYouTubeLocalMetadataRefresh(jf, slug) {
+		return jf, nil
+	}
+	if err := e.deps.Jellyfin.RefreshLocalMetadata(ctx, jf.ID); err != nil {
+		return jf, err
+	}
+	wait := e.deps.SyncWait
+	if wait <= 0 || wait > 2*time.Minute {
+		wait = 2 * time.Minute
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	for {
+		item, err := e.deps.Jellyfin.Item(refreshCtx, jf.ID)
+		if err != nil {
+			return jf, err
+		}
+		if !needsYouTubeLocalMetadataRefresh(*item, slug) {
+			return *item, nil
+		}
+		select {
+		case <-refreshCtx.Done():
+			return jf, fmt.Errorf("metadata still filename-derived after refresh")
+		case <-time.After(e.deps.SyncPollInterval):
+		}
+	}
+}
+
+func needsYouTubeLocalMetadataRefresh(jf jellyfin.Item, slug string) bool {
+	youtubeID, _, _ := youtubeIdentity(jf)
+	if youtubeID != "" && jf.ProviderID("youtube") != youtubeID {
+		return true
+	}
+	if slug != "" && jf.ProviderID("primer-slug") != slug {
+		return true
+	}
+	fallback := youtubeFilenameTitle(jf.Path)
+	return fallback != "" && jf.Name == fallback
+}
+
+func youtubeFilenameTitle(mediaPath string) string {
+	if mediaPath == "" {
+		return ""
+	}
+	base := filepath.Base(mediaPath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	if id, ok := ytdlp.ParseYouTubeID(base); ok {
+		stem = strings.TrimSuffix(stem, " ["+id+"]")
+	}
+	return stem
+}
+
+// youtubeImportable reports whether a Jellyfin hit is a finalized playable
+// YouTube Episode or Video. Folder/Series never import. _staging paths are
+// never admitted even with a valid [id]. Duration uses the item's effective
+// min_duration_seconds (-1 disables the floor so Shorts can import).
+func youtubeImportable(jf jellyfin.Item, it manifest.Item) bool {
 	switch jf.Type {
 	case "Episode", "Video":
 	default:
 		return false
 	}
-	if jf.RuntimeSeconds() < 60 {
+	if ytdlp.IsStagingPath(jf.Path) {
+		return false
+	}
+	minDur := manifest.EffectiveMinDuration(it.Filters)
+	if minDur >= 0 && jf.RuntimeSeconds() < minDur {
 		return false
 	}
 	if _, ok := ytdlp.ParseYouTubeID(jf.Path); ok {
@@ -1239,6 +1493,15 @@ func episodeKeyFromFilename(path string) string {
 		return ""
 	}
 	return fmt.Sprintf("S%02dE%03d", season, ep)
+}
+
+// PostgreSQL DATE values currently serialize through time.Time as RFC3339 in
+// the TV API, whereas NFO <aired> is YYYY-MM-DD. They are the same calendar date.
+func calendarDate(value string) string {
+	if date, err := time.Parse(time.RFC3339, value); err == nil {
+		return date.Format("2006-01-02")
+	}
+	return value
 }
 
 func youtubeUploadDate(mediaPath string) string {

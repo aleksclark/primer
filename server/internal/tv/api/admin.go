@@ -271,7 +271,8 @@ func (s *Server) syncJellyfin(ctx context.Context, _ *struct{}) (*syncOutput, er
 	out := SyncResponse{Orphaned: []string{}}
 	// Walk the whole library a page at a time: a single page would silently
 	// leave later items stale and their orphans undetected. Paging is ordered
-	// by primary key because sync itself rewrites updated_at.
+	// by primary key because sync itself rewrites updated_at. Each DB page is
+	// one Jellyfin /Items?Ids= batch (syncPageSize = 100 keeps the URI short).
 	for offset := 0; ; offset += syncPageSize {
 		page, err := tvrepo.MediaItems.List(ctx, s.q, baserepo.ListParams{
 			Limit:  syncPageSize,
@@ -282,10 +283,8 @@ func (s *Server) syncJellyfin(ctx context.Context, _ *struct{}) (*syncOutput, er
 		if err != nil {
 			return nil, baseapi.MapError(err)
 		}
-		for _, item := range page.Items {
-			if err := s.syncItem(ctx, item, &out); err != nil {
-				return nil, err
-			}
+		if err := s.syncPage(ctx, page.Items, &out); err != nil {
+			return nil, err
 		}
 		if offset+len(page.Items) >= page.TotalCount || len(page.Items) == 0 {
 			break
@@ -294,23 +293,37 @@ func (s *Server) syncJellyfin(ctx context.Context, _ *struct{}) (*syncOutput, er
 	return &syncOutput{Body: out}, nil
 }
 
-// syncItem refreshes one media item's cached metadata, recording the outcome
-// in the running summary.
-func (s *Server) syncItem(ctx context.Context, item domain.MediaItem, out *SyncResponse) error {
+func (s *Server) syncPage(ctx context.Context, items []domain.MediaItem, out *SyncResponse) error {
+	if len(items) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.JellyfinItemID)
+	}
+	remote, err := s.jellyfin.ItemsByID(ctx, ids)
+	if err != nil {
+		return huma.Error502BadGateway("fetch jellyfin items", err)
+	}
+	for _, item := range items {
+		if err := s.applyRemote(ctx, item, remote, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) applyRemote(ctx context.Context, item domain.MediaItem, remote map[string]jellyfin.Item, out *SyncResponse) error {
 	out.Checked++
-	remote, err := s.jellyfin.Item(ctx, item.JellyfinItemID)
-	if errors.Is(err, jellyfin.ErrNotFound) {
+	got, ok := remote[item.JellyfinItemID]
+	if !ok {
 		if err := s.markOrphaned(ctx, item); err != nil {
 			return err
 		}
 		out.Orphaned = append(out.Orphaned, item.ID)
 		return nil
 	}
-	if err != nil {
-		return huma.Error502BadGateway("fetch jellyfin item", err)
-	}
-
-	values := metadataDiff(item, remote)
+	values := metadataDiff(item, &got)
 	if len(values) == 0 {
 		return nil
 	}
@@ -358,7 +371,9 @@ func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 			values["title"] = desired
 		}
 	}
-	if remote.SortName != "" && remote.SortName != item.SortTitle {
+	// YouTube ordering is the ingest-owned slug + stable episode key. Replacing
+	// it with Jellyfin's raw title here caused every subsequent apply to churn.
+	if item.ManifestSlug == "" && remote.SortName != "" && remote.SortName != item.SortTitle {
 		values["sort_title"] = remote.SortName
 	}
 	if !item.OverviewLocked && remote.Overview != "" && remote.Overview != item.Overview {

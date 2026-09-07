@@ -34,6 +34,16 @@ func PathMatches(path, slug string) bool {
 	return rest == "" || strings.HasPrefix(rest, "/")
 }
 
+// IsStagingPath reports whether path is under a Season */_staging/ directory.
+// Finalized-only admission must reject these even when the basename has [id].
+func IsStagingPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	p := filepath.ToSlash(path)
+	return strings.Contains(p, "/_staging/") || strings.HasSuffix(p, "/_staging")
+}
+
 // ParseYouTubeID extracts an 11-char YouTube id from a filename containing [id].
 // Invalid lengths or character sets are rejected.
 func ParseYouTubeID(name string) (string, bool) {

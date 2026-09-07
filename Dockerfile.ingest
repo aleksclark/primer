@@ -4,23 +4,54 @@
 # Radarr/Sonarr/yt-dlp/Jellyfin/TV toward curriculum/content-manifest.yaml.
 # The curriculum YAML is baked into the image so the job needs no git checkout.
 
-FROM golang:1.25-alpine AS build
+FROM golang:1.25-alpine AS source
+ENV CGO_ENABLED=0
+RUN apk add --no-cache git ca-certificates
 WORKDIR /src
+# Docker-only workspace for the server graph. Host go.work also lists
+# studio/identity/tasks; those modules are not part of these images.
+# Local replaces (nested inventory):
+#   server/go.mod: github.com/aleksclark/primer/agents/client/go => ../primer-agents/client/go
+#   primer-agents/{,client/go} go.mod: no further local replaces
+#   github.com/aleksclark/primer/agents/runtime comes from the workspace module
+COPY <<'EOF' /src/go.work
+go 1.25.7
+
+use (
+	./server
+	./primer-agents
+	./primer-agents/client/go
+)
+EOF
+ENV GOWORK=/src/go.work
 COPY server/go.mod server/go.sum ./server/
-RUN cd server && go mod download
+COPY primer-agents/go.mod primer-agents/go.sum ./primer-agents/
+COPY primer-agents/client/go/go.mod primer-agents/client/go/go.sum ./primer-agents/client/go/
+RUN --mount=type=cache,target=/go/pkg/mod \
+	go -C /src/server mod download && \
+	go -C /src/primer-agents mod download && \
+	go -C /src/primer-agents/client/go mod download
 COPY server/ ./server/
-RUN cd server && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /content-ingest ./cmd/content-ingest
+COPY primer-agents/ ./primer-agents/
+WORKDIR /src/server
+
+FROM source AS build
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+	go build -trimpath -ldflags="-s -w" -o /content-ingest ./cmd/content-ingest
 
 FROM alpine:3.21
-# Alpine's yt-dlp package lags YouTube player changes; install the latest
-# release. Unpinned /releases/latest is intentional until a known-good dated
-# tag is verified — see agent_docs/runbooks/youtube-shows.md.
-# nodejs is required for yt-dlp --js-runtimes node (Gate A / YouTube challenges).
+# Alpine's yt-dlp package lags YouTube player changes. Pin the verified
+# 2026.06.09 release: local install + node passed Gate A for h0EGCnBjTVk
+# and production extractor args for a1D-fZP8qJk without cookies. Avoid
+# /releases/latest. nodejs is required for yt-dlp --js-runtimes node.
+# yt-dlp 2026.06.09 needs a current CPython and a JS runtime; Alpine 3.21
+# ships Python 3.12 and Node 22, which satisfy that (versions printed below).
 RUN apk add --no-cache ca-certificates ffmpeg python3 curl nodejs \
 	&& curl -fsSL -o /usr/local/bin/yt-dlp \
-		https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+		https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp \
 	&& chmod a+rx /usr/local/bin/yt-dlp \
 	&& yt-dlp --version \
+	&& python3 --version \
 	&& node --version
 
 COPY --from=build /content-ingest /usr/local/bin/content-ingest
@@ -30,8 +61,11 @@ ENV INGEST_MANIFEST_PATH=/curriculum/content-manifest.yaml
 ENV INGEST_REVIEW_PATH=/curriculum/content-review.yaml
 ENV INGEST_REPORT_DIR=/var/log/content-ingest
 ENV INGEST_YTDLP_PATH=yt-dlp
-# Canonical YouTube root (job env still wins). Host: /mnt/moosefs/media/tv/Primer.
-ENV INGEST_YTDLP_OUTPUT_DIR=/media/tv/Primer
+# Canonical YouTube root (job env still wins). Host: /mnt/moosefs/media/primer.
+# Jellyfin tvshows treated /media/tv/Primer as a Series before its Shows/slug;
+# /media/primer/Shows belongs to Primer Sources, an NFO-only Jellyfin library.
+# The named Primer Collection groups eligible media across this and existing libraries.
+ENV INGEST_YTDLP_OUTPUT_DIR=/media/primer
 # Global INGEST_YTDLP_ARCHIVE_PATH is deprecated/unused. Per-show archives live at
 # {OutputDir}/Shows/<slug>/.ytdlp-archive.txt (managed by the reconciler).
 

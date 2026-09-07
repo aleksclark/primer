@@ -145,6 +145,109 @@ func TestYouTubeFolderSiblingDoesNotImportOrMarkPresent(t *testing.T) {
 	assert.Empty(t, tv.PresentCalls)
 }
 
+func TestYouTubeShortsImportWhenMinDurationDisabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	exOff := false
+	jf := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "jf-short", Name: "Tiny Build", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/mark-rober-shorts/Season 01/mark-rober-shorts - S01E001 - Tiny Build [dQw4w9wgxcQ].mkv",
+			Runtime: 25 * time.Second,
+		},
+		jellyfin.Item{
+			ID: "jf-normal", Name: "Long Build", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/mark-rober-science-class/Season 01/mark-rober-science-class - S01E001 - Long Build [abcdefghijk].mkv",
+			Runtime: 12 * time.Minute,
+		},
+	)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+		SyncWait:               time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{
+		{
+			ID: "mark-rober-shorts", Title: "Mark Rober Shorts",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@MarkRober/shorts",
+			Class: manifest.ClassMixed,
+			Filters: manifest.Filters{
+				ExcludeShorts:      &exOff,
+				MinDurationSeconds: -1,
+			},
+		},
+		{
+			ID: "mark-rober-science-class", Title: "Mark Rober Science Class",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@MarkRober",
+			Class: manifest.ClassMixed,
+		},
+	}}
+	_, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.True(t, ids["jf-short"], "min_duration_seconds:-1 must import Shorts under 60s")
+	assert.True(t, ids["jf-normal"])
+	members := []string{}
+	for _, colIDs := range jf.Collections {
+		members = append(members, colIDs...)
+	}
+	assert.Contains(t, members, "jf-short")
+}
+
+func TestYouTubeStagingPathNeverImportsOrJoinsCollection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	jf := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "jf-staging", Name: "Incomplete", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/_staging/paul-sellers - Incomplete [dQw4w9wgxcQ].mkv",
+			Runtime: 20 * time.Minute,
+		},
+		jellyfin.Item{
+			ID: "jf-final", Name: "Dovetails", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/paul-sellers - S01E001 - Dovetails [abcdefghijk].mkv",
+			Runtime: 20 * time.Minute,
+		},
+	)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+		SyncWait:               time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "paul-sellers", Title: "Paul Sellers",
+		Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@PaulSellersWoodwork",
+		Class: manifest.ClassMixed,
+	}}}
+	_, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.False(t, ids["jf-staging"], "_staging must never import even with a valid [id]")
+	assert.True(t, ids["jf-final"])
+	for _, members := range jf.Collections {
+		assert.NotContains(t, members, "jf-staging")
+		assert.Contains(t, members, "jf-final")
+	}
+}
+
 func TestYouTubeFailedStillSkipsAcquire(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -187,11 +290,12 @@ func TestYouTubeAcquireWiresPerShowArchiveCookiesAndCleanup(t *testing.T) {
 	minOff := false
 	eng := reconcile.New(reconcile.Deps{
 		YtDlp: yt, TV: tvclient.NewFake(),
-		YtDlpOutputDir:   out,
-		YtDlpArchivePath: filepath.Join(dir, "deprecated-global.txt"),
-		YtDlpCookiesPath: "/run/secrets/youtube.cookies",
-		YtDlpJSRuntime:   "node",
-		ReportDir:        filepath.Join(dir, "reports"),
+		YtDlpOutputDir:    out,
+		YtDlpArchivePath:  filepath.Join(dir, "deprecated-global.txt"),
+		YtDlpCookiesPath:  "/run/secrets/youtube.cookies",
+		YtDlpJSRuntime:    "node",
+		YtDlpMaxDownloads: 25,
+		ReportDir:         filepath.Join(dir, "reports"),
 	})
 	m := &manifest.Manifest{Items: []manifest.Item{{
 		ID: "paul-sellers", Title: "Paul Sellers",
@@ -216,6 +320,7 @@ func TestYouTubeAcquireWiresPerShowArchiveCookiesAndCleanup(t *testing.T) {
 	assert.NotEqual(t, filepath.Join(dir, "deprecated-global.txt"), got.ArchivePath)
 	assert.Equal(t, "/run/secrets/youtube.cookies", got.CookiesPath)
 	assert.Equal(t, "node", got.JSRuntime)
+	assert.Equal(t, 25, got.MaxDownloads)
 	assert.Equal(t, 90, got.MinDurationSeconds)
 	require.NotNil(t, got.ExcludeShorts)
 	assert.False(t, *got.ExcludeShorts)
@@ -306,7 +411,7 @@ func TestYouTubeUnresolvedPlaylistFailsClosed(t *testing.T) {
 	assert.Contains(t, strings.Join(res.Report.Errors, "\n"), "unresolved playlist")
 }
 
-func TestYouTubeLeftoverExit1AfterCompleteArchiveIsNotNewFail(t *testing.T) {
+func TestYouTubeExit1WithOldMediaStillReportsError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	out := filepath.Join(dir, "media")
@@ -317,10 +422,16 @@ func TestYouTubeLeftoverExit1AfterCompleteArchiveIsNotNewFail(t *testing.T) {
 
 	yt := &ytdlp.FakeRunner{Err: errors.New("yt-dlp: download failed: exit status 1")}
 	tv := tvclient.NewFake()
+	jf := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-ps-1", Name: "Dovetails", Type: "Video",
+		Path:    filepath.Join(show, "paul-sellers - S01E001 - Dovetails [dQw4w9wgxcQ].mkv"),
+		Runtime: 20 * time.Minute,
+	})
 	eng := reconcile.New(reconcile.Deps{
-		YtDlp: yt, TV: tv,
-		YtDlpOutputDir: out,
-		ReportDir:      filepath.Join(dir, "reports"),
+		YtDlp: yt, TV: tv, Jellyfin: jf,
+		YtDlpOutputDir:         out,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
 	})
 	m := &manifest.Manifest{Items: []manifest.Item{{
 		ID: "paul-sellers", Title: "Paul Sellers",
@@ -328,10 +439,19 @@ func TestYouTubeLeftoverExit1AfterCompleteArchiveIsNotNewFail(t *testing.T) {
 		Class: manifest.ClassMixed,
 	}}}
 	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
-		SkipSync: true, SkipImport: true,
+		SkipSync: true,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, tv.AttemptCalls, "leftover exit 1 after complete archive is not a new fail")
+	assert.Contains(t, strings.Join(res.Report.Errors, "\n"), "yt-dlp")
+	assert.NotEmpty(t, tv.AttemptCalls, "exit 1 is still an acquisition attempt")
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.True(t, ids["jf-ps-1"], "successful files still import after yt-dlp exit 1")
+	assert.NotEmpty(t, jf.CreateCollectionCalls, "collection proceeds for successful files")
 	joined := strings.Join(append(append([]string{}, res.Report.Errors...), res.Report.AcquiredYouTube...), "\n")
 	assert.NotContains(t, strings.ToLower(joined), "--cookies")
 	assert.NotContains(t, strings.ToLower(joined), "yt-dlp --")

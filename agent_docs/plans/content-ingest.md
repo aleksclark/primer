@@ -1,5 +1,10 @@
 # Proposal: content-ingest — manifest-driven library population
 
+Implementation exists. For the current storage, Collection, runtime and recovery
+contract, use [the YouTube runbook](../runbooks/youtube-shows.md). The September
+2026 recovery replaced the invalid nested TV root and added real Collection
+reconciliation; older execution-wave notes are historical, not deployment proof.
+
 Takes curated lists (like `agent_docs/content_library/`) and converges Radarr/Sonarr/yt-dlp,
 Jellyfin, and the TV server toward them. **Zero LLM in the loop; human involvement is
 one review file for ambiguous matches.** Scheduling stays out of scope — this service
@@ -104,7 +109,10 @@ is the entire human workload** — everything downstream is exact-ID joins.
   encodes the direct-play constraint at acquisition time instead of validating after).
   Sonarr monitors only non-excluded episodes.
 - *youtube*: yt-dlp under the canonical Primer root (container
-  `INGEST_YTDLP_OUTPUT_DIR=/media/tv/Primer` = host `/mnt/moosefs/media/tv/Primer`).
+  `INGEST_YTDLP_OUTPUT_DIR=/media/primer` = host `/mnt/moosefs/media/primer`).
+  Jellyfin's dedicated **Primer Sources** library scans `/media/primer/Shows`
+  with remote metadata and automatic subtitles disabled. Do not nest this root
+  under the ordinary TV library: it incorrectly becomes one Series.
   On-disk contract is documented in `agent_docs/runbooks/youtube-shows.md`:
   `{OutputDir}/Shows/<slug>/Season 01/{slug} - S01E{nnn} - {title} [{id}].mkv`
   plus sidecar `info.json` / `nfo` / `jpg`, show-level `tvshow.nfo`,
@@ -117,8 +125,13 @@ is the entire human workload** — everything downstream is exact-ID joins.
   skip yt-dlp — archive/ledger still run so new uploads land. Global
   `INGEST_YTDLP_ARCHIVE_PATH` is deprecated/unused. Cookies jar is path-only
   (`INGEST_YTDLP_COOKIES_PATH`, host file mode 0600 outside git) with
-  `--js-runtimes node` for Gate A challenges. Format capped
-  `bv*[height<=1080][vcodec~='(avc|hevc)']+ba`. Mark Rober later lands as **three**
+  `--js-runtimes node` for Gate A challenges. `INGEST_YTDLP_MAX_DOWNLOADS`
+  defaults to 25 new videos per source/pass (0 explicitly opts into unlimited).
+  yt-dlp exit 101 checkpoints that batch; exit 1 finalizes good files but remains
+  an error. This prevents one large channel monopolizing the six-hour writer.
+  Format preference
+  `bv*[height<=1080][vcodec~='(avc|hevc)']+ba`, with progressive fallbacks and the
+  TV direct-play gate. Mark Rober is represented as **three**
   slugs (`mark-rober`, `mark-rober-science-class`, `mark-rober-shorts`), not one
   channel dump. Nomad task `kill_timeout` ≥ `4h`. Pause/disable the existing 6h
   periodic until one-slug success + kill_timeout are deployed (do not register a
@@ -138,6 +151,12 @@ episodes skipped. Already-imported items (by `jellyfin_item_id` unique key) are
 updated only if manifest classification changed; youtube identity fields stay
 stable across re-imports.
 
+**Collection.** After import, ensure the actual Jellyfin **Primer** BoxSet and
+add only currently eligible Jellyfin IDs backed by durable TV media-item rows.
+Never add Series/Season parents (they bypass episode exclusions), never add
+failed imports, and never remove unrelated operator-added members. Page
+membership and batch additions so large libraries do not exceed URI limits.
+
 **⑥ Report.** One markdown file per run (and optionally a Telegram post): resolved,
 acquired, awaiting-download, imported, review-queue size, manual-rip queue. The
 parent's steady-state involvement: read the report, occasionally answer `review.yaml`,
@@ -152,7 +171,7 @@ rip the DVD list at leisure.
 - **State**: desired-state YAML stays in git; the TV server owns runtime acquisition
   state in `content_manifest_entries` (status missing/present/failed/manual,
   attempt_count, first/last attempt timestamps). content-ingest upserts desired
-  state on every run (`POST /content-manifest/sync`), increments attempts when it
+  state on every apply (`POST /content-manifest/sync`; plan is read-only), increments attempts when it
   tries to obtain missing media, and marks present when Jellyfin has the title.
   TV flips missing → failed after `TV_MANIFEST_FAIL_MAX_ATTEMPTS` or
   `TV_MANIFEST_FAIL_MAX_DAYS` so a human can buy/rip. (`review.yaml` remains the
@@ -177,7 +196,7 @@ rip the DVD list at leisure.
 
 ## Out of scope
 - Scheduling / availability windows (Primer agents + parent, via existing TV admin API)
-- Transcoding (acquisition profile prevents the need)
+- Transcoding (acquisition prefers compatible formats; the TV direct-play gate remains authoritative)
 - Seeding/indexer management (Prowlarr/qBittorrent already handle it)
 
 ## Open questions

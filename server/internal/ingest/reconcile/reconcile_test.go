@@ -2,6 +2,8 @@ package reconcile_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,6 +244,166 @@ func TestImportUpdatesClassification(t *testing.T) {
 	assert.Equal(t, []string{"new"}, items[0].SubjectTags)
 }
 
+func TestCollectionAddsEligibleIDsIdempotently(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	jf := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "series-lp", Name: "The Living Planet", Type: "Series",
+			ProviderIds: map[string]string{"Tvdb": "79165"},
+		},
+		jellyfin.Item{
+			ID: "jf-lp-e1", Name: "The Building of the Earth", Type: "Episode",
+			SeriesName: "The Living Planet", SeriesID: "series-lp",
+			ParentIndexNumber: 1, IndexNumber: 1,
+			ProviderIds: map[string]string{"Tvdb": "79165"},
+			Runtime:     55 * time.Minute,
+		},
+		jellyfin.Item{
+			ID: "jf-lp-e7", Name: "Our Blue Planet", Type: "Episode",
+			SeriesName: "The Living Planet", SeriesID: "series-lp",
+			ParentIndexNumber: 1, IndexNumber: 7,
+			ProviderIds: map[string]string{"Tvdb": "79165"},
+			Runtime:     55 * time.Minute,
+		},
+		jellyfin.Item{
+			ID: "jf-matrix", Name: "The Matrix", Type: "Movie",
+			ProviderIds: map[string]string{"Tmdb": "603"},
+			Runtime:     136 * time.Minute,
+		},
+		jellyfin.Item{
+			ID: "jf-ps-1", Name: "Dovetails", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/paul-sellers - S01E001 - Dovetails [dQw4w9wgxcQ].mkv",
+			Runtime: 20 * time.Minute,
+		},
+		jellyfin.Item{
+			ID: "jf-ps-2", Name: "Short leftover", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/paul-sellers - S01E002 - Short [abcdefghijk].mkv",
+			Runtime: 30 * time.Second, // below youtube import floor
+		},
+	)
+	// Pre-existing unrelated collection member must be preserved.
+	jf.Collections = map[string][]string{"col-primer": {"keep-me"}}
+	jf.CollectionNames = map[string]string{"col-primer": "Primer"}
+	jf.Items = append(jf.Items, jellyfin.Item{ID: "col-primer", Name: "Primer", Type: "BoxSet"})
+	jf.Items = append(jf.Items, jellyfin.Item{ID: "keep-me", Name: "Unrelated", Type: "Movie"})
+
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+		SyncWait:               time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{
+		{
+			ID: "living-planet", Title: "The Living Planet", Year: 1984,
+			Kind: manifest.KindSeries, Provider: manifest.Provider{TVDB: 79165},
+			Class: manifest.ClassEducational, ExcludeEpisodes: []string{"S01E07"},
+		},
+		{
+			ID: "matrix", Title: "The Matrix", Year: 1999,
+			Kind: manifest.KindMovie, Provider: manifest.Provider{TMDB: 603},
+			Class: manifest.ClassEntertainment,
+		},
+		{
+			ID: "paul-sellers", Title: "Paul Sellers",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@PaulSellersWoodwork",
+			Class: manifest.ClassMixed, MaxEpisodes: 1,
+		},
+	}}
+
+	plan, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		DryRun: true, SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, plan.Report.Collection, "would add")
+	assert.Empty(t, jf.CreateCollectionCalls, "plan must not create a collection")
+	assert.Empty(t, jf.AddToCollectionCalls, "plan must not add collection members")
+
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, jf.CreateCollectionCalls, "existing exact-name collection must be reused")
+	require.Len(t, jf.AddToCollectionCalls, 1)
+	added := map[string]bool{}
+	for _, id := range jf.AddToCollectionCalls[0].IDs {
+		added[id] = true
+	}
+	assert.True(t, added["jf-matrix"])
+	assert.True(t, added["jf-lp-e1"])
+	assert.True(t, added["jf-ps-1"])
+	assert.False(t, added["jf-lp-e7"], "excluded episode must not join the collection")
+	assert.False(t, added["series-lp"], "series parent must not join the collection")
+	assert.False(t, added["jf-ps-2"], "capped / non-importable youtube must not join")
+	assert.Contains(t, jf.Collections["col-primer"], "keep-me")
+	assert.Contains(t, res.Report.Collection, "added=")
+
+	creates := len(jf.CreateCollectionCalls)
+	adds := len(jf.AddToCollectionCalls)
+	res2, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, creates, len(jf.CreateCollectionCalls), "second apply must not recreate")
+	assert.Equal(t, adds, len(jf.AddToCollectionCalls), "second apply must not re-add")
+	assert.Contains(t, res2.Report.Collection, "already=")
+}
+
+func TestCollectionEmptyNameDisables(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	jf := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-matrix", Name: "The Matrix", Type: "Movie",
+		ProviderIds: map[string]string{"Tmdb": "603"},
+	})
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		JellyfinCollectionName: "",
+		ReportDir:              filepath.Join(dir, "reports"),
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "matrix", Title: "The Matrix", Kind: manifest.KindMovie,
+		Provider: manifest.Provider{TMDB: 603}, Class: manifest.ClassEntertainment,
+	}}}
+	_, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, jf.CreateCollectionCalls)
+	assert.Empty(t, jf.AddToCollectionCalls)
+}
+
+func TestCollectionCreateFailureIsReported(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	jf := jellyfin.NewFake(jellyfin.Item{
+		ID: "jf-matrix", Name: "The Matrix", Type: "Movie",
+		ProviderIds: map[string]string{"Tmdb": "603"},
+	})
+	jf.Err = assert.AnError
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin:               jf,
+		TV:                     tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "matrix", Title: "The Matrix", Kind: manifest.KindMovie,
+		Provider: manifest.Provider{TMDB: 603}, Class: manifest.ClassEntertainment,
+	}}}
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true, SkipImport: true,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, res.Report.Errors)
+	assert.Contains(t, strings.Join(res.Report.Errors, "\n"), "collection")
+}
+
 func TestReportGoldenShape(t *testing.T) {
 	t.Parallel()
 	r := reconcile.NewReport(true)
@@ -257,6 +419,7 @@ func TestReportGoldenShape(t *testing.T) {
 	assert.Contains(t, md, "bernstein-ypc")
 	assert.Contains(t, md, "## Failed (human intervention)")
 	assert.Contains(t, md, "TV content-manifest catalog: would upsert 5 entries")
+	assert.Contains(t, md, "Jellyfin collection:")
 	assert.Contains(t, md, "| Resolved | 1 |")
 	assert.Contains(t, md, "## Errors")
 }
@@ -461,6 +624,71 @@ func TestImportDoesNotCrossWireForeignLibrary(t *testing.T) {
 
 	// Only the two genuine hits.
 	assert.Equal(t, 2, len(res.Report.Imported), "got: %v", res.Report.Imported)
+}
+
+func TestImportIgnoresLibraryDumpWhenSeriesIdQueryUnknown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.URL.Query().Get("SeriesId"), "must not send unknown SeriesId")
+		switch r.URL.Query().Get("IncludeItemTypes") {
+		case "Series":
+			_, _ = w.Write([]byte(`{
+				"Items": [{"Id":"series-lp","Name":"The Living Planet","Type":"Series","ProviderIds":{"Tvdb":"79165"}}],
+				"TotalRecordCount": 1
+			}`))
+		case "Episode":
+			assert.Equal(t, "series-lp", r.URL.Query().Get("ParentId"))
+			assert.Equal(t, "true", r.URL.Query().Get("Recursive"))
+			// Whole-library dump: matching episode, foreign series, blank SeriesId.
+			_, _ = w.Write([]byte(`{
+				"Items": [
+					{"Id":"jf-lp-e1","Name":"The Building of the Earth","Type":"Episode","SeriesId":"series-lp","SeriesName":"The Living Planet","IndexNumber":1,"ParentIndexNumber":1},
+					{"Id":"jf-b5","Name":"Midnight on the Firing Line","Type":"Episode","SeriesId":"series-b5","SeriesName":"Babylon 5","IndexNumber":1,"ParentIndexNumber":1},
+					{"Id":"jf-orphan","Name":"Orphan","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1}
+				],
+				"TotalRecordCount": 3
+			}`))
+		case "BoxSet":
+			_, _ = w.Write([]byte(`{"Items":[],"TotalRecordCount":0}`))
+		default:
+			_, _ = w.Write([]byte(`{"Items":[],"TotalRecordCount":0}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := jellyfin.New(jellyfin.Options{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()})
+	require.NoError(t, err)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin:               client,
+		TV:                     tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "living-planet", Title: "The Living Planet", Year: 1984,
+		Kind: manifest.KindSeries, Provider: manifest.Provider{TVDB: 79165},
+		Class: manifest.ClassEducational,
+	}}}
+	res, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.True(t, ids["jf-lp-e1"])
+	assert.False(t, ids["jf-b5"], "foreign episode must never import")
+	assert.False(t, ids["jf-orphan"], "blank SeriesId must never import")
+	assert.NotContains(t, strings.Join(res.Report.Imported, "\n"), "jf-b5")
+	assert.NotContains(t, strings.Join(res.Report.CollectionAdded, "\n"), "jf-b5")
+	assert.NotContains(t, strings.Join(res.Report.CollectionAdded, "\n"), "jf-orphan")
 }
 
 func TestImportSeriesAmbiguousIsError(t *testing.T) {

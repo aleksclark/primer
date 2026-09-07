@@ -168,6 +168,11 @@ variable "content_ingest_jellyfin_base_url" {
   default = "https://jellyfin.fleet.clark.team"
 }
 
+variable "content_ingest_jellyfin_collection_name" {
+  type    = string
+  default = "Primer"
+}
+
 variable "content_ingest_tv_base_url" {
   type    = string
   default = "https://tv.fleet.clark.team/api/v1"
@@ -175,8 +180,8 @@ variable "content_ingest_tv_base_url" {
 
 variable "content_ingest_ytdlp_output_dir" {
   type        = string
-  description = "Canonical YouTube root inside the container (host: /mnt/moosefs/media/tv/Primer)"
-  default     = "/media/tv/Primer"
+  description = "YouTube root outside generic TV; Jellyfin scans /media/primer/Shows as a configured media path"
+  default     = "/media/primer"
 }
 
 # Deprecated/unused global archive. Per-show archives live at
@@ -185,6 +190,17 @@ variable "content_ingest_ytdlp_output_dir" {
 variable "content_ingest_ytdlp_archive_path" {
   type    = string
   default = ""
+}
+
+# Per-source batch budget, not a cap on eventual library size.
+variable "content_ingest_ytdlp_max_downloads" {
+  type    = string
+  default = "25"
+}
+
+variable "content_ingest_dns_servers" {
+  type    = list(string)
+  default = ["192.168.0.23", "192.168.0.24", "192.168.0.89"]
 }
 
 variable "content_ingest_ytdlp_path" {
@@ -233,6 +249,13 @@ job "content-ingest" {
   group "content-ingest" {
     count = 1
 
+    # Public-only Docker DNS cannot resolve the internal fleet API hosts.
+    network {
+      dns {
+        servers = var.content_ingest_dns_servers
+      }
+    }
+
     # yt-dlp writes into the shared media library; same host volume Radarr/
     # Sonarr/Jellyfin mount from MooseFS.
     volume "moosefs-media" {
@@ -263,6 +286,9 @@ job "content-ingest" {
         INGEST_MANIFEST_PATH             = var.content_ingest_manifest_path
         INGEST_REVIEW_PATH               = var.content_ingest_review_path
         INGEST_REPORT_DIR                = var.content_ingest_report_dir
+        INGEST_HTTP_TIMEOUT              = "5m"
+        INGEST_SYNC_WAIT                 = "30m"
+        INGEST_YTDLP_MAX_DOWNLOADS       = var.content_ingest_ytdlp_max_downloads
         INGEST_RADARR_BASE_URL           = var.content_ingest_radarr_base_url
         INGEST_RADARR_ROOT_FOLDER        = var.content_ingest_radarr_root_folder
         INGEST_RADARR_QUALITY_PROFILE_ID = var.content_ingest_radarr_quality_profile_id
@@ -270,6 +296,7 @@ job "content-ingest" {
         INGEST_SONARR_ROOT_FOLDER        = var.content_ingest_sonarr_root_folder
         INGEST_SONARR_QUALITY_PROFILE_ID = var.content_ingest_sonarr_quality_profile_id
         INGEST_JELLYFIN_BASE_URL         = var.content_ingest_jellyfin_base_url
+        INGEST_JELLYFIN_COLLECTION_NAME  = var.content_ingest_jellyfin_collection_name
         INGEST_TV_BASE_URL               = var.content_ingest_tv_base_url
         INGEST_YTDLP_OUTPUT_DIR          = var.content_ingest_ytdlp_output_dir
         # Deprecated/unused global archive; per-show archives under Shows/<slug>/.

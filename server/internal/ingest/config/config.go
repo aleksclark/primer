@@ -50,6 +50,11 @@ type Config struct {
 	JellyfinAPIKey string `envconfig:"JELLYFIN_API_KEY"`
 	// JellyfinUserID scopes library browsing to a Jellyfin user.
 	JellyfinUserID string `envconfig:"JELLYFIN_USER_ID"`
+	// JellyfinCollectionName is the exact BoxSet Collection to create/add to
+	// after import (not a separate Library). Default "Primer". An operator who
+	// intentionally sets INGEST_JELLYFIN_COLLECTION_NAME empty disables the
+	// collection stage; unset uses the default.
+	JellyfinCollectionName string `envconfig:"JELLYFIN_COLLECTION_NAME" default:"Primer"`
 
 	// TVBaseURL is the root of the TV server admin API (including /api/v1).
 	TVBaseURL string `envconfig:"TV_BASE_URL"`
@@ -58,6 +63,9 @@ type Config struct {
 
 	// YtDlpPath is the yt-dlp binary.
 	YtDlpPath string `envconfig:"YTDLP_PATH" default:"yt-dlp"`
+	// YtDlpMaxDownloads prevents one channel backfill monopolizing the periodic
+	// writer for days. Zero explicitly opts into an unbounded manual dump.
+	YtDlpMaxDownloads int `envconfig:"YTDLP_MAX_DOWNLOADS" default:"25"`
 	// YtDlpOutputDir is the library root yt-dlp writes into (Jellyfin-scanned).
 	YtDlpOutputDir string `envconfig:"YTDLP_OUTPUT_DIR"`
 	// YtDlpArchivePath is deprecated unused default for a global archive file.
@@ -85,6 +93,9 @@ func Load() (*Config, error) {
 	var cfg Config
 	if err := envconfig.Process(EnvPrefix, &cfg); err != nil {
 		return nil, fmt.Errorf("load ingest config: %w", err)
+	}
+	if cfg.YtDlpMaxDownloads < 0 {
+		return nil, fmt.Errorf("INGEST_YTDLP_MAX_DOWNLOADS must be nonnegative")
 	}
 	return &cfg, nil
 }

@@ -13,11 +13,30 @@ components:
         available:
           description: Whether a release is published at all.
           type: boolean
+        channel:
+          type: string
         downloadUrl:
           description: Path to fetch the APK from.
           type: string
+        manifestPayloadBase64:
+          description: Exact signed ReleaseManifest bytes, base64url.
+          type: string
+        manifestSignature:
+          description: Ed25519 signature of those bytes, base64url.
+          type: string
+        minSdk:
+          format: int64
+          type: integer
+        packageName:
+          description: Claimed package; client accepts only the verified payload.
+          type: string
         sha256:
           description: Hex digest of the APK, for verifying the download.
+          type: string
+        signerSha256:
+          type: string
+        signingKeyId:
+          description: Must be ed25519-v1.
           type: string
         sizeBytes:
           description: Size of the APK, so the client can show progress.
@@ -27,6 +46,8 @@ components:
           description: Android versionCode of the published APK. Higher means newer.
           format: int64
           type: integer
+        versionName:
+          type: string
       required:
         - available
         - versionCode

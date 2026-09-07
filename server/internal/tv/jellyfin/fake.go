@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/aleksclark/primer/server/internal/ingest/ytdlp"
 )
 
 // Fake is an in-memory Client for tests and local development without a
@@ -28,13 +32,37 @@ type Fake struct {
 	Scanning bool
 	// RefreshCalls counts RefreshLibrary invocations.
 	RefreshCalls int
+	// RefreshLocalMetadataCalls records item-level local metadata refreshes.
+	RefreshLocalMetadataCalls []string
+	// RefreshedItems swaps in corrected metadata when RefreshLocalMetadata is called.
+	RefreshedItems map[string]Item
 
 	// BrowseCalls counts Browse invocations.
 	BrowseCalls int
+	// ItemCalls counts Item invocations.
+	ItemCalls int
+	// ItemsByIDCalls counts ItemsByID (batch) invocations.
+	ItemsByIDCalls int
+
+	// Collections maps collection id → member item ids (unrelated members preserved).
+	Collections map[string][]string
+	// CollectionNames maps collection id → exact name.
+	CollectionNames map[string]string
+	// CreateCollectionCalls records CreateCollection invocations.
+	CreateCollectionCalls []struct {
+		Name string
+		IDs  []string
+	}
+	// AddToCollectionCalls records AddToCollection invocations.
+	AddToCollectionCalls []struct {
+		CollectionID string
+		IDs          []string
+	}
 }
 
 var _ Client = (*Fake)(nil)
 var _ LibraryAdmin = (*Fake)(nil)
+var _ CollectionAdmin = (*Fake)(nil)
 
 // NewFake builds a fake client seeded with the given items.
 func NewFake(items ...Item) *Fake {
@@ -78,6 +106,12 @@ func (f *Fake) BrowsePage(_ context.Context, p BrowseParams) (Page, error) {
 			wantTypes[strings.TrimSpace(t)] = true
 		}
 	}
+	collectionMembers := map[string]struct{}{}
+	if p.ParentID != "" {
+		for _, id := range f.Collections[p.ParentID] {
+			collectionMembers[id] = struct{}{}
+		}
+	}
 	unfiltered := make([]Item, 0, len(f.Items))
 	for _, it := range f.Items {
 		if len(wantTypes) > 0 && !wantTypes[it.Type] {
@@ -87,19 +121,18 @@ func (f *Fake) BrowsePage(_ context.Context, p BrowseParams) (Page, error) {
 			!strings.Contains(strings.ToLower(it.SeriesName), strings.ToLower(p.SearchTerm)) {
 			continue
 		}
-		if p.SeriesID != "" && it.SeriesID != p.SeriesID && it.ID != p.SeriesID {
-			// Episodes carry SeriesID; allow the series row itself through only
-			// when its own ID matches (not used for episode listings).
-			if it.Type == "Episode" || it.Type == "Video" {
-				if it.SeriesID != p.SeriesID {
-					continue
-				}
-			} else if it.ID != p.SeriesID {
+		if p.SeriesID != "" {
+			// Exact SeriesID only. Blank SeriesID never matches (fail closed).
+			// The series row itself is not an episode listing hit.
+			if it.SeriesID != p.SeriesID {
 				continue
 			}
 		}
-		if p.ParentID != "" && it.ParentID != p.ParentID && it.SeriesID != p.ParentID {
-			continue
+		if p.ParentID != "" {
+			_, inCollection := collectionMembers[it.ID]
+			if !inCollection && it.ParentID != p.ParentID && it.SeriesID != p.ParentID && it.ID != p.ParentID {
+				continue
+			}
 		}
 		unfiltered = append(unfiltered, it)
 	}
@@ -137,6 +170,133 @@ func (f *Fake) RefreshLibrary(context.Context) error {
 	return nil
 }
 
+// RefreshLocalMetadata records an item-level metadata reread and swaps in any configured replacement.
+func (f *Fake) RefreshLocalMetadata(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	f.RefreshLocalMetadataCalls = append(f.RefreshLocalMetadataCalls, id)
+	for i := range f.Items {
+		if f.Items[i].ID != id {
+			continue
+		}
+		if next, ok := f.RefreshedItems[id]; ok {
+			f.Items[i] = next
+			return nil
+		}
+		next := f.Items[i]
+		if next.ProviderIds == nil {
+			next.ProviderIds = map[string]string{}
+		}
+		if youtubeID, ok := ytdlp.ParseYouTubeID(next.Path); ok && next.ProviderID("youtube") == "" {
+			next.ProviderIds["youtube"] = youtubeID
+		}
+		if slug := fakeSlugFromPath(next.Path); slug != "" && next.ProviderID("primer-slug") == "" {
+			next.ProviderIds["primer-slug"] = slug
+		}
+		if raw, err := os.ReadFile(strings.TrimSuffix(next.Path, filepath.Ext(next.Path)) + ".nfo"); err == nil {
+			if title := fakeXMLTag(string(raw), "title"); title != "" {
+				next.Name = title
+			}
+			if plot := fakeXMLTag(string(raw), "plot"); plot != "" {
+				next.Overview = plot
+			}
+		}
+		f.Items[i] = next
+		return nil
+	}
+	return ErrNotFound
+}
+
+func fakeSlugFromPath(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "Shows" {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+func fakeXMLTag(s, name string) string {
+	open := "<" + name + ">"
+	close := "</" + name + ">"
+	i := strings.Index(s, open)
+	if i < 0 {
+		return ""
+	}
+	i += len(open)
+	j := strings.Index(s[i:], close)
+	if j < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[i : i+j])
+}
+
+// CreateCollection records a named BoxSet and optionally seeds members.
+func (f *Fake) CreateCollection(_ context.Context, name string, ids []string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return "", f.Err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("jellyfin: collection name is required")
+	}
+	copied := append([]string{}, ids...)
+	f.CreateCollectionCalls = append(f.CreateCollectionCalls, struct {
+		Name string
+		IDs  []string
+	}{Name: name, IDs: copied})
+	id := fmt.Sprintf("col-%d", len(f.CreateCollectionCalls))
+	if f.Collections == nil {
+		f.Collections = map[string][]string{}
+	}
+	if f.CollectionNames == nil {
+		f.CollectionNames = map[string]string{}
+	}
+	f.CollectionNames[id] = name
+	f.Collections[id] = uniqueIDs(ids)
+	f.Items = append(f.Items, Item{ID: id, Name: name, Type: "BoxSet"})
+	return id, nil
+}
+
+// AddToCollection appends missing members; existing unrelated entries stay.
+func (f *Fake) AddToCollection(_ context.Context, collectionID string, ids []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	collectionID = strings.TrimSpace(collectionID)
+	if collectionID == "" {
+		return fmt.Errorf("jellyfin: collection id is required")
+	}
+	copied := append([]string{}, ids...)
+	f.AddToCollectionCalls = append(f.AddToCollectionCalls, struct {
+		CollectionID string
+		IDs          []string
+	}{CollectionID: collectionID, IDs: copied})
+	if f.Collections == nil {
+		f.Collections = map[string][]string{}
+	}
+	have := map[string]struct{}{}
+	for _, id := range f.Collections[collectionID] {
+		have[id] = struct{}{}
+	}
+	for _, id := range uniqueIDs(ids) {
+		if _, ok := have[id]; ok {
+			continue
+		}
+		f.Collections[collectionID] = append(f.Collections[collectionID], id)
+		have[id] = struct{}{}
+	}
+	return nil
+}
+
 // ScanRunning reports the configured scanning flag.
 func (f *Fake) ScanRunning(context.Context) (bool, error) {
 	f.mu.Lock()
@@ -148,19 +308,40 @@ func (f *Fake) ScanRunning(context.Context) (bool, error) {
 }
 
 // Item returns the seeded item with the given ID.
-func (f *Fake) Item(_ context.Context, id string) (*Item, error) {
+func (f *Fake) Item(ctx context.Context, id string) (*Item, error) {
+	f.mu.Lock()
+	f.ItemCalls++
+	f.mu.Unlock()
+	got, err := f.ItemsByID(ctx, []string{id})
+	if err != nil {
+		return nil, err
+	}
+	item, ok := got[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return &item, nil
+}
+
+// ItemsByID returns seeded items keyed by ID. Missing IDs are omitted.
+func (f *Fake) ItemsByID(_ context.Context, ids []string) (map[string]Item, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.ItemsByIDCalls++
 	if f.Err != nil {
 		return nil, f.Err
 	}
+	byID := make(map[string]Item, len(f.Items))
 	for _, it := range f.Items {
-		if it.ID == id {
-			found := it
-			return &found, nil
+		byID[it.ID] = it
+	}
+	out := make(map[string]Item, len(ids))
+	for _, id := range uniqueIDs(ids) {
+		if it, ok := byID[id]; ok {
+			out[id] = it
 		}
 	}
-	return nil, ErrNotFound
+	return out, nil
 }
 
 // StreamURL builds a deterministic fake direct-play URL.

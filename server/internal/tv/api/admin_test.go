@@ -641,6 +641,76 @@ func TestJellyfinSyncCoversTheWholeLibrary(t *testing.T) {
 	assert.Equal(t, count, summary.Checked, "every imported item is examined")
 	assert.Equal(t, count, summary.Updated, "every stale title is refreshed")
 	assert.Empty(t, summary.Orphaned)
+	assert.Equal(t, 2, fake.ItemsByIDCalls, "150 items is two DB pages → two batch fetches")
+	assert.Equal(t, 0, fake.ItemCalls, "production sync must not per-item fetch")
+}
+
+func TestJellyfinSyncBatchesOneHTTPCallPerPage(t *testing.T) {
+	t.Parallel()
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		assert.Equal(t, "/Items", r.URL.Path)
+		ids := r.URL.Query().Get("Ids")
+		assert.NotEmpty(t, ids)
+		assert.Equal(t, "100", r.URL.Query().Get("Limit"))
+		body := `{"Items":[`
+		for i := 0; i < 100; i++ {
+			if i > 0 {
+				body += ","
+			}
+			body += fmt.Sprintf(`{"Id":"jf-batch-%03d","Name":"Fresh","Type":"Movie"}`, i)
+		}
+		body += `]}`
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	client, err := jellyfin.New(jellyfin.Options{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	require.NoError(t, err)
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: client})
+	for i := 0; i < 100; i++ {
+		factory.MediaItem(t, q, factory.Override{
+			"jellyfin_item_id": fmt.Sprintf("jf-batch-%03d", i),
+			"title":            "Stale",
+		})
+	}
+	resp := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	assert.Equal(t, 1, hits, "100 items must be one HTTP call, not 100")
+}
+
+func TestJellyfinSyncForeignBatchIDIsErrorNotOrphan(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"Items":[{"Id":"foreign","Name":"Nope","Type":"Movie"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	client, err := jellyfin.New(jellyfin.Options{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	require.NoError(t, err)
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: client})
+	item := factory.MediaItem(t, q, factory.Override{
+		"jellyfin_item_id": "jf-wanted",
+		"title":            "Keep Me",
+	})
+	resp := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusBadGateway, resp.Code, resp.Body.String())
+	refreshed := decode[domain.MediaItem](t, h.Get("/media-items/"+item.ID).Body.Bytes())
+	assert.Nil(t, refreshed.OrphanedAt, "foreign extra IDs must not orphan valid rows")
+}
+
+func TestJellyfinSyncHTTPErrorDoesNotOrphan(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	client, err := jellyfin.New(jellyfin.Options{BaseURL: srv.URL, HTTPClient: srv.Client()})
+	require.NoError(t, err)
+	h, q, _ := tvtestutil.API(t, tvtestutil.Options{Jellyfin: client})
+	item := factory.MediaItem(t, q, factory.Override{"jellyfin_item_id": "jf-wanted"})
+	resp := h.Post("/jellyfin/sync", objMap{})
+	require.Equal(t, http.StatusBadGateway, resp.Code, resp.Body.String())
+	assert.Nil(t, decode[domain.MediaItem](t, h.Get("/media-items/"+item.ID).Body.Bytes()).OrphanedAt)
 }
 
 func TestJellyfinSyncFlagsOrphans(t *testing.T) {
