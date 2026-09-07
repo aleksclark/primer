@@ -839,7 +839,7 @@ func (e *Engine) eligibleCollectionIDs(ctx context.Context, m *manifest.Manifest
 				continue
 			}
 			if youtube {
-				if !youtubeImportable(jf) {
+				if !youtubeImportable(jf, it) {
 					continue
 				}
 				youtubeID, episodeKey, _ := youtubeIdentity(jf)
@@ -917,7 +917,7 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 		if youtube {
 			playable := make([]jellyfin.Item, 0, len(jfItems))
 			for _, jf := range jfItems {
-				if youtubeImportable(jf) {
+				if youtubeImportable(jf, it) {
 					playable = append(playable, jf)
 				}
 			}
@@ -1198,6 +1198,9 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 		}
 		out := make([]jellyfin.Item, 0, len(hits))
 		for _, h := range hits {
+			if ytdlp.IsStagingPath(h.Path) {
+				continue
+			}
 			if ytdlp.PathMatches(h.Path, it.ID) {
 				out = append(out, h)
 			}
@@ -1344,16 +1347,21 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-// youtubeImportable reports whether a Jellyfin hit is a playable YouTube
-// Episode or Video (runtime >= 60s and a YouTube identity). Folder/Series
-// and short clips never import and never markPresent.
-func youtubeImportable(jf jellyfin.Item) bool {
+// youtubeImportable reports whether a Jellyfin hit is a finalized playable
+// YouTube Episode or Video. Folder/Series never import. _staging paths are
+// never admitted even with a valid [id]. Duration uses the item's effective
+// min_duration_seconds (-1 disables the floor so Shorts can import).
+func youtubeImportable(jf jellyfin.Item, it manifest.Item) bool {
 	switch jf.Type {
 	case "Episode", "Video":
 	default:
 		return false
 	}
-	if jf.RuntimeSeconds() < 60 {
+	if ytdlp.IsStagingPath(jf.Path) {
+		return false
+	}
+	minDur := manifest.EffectiveMinDuration(it.Filters)
+	if minDur >= 0 && jf.RuntimeSeconds() < minDur {
 		return false
 	}
 	if _, ok := ytdlp.ParseYouTubeID(jf.Path); ok {

@@ -145,6 +145,109 @@ func TestYouTubeFolderSiblingDoesNotImportOrMarkPresent(t *testing.T) {
 	assert.Empty(t, tv.PresentCalls)
 }
 
+func TestYouTubeShortsImportWhenMinDurationDisabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	exOff := false
+	jf := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "jf-short", Name: "Tiny Build", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/mark-rober-shorts/Season 01/mark-rober-shorts - S01E001 - Tiny Build [dQw4w9wgxcQ].mkv",
+			Runtime: 25 * time.Second,
+		},
+		jellyfin.Item{
+			ID: "jf-normal", Name: "Long Build", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/mark-rober-science-class/Season 01/mark-rober-science-class - S01E001 - Long Build [abcdefghijk].mkv",
+			Runtime: 12 * time.Minute,
+		},
+	)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+		SyncWait:               time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{
+		{
+			ID: "mark-rober-shorts", Title: "Mark Rober Shorts",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@MarkRober/shorts",
+			Class: manifest.ClassMixed,
+			Filters: manifest.Filters{
+				ExcludeShorts:      &exOff,
+				MinDurationSeconds: -1,
+			},
+		},
+		{
+			ID: "mark-rober-science-class", Title: "Mark Rober Science Class",
+			Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@MarkRober",
+			Class: manifest.ClassMixed,
+		},
+	}}
+	_, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.True(t, ids["jf-short"], "min_duration_seconds:-1 must import Shorts under 60s")
+	assert.True(t, ids["jf-normal"])
+	members := []string{}
+	for _, colIDs := range jf.Collections {
+		members = append(members, colIDs...)
+	}
+	assert.Contains(t, members, "jf-short")
+}
+
+func TestYouTubeStagingPathNeverImportsOrJoinsCollection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	jf := jellyfin.NewFake(
+		jellyfin.Item{
+			ID: "jf-staging", Name: "Incomplete", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/_staging/paul-sellers - Incomplete [dQw4w9wgxcQ].mkv",
+			Runtime: 20 * time.Minute,
+		},
+		jellyfin.Item{
+			ID: "jf-final", Name: "Dovetails", Type: "Video",
+			Path:    "/media/tv/Primer/Shows/paul-sellers/Season 01/paul-sellers - S01E001 - Dovetails [abcdefghijk].mkv",
+			Runtime: 20 * time.Minute,
+		},
+	)
+	tv := tvclient.NewFake()
+	eng := reconcile.New(reconcile.Deps{
+		Jellyfin: jf, TV: tv,
+		JellyfinCollectionName: "Primer",
+		ReportDir:              filepath.Join(dir, "reports"),
+		SyncWait:               time.Millisecond, SyncPollInterval: time.Millisecond,
+	})
+	m := &manifest.Manifest{Items: []manifest.Item{{
+		ID: "paul-sellers", Title: "Paul Sellers",
+		Kind: manifest.KindYouTubeChannel, URL: "https://www.youtube.com/@PaulSellersWoodwork",
+		Class: manifest.ClassMixed,
+	}}}
+	_, err := eng.Run(context.Background(), m, &manifest.Review{}, reconcile.Options{
+		SkipAcquire: true, SkipSync: true,
+	})
+	require.NoError(t, err)
+	items, listErr := tv.ListMediaItems(context.Background())
+	require.NoError(t, listErr)
+	ids := map[string]bool{}
+	for _, it := range items {
+		ids[it.JellyfinItemID] = true
+	}
+	assert.False(t, ids["jf-staging"], "_staging must never import even with a valid [id]")
+	assert.True(t, ids["jf-final"])
+	for _, members := range jf.Collections {
+		assert.NotContains(t, members, "jf-staging")
+		assert.Contains(t, members, "jf-final")
+	}
+}
+
 func TestYouTubeFailedStillSkipsAcquire(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
