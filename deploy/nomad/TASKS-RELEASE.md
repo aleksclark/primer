@@ -29,9 +29,9 @@ these packaging files.
 
 ## Published artifact and source binding
 
-- **IMAGE-SOURCE:** `218f749f7a1f29198fb7eed9c77709bb28706b72`
-- **Registry selector:** `ghcr.io/aleksclark/primer-tasks@sha256:d18432d281ca5f3bbba26170322b61e3d7d90fa54ee9a33044dadc281da1c11b`
-- **Publication:** [successful run 34115498771](https://github.com/aleksclark/primer/actions/runs/34115498771), artifact `10016167444`
+- **IMAGE-SOURCE:** `7c0ce221b650afa709cc683a74c8345ce882d541`
+- **Registry selector:** `ghcr.io/aleksclark/primer-tasks@sha256:cae04b0e0f4fbe9de716a461ff0bc6ce9172ec4e99031f9f02da5fa464057a1f`
+- **Publication:** [successful run 34167419431](https://github.com/aleksclark/primer/actions/runs/34167419431), artifact `10034643673`
 - **Receipt:** [`tasks-image-receipt.json`](tasks-image-receipt.json), recording the
   source revision, immutable registry selector, trace tag, publication run,
   artifact ID, and freshly verified platform/build-input metadata. Detailed
