@@ -1222,8 +1222,9 @@ func (e *Engine) findJellyfinItems(ctx context.Context, it manifest.Item) ([]jel
 		// Movie,Episode,Video and filter with PathMatches so an empty first
 		// filtered page cannot hide a later hit.
 		hits, err := e.browseAll(ctx, jellyfin.BrowseParams{
-			IncludePath:      true,
-			IncludeItemTypes: "Movie,Episode,Video",
+			IncludePath:        true,
+			IncludeProviderIDs: true,
+			IncludeItemTypes:   "Movie,Episode,Video",
 		})
 		if err != nil {
 			return nil, err

@@ -16,7 +16,7 @@ not copied here.
 ## Final live images
 
 - `primer-tv`: `registry.fleet.clark.team/primer-tv@sha256:ba7965af990019a0193a07f9aa4a296d00dd69d7d0576e254d5ca98d7b77dae0`
-- `content-ingest`: `registry.fleet.clark.team/content-ingest@sha256:0a0201eb38b4b4b6e2c0516d7be91117ec795be7b49b267cd027ae117c3980e1`
+- `content-ingest`: `registry.fleet.clark.team/content-ingest@sha256:f5e5b89be2c757dc122c7059e5c948a01ed6a4c0d1d74c1010ce0fb9d504ec6a`
 
 The restored periodic parent is `content-ingest`, cron `0 */6 * * *`, timezone
 `America/Chicago`, `prohibit_overlap=true`, canonical manifest, no temporary
@@ -34,6 +34,9 @@ The restored periodic parent is `content-ingest`, cron `0 */6 * * *`, timezone
   - `content-ingest` now detects filename-derived Jellyfin YouTube metadata,
     unlocks the item through Jellyfin, queues a local metadata refresh, waits
     for the corrected title/provider IDs, and only then imports/syncs TV rows
+- Final replay fix: YouTube Jellyfin browse now explicitly requests
+  `ProviderIds`, preventing healthy entries from being unnecessarily unlocked
+  and refreshed on every replay.
 
 ## Live proof checkpoints
 
@@ -59,6 +62,12 @@ closed and re-proved live.
 - Fresh Nomad proof with the final image: `0BAkKJ_3Tic` (**Lowest Heart Rate
   Wins!**) imported with the correct Jellyfin title, provider IDs, overview,
   TV title, Collection membership, and streamed decode.
+- Isolated one-item replay proof with the replay-fix image:
+  `/mnt/moosefs/media/primer/.ingest-reports/ingest-20260907-063549.md`
+  completed with imported `0` / updated `0`, and a live lock-state canary on
+  `0BAkKJ_3Tic` remained locked during the replay, proving healthy metadata was
+  not re-unlocked/refreshed. The item was then restored to its normal unlocked
+  state.
 
 ### Final replay / no-churn proof
 
@@ -80,6 +89,8 @@ From `/tmp/primer-ingest-e2e/bulk-identity-proof-final.json`:
 - TV rows: `1696`
 - Jellyfin playables: `1696`
 - Primer Collection members for those YouTube items: `1696`
+- Total actual Primer Collection members: `1862` (`1696` YouTube + `166`
+  curated conventional entries)
 - direct-play compatible: `1696`
 - duplicate YouTube IDs: `0`
 - short-duration legacy exclusions still absent: `13`
@@ -98,7 +109,13 @@ Per-source YouTube totals now visible in Primer Sources:
 - paul-sellers `1`
 - justin-rhodes `1`
 
-## Conventional-manifest status still pending
+## Conventional-manifest and catalog status
+
+Current actual `content_manifest_entries` status counts are:
+
+- `present`: `22`
+- `failed`: `12`
+- `manual`: `1` (`bernstein-ypc`)
 
 The final canonical replay still showed these manifest items as **not yet in
 Jellyfin**:
@@ -117,7 +134,9 @@ Jellyfin**:
 - `earth-power-of-the-planet`
 
 That is an acquisition/catalog availability gap, not a YouTube import identity
-problem. The final replay reported manual rip queue `0` and failed queue `0`.
+problem. The final replay reported manual rip queue `0` and failed queue `0`
+because it was a `--skip-acquire` verification pass; those replay counters do
+not mean the catalog has no pending failed/manual titles.
 
 ## TV schedule / availability guardrail
 
