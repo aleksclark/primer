@@ -676,24 +676,23 @@ func (e *Engine) refreshJellyfin(ctx context.Context, rep *Report) error {
 	if err := e.deps.Jellyfin.RefreshLibrary(ctx); err != nil {
 		return fmt.Errorf("jellyfin refresh: %w", err)
 	}
-	deadline := time.Now().Add(e.deps.SyncWait)
-	for time.Now().Before(deadline) {
-		running, err := e.deps.Jellyfin.ScanRunning(ctx)
+	scanCtx, cancel := context.WithTimeout(ctx, e.deps.SyncWait)
+	defer cancel()
+	for {
+		running, err := e.deps.Jellyfin.ScanRunning(scanCtx)
 		if err != nil {
-			e.log.Warn("scan status check failed", "error", err)
-			break
+			return fmt.Errorf("jellyfin scan status: %w", err)
 		}
 		if !running {
-			break
+			rep.JellyfinRefreshed = true
+			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-scanCtx.Done():
+			return fmt.Errorf("jellyfin scan did not finish within %s: %w", e.deps.SyncWait, scanCtx.Err())
 		case <-time.After(e.deps.SyncPollInterval):
 		}
 	}
-	rep.JellyfinRefreshed = true
-	return nil
 }
 
 // syncTV runs POST /jellyfin/sync after import so constructed titles exist first.

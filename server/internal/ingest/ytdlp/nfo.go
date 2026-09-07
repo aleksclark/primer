@@ -42,6 +42,9 @@ func WriteShowNFO(outputDir, slug, title, channelID string) (string, error) {
 	b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>`)
 	b.WriteByte('\n')
 	b.WriteString("<tvshow>\n")
+	// These are curated YouTube identities, not TVDB episode numbers. Do not
+	// let remote television metadata overwrite locally authored identity.
+	writeTag(&b, "lockdata", "true")
 	writeTag(&b, "title", title)
 	writeTag(&b, "originaltitle", title)
 	writeTag(&b, "sorttitle", title)
@@ -81,6 +84,7 @@ func WriteEpisodeNFO(mediaPath string, meta EpisodeNFO) (string, error) {
 	b.WriteString(`<?xml version="1.0" encoding="utf-8" standalone="yes"?>`)
 	b.WriteByte('\n')
 	b.WriteString("<episodedetails>\n")
+	writeTag(&b, "lockdata", "true")
 	writeTag(&b, "title", meta.Title)
 	writeTag(&b, "showtitle", meta.ShowTitle)
 	writeTag(&b, "season", fmt.Sprintf("%d", meta.Season))

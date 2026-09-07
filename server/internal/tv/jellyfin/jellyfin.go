@@ -478,8 +478,9 @@ func (c *HTTPClient) ScanRunning(ctx context.Context) (bool, error) {
 		if !strings.EqualFold(t.State, "Running") {
 			continue
 		}
-		name := strings.ToLower(t.Name + " " + t.Key)
-		if strings.Contains(name, "scan") || strings.Contains(name, "library") || strings.Contains(name, "refresh") {
+		// Media-segment/trickplay scans can run for hours; only the actual
+		// library refresh task establishes import visibility.
+		if strings.EqualFold(t.Key, "RefreshLibrary") || (t.Key == "" && strings.EqualFold(t.Name, "Scan Media Library")) {
 			return true, nil
 		}
 	}
