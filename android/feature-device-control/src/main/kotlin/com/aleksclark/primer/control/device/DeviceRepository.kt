@@ -7,6 +7,7 @@ import com.aleksclark.primertasks.client.IssueEnrollmentInput
 import com.aleksclark.primertasks.client.Policy
 import com.aleksclark.primertasks.client.PolicyRevision
 import com.aleksclark.primertasks.client.RecoveryEnvelope
+import com.aleksclark.primertasks.client.RecoveryHistoryPage
 import com.aleksclark.primertasks.client.RecoveryIntentInput
 import com.aleksclark.primertasks.client.Release
 import com.aleksclark.primertasks.client.ReleaseTargetInput
@@ -28,6 +29,7 @@ class DeviceRepository(
     suspend fun desired(id: String): DesiredState = client.managedDeviceDesired(id)
     suspend fun quarantine(id: String, reason: String) = client.quarantineManagedDevice(id, StateChangeInput(reason = reason))
     suspend fun revoke(id: String, reason: String) = client.revokeManagedDevice(id, StateChangeInput(reason = reason))
+    suspend fun recoveryHistory(id: String): RecoveryHistoryPage = client.listManagedRecoveryHistory(id)
     suspend fun releases() = client.listManagedReleases()
 
     suspend fun target(deviceId: String, release: Release, desired: DesiredState, requeue: Boolean = false) =

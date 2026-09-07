@@ -35,6 +35,7 @@ import com.aleksclark.primertasks.client.Enrollment
 import com.aleksclark.primertasks.client.ManagedDevice
 import com.aleksclark.primertasks.client.Occurrence
 import com.aleksclark.primertasks.client.Pairing
+import com.aleksclark.primertasks.client.RecoveryIntent
 import com.aleksclark.primertasks.client.Release
 import com.aleksclark.primertasks.client.Schedule
 import com.aleksclark.primertasks.client.Student
@@ -95,7 +96,10 @@ data class ControlUiState(
     val secondFactorCode: String = "",
     val secondFactorStrategies: List<String> = emptyList(),
     val selectedSecondFactor: String = "",
+    val clerkAuthorizedParty: String? = null,
+    val clerkIssuer: String? = null,
     val recovery: RecoveryBinding? = null,
+    val recoveryHistory: List<RecoveryIntent> = emptyList(),
     val approvedAppDraft: ApprovedAppDraft = ApprovedAppDraft(),
     val creatingStudent: Boolean = false,
     val creatingTask: Boolean = false,
@@ -819,7 +823,14 @@ class ControlViewModel(
     }
 
     fun closeDevice() {
-        _state.value = _state.value.copy(selectedDevice = null, desired = null, recovery = null, syncStatus = null, approvedAppDraft = ApprovedAppDraft())
+        _state.value = _state.value.copy(
+            selectedDevice = null,
+            desired = null,
+            recovery = null,
+            recoveryHistory = emptyList(),
+            syncStatus = null,
+            approvedAppDraft = ApprovedAppDraft(),
+        )
     }
 
     fun update(transform: (ControlUiState) -> ControlUiState) {
@@ -879,11 +890,14 @@ class ControlViewModel(
         val desired = devicesFor(ctx).desired(deviceId)
         if (!stillValid(ctx)) return
         val recovery = _state.value.recovery?.takeIf { it.matches(latest.id, latest.enrollmentPublicKey) }
+        val history = devicesFor(ctx).recoveryHistory(deviceId).items
+        if (!stillValid(ctx)) return
         commit(ctx) {
             it.copy(
                 selectedDevice = latest,
                 desired = desired,
                 recovery = recovery,
+                recoveryHistory = history,
                 syncStatus = DeviceSync.status(latest.desiredRevision, latest.appliedRevision, latest.latestReport),
             )
         }
@@ -1055,6 +1069,7 @@ class ControlViewModel(
         }
         val ctx = AuthContext(sessionId = liveSid, epoch = attemptEpoch, token = token)
         session = ctx
+        val claims = identity.sessionClaims()
         try {
             tasksFor(ctx).session()
             commit(ctx) {
@@ -1070,6 +1085,8 @@ class ControlViewModel(
                     secondFactorCode = "",
                     secondFactorStrategies = emptyList(),
                     selectedSecondFactor = "",
+                    clerkAuthorizedParty = claims?.authorizedParty,
+                    clerkIssuer = claims?.issuer,
                 )
             }
             if (_state.value.discovery.periodicEnabled && catalogJob?.isActive != true) syncCatalogTicker()
@@ -1081,9 +1098,23 @@ class ControlViewModel(
             if (error.statusCode == 401 || error.statusCode == 403) {
                 fence()
                 session = null
-                _state.value = signedOut(signedIn = true, message = controlMessage(error))
+                _state.value = signedOut(
+                    signedIn = true,
+                    message = controlMessage(error),
+                    clerkAuthorizedParty = claims?.authorizedParty,
+                    clerkIssuer = claims?.issuer,
+                )
             } else {
-                commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error)) }
+                commit(ctx) {
+                    it.copy(
+                        ready = true,
+                        signedIn = true,
+                        householdOk = false,
+                        message = controlMessage(error),
+                        clerkAuthorizedParty = claims?.authorizedParty,
+                        clerkIssuer = claims?.issuer,
+                    )
+                }
             }
         } catch (error: Exception) {
             if (stillValid(ctx)) commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = false, message = controlMessage(error)) }
@@ -1112,7 +1143,12 @@ class ControlViewModel(
     private fun tasksFor(ctx: AuthContext) = tasksFactory(CredentialProvider { ctx.token })
     private fun devicesFor(ctx: AuthContext) = devicesFactory(CredentialProvider { ctx.token })
 
-    private fun signedOut(signedIn: Boolean = false, message: String? = null): ControlUiState {
+    private fun signedOut(
+        signedIn: Boolean = false,
+        message: String? = null,
+        clerkAuthorizedParty: String? = null,
+        clerkIssuer: String? = null,
+    ): ControlUiState {
         catalogJob?.cancel()
         catalogJob = null
         return ControlUiState(
@@ -1123,6 +1159,8 @@ class ControlViewModel(
             message = message,
             discovery = _state.value.discovery,
             selfUpdate = _state.value.selfUpdate.copy(discovery = _state.value.discovery),
+            clerkAuthorizedParty = clerkAuthorizedParty,
+            clerkIssuer = clerkIssuer,
         )
     }
 

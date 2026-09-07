@@ -55,7 +55,7 @@ physical acceptance. Needed configuration, without changing canonical auth here:
 - Publishable key only in the APK (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secrets stay out of the binary.
 - Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata. Hosted Account Portal is not in 0.1.31. Control implements official `SignIn.create` password, then continues Clerk-supported second factors on the same SignIn object: TOTP, backup code, SMS, or email code (`attemptSecondFactor` / `prepareSecondFactor`). Only the **new** session ID is activated. Unsupported incomplete states stay incomplete. Do not weaken server policy.
 - Declared 0.1.31 coordinates (POM / Gradle metadata, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0 (Kotlin 2.2 metadata), coroutines 1.10.2, androidx.browser 1.9.0 (`minAndroidGradlePluginVersion=8.9.1`, `minCompileSdk=36`), Compose BOM 2026.01.00 / runtime 1.10.1. The catalog pins AGP **8.10.0**, Gradle **8.11.1**, Kotlin **2.2.0**, serialization **1.9.0**, coroutines **1.10.2**, lifecycle **2.10.0**, and Compose BOM **2026.01.00** so those artifacts resolve without forced downgrades, `-Xskip-metadata-version-check`, or lint disable/baseline. `:app-control` and `:core-parent-identity` compile against API 36; minSdk remains **28** and targetSdk remains 35. Compile/lint success is not live Clerk runtime evidence. Unit tests do not initialize a live Clerk backend.
-- Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set. Live Clerk JWT claims are unmeasured here.
+- Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE, backup exclusion, and password IME are set. After a native session exists, Control reports public Clerk claims only (`iss`, `azp`, `aud` present/missing). Raw JWTs, session ids, and subjects are never shown.
 - Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
 
 ### Control self-update
@@ -152,10 +152,12 @@ PRIMER_API_ORIGIN=https://<tasks-host>/tasks/api \
 ./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
 ```
 
-Acceptance measurements after a real Control login (not claimed): issuer matches
-`TASKS_CLERK_ISSUER`, session id present, authorized-party matches whatever Clerk
-emits for this app, no-membership denial, household B isolation, Tasks logout
-before Clerk.signOut.
+Acceptance measurements after a real Control login: issuer and authorized party
+are shown on the sign-in/denied screen from the native JWT payload. Session id
+and subject stay boolean-only. Exact `azp` is whatever Clerk emits for this app
+(web origin or `com.aleksclark.primer.control`). Native parties are additive on
+`TASKS_CLERK_AUTHORIZED_PARTIES` and never replace `TASKS_PUBLIC_ORIGIN`. No-membership
+denial, household isolation, and Tasks logout before Clerk.signOut remain required.
 
 
 ## Build

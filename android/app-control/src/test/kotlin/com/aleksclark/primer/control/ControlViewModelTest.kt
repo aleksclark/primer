@@ -531,6 +531,46 @@ class ControlViewModelTest {
     }
 
     @Test
+    fun logoutInvalidatesPreparedUpdateBeforeProviderSignOut() = runBlocking {
+        val session = RecordingSession()
+        session.eligibility = SelfUpdateEligibility(true, false, "unattended")
+        val apkBytes = ByteArray(12) { 'x'.code.toByte() }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path == "/api/auth/logout" -> MockResponse().setBody("""{"status":"ok"}""")
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
+                    request.path == "/api/managed-releases/00000000-0000-4000-8000-000000000002/apk" -> MockResponse().setBody(okio.Buffer().write(apkBytes))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val dir = java.io.File.createTempFile("control-fence", "dir").apply {
+            delete()
+            mkdirs()
+        }
+        val coordinator = coordinator(session)
+        val model = model(identity, updater = coordinator, downloadDir = dir)
+        awaitHousehold(model)
+        model.setDiscovery(checkOnResume = true, periodicEnabled = false, unattendedCatchUp = false)
+        model.loadDevices()
+        awaitPhase(model, ControlSelfUpdatePhase.EligibleUnattended)
+        assertTrue(model.state.value.selfUpdate.canInstall)
+        model.signOut()
+        awaitSignedOut(model)
+        assertEquals(0, session.installs)
+        runCatching { coordinator.installPrepared() }.onSuccess {
+            throw AssertionError("logout must invalidate the prepared Control APK")
+        }
+        assertEquals(0, session.installs)
+    }
+
+    @Test
     fun cancelThenRetryNeverAutoInstalls() = runBlocking {
         val session = RecordingSession(pending = true, live = true, hasConfirmation = true)
         session.eligibility = SelfUpdateEligibility(true, false, "unattended")

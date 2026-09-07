@@ -26,6 +26,16 @@ class DeviceRepositoryTest {
     }
 
     @Test
+    fun recoveryHistoryUsesParentGet() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"items":[]}"""))
+        DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" }).recoveryHistory("device-1")
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertEquals("/api/managed-devices/device-1/recovery", request?.path)
+        assertEquals("GET", request?.method)
+        assertEquals("Bearer parent-jwt", request?.getHeader("Authorization"))
+    }
+
+    @Test
     fun listsManagedDevicesWithParentJwt() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"items":[]}"""))
         DeviceRepository(server.url("/").toString(), CredentialProvider { "parent-jwt" }).list()

@@ -24,6 +24,7 @@ import com.aleksclark.primertasks.client.ApprovedApp
 import com.aleksclark.primertasks.client.DesiredState
 import com.aleksclark.primertasks.client.Enrollment
 import com.aleksclark.primertasks.client.ManagedDevice
+import com.aleksclark.primertasks.client.RecoveryIntent
 import com.aleksclark.primertasks.client.Release
 
 @Composable
@@ -90,6 +91,7 @@ fun DeviceDetailScreen(
     onRelease: (String) -> Unit,
     message: String?,
     recovery: RecoveryBinding?,
+    recoveryHistory: List<RecoveryIntent> = emptyList(),
     approvedAppDraft: ApprovedAppDraft,
     onApprovedPackage: (String) -> Unit,
     onApprovedSigner: (String) -> Unit,
@@ -170,6 +172,18 @@ fun DeviceDetailScreen(
             }
             PrimerCheckboxRow(text = "I stored these recovery codes off this device", checked = recovery.acknowledged, onCheckedChange = onAcknowledge)
             PrimerButton(text = "Rotate recovery", onClick = onRotateRecovery, enabled = recovery.acknowledged && !mutating)
+        }
+        PrimerSectionHeader(label = "History", title = "Recovery and maintenance")
+        if (recoveryHistory.isEmpty()) {
+            PrimerStatus("No recovery or maintenance intents have been recorded for this device.", tone = PrimerStatusTone.Neutral)
+        } else {
+            recoveryHistory.forEach { intent ->
+                PrimerRecordRow(
+                    label = RecoveryHistoryView.label(intent),
+                    value = intent.createdAt,
+                    status = RecoveryHistoryView.status(intent),
+                )
+            }
         }
     }
 }

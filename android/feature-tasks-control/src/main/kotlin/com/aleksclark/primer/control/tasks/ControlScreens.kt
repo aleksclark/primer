@@ -70,6 +70,8 @@ fun ControlSignInScreen(
     selectedSecondFactor: String = "",
     onSelectSecondFactor: (String) -> Unit = {},
     onCancelSecondFactor: () -> Unit = {},
+    clerkAuthorizedParty: String? = null,
+    clerkIssuer: String? = null,
 ) {
     PrimerFormColumn {
         PrimerSectionHeader(
@@ -83,6 +85,12 @@ fun ControlSignInScreen(
         )
         if (denied) PrimerStatus("Signed in, but this household does not include your account.", tone = PrimerStatusTone.Attention)
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
+        if (!clerkIssuer.isNullOrBlank() || !clerkAuthorizedParty.isNullOrBlank()) {
+            PrimerStatus(
+                "Clerk session issuer ${clerkIssuer ?: "missing"}. Authorized party ${clerkAuthorizedParty ?: "missing"}.",
+                tone = PrimerStatusTone.Neutral,
+            )
+        }
         if (secondFactorRequired) {
             if (secondFactorStrategies.size > 1) {
                 secondFactorStrategies.forEach { strategy ->

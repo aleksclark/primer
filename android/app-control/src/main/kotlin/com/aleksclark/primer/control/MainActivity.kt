@@ -142,6 +142,8 @@ private fun ControlAppScreen(
             selectedSecondFactor = state.selectedSecondFactor,
             onSelectSecondFactor = model::selectSecondFactor,
             onCancelSecondFactor = model::cancelSecondFactor,
+            clerkAuthorizedParty = state.clerkAuthorizedParty,
+            clerkIssuer = state.clerkIssuer,
         )
         return
     }
@@ -334,6 +336,7 @@ private fun ControlAppScreen(
                         onRelease = { value -> model.update { it.copy(selectedReleaseId = value) } },
                         message = state.message,
                         recovery = state.recovery,
+                        recoveryHistory = state.recoveryHistory,
                         approvedAppDraft = state.approvedAppDraft,
                         onApprovedPackage = { value -> model.update { it.copy(approvedAppDraft = it.approvedAppDraft.copy(packageName = value)) } },
                         onApprovedSigner = { value -> model.update { it.copy(approvedAppDraft = it.approvedAppDraft.copy(signerSha256 = value)) } },

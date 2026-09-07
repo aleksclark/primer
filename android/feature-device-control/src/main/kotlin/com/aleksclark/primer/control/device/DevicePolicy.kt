@@ -66,6 +66,16 @@ fun Policy.withMaintenance(allowParentUnlock: Boolean): Policy =
 fun policyUpdate(baseRevision: Long, policy: Policy) =
     PolicyUpdateInput(baseRevision = baseRevision, policy = policy)
 
+object RecoveryHistoryView {
+    fun label(intent: com.aleksclark.primertasks.client.RecoveryIntent): String = when (intent.kind) {
+        "maintenance_lease" -> "Maintenance lease"
+        "rotate_recovery_code" -> "Recovery rotation"
+        else -> intent.kind
+    }
+
+    fun status(intent: com.aleksclark.primertasks.client.RecoveryIntent): String = intent.status
+}
+
 object MaintenanceLease {
     const val DEFAULT_MINUTES = 15L
     const val MIN_MINUTES = 1L
