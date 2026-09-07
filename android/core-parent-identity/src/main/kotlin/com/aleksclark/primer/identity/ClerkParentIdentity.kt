@@ -101,6 +101,19 @@ class ClerkParentIdentity(
         if (!configured) return SignInOutcome.Failed("Clerk publishable key is not set on this build.")
         if (!ready()) return SignInOutcome.Failed("Clerk did not become ready. Check the network and try again.")
         signInLock.withLock { pendingSignIn = null }
+        val credential = when (
+            val result = try {
+                SignIn.authenticateWithGoogleCredential(listOf(SignIn.CredentialType.GOOGLE))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return SignInOutcome.Failed("Unable to reach Google or Clerk. Check your connection and try again.")
+            }
+        ) {
+            is ClerkResult.Success -> result.value
+            is ClerkResult.Failure -> null
+        }
+        if (credential != null) return finishSignIn(credential, prepareIfNeeded = true)
         val oauth = when (
             val result = try {
                 SignIn.authenticateWithRedirect(
@@ -288,7 +301,7 @@ class ClerkParentIdentity(
         val message = clerkFailure(result, "Google sign-in was cancelled or not accepted. Try again.")
         val redirect = ControlOriginPolicy.CLERK_NATIVE_OAUTH_REDIRECT
         return if (message.contains("redirect", ignoreCase = true) || message.contains("authorized", ignoreCase = true)) {
-            "Clerk rejected the native Google return URL. In Clerk Dashboard → Paths / Redirect URLs, allow $redirect. MFA and authorized parties stay unchanged."
+            "Clerk rejected native Google return $redirect. Allow that exact Native application redirect URL in Clerk (not an HTTPS web callback). MFA and authorized parties stay unchanged."
         } else {
             message
         }

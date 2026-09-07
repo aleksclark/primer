@@ -63,7 +63,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as ControlApp
         val apiBase = ControlOriginPolicy.apiBase(BuildConfig.CONFIGURED_API_ORIGIN, BuildConfig.DEBUG)
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContent {
             PrimerTheme {
@@ -102,6 +101,15 @@ private fun ControlAppScreen(
     startSettings: (android.content.Intent) -> Unit = {},
 ) {
     val state by model.state.collectAsStateWithLifecycle()
+    val activity = androidx.compose.ui.platform.LocalContext.current as? ComponentActivity
+    androidx.compose.runtime.SideEffect {
+        val window = activity?.window ?: return@SideEffect
+        if (state.householdOk) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, model) {
         val observer = LifecycleEventObserver { _, event ->
