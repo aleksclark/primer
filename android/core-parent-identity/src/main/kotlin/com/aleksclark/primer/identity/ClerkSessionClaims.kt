@@ -18,7 +18,7 @@ data class ClerkSessionClaims(
 
     fun sessionAuthMessage(): String? {
         if (authorizedParty.isNullOrBlank()) {
-            return "Clerk session issuer ${issuer ?: "missing"}. Authorized party missing. Tasks requires JWT azp (native application ID or the web origin). This is not a household-membership denial."
+            return "Clerk session issuer ${issuer ?: "missing"}. Authorized party omitted (native session tokens may omit azp). This is not a household-membership denial."
         }
         return null
     }

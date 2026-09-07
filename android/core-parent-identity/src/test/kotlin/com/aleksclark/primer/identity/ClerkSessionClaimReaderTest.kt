@@ -35,7 +35,7 @@ class ClerkSessionClaimReaderTest {
         val jwt = jwt("""{"iss":"https://clerk.primerlms.com","sid":"s","sub":"u"}""")
         val claims = ClerkSessionClaimReader.fromJwt(jwt)!!
         val message = claims.sessionAuthMessage()!!
-        assertTrue(message.contains("Authorized party missing"))
+        assertTrue(message.contains("Authorized party omitted"))
         assertTrue(message.contains("not a household-membership denial"))
         assertFalse(message.contains("does not include your account"))
     }
