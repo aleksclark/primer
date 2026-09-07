@@ -73,4 +73,56 @@ class SelfUpdateFlowTest {
         val idle = active.copy(active = false)
         assertEquals(idle, SelfUpdateFlow.onMissingInstallerSession(idle))
     }
+
+    @Test
+    fun clearFailedReturnsIdleWithoutTouchingLiveSessions() {
+        val failed = SelfUpdateFlow.onCancel(active)
+        val cleared = SelfUpdateFlow.onClearFailed(failed)
+        assertEquals(SelfUpdateFlow.idle(), cleared)
+        assertEquals("queued", cleared.outcomeStatus)
+        assertFalse(cleared.active)
+        val pending = active.copy(pendingConfirmation = true, hasConfirmation = true, outcomeStatus = "blocked")
+        assertEquals(pending, SelfUpdateFlow.onClearFailed(pending))
+        val installing = active.copy(outcomeStatus = "installing")
+        assertEquals(installing, SelfUpdateFlow.onClearFailed(installing))
+        val idle = SelfUpdateFlow.idle()
+        assertEquals(idle, SelfUpdateFlow.onClearFailed(idle))
+    }
+
+    @Test
+    fun retryAndCancelAffordancesFollowSessionSnapshot() {
+        val waiting = SelfUpdateSessionState(
+            status = "Waiting for system install confirmation",
+            active = true,
+            pendingConfirmation = true,
+            installerSessionLive = true,
+            desiredVersion = 2,
+            lastOutcome = InstallAttempt("blocked"),
+            hasConfirmationIntent = true,
+        )
+        assertTrue(SelfUpdateFlow.canCancel(waiting))
+        assertFalse(SelfUpdateFlow.canRetry(waiting))
+        val failed = SelfUpdateSessionState(
+            status = "Update failed: Installation cancelled",
+            active = false,
+            pendingConfirmation = false,
+            installerSessionLive = false,
+            desiredVersion = 2,
+            lastOutcome = InstallAttempt("failed", error = "Installation cancelled"),
+            hasConfirmationIntent = false,
+        )
+        assertFalse(SelfUpdateFlow.canCancel(failed))
+        assertTrue(SelfUpdateFlow.canRetry(failed))
+        val idle = SelfUpdateSessionState(
+            status = "No self-update attempted",
+            active = false,
+            pendingConfirmation = false,
+            installerSessionLive = false,
+            desiredVersion = 0,
+            lastOutcome = InstallAttempt("queued"),
+            hasConfirmationIntent = false,
+        )
+        assertFalse(SelfUpdateFlow.canCancel(idle))
+        assertFalse(SelfUpdateFlow.canRetry(idle))
+    }
 }

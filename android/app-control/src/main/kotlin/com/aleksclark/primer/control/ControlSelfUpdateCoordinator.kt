@@ -10,6 +10,7 @@ import com.aleksclark.primer.control.device.ControlSelfUpdatePhase
 import com.aleksclark.primer.control.device.ControlSelfUpdateUi
 import com.aleksclark.primer.updates.SelfUpdateCommands
 import com.aleksclark.primer.updates.SelfUpdateEligibility
+import com.aleksclark.primer.updates.SelfUpdateFlow
 import com.aleksclark.primer.updates.SelfUpdateSession
 import com.aleksclark.primer.updates.SelfUpdateSessionState
 import com.aleksclark.primer.updates.SignedManifest
@@ -109,6 +110,8 @@ class ControlSelfUpdateCoordinator(
             canInstall = eligible && !state.active && sources && !state.pendingConfirmation && !blocksInstall(state, deferred),
             canOpenSettings = !sources,
             canContinueConfirmation = state.pendingConfirmation && state.installerSessionLive && state.hasConfirmationIntent,
+            canCancel = SelfUpdateFlow.canCancel(state),
+            canRetry = SelfUpdateFlow.canRetry(state) && trustRoot.isNotBlank(),
             presentation = when (presentation) {
                 is UserActionPresentation.Deferred -> presentation.reason
                 UserActionPresentation.ShownOnActivity -> "System confirmation is on screen."
@@ -173,6 +176,28 @@ class ControlSelfUpdateCoordinator(
             lastPresentation.set(presented)
             presented.shown
         }
+        return ui()
+    }
+
+    fun cancelInstall(): ControlSelfUpdateUi {
+        session.cancel()
+        lastPresentation.set(null)
+        clearPrepared()
+        return ui()
+    }
+
+    fun retryFailed(): ControlSelfUpdateUi {
+        session.reconcile()
+        val state = session.snapshot()
+        if (SelfUpdateFlow.canCancel(state)) {
+            error("Cancel the live install confirmation before retrying.")
+        }
+        if (!SelfUpdateFlow.canRetry(state)) {
+            error("There is no failed Control update to retry.")
+        }
+        session.clearFailed()
+        lastPresentation.set(null)
+        clearPrepared()
         return ui()
     }
 

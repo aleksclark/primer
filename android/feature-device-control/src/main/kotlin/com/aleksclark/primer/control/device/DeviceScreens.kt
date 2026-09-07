@@ -36,6 +36,8 @@ fun DevicesScreen(
     onOpen: (ManagedDevice) -> Unit,
     onInstallUpdate: () -> Unit = {},
     onContinueUpdate: () -> Unit = {},
+    onCancelUpdate: () -> Unit = {},
+    onRetryUpdate: () -> Unit = {},
     onDiscoveryCheckOnResume: (Boolean) -> Unit = {},
     onDiscoveryPeriodic: (Boolean) -> Unit = {},
     onDiscoveryUnattended: (Boolean) -> Unit = {},
@@ -61,6 +63,8 @@ fun DevicesScreen(
             update = selfUpdate,
             onInstall = onInstallUpdate,
             onContinue = onContinueUpdate,
+            onCancel = onCancelUpdate,
+            onRetry = onRetryUpdate,
             onOpenSettings = onOpenInstallSettings,
             onCheckOnResume = onDiscoveryCheckOnResume,
             onPeriodic = onDiscoveryPeriodic,
@@ -175,6 +179,8 @@ fun ControlSelfUpdateScreen(
     update: ControlSelfUpdateUi,
     onInstall: () -> Unit = {},
     onContinue: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    onRetry: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onCheckOnResume: (Boolean) -> Unit = {},
     onPeriodic: (Boolean) -> Unit = {},
@@ -203,6 +209,8 @@ fun ControlSelfUpdateScreen(
     if (update.presentation != null) PrimerStatus(update.presentation, tone = PrimerStatusTone.Attention)
     PrimerButton(text = "Install Control update", onClick = onInstall, enabled = update.canInstall)
     PrimerButton(text = "Continue confirmation", onClick = onContinue, enabled = update.canContinueConfirmation, variant = PrimerButtonVariant.Secondary)
+    PrimerButton(text = "Cancel install", onClick = onCancel, enabled = update.canCancel, variant = PrimerButtonVariant.Attention)
+    PrimerButton(text = "Retry failed install", onClick = onRetry, enabled = update.canRetry, variant = PrimerButtonVariant.Secondary)
     PrimerButton(text = "Open install settings", onClick = onOpenSettings, enabled = update.canOpenSettings, variant = PrimerButtonVariant.Secondary)
     PrimerCheckboxRow(
         text = "Check for Control updates on resume (15-minute floor)",

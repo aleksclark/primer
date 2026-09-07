@@ -90,6 +90,9 @@ APK bytes use `/managed-releases/{id}/apk` with the parent JWT, not the
 management artifact route.
 
 Install/hash/copy run on IO. Catch-up of a pending confirmation happens on resume.
+Failed and cancelled installer sessions stay blocked until the parent taps **Cancel install**
+(if a confirmation is live) then **Retry failed install**. Retry only clears the failed
+session through `SelfUpdateCommands.clearFailed`; it never auto-dispatches PackageInstaller.
 Parent settings may enable catalog checks on resume and a 15-minute-floor in-process
 periodic refresh while Control is open (auth-fenced; not WorkManager, not a wake-up
 guarantee). Unattended catch-up is opt-in and only when prepare reported

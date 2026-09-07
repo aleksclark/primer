@@ -72,7 +72,24 @@ object SelfUpdateFlow {
     fun onCancel(current: SelfUpdateRecord): SelfUpdateRecord =
         fail(current, "failed", "Installation cancelled")
 
+    fun onClearFailed(current: SelfUpdateRecord): SelfUpdateRecord {
+        if (current.active || current.pendingConfirmation) return current
+        if (current.outcomeStatus != "failed" && current.outcomeStatus != "blocked") return current
+        return idle()
+    }
+
+    fun canCancel(state: SelfUpdateSessionState): Boolean =
+        state.active || state.pendingConfirmation || state.installerSessionLive
+
+    fun canRetry(state: SelfUpdateSessionState): Boolean {
+        if (state.active || state.pendingConfirmation || state.installerSessionLive) return false
+        val status = state.lastOutcome.status
+        return status == "failed" || status == "blocked"
+    }
+
     fun shouldAbandon(record: SelfUpdateRecord): Boolean = !record.active && record.sessionId >= 0
+
+    fun idle(): SelfUpdateRecord = SelfUpdateRecord()
 
     private fun fail(current: SelfUpdateRecord, outcome: String, reason: String) = current.copy(
         active = false,
@@ -92,4 +109,5 @@ interface SelfUpdateCommands {
     fun handleResult(intent: android.content.Intent, onUserAction: ((android.content.Intent) -> Boolean)? = null): InstallAttempt
     fun resumeUserAction(onUserAction: (android.content.Intent) -> Boolean): InstallAttempt
     fun cancel(): InstallAttempt
+    fun clearFailed(): InstallAttempt
 }

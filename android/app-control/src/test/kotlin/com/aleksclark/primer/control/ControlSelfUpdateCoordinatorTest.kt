@@ -203,6 +203,48 @@ class ControlSelfUpdateCoordinatorTest {
     }
 
     @Test
+    fun cancelLeavesFailedAndDoesNotInstall() {
+        val session = FakeSession(pending = true, live = true, hasConfirmation = true, outcome = "blocked")
+        val apk = File.createTempFile("control-", ".apk").apply { writeBytes(ByteArray(12) { 1 }) }
+        val coordinator = coordinator(session = session)
+        coordinator.prepare(apk, manifest())
+        val cancelled = coordinator.cancelInstall()
+        assertEquals(ControlSelfUpdatePhase.Failed, cancelled.phase)
+        assertTrue(cancelled.canRetry)
+        assertFalse(cancelled.canCancel)
+        assertFalse(cancelled.canInstall)
+        assertEquals(0, session.installs)
+        runCatching { coordinator.installPrepared() }
+        assertEquals(0, session.installs)
+    }
+
+    @Test
+    fun retryClearsFailedWithoutInstalling() {
+        val session = FakeSession()
+        session.outcome = "failed"
+        session.status = "Update failed: Installation cancelled"
+        val coordinator = coordinator(session = session)
+        val apk = File.createTempFile("control-", ".apk").apply { writeBytes(ByteArray(12) { 1 }) }
+        coordinator.prepare(apk, manifest())
+        assertEquals(ControlSelfUpdatePhase.Failed, coordinator.ui(release()).phase)
+        val retried = coordinator.retryFailed()
+        assertEquals(ControlSelfUpdatePhase.Idle, retried.phase)
+        assertFalse(retried.canRetry)
+        assertFalse(retried.canInstall)
+        assertEquals(0, session.installs)
+    }
+
+    @Test
+    fun retryDoesNotClearLiveConfirmation() {
+        val session = FakeSession(pending = true, live = true, hasConfirmation = true, outcome = "blocked")
+        val coordinator = coordinator(session = session)
+        runCatching { coordinator.retryFailed() }
+        assertTrue(session.pending)
+        assertEquals("blocked", session.outcome)
+        assertEquals(0, session.installs)
+    }
+
+    @Test
     fun needsSettingsBlocksDirectInstallPreparedDispatch() {
         val session = FakeSession()
         val coordinator = coordinator(session = session, unknownSourcesAllowed = false)
@@ -339,6 +381,17 @@ class ControlSelfUpdateCoordinatorTest {
             hasConfirmation = false
             outcome = "failed"
             status = "Update failed: Installation cancelled"
+            return snapshot().lastOutcome
+        }
+
+        override fun clearFailed(): InstallAttempt {
+            if (pending || active || live) error("Cancel the live install confirmation before retrying.")
+            outcome = "queued"
+            status = "No self-update attempted"
+            pending = false
+            active = false
+            live = false
+            hasConfirmation = false
             return snapshot().lastOutcome
         }
     }

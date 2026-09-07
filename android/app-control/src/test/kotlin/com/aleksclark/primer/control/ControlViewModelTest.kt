@@ -531,6 +531,78 @@ class ControlViewModelTest {
     }
 
     @Test
+    fun cancelThenRetryNeverAutoInstalls() = runBlocking {
+        val session = RecordingSession(pending = true, live = true, hasConfirmation = true)
+        session.eligibility = SelfUpdateEligibility(true, false, "unattended")
+        val apkBytes = ByteArray(12) { 'x'.code.toByte() }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
+                    request.path == "/api/managed-releases/00000000-0000-4000-8000-000000000002/apk" -> MockResponse().setBody(okio.Buffer().write(apkBytes))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val dir = java.io.File.createTempFile("control-retry", "dir").apply {
+            delete()
+            mkdirs()
+        }
+        val model = model(identity, updater = coordinator(session), downloadDir = dir)
+        awaitHousehold(model)
+        model.setDiscovery(checkOnResume = false, periodicEnabled = false, unattendedCatchUp = true)
+        model.loadDevices()
+        awaitPhase(model, ControlSelfUpdatePhase.WaitingConfirmation)
+        model.cancelControlUpdate()
+        awaitPhase(model, ControlSelfUpdatePhase.Failed)
+        assertEquals(1, session.cancels)
+        assertEquals(0, session.installs)
+        assertTrue(model.state.value.selfUpdate.canRetry)
+        assertFalse(model.state.value.selfUpdate.canInstall)
+        model.retryControlUpdate()
+        awaitPhase(model, ControlSelfUpdatePhase.Idle)
+        assertEquals(1, session.clears)
+        assertEquals(0, session.installs)
+        assertFalse(model.state.value.selfUpdate.canRetry)
+        assertFalse(model.state.value.selfUpdate.canInstall)
+        assertTrue(model.state.value.message!!.contains("Prepare and install again"))
+    }
+
+    @Test
+    fun retryDoesNotClearWaitingConfirmation() = runBlocking {
+        val session = RecordingSession(pending = true, live = true, hasConfirmation = true)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                    request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val model = model(identity, updater = coordinator(session))
+        awaitHousehold(model)
+        model.setDiscovery(checkOnResume = false, periodicEnabled = false, unattendedCatchUp = false)
+        model.loadDevices()
+        awaitPhase(model, ControlSelfUpdatePhase.WaitingConfirmation)
+        model.retryControlUpdate()
+        delay(40)
+        assertEquals(0, session.clears)
+        assertEquals(0, session.installs)
+        assertEquals("Finish or cancel the current install confirmation first.", model.state.value.message)
+        assertEquals(ControlSelfUpdatePhase.WaitingConfirmation, model.state.value.selfUpdate.phase)
+    }
+
+    @Test
     fun periodicCatalogTickIsCancelledByAuthFence() = runBlocking {
         val catalogs = AtomicInteger(0)
         server.dispatcher = object : Dispatcher() {
@@ -706,16 +778,21 @@ class ControlViewModelTest {
         var live: Boolean = false,
         var hasConfirmation: Boolean = false,
         var eligibility: SelfUpdateEligibility = SelfUpdateEligibility(false, true, "confirm"),
+        var outcome: String = if (pending) "blocked" else "queued",
+        var status: String = if (pending) "Waiting for system install confirmation" else "No self-update attempted",
+        var active: Boolean = pending,
     ) : SelfUpdateCommands {
         var evaluations = 0
         var installs = 0
+        var cancels = 0
+        var clears = 0
         override fun snapshot() = SelfUpdateSessionState(
-            status = if (pending) "Waiting for system install confirmation" else "No self-update attempted",
-            active = pending,
+            status = status,
+            active = active,
             pendingConfirmation = pending,
             installerSessionLive = live,
-            desiredVersion = if (pending) 2 else 0,
-            lastOutcome = InstallAttempt(if (pending) "blocked" else "queued"),
+            desiredVersion = if (pending || outcome == "failed") 2 else 0,
+            lastOutcome = InstallAttempt(outcome),
             hasConfirmationIntent = hasConfirmation,
         )
         override fun reconcile() = snapshot().lastOutcome
@@ -729,7 +806,23 @@ class ControlViewModelTest {
         }
         override fun handleResult(intent: android.content.Intent, onUserAction: ((android.content.Intent) -> Boolean)?) = snapshot().lastOutcome
         override fun resumeUserAction(onUserAction: (android.content.Intent) -> Boolean) = snapshot().lastOutcome
-        override fun cancel() = snapshot().lastOutcome
+        override fun cancel(): InstallAttempt {
+            cancels += 1
+            pending = false
+            live = false
+            hasConfirmation = false
+            active = false
+            outcome = "failed"
+            status = "Update failed: Installation cancelled"
+            return snapshot().lastOutcome
+        }
+        override fun clearFailed(): InstallAttempt {
+            if (pending || active || live) error("Cancel the live install confirmation before retrying.")
+            clears += 1
+            outcome = "queued"
+            status = "No self-update attempted"
+            return snapshot().lastOutcome
+        }
     }
 
     private fun sessionAndStudents() = object : Dispatcher() {

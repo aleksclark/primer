@@ -164,6 +164,20 @@ class SelfUpdateSession(
         lastOutcome
     }
 
+    override fun clearFailed(): InstallAttempt = synchronized(lock) {
+        reconcile()
+        val current = record()
+        if (current.active || current.pendingConfirmation) {
+            error("Cancel the live install confirmation before retrying.")
+        }
+        val next = SelfUpdateFlow.onClearFailed(current)
+        if (next === current) return lastOutcome
+        runCatching { installer.abandonSession(prefs.getInt("session", -1)) }
+        liveConfirmation = null
+        applyRecord(next)
+        lastOutcome
+    }
+
     override fun reconcile(): InstallAttempt = synchronized(lock) {
         val installed = runCatching { installedInfo().longVersionCode }.getOrDefault(-1L)
         val desired = prefs.getLong("desiredVersion", 0)

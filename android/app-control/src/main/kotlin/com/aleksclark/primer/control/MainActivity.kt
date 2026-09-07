@@ -315,6 +315,8 @@ private fun ControlAppScreen(
                         onOpen = model::openDevice,
                         onInstallUpdate = model::installControlUpdate,
                         onContinueUpdate = model::continueControlUpdate,
+                        onCancelUpdate = model::cancelControlUpdate,
+                        onRetryUpdate = model::retryControlUpdate,
                         onDiscoveryCheckOnResume = { model.setDiscovery(checkOnResume = it) },
                         onDiscoveryPeriodic = { model.setDiscovery(periodicEnabled = it) },
                         onDiscoveryUnattended = { model.setDiscovery(unattendedCatchUp = it) },

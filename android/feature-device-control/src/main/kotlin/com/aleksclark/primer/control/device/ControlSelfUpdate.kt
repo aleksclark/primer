@@ -37,6 +37,8 @@ data class ControlSelfUpdateUi(
     val canInstall: Boolean = false,
     val canOpenSettings: Boolean = false,
     val canContinueConfirmation: Boolean = false,
+    val canCancel: Boolean = false,
+    val canRetry: Boolean = false,
     val presentation: String? = null,
     val discovery: ControlUpdateDiscoverySettings = ControlUpdateDiscoverySettings(),
 )

@@ -680,6 +680,45 @@ class ControlViewModel(
         }
     }
 
+    fun cancelControlUpdate() {
+        val snapshot = _state.value.selfUpdate
+        if (!snapshot.canCancel) {
+            _state.value = _state.value.copy(message = "There is no live Control install to cancel.")
+            return
+        }
+        mutate { ctx ->
+            withContext(io) {
+                if (!stillValid(ctx)) return@withContext
+                updater?.cancelInstall()
+            }
+            if (stillValid(ctx)) {
+                refreshSelfUpdate(ctx)
+                commit(ctx) { it.copy(message = "Control install cancelled. Retry is required before another attempt.") }
+            }
+        }
+    }
+
+    fun retryControlUpdate() {
+        val snapshot = _state.value.selfUpdate
+        if (snapshot.canCancel || snapshot.canContinueConfirmation) {
+            _state.value = _state.value.copy(message = "Finish or cancel the current install confirmation first.")
+            return
+        }
+        if (!snapshot.canRetry) {
+            _state.value = _state.value.copy(message = "There is no failed Control update to retry.")
+            return
+        }
+        mutate { ctx ->
+            withContext(io) {
+                if (!stillValid(ctx)) return@withContext
+                updater?.retryFailed()
+            }
+            if (!stillValid(ctx)) return@mutate
+            refreshSelfUpdate(ctx)
+            commit(ctx) { it.copy(message = "Failed Control install cleared. Prepare and install again to retry.") }
+        }
+    }
+
     fun openInstallSettings(): android.content.Intent? = updater?.settingsIntent()
 
     fun openDevice(device: ManagedDevice) = act { ctx -> reloadDevice(ctx, device.id) }
