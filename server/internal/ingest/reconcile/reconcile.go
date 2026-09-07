@@ -719,7 +719,7 @@ func (e *Engine) ensureCollection(ctx context.Context, m *manifest.Manifest, rep
 	if e.deps.Jellyfin == nil {
 		return nil
 	}
-	desired, err := e.eligibleCollectionIDs(ctx, m, rep)
+	desired, err := e.eligibleCollectionIDs(ctx, m, rep, opts.DryRun)
 	if err != nil {
 		return err
 	}
@@ -802,7 +802,8 @@ func (e *Engine) findNamedCollection(ctx context.Context, name string) (*jellyfi
 
 func (e *Engine) collectionAdds(ctx context.Context, collectionID string, desired []string) (missing []string, already int, err error) {
 	members, err := e.browseAll(ctx, jellyfin.BrowseParams{
-		ParentID: collectionID,
+		ParentID:    collectionID,
+		IncludePath: true, // large collections use the 100k paging ceiling
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("list collection members: %w", err)
@@ -823,7 +824,21 @@ func (e *Engine) collectionAdds(ctx context.Context, collectionID string, desire
 
 // eligibleCollectionIDs returns playable Jellyfin IDs that import would accept
 // this run: exclusions and caps apply; series parents and excluded episodes do not.
-func (e *Engine) eligibleCollectionIDs(ctx context.Context, m *manifest.Manifest, rep *Report) ([]string, error) {
+func (e *Engine) eligibleCollectionIDs(ctx context.Context, m *manifest.Manifest, rep *Report, dryRun bool) ([]string, error) {
+	// A Jellyfin hit alone is not successful TV import. Re-read durable TV
+	// state after import, and never publish an unimported/failed item to the
+	// Collection. Plan mode describes prospective imports without writing.
+	var importedByJF map[string]tvclient.MediaItem
+	if !dryRun {
+		if e.deps.TV == nil {
+			return nil, fmt.Errorf("TV client is required for collection membership")
+		}
+		items, err := e.deps.TV.ListMediaItems(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read imported collection candidates: %w", err)
+		}
+		importedByJF = tvclient.ByJellyfinID(items)
+	}
 	out := make([]string, 0)
 	seen := map[string]struct{}{}
 	for _, it := range m.SortedByPriority() {
@@ -837,6 +852,11 @@ func (e *Engine) eligibleCollectionIDs(ctx context.Context, m *manifest.Manifest
 		for _, jf := range jfItems {
 			if jf.ID == "" {
 				continue
+			}
+			if !dryRun {
+				if _, ok := importedByJF[jf.ID]; !ok {
+					continue
+				}
 			}
 			if youtube {
 				if !youtubeImportable(jf, it) {

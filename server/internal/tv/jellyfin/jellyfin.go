@@ -406,6 +406,7 @@ func (c *HTTPClient) CreateCollection(ctx context.Context, name string, ids []st
 	}
 	q := url.Values{}
 	q.Set("name", name)
+	q.Set("isLocked", "true") // prevent external metadata from renaming our grouping
 	if cleaned := uniqueIDs(ids); len(cleaned) > 0 {
 		q.Set("ids", strings.Join(cleaned, ","))
 	}
@@ -431,9 +432,19 @@ func (c *HTTPClient) AddToCollection(ctx context.Context, collectionID string, i
 	if len(cleaned) == 0 {
 		return nil
 	}
-	q := url.Values{}
-	q.Set("ids", strings.Join(cleaned, ","))
-	return c.post(ctx, "/Collections/"+url.PathEscape(collectionID)+"/Items", q, nil)
+	// IDs are query parameters in Jellyfin's public API. Bound each URI to
+	// comfortably fit proxy request-line limits, even for thousands of videos.
+	// On partial failure, a replay re-lists durable members before adding more.
+	const batchSize = 100
+	for start := 0; start < len(cleaned); start += batchSize {
+		end := min(start+batchSize, len(cleaned))
+		q := url.Values{}
+		q.Set("ids", strings.Join(cleaned[start:end], ","))
+		if err := c.post(ctx, "/Collections/"+url.PathEscape(collectionID)+"/Items", q, nil); err != nil {
+			return fmt.Errorf("collection batch %d: %w", start/batchSize+1, err)
+		}
+	}
+	return nil
 }
 
 func uniqueIDs(ids []string) []string {
