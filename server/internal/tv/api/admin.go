@@ -293,11 +293,6 @@ func (s *Server) syncJellyfin(ctx context.Context, _ *struct{}) (*syncOutput, er
 	return &syncOutput{Body: out}, nil
 }
 
-// batchItemClient is the optional Jellyfin capability used by metadata sync.
-type batchItemClient interface {
-	ItemsByID(ctx context.Context, ids []string) (map[string]jellyfin.Item, error)
-}
-
 func (s *Server) syncPage(ctx context.Context, items []domain.MediaItem, out *SyncResponse) error {
 	if len(items) == 0 {
 		return nil
@@ -306,7 +301,7 @@ func (s *Server) syncPage(ctx context.Context, items []domain.MediaItem, out *Sy
 	for _, item := range items {
 		ids = append(ids, item.JellyfinItemID)
 	}
-	remote, err := s.fetchItems(ctx, ids)
+	remote, err := s.jellyfin.ItemsByID(ctx, ids)
 	if err != nil {
 		return huma.Error502BadGateway("fetch jellyfin items", err)
 	}
@@ -316,25 +311,6 @@ func (s *Server) syncPage(ctx context.Context, items []domain.MediaItem, out *Sy
 		}
 	}
 	return nil
-}
-
-func (s *Server) fetchItems(ctx context.Context, ids []string) (map[string]jellyfin.Item, error) {
-	if batch, ok := s.jellyfin.(batchItemClient); ok {
-		return batch.ItemsByID(ctx, ids)
-	}
-	// Narrow fallback for clients that only implement Item (not production).
-	out := make(map[string]jellyfin.Item, len(ids))
-	for _, id := range ids {
-		item, err := s.jellyfin.Item(ctx, id)
-		if errors.Is(err, jellyfin.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		out[id] = *item
-	}
-	return out, nil
 }
 
 func (s *Server) applyRemote(ctx context.Context, item domain.MediaItem, remote map[string]jellyfin.Item, out *SyncResponse) error {
@@ -395,7 +371,9 @@ func metadataDiff(item domain.MediaItem, remote *jellyfin.Item) map[string]any {
 			values["title"] = desired
 		}
 	}
-	if remote.SortName != "" && remote.SortName != item.SortTitle {
+	// YouTube ordering is the ingest-owned slug + stable episode key. Replacing
+	// it with Jellyfin's raw title here caused every subsequent apply to churn.
+	if item.ManifestSlug == "" && remote.SortName != "" && remote.SortName != item.SortTitle {
 		values["sort_title"] = remote.SortName
 	}
 	if !item.OverviewLocked && remote.Overview != "" && remote.Overview != item.Overview {

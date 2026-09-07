@@ -529,11 +529,17 @@ func (c *HTTPClient) ItemsByID(ctx context.Context, ids []string) (map[string]It
 	if err := c.get(ctx, "/Items", q, &resp); err != nil {
 		return nil, err
 	}
+	if resp.TotalRecordCount > 0 && resp.TotalRecordCount != len(resp.Items) {
+		return nil, fmt.Errorf("jellyfin: incomplete batch response: got %d of %d items", len(resp.Items), resp.TotalRecordCount)
+	}
 	out := make(map[string]Item, len(resp.Items))
 	for _, d := range resp.Items {
 		it := d.toItem()
 		if it.ID == "" {
-			continue
+			return nil, fmt.Errorf("jellyfin: batch response item has no id")
+		}
+		if _, duplicate := out[it.ID]; duplicate {
+			return nil, fmt.Errorf("jellyfin: batch response repeats id %s", it.ID)
 		}
 		if _, ok := want[it.ID]; !ok {
 			return nil, fmt.Errorf("jellyfin: items response included unrequested id %s", it.ID)
