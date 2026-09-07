@@ -12,6 +12,7 @@ interface ParentIdentity {
     suspend fun sessionToken(skipCache: Boolean = false): String?
     suspend fun sessionClaims(skipCache: Boolean = false): ClerkSessionClaims? = ClerkSessionClaimReader.fromJwt(sessionToken(skipCache))
     suspend fun signIn(email: String, password: String): SignInOutcome
+    suspend fun signInWithGoogle(): SignInOutcome
     suspend fun continueSecondFactor(code: String, strategy: String): SignInOutcome
     suspend fun prepareSecondFactor(strategy: String): SignInOutcome
     suspend fun cancelIncompleteSignIn()

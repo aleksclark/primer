@@ -19,6 +19,7 @@ class ClerkSignInPolicyTest {
     fun incompleteStatesAreHonest() {
         assertTrue(ClerkSignInPolicy.incompleteMessage("NEEDS_SECOND_FACTOR").contains("second factor"))
         assertTrue(ClerkSignInPolicy.incompleteMessage("NEEDS_NEW_PASSWORD").contains("new password"))
+        assertTrue(ClerkSignInPolicy.incompleteMessage("SIGN_UP").contains("does not create households"))
         assertTrue(ClerkSignInPolicy.incompleteMessage("UNKNOWN").contains("unsupported"))
     }
 

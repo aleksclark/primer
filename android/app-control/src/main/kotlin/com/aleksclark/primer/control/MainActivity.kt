@@ -132,6 +132,7 @@ private fun ControlAppScreen(
             onEmail = { value -> model.update { it.copy(email = value) } },
             onPassword = { value -> model.update { it.copy(password = value) } },
             onSignIn = model::signIn,
+            onGoogle = model::signInWithGoogle,
             onSignOut = model::signOut,
             signedIn = state.signedIn,
             secondFactorRequired = state.secondFactorRequired,

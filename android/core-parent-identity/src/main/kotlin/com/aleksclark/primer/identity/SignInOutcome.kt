@@ -37,8 +37,10 @@ object ClerkSignInPolicy {
     fun incompleteMessage(statusName: String): String = when (statusName) {
         "NEEDS_SECOND_FACTOR" -> "This account requires a second factor that Control cannot continue."
         "NEEDS_NEW_PASSWORD" -> "This account must set a new password before Control can sign in."
-        "NEEDS_FIRST_FACTOR", "NEEDS_IDENTIFIER" -> "Sign-in is incomplete. Check the email and password."
+        "NEEDS_FIRST_FACTOR", "NEEDS_IDENTIFIER" -> "Sign-in is incomplete. Check the email and password, or continue with Google."
         "NEEDS_CLIENT_TRUST" -> "Clerk needs additional client trust before this session can be used."
+        "MISSING" -> "Google sign-in did not return a Clerk session."
+        "SIGN_UP" -> "This Google account is not an existing Primer parent. Control does not create households."
         "UNKNOWN" -> "Clerk returned an unsupported sign-in state."
         else -> "Clerk sign-in did not create a new session."
     }

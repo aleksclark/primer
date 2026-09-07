@@ -9,6 +9,7 @@ import com.clerk.api.session.fetchToken
 import com.clerk.api.signin.SignIn
 import com.clerk.api.signin.attemptSecondFactor
 import com.clerk.api.signin.prepareSecondFactor
+import com.clerk.api.sso.OAuthProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -17,10 +18,10 @@ import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Official Clerk Android SDK 0.1.31. Password is the first factor; TOTP, backup
- * codes, SMS, and email codes continue through the same SignIn object. Tokens
- * stay in the SDK session. No WebView password capture, JWT paste, cookie
- * scraping, or /auth/callback shortcut.
+ * Official Clerk Android SDK 0.1.31. Password or Google OAuth is the first
+ * factor; TOTP, backup codes, SMS, and email codes continue through the same
+ * SignIn object. Tokens stay in the SDK session. No WebView password capture,
+ * JWT paste, cookie scraping, or /auth/callback shortcut.
  */
 class ClerkParentIdentity(
     private val application: Application,
@@ -94,6 +95,33 @@ class ClerkParentIdentity(
             is ClerkResult.Failure -> return SignInOutcome.Failed(clerkFailure(result, "Clerk sign-in failed. Check the account and try again."))
         }
         return finishSignIn(signIn, prepareIfNeeded = true)
+    }
+
+    override suspend fun signInWithGoogle(): SignInOutcome {
+        if (!configured) return SignInOutcome.Failed("Clerk publishable key is not set on this build.")
+        if (!ready()) return SignInOutcome.Failed("Clerk did not become ready. Check the network and try again.")
+        signInLock.withLock { pendingSignIn = null }
+        val oauth = when (
+            val result = try {
+                SignIn.authenticateWithRedirect(
+                    SignIn.AuthenticateWithRedirectParams.OAuth(provider = OAuthProvider.GOOGLE),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return SignInOutcome.Failed("Unable to reach Google or Clerk. Check your connection and try again.")
+            }
+        ) {
+            is ClerkResult.Success -> result.value
+            is ClerkResult.Failure -> return SignInOutcome.Failed(
+                clerkFailure(result, "Google sign-in was cancelled or not accepted. Try again."),
+            )
+        }
+        oauth.signIn?.let { return finishSignIn(it, prepareIfNeeded = true) }
+        if (oauth.signUp != null) {
+            return SignInOutcome.Incomplete(ClerkSignInPolicy.incompleteMessage("SIGN_UP"))
+        }
+        return SignInOutcome.Incomplete(ClerkSignInPolicy.incompleteMessage("MISSING"))
     }
 
     override suspend fun prepareSecondFactor(strategy: String): SignInOutcome {

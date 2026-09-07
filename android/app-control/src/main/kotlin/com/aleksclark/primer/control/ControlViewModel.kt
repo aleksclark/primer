@@ -198,33 +198,23 @@ class ControlViewModel(
         viewModelScope.launch {
             try {
                 fence()
-                when (val outcome = identity.signIn(email, password)) {
-                    is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
-                    is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = true,
-                        secondFactorCode = "",
-                        secondFactorStrategies = outcome.strategies,
-                        selectedSecondFactor = outcome.selectedStrategy,
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = false,
-                        secondFactorCode = "",
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.Failed -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        message = outcome.message,
-                    )
-                }
+                applySignInOutcome(identity.signIn(email, password))
+            } finally {
+                authGate.end()
+            }
+        }
+    }
+
+    fun signInWithGoogle() {
+        if (mutations.isBusy() || !authGate.tryBegin()) {
+            _state.value = _state.value.copy(message = "Wait for the current change to finish.")
+            return
+        }
+        _state.value = _state.value.copy(password = "", message = null)
+        viewModelScope.launch {
+            try {
+                fence()
+                applySignInOutcome(identity.signInWithGoogle())
             } finally {
                 authGate.end()
             }
@@ -242,33 +232,7 @@ class ControlViewModel(
         viewModelScope.launch {
             try {
                 fence()
-                when (val outcome = identity.continueSecondFactor(code, strategy)) {
-                    is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
-                    is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = true,
-                        secondFactorStrategies = outcome.strategies,
-                        selectedSecondFactor = outcome.selectedStrategy,
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = false,
-                        secondFactorCode = "",
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.Failed -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = true,
-                        message = outcome.message,
-                    )
-                }
+                applySignInOutcome(identity.continueSecondFactor(code, strategy), keepSecondFactorOnFailure = true)
             } finally {
                 authGate.end()
             }
@@ -283,32 +247,7 @@ class ControlViewModel(
         _state.value = _state.value.copy(selectedSecondFactor = strategy, secondFactorCode = "", message = null)
         viewModelScope.launch {
             try {
-                when (val outcome = identity.prepareSecondFactor(strategy)) {
-                    is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = true,
-                        secondFactorStrategies = outcome.strategies,
-                        selectedSecondFactor = outcome.selectedStrategy,
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.Failed -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = true,
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
-                        ready = true,
-                        signedIn = false,
-                        householdOk = false,
-                        secondFactorRequired = false,
-                        message = outcome.message,
-                    )
-                    is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
-                }
+                applySignInOutcome(identity.prepareSecondFactor(strategy), keepSecondFactorOnFailure = true)
             } finally {
                 authGate.end()
             }
@@ -340,6 +279,37 @@ class ControlViewModel(
             } finally {
                 authGate.end()
             }
+        }
+    }
+
+    private suspend fun applySignInOutcome(outcome: SignInOutcome, keepSecondFactorOnFailure: Boolean = false) {
+        when (outcome) {
+            is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
+            is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
+                ready = true,
+                signedIn = false,
+                householdOk = false,
+                secondFactorRequired = true,
+                secondFactorCode = "",
+                secondFactorStrategies = outcome.strategies,
+                selectedSecondFactor = outcome.selectedStrategy,
+                message = outcome.message,
+            )
+            is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
+                ready = true,
+                signedIn = false,
+                householdOk = false,
+                secondFactorRequired = false,
+                secondFactorCode = "",
+                message = outcome.message,
+            )
+            is SignInOutcome.Failed -> _state.value = _state.value.copy(
+                ready = true,
+                signedIn = false,
+                householdOk = false,
+                secondFactorRequired = keepSecondFactorOnFailure && _state.value.secondFactorRequired,
+                message = outcome.message,
+            )
         }
     }
 

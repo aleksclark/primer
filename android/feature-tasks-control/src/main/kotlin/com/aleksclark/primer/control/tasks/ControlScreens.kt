@@ -60,6 +60,7 @@ fun ControlSignInScreen(
     onEmail: (String) -> Unit,
     onPassword: (String) -> Unit,
     onSignIn: () -> Unit,
+    onGoogle: () -> Unit = {},
     onSignOut: () -> Unit,
     signedIn: Boolean,
     secondFactorRequired: Boolean = false,
@@ -80,7 +81,7 @@ fun ControlSignInScreen(
             description = when {
                 !configured -> "Clerk is not configured on this build. Set PRIMER_CLERK_PUBLISHABLE_KEY. Secrets are never bundled."
                 secondFactorRequired -> secondFactorPrompt(selectedSecondFactor)
-                else -> "Official Clerk Android SDK 0.1.31. Password is the first factor; authenticator, backup, SMS, or email codes continue natively. Household membership is checked on the server."
+                else -> "Official Clerk Android SDK 0.1.31. Continue with Google or password. Authenticator, backup, SMS, or email codes continue natively. Household membership is checked on the server."
             },
         )
         if (denied) PrimerStatus("Signed in, but this household does not include your account.", tone = PrimerStatusTone.Attention)
@@ -145,6 +146,7 @@ fun ControlSignInScreen(
                     imeAction = ImeAction.Done,
                 ),
             )
+            PrimerButton(text = "Continue with Google", onClick = onGoogle, enabled = configured, variant = PrimerButtonVariant.Secondary)
             PrimerButton(text = "Sign in", onClick = onSignIn, enabled = configured && email.isNotBlank() && password.isNotBlank())
         }
         if (signedIn) PrimerButton(text = "Sign out", onClick = onSignOut, variant = PrimerButtonVariant.Quiet)

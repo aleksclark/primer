@@ -57,6 +57,25 @@ class ControlViewModelTest {
     }
 
     @Test
+    fun googleSignInContinuesSecondFactorWithoutHouseholdUntilComplete() = runBlocking {
+        server.dispatcher = sessionAndStudents()
+        val identity = FakeIdentity()
+        identity.googleOutcome = SignInOutcome.NeedsSecondFactor(
+            strategies = listOf("totp"),
+            selectedStrategy = "totp",
+            message = "Enter the authenticator code for this account.",
+        )
+        val model = model(identity)
+        awaitReady(model)
+        model.signInWithGoogle()
+        delay(40)
+        assertEquals(1, identity.googleSignIns.get())
+        assertTrue(model.state.value.secondFactorRequired)
+        assertFalse(model.state.value.householdOk)
+        assertEquals("totp", model.state.value.selectedSecondFactor)
+    }
+
+    @Test
     fun delayedStudentOpenAfterLogoutDoesNotRepopulateNewAccount() = runBlocking {
         val hold = CountDownLatch(1)
         server.dispatcher = object : Dispatcher() {
@@ -884,6 +903,14 @@ class ControlViewModelTest {
         throw AssertionError("never reached $phase: ${model.state.value.selfUpdate} message=${model.state.value.message}")
     }
 
+    private suspend fun awaitReady(model: ControlViewModel) {
+        repeat(40) {
+            if (model.state.value.ready) return
+            delay(25)
+        }
+        throw AssertionError("never ready: ${model.state.value}")
+    }
+
     private suspend fun awaitHousehold(model: ControlViewModel) {
         repeat(40) {
             if (model.state.value.householdOk) return
@@ -915,6 +942,8 @@ class ControlViewModelTest {
         private val signInHold = AtomicReference<CompletableDeferred<Unit>?>(null)
         val providerSignOuts = AtomicInteger(0)
         val signIns = AtomicInteger(0)
+        val googleSignIns = AtomicInteger(0)
+        var googleOutcome: SignInOutcome? = null
         var failProviderOnce = false
 
         fun signInAs(sessionId: String, jwt: String) {
@@ -955,6 +984,13 @@ class ControlViewModelTest {
             signInHold.get()?.await()
             signIns.incrementAndGet()
             secondFactor?.let { return it }
+            val id = sid.get() ?: return SignInOutcome.Failed("no session")
+            return SignInOutcome.SignedIn(id)
+        }
+
+        override suspend fun signInWithGoogle(): SignInOutcome {
+            googleSignIns.incrementAndGet()
+            googleOutcome?.let { return it }
             val id = sid.get() ?: return SignInOutcome.Failed("no session")
             return SignInOutcome.SignedIn(id)
         }
