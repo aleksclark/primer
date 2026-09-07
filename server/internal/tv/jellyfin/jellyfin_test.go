@@ -2,6 +2,7 @@ package jellyfin_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -214,6 +215,71 @@ func TestItem(t *testing.T) {
 	assert.Equal(t, "abc123", gotQuery.Get("Ids"))
 }
 
+func TestItemsByIDBatchesRequestedIDs(t *testing.T) {
+	t.Parallel()
+	hits := 0
+	var gotQuery url.Values
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		gotQuery = r.URL.Query()
+		assert.Equal(t, "/Items", r.URL.Path)
+		_, _ = w.Write([]byte(`{
+			"Items": [
+				{"Id":"a","Name":"A","Type":"Movie"},
+				{"Id":"b","Name":"B","Type":"Movie"}
+			]
+		}`))
+	}))
+
+	ids := make([]string, 0, 100)
+	for i := 0; i < 100; i++ {
+		ids = append(ids, fmt.Sprintf("id-%03d", i))
+	}
+	ids[0], ids[1] = "a", "b"
+	got, err := client.ItemsByID(context.Background(), ids)
+	require.NoError(t, err)
+	assert.Equal(t, 1, hits, "100 ids must be one HTTP call")
+	assert.Equal(t, "100", gotQuery.Get("Limit"))
+	assert.Contains(t, gotQuery.Get("Ids"), "a")
+	assert.Contains(t, gotQuery.Get("Fields"), "Overview")
+	assert.Equal(t, "user-1", gotQuery.Get("UserId"))
+	assert.Equal(t, "A", got["a"].Name)
+	assert.Equal(t, "B", got["b"].Name)
+	_, ok := got["id-002"]
+	assert.False(t, ok, "missing ids stay omitted, not invented")
+}
+
+func TestItemsByIDRejectsUnrequestedIDs(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"Items":[{"Id":"foreign","Name":"Nope","Type":"Movie"}]}`))
+	}))
+	_, err := client.ItemsByID(context.Background(), []string{"wanted"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unrequested id")
+}
+
+func TestItemsByIDEmptyIDsNoRequest(t *testing.T) {
+	t.Parallel()
+	hits := 0
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+	}))
+	got, err := client.ItemsByID(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Equal(t, 0, hits)
+}
+
+func TestItemsByIDPropagatesHTTPError(t *testing.T) {
+	t.Parallel()
+	client, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	_, err := client.ItemsByID(context.Background(), []string{"a"})
+	assert.Error(t, err)
+}
+
 func TestItemNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -376,6 +442,8 @@ func TestFakeClientSurfacesConfiguredError(t *testing.T) {
 	_, err := fake.Browse(context.Background(), jellyfin.BrowseParams{})
 	assert.ErrorIs(t, err, assert.AnError)
 	_, err = fake.Item(context.Background(), "a")
+	assert.ErrorIs(t, err, assert.AnError)
+	_, err = fake.ItemsByID(context.Background(), []string{"a"})
 	assert.ErrorIs(t, err, assert.AnError)
 	_, _, err = fake.FetchImage(context.Background(), "a", "Primary", "")
 	assert.ErrorIs(t, err, assert.AnError)

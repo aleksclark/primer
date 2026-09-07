@@ -108,6 +108,11 @@ type Client interface {
 	BrowsePage(ctx context.Context, p BrowseParams) (Page, error)
 	// Item fetches metadata for a single item.
 	Item(ctx context.Context, id string) (*Item, error)
+	// ItemsByID fetches metadata for many items in one /Items?Ids= request.
+	// The returned map contains only requested IDs that Jellyfin had; missing
+	// IDs are omitted (callers treat them as not found). Extra/foreign IDs in
+	// the response are an error so sync cannot silently orphan valid rows.
+	ItemsByID(ctx context.Context, ids []string) (map[string]Item, error)
 	// StreamURL builds a direct-play URL for an item.
 	StreamURL(itemID string) string
 	// ImageURL builds an artwork URL for an item.
@@ -489,12 +494,32 @@ func (c *HTTPClient) ScanRunning(ctx context.Context) (bool, error) {
 
 // Item fetches metadata for a single item.
 func (c *HTTPClient) Item(ctx context.Context, id string) (*Item, error) {
-	if id == "" {
+	got, err := c.ItemsByID(ctx, []string{id})
+	if err != nil {
+		return nil, err
+	}
+	item, ok := got[id]
+	if !ok {
 		return nil, ErrNotFound
 	}
+	return &item, nil
+}
+
+// ItemsByID fetches metadata for many items in one GET /Items?Ids=id1,id2 request.
+// Limit is the requested id count so Jellyfin cannot silently truncate the page.
+// Extra IDs in the response (foreign/unrequested) are an error.
+func (c *HTTPClient) ItemsByID(ctx context.Context, ids []string) (map[string]Item, error) {
+	wanted := uniqueIDs(ids)
+	if len(wanted) == 0 {
+		return map[string]Item{}, nil
+	}
+	want := make(map[string]struct{}, len(wanted))
+	for _, id := range wanted {
+		want[id] = struct{}{}
+	}
 	q := url.Values{}
-	q.Set("Ids", id)
-	q.Set("Recursive", "true")
+	q.Set("Ids", strings.Join(wanted, ","))
+	q.Set("Limit", strconv.Itoa(len(wanted)))
 	q.Set("Fields", "Overview,MediaStreams,SortName,Container")
 	if c.userID != "" {
 		q.Set("UserId", c.userID)
@@ -504,11 +529,18 @@ func (c *HTTPClient) Item(ctx context.Context, id string) (*Item, error) {
 	if err := c.get(ctx, "/Items", q, &resp); err != nil {
 		return nil, err
 	}
-	if len(resp.Items) == 0 {
-		return nil, ErrNotFound
+	out := make(map[string]Item, len(resp.Items))
+	for _, d := range resp.Items {
+		it := d.toItem()
+		if it.ID == "" {
+			continue
+		}
+		if _, ok := want[it.ID]; !ok {
+			return nil, fmt.Errorf("jellyfin: items response included unrequested id %s", it.ID)
+		}
+		out[it.ID] = it
 	}
-	item := resp.Items[0].toItem()
-	return &item, nil
+	return out, nil
 }
 
 // StreamURL builds a direct-play URL. Transcoding is explicitly disabled: the

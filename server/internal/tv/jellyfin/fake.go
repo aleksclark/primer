@@ -31,6 +31,10 @@ type Fake struct {
 
 	// BrowseCalls counts Browse invocations.
 	BrowseCalls int
+	// ItemCalls counts Item invocations.
+	ItemCalls int
+	// ItemsByIDCalls counts ItemsByID (batch) invocations.
+	ItemsByIDCalls int
 
 	// Collections maps collection id → member item ids (unrelated members preserved).
 	Collections map[string][]string
@@ -231,19 +235,40 @@ func (f *Fake) ScanRunning(context.Context) (bool, error) {
 }
 
 // Item returns the seeded item with the given ID.
-func (f *Fake) Item(_ context.Context, id string) (*Item, error) {
+func (f *Fake) Item(ctx context.Context, id string) (*Item, error) {
+	f.mu.Lock()
+	f.ItemCalls++
+	f.mu.Unlock()
+	got, err := f.ItemsByID(ctx, []string{id})
+	if err != nil {
+		return nil, err
+	}
+	item, ok := got[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return &item, nil
+}
+
+// ItemsByID returns seeded items keyed by ID. Missing IDs are omitted.
+func (f *Fake) ItemsByID(_ context.Context, ids []string) (map[string]Item, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.ItemsByIDCalls++
 	if f.Err != nil {
 		return nil, f.Err
 	}
+	byID := make(map[string]Item, len(f.Items))
 	for _, it := range f.Items {
-		if it.ID == id {
-			found := it
-			return &found, nil
+		byID[it.ID] = it
+	}
+	out := make(map[string]Item, len(ids))
+	for _, id := range uniqueIDs(ids) {
+		if it, ok := byID[id]; ok {
+			out[id] = it
 		}
 	}
-	return nil, ErrNotFound
+	return out, nil
 }
 
 // StreamURL builds a deterministic fake direct-play URL.
