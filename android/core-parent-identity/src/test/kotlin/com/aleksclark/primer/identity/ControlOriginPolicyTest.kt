@@ -6,6 +6,12 @@ import org.junit.Test
 
 class ControlOriginPolicyTest {
     @Test
+    fun clerkNativeOauthRedirectMatchesSdkReceiver() {
+        assertEquals("clerk://com.aleksclark.primer.control.oauth", ControlOriginPolicy.CLERK_NATIVE_OAUTH_REDIRECT)
+        assertEquals("com.aleksclark.primer.control", ControlOriginPolicy.CONTROL_APPLICATION_ID)
+    }
+
+    @Test
     fun acceptsConfiguredHttps() {
         assertEquals(
             "https://api.primerlms.com/tasks/api",

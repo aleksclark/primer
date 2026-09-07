@@ -104,7 +104,10 @@ class ClerkParentIdentity(
         val oauth = when (
             val result = try {
                 SignIn.authenticateWithRedirect(
-                    SignIn.AuthenticateWithRedirectParams.OAuth(provider = OAuthProvider.GOOGLE),
+                    SignIn.AuthenticateWithRedirectParams.OAuth(
+                        provider = OAuthProvider.GOOGLE,
+                        redirectUrl = ControlOriginPolicy.CLERK_NATIVE_OAUTH_REDIRECT,
+                    ),
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -114,7 +117,7 @@ class ClerkParentIdentity(
         ) {
             is ClerkResult.Success -> result.value
             is ClerkResult.Failure -> return SignInOutcome.Failed(
-                clerkFailure(result, "Google sign-in was cancelled or not accepted. Try again."),
+                clerkOauthFailure(result),
             )
         }
         oauth.signIn?.let { return finishSignIn(it, prepareIfNeeded = true) }
@@ -280,6 +283,16 @@ class ClerkParentIdentity(
             ClerkSignInPolicy.STRATEGY_EMAIL_CODE -> SignIn.AttemptSecondFactorParams.EmailCode(code = code)
             else -> error("unsupported second factor")
         }
+
+    private fun clerkOauthFailure(result: ClerkResult.Failure<*>): String {
+        val message = clerkFailure(result, "Google sign-in was cancelled or not accepted. Try again.")
+        val redirect = ControlOriginPolicy.CLERK_NATIVE_OAUTH_REDIRECT
+        return if (message.contains("redirect", ignoreCase = true) || message.contains("authorized", ignoreCase = true)) {
+            "Clerk rejected the native Google return URL. In Clerk Dashboard → Paths / Redirect URLs, allow $redirect. MFA and authorized parties stay unchanged."
+        } else {
+            message
+        }
+    }
 
     private fun clerkFailure(result: ClerkResult.Failure<*>, fallback: String): String {
         val error = result.error
