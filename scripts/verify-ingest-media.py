@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read-only live acceptance: disk identity -> TV -> Jellyfin Collection -> media bytes.
 
-Requires INGEST_JELLYFIN_BASE_URL, INGEST_JELLYFIN_API_KEY, INGEST_TV_BASE_URL,
-INGEST_TV_ADMIN_KEY. Credentials are sent only in headers, never printed or
+Requires INGEST_JELLYFIN_BASE_URL, INGEST_JELLYFIN_API_KEY,
+INGEST_JELLYFIN_USER_ID, INGEST_TV_BASE_URL, INGEST_TV_ADMIN_KEY. Credentials are sent only in headers, never printed or
 passed to ffmpeg. This does not create schedules, grants, or playback sessions.
 """
 import argparse
@@ -30,8 +30,8 @@ def endpoint(name):
 
 
 class API:
-    def __init__(self, base, header, key):
-        self.base, self.headers = base, {header: key}
+    def __init__(self, base, header, key, user_id=""):
+        self.base, self.headers, self.user_id = base, {header: key}, user_id
 
     def open(self, path, query=None, headers=None):
         url = self.base + path
@@ -45,6 +45,10 @@ class API:
             return json.load(response)
 
     def items(self, query):
+        # BoxSet linked children are user-scoped when Recursive=false in JF
+        # 10.11; an unscoped query silently returns no direct members.
+        if self.user_id:
+            query = {**query, "UserId": self.user_id}
         rows = []
         for offset in range(0, 100000, 200):
             page = self.get("/Items", {**query, "StartIndex": offset, "Limit": 200})
@@ -70,7 +74,8 @@ def main():
     args = p.parse_args()
     for video_id in args.ids:
         require(bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id)), "Invalid YouTube id")
-    jf = API(endpoint("INGEST_JELLYFIN_BASE_URL"), "X-Emby-Token", endpoint("INGEST_JELLYFIN_API_KEY"))
+    jf = API(endpoint("INGEST_JELLYFIN_BASE_URL"), "X-Emby-Token", endpoint("INGEST_JELLYFIN_API_KEY"),
+             endpoint("INGEST_JELLYFIN_USER_ID"))
     tv = API(endpoint("INGEST_TV_BASE_URL"), "X-Admin-Key", endpoint("INGEST_TV_ADMIN_KEY"))
     collections = [x for x in jf.items({"IncludeItemTypes": "BoxSet", "Recursive": "true"})
                    if x["Name"] == args.collection]
