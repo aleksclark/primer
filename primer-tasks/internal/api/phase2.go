@@ -83,23 +83,35 @@ type ScheduleInput2 struct {
 	RRULE            string     `json:"rrule,omitempty"`
 	DueOffsetMinutes int        `json:"dueOffsetMinutes"`
 }
+// StudentRequirement is the student-safe occurrence summary. It names the
+// issued requirement without config, source, rubric, or other payloads.
+type StudentRequirement struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	ConfigVersion int    `json:"configVersion"`
+	Interaction   string `json:"interaction"`
+	Executor      string `json:"executor"`
+}
+
 type Occurrence2 struct {
-	StudentName         string    `json:"studentName,omitempty"`
-	ID                  string    `json:"id"`
-	StudentID           string    `json:"studentId"`
-	ScheduleID          string    `json:"scheduleId"`
-	RevisionID          string    `json:"revisionId"`
-	Title               string    `json:"title"`
-	Instructions        string    `json:"instructions"`
-	Status              string    `json:"status"`
-	NominalAt           time.Time `json:"nominalAt"`
-	DueAt               time.Time `json:"dueAt"`
-	Timezone            string    `json:"timezone"`
-	DueOffsetMinutes    int       `json:"dueOffsetMinutes"`
-	DueSemantics        string    `json:"dueSemantics"`
-	TaskRevisionVersion int       `json:"taskRevisionVersion"`
-	ScheduleVersion     int       `json:"scheduleVersion"`
-	AttemptNumber       int       `json:"attemptNumber"`
+	StudentName         string               `json:"studentName,omitempty"`
+	ID                  string               `json:"id"`
+	StudentID           string               `json:"studentId"`
+	ScheduleID          string               `json:"scheduleId"`
+	RevisionID          string               `json:"revisionId"`
+	Title               string               `json:"title"`
+	Instructions        string               `json:"instructions"`
+	Status              string               `json:"status"`
+	NominalAt           time.Time            `json:"nominalAt"`
+	DueAt               time.Time            `json:"dueAt"`
+	Timezone            string               `json:"timezone"`
+	DueOffsetMinutes    int                  `json:"dueOffsetMinutes"`
+	DueSemantics        string               `json:"dueSemantics"`
+	TaskRevisionVersion int                  `json:"taskRevisionVersion"`
+	ScheduleVersion     int                  `json:"scheduleVersion"`
+	AttemptNumber       int                  `json:"attemptNumber"`
+	Requirements        []StudentRequirement `json:"requirements,omitempty" nullable:"false"`
+	StudentCapability   string               `json:"studentCapability,omitempty" enum:"parent_approval,unsupported"`
 }
 type OccurrencePage2 struct {
 	Items      []Occurrence2 `json:"items" nullable:"false"`
@@ -140,6 +152,62 @@ type IDInput2 struct {
 type taskRow struct{ rev TaskRevision }
 
 func requirementJSON(rs []Requirement) []byte { b, _ := json.Marshal(rs); return b }
+
+func studentCapabilityFor(reqs []StudentRequirement) string {
+	if len(reqs) == 1 &&
+		reqs[0].Kind == "parent_approval" &&
+		reqs[0].ConfigVersion == 1 &&
+		reqs[0].Interaction == "parent_action" &&
+		reqs[0].Executor == "human" {
+		return "parent_approval"
+	}
+	return "unsupported"
+}
+
+func (s *Server) loadStudentRequirements(ctx context.Context, revisionID string) ([]StudentRequirement, error) {
+	rows, e := s.DB.Query(ctx, `SELECT id::text,kind,config_version,interaction,executor FROM verification_requirements WHERE revision_id=$1 ORDER BY ordinal,id`, revisionID)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []StudentRequirement{}
+	for rows.Next() {
+		var req StudentRequirement
+		if e = rows.Scan(&req.ID, &req.Kind, &req.ConfigVersion, &req.Interaction, &req.Executor); e != nil {
+			return nil, e
+		}
+		out = append(out, req)
+	}
+	return out, rows.Err()
+}
+
+func (s *Server) attachStudentRequirements(ctx context.Context, items ...*Occurrence2) error {
+	cache := map[string][]StudentRequirement{}
+	for _, item := range items {
+		if item == nil || item.RevisionID == "" {
+			continue
+		}
+		reqs, ok := cache[item.RevisionID]
+		if !ok {
+			loaded, e := s.loadStudentRequirements(ctx, item.RevisionID)
+			if e != nil {
+				return e
+			}
+			reqs = loaded
+			cache[item.RevisionID] = reqs
+		}
+		item.Requirements = reqs
+		item.StudentCapability = studentCapabilityFor(reqs)
+	}
+	return nil
+}
+
+func parentApprovalRequirement(reqs []StudentRequirement) (StudentRequirement, bool) {
+	if studentCapabilityFor(reqs) != "parent_approval" {
+		return StudentRequirement{}, false
+	}
+	return reqs[0], true
+}
 func parsePage(r *http.Request) (int, int) {
 	limit, offset := 20, 0
 	if n, e := strconv.Atoi(r.URL.Query().Get("limit")); e == nil && n > 0 && n <= 100 {
@@ -384,6 +452,14 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 		}
 		out = append(out, x)
 	}
+	ptrs := make([]*Occurrence2, len(out))
+	for i := range out {
+		ptrs[i] = &out[i]
+	}
+	if e = s.attachStudentRequirements(r.Context(), ptrs...); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
 	jsonOK(w, OccurrencePage2{out, total, limit, offset})
 }
 func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -401,6 +477,14 @@ func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id 
 			return
 		}
 		out = append(out, x)
+	}
+	ptrs := make([]*Occurrence2, len(out))
+	for i := range out {
+		ptrs[i] = &out[i]
+	}
+	if e = s.attachStudentRequirements(r.Context(), ptrs...); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
 	}
 	jsonOK(w, OccurrencePage2{Items: out, TotalCount: len(out), Limit: 100, Offset: 0})
 }
@@ -471,11 +555,17 @@ func (s *Server) submitOccurrence2(w http.ResponseWriter, r *http.Request, id uu
 		problem(w, 409, "conflict", "occurrence changed concurrently")
 		return
 	}
-	var req string
-	if e = tx.QueryRow(r.Context(), `SELECT id FROM verification_requirements WHERE tenant_id=$1 AND revision_id=$2 ORDER BY ordinal LIMIT 1`, tenant, rev).Scan(&req); e != nil {
-		problem(w, 409, "blocked", "verification requirement unavailable")
+	reqs, e := s.loadStudentRequirements(r.Context(), rev)
+	if e != nil {
+		problem(w, 500, "internal", e.Error())
 		return
 	}
+	manual, ok := parentApprovalRequirement(reqs)
+	if !ok {
+		problem(w, 409, "unsupported_task", "this assigned work cannot be submitted as parent approval")
+		return
+	}
+	req := manual.ID
 	var next int
 	if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, tenant, oid).Scan(&next); e != nil {
 		problem(w, 500, "internal", e.Error())
@@ -752,6 +842,10 @@ func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc
 		problem(w, 500, "internal", e.Error())
 		return
 	}
+	if e = s.attachStudentRequirements(r.Context(), &x); e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
 	jsonOK(w, x)
 }
 func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -762,6 +856,10 @@ func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.
 		return
 	}
 	if e != nil {
+		problem(w, 500, "internal", e.Error())
+		return
+	}
+	if e = s.attachStudentRequirements(r.Context(), &x); e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
 	}

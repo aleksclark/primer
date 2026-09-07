@@ -310,6 +310,24 @@ class TasksClientTest {
     }
 
     @Test
+    fun studentOccurrenceDecodesCapabilityWithoutRequirementConfig() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"id":"occ-1","studentId":"st-1","scheduleId":"sch-1","revisionId":"r1","title":"Brush","instructions":"twice","status":"pending","nominalAt":"2026-01-01T00:00:00Z","dueAt":"2026-01-01T00:00:00Z","timezone":"UTC","dueOffsetMinutes":0,"dueSemantics":"offset_from_nominal","taskRevisionVersion":1,"scheduleVersion":1,"attemptNumber":0,"requirements":[{"id":"req-1","kind":"parent_approval","configVersion":1,"interaction":"parent_action","executor":"human"}],"studentCapability":"parent_approval"}""",
+            ),
+        )
+        val occurrence = TasksClient(
+            server.url("/").toString(),
+            deviceCredentials = CredentialProvider { "device-token" },
+        ).studentOccurrence("device-token", "occ-1")
+        assertEquals("parent_approval", occurrence.studentCapability)
+        assertEquals("req-1", occurrence.requirements.orEmpty().single().id)
+        assertEquals("parent_approval", occurrence.requirements.orEmpty().single().kind)
+        assertEquals(1L, occurrence.requirements.orEmpty().single().configVersion)
+        assertEquals("/api/device/occurrences/occ-1", take().path)
+    }
+
+    @Test
     fun occurrenceRetryDecodesCanonicalRequirementAndPreviousAttempt() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

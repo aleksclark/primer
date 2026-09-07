@@ -135,6 +135,104 @@ func TestPhase2ParentApprovalPublicBoundary(t *testing.T) {
 	_ = bob
 }
 
+func TestStudentOccurrenceMetadataAndUnsupportedSubmit(t *testing.T) {
+	pool := integrationPool(t)
+	alice, _ := seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p2-cap"), IssuerSecret: []byte("p2-cap")})
+	h := s.Routes()
+	rec := requestJSON(t, h, http.MethodPost, "/tasks", "parent-a", `{"title":"Brush your teeth","instructions":"Use the timer","requirements":[{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
+	if rec.Code != 201 {
+		t.Fatalf("create task=%d %s", rec.Code, rec.Body.String())
+	}
+	var task struct {
+		ID         string `json:"id"`
+		TemplateID string `json:"templateId"`
+	}
+	if e := json.Unmarshal(rec.Body.Bytes(), &task); e != nil {
+		t.Fatal(e)
+	}
+	if rec = requestJSON(t, h, http.MethodPost, "/tasks/"+task.ID+"/publish", "parent-a", ""); rec.Code != 200 {
+		t.Fatalf("publish=%d %s", rec.Code, rec.Body.String())
+	}
+	start := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	body := `{"studentId":"` + alice + `","templateId":"` + task.TemplateID + `","revisionId":"` + task.ID + `","kind":"one_off","timezone":"UTC","startAt":"` + start + `","dueOffsetMinutes":0}`
+	if rec = requestJSON(t, h, http.MethodPost, "/schedules", "parent-a", body); rec.Code != 201 {
+		t.Fatalf("schedule=%d %s", rec.Code, rec.Body.String())
+	}
+	if err := schedule.NewWorker(pool).Materialize(context.Background()); err != nil {
+		t.Fatalf("materialize=%v", err)
+	}
+	list := requestJSON(t, h, http.MethodGet, "/occurrences?limit=20", "parent-a", "")
+	var page OccurrencePage2
+	if e := json.Unmarshal(list.Body.Bytes(), &page); e != nil || len(page.Items) != 1 {
+		t.Fatalf("page=%s err=%v", list.Body.String(), e)
+	}
+	occ := page.Items[0]
+	if occ.StudentCapability != "parent_approval" || len(occ.Requirements) != 1 || occ.Requirements[0].Kind != "parent_approval" {
+		t.Fatalf("parent list metadata=%+v", occ)
+	}
+	pair := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	code, _ := pairingResponse(t, pair)
+	device := requestJSON(t, h, http.MethodPost, "/device/pair", "", `{"code":"`+code+`"}`)
+	var dv struct {
+		Token string `json:"token"`
+	}
+	if e := json.Unmarshal(device.Body.Bytes(), &dv); e != nil {
+		t.Fatal(e)
+	}
+	if rec = requestBearer(t, h, http.MethodGet, "/device/today", dv.Token); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"studentCapability":"parent_approval"`) || strings.Contains(rec.Body.String(), `"sourceText"`) || strings.Contains(rec.Body.String(), `"rubric"`) {
+		t.Fatalf("device today metadata=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec = requestBearer(t, h, http.MethodGet, "/device/occurrences/"+occ.ID, dv.Token); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"kind":"parent_approval"`) {
+		t.Fatalf("device detail metadata=%d %s", rec.Code, rec.Body.String())
+	}
+
+	mixed := requestJSON(t, h, http.MethodPost, "/tasks", "parent-a", `{"title":"Talk then show","instructions":"Dialogue plus parent check","requirements":[{"id":"dialogue","kind":"agent_dialogue","configVersion":1,"config":{"sourceText":"The pupil measured the beam twice before cutting it.","learningFocus":"Use three distinct facts and reasons","requiredQuestions":3,"rubric":["answers the question with a source detail"],"allowedFollowUps":1,"maxAttempts":2,"maxTurns":8,"retentionPolicy":"retain"},"interaction":"chat","executor":"fantasy"},{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
+	if mixed.Code != 201 {
+		t.Fatalf("mixed create=%d %s", mixed.Code, mixed.Body.String())
+	}
+	var mixedTask struct {
+		ID         string `json:"id"`
+		TemplateID string `json:"templateId"`
+	}
+	if e := json.Unmarshal(mixed.Body.Bytes(), &mixedTask); e != nil {
+		t.Fatal(e)
+	}
+	if rec = requestJSON(t, h, http.MethodPost, "/tasks/"+mixedTask.ID+"/publish", "parent-a", ""); rec.Code != 200 {
+		t.Fatalf("mixed publish=%d %s", rec.Code, rec.Body.String())
+	}
+	mixedBody := `{"studentId":"` + alice + `","templateId":"` + mixedTask.TemplateID + `","revisionId":"` + mixedTask.ID + `","kind":"one_off","timezone":"UTC","startAt":"` + start + `","dueOffsetMinutes":0}`
+	if rec = requestJSON(t, h, http.MethodPost, "/schedules", "parent-a", mixedBody); rec.Code != 201 {
+		t.Fatalf("mixed schedule=%d %s", rec.Code, rec.Body.String())
+	}
+	if err := schedule.NewWorker(pool).Materialize(context.Background()); err != nil {
+		t.Fatalf("mixed materialize=%v", err)
+	}
+	listed := requestJSON(t, h, http.MethodGet, "/occurrences?limit=20&sort=nominalAt&dir=asc", "parent-a", "")
+	var listedPage OccurrencePage2
+	if e := json.Unmarshal(listed.Body.Bytes(), &listedPage); e != nil {
+		t.Fatal(e)
+	}
+	var mixedOcc Occurrence2
+	for _, item := range listedPage.Items {
+		if item.RevisionID == mixedTask.ID {
+			mixedOcc = item
+		}
+	}
+	if mixedOcc.ID == "" || mixedOcc.StudentCapability != "unsupported" || len(mixedOcc.Requirements) != 2 {
+		t.Fatalf("mixed metadata=%+v", mixedOcc)
+	}
+	if rec = requestBearer(t, h, http.MethodGet, "/device/occurrences/"+mixedOcc.ID, dv.Token); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"studentCapability":"unsupported"`) || strings.Contains(rec.Body.String(), `"sourceText"`) || strings.Contains(rec.Body.String(), `"rubric"`) || strings.Contains(rec.Body.String(), `"learningFocus"`) {
+		t.Fatalf("mixed device detail=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+mixedOcc.ID+"/start", dv.Token); rec.Code != 200 {
+		t.Fatalf("mixed start=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+mixedOcc.ID+"/submit", dv.Token); rec.Code != 409 {
+		t.Fatalf("mixed submit=%d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	pool := integrationPool(t)
 	alice, bob := seedIntegration(t, pool)
