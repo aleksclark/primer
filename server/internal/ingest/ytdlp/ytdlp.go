@@ -6,6 +6,7 @@ package ytdlp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -120,9 +121,15 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		// Sanitize: never dump full argv (cookies path etc.).
-		return fmt.Errorf("ytdlp: download failed: %w", err)
+	runErr := cmd.Run()
+	if runErr != nil {
+		// Exit 1 is a partial channel failure with --ignore-errors: completed
+		// bundles remain useful. Never finalize after cancellation or a bad
+		// invocation (exit 2 / executable unavailable).
+		var exitErr *exec.ExitError
+		if ctx.Err() != nil || !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 1 {
+			return fmt.Errorf("ytdlp: download failed: %w", runErr)
+		}
 	}
 	if !opts.SkipFinalize {
 		if _, err := FinalizeStaging(FinalizeOpts{
@@ -133,8 +140,13 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 			MinDuration:   effectiveMinDuration(opts.MinDurationSeconds),
 			AllowPastLive: opts.AllowPastLive,
 		}); err != nil {
-			return fmt.Errorf("ytdlp: finalize: %w", err)
+			return fmt.Errorf("ytdlp: finalize: %w", errors.Join(err, runErr))
 		}
+	}
+	if runErr != nil {
+		// Preserve the upstream failure in the report even when some files
+		// were finalized. An old archive is not proof of a successful refresh.
+		return fmt.Errorf("ytdlp: download failed: %w", runErr)
 	}
 	return nil
 }
