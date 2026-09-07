@@ -293,7 +293,7 @@ items:
       title: Justin Rhodes
       kind: youtube_channel
       provider: {}
-      url: https://www.youtube.com/@justinrhodes
+      url: https://www.youtube.com/channel/UCOSGEokQQcdAVFuL_Aq8dlg/videos
       filters: {}
       class: mixed
       subject_tags:
@@ -349,6 +349,39 @@ items:
         - physical-science
         - practical
       priority: 36
+    # Official Mark Rober channel, separated by tab so class/filter intent is explicit.
+    # Gate A no-download probe succeeded on 2026-09-07 with yt-dlp 2026.06.09 + node.
+    - id: mark-rober
+      title: Mark Rober
+      kind: youtube_channel
+      url: https://www.youtube.com/channel/UCY1kMZp36IQSyNx_9h4mpCg/videos
+      filters: {}
+      class: mixed
+      subject_tags: [science, engineering, scientific-method]
+      priority: 37
+    - id: mark-rober-science-class
+      title: Mark Rober Science Class
+      kind: youtube_channel
+      url: https://www.youtube.com/channel/UCY1kMZp36IQSyNx_9h4mpCg/streams
+      filters:
+        exclude_live: false
+      class: educational
+      subject_tags: [science, physical-science, engineering]
+      # The streams tab also contains a three-hour charity event, not a science class.
+      videos:
+        - id: 5J3peD8LZ5o
+          exclude: true
+      priority: 38
+    - id: mark-rober-shorts
+      title: Mark Rober Shorts
+      kind: youtube_channel
+      url: https://www.youtube.com/channel/UCY1kMZp36IQSyNx_9h4mpCg/shorts
+      filters:
+        exclude_shorts: false
+        min_duration_seconds: -1
+      class: mixed
+      subject_tags: [science, engineering]
+      priority: 39
     - id: adventures-of-robin-hood
       title: The Adventures of Robin Hood
       year: 1938

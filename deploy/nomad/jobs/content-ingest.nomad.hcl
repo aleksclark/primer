@@ -168,6 +168,11 @@ variable "content_ingest_jellyfin_base_url" {
   default = "https://jellyfin.fleet.clark.team"
 }
 
+variable "content_ingest_jellyfin_collection_name" {
+  type    = string
+  default = "Primer"
+}
+
 variable "content_ingest_tv_base_url" {
   type    = string
   default = "https://tv.fleet.clark.team/api/v1"
@@ -175,8 +180,8 @@ variable "content_ingest_tv_base_url" {
 
 variable "content_ingest_ytdlp_output_dir" {
   type        = string
-  description = "Canonical YouTube root inside the container (host: /mnt/moosefs/media/tv/Primer)"
-  default     = "/media/tv/Primer"
+  description = "YouTube root outside generic TV; Jellyfin scans /media/primer/Shows as a configured media path"
+  default     = "/media/primer"
 }
 
 # Deprecated/unused global archive. Per-show archives live at
@@ -270,6 +275,7 @@ job "content-ingest" {
         INGEST_SONARR_ROOT_FOLDER        = var.content_ingest_sonarr_root_folder
         INGEST_SONARR_QUALITY_PROFILE_ID = var.content_ingest_sonarr_quality_profile_id
         INGEST_JELLYFIN_BASE_URL         = var.content_ingest_jellyfin_base_url
+        INGEST_JELLYFIN_COLLECTION_NAME  = var.content_ingest_jellyfin_collection_name
         INGEST_TV_BASE_URL               = var.content_ingest_tv_base_url
         INGEST_YTDLP_OUTPUT_DIR          = var.content_ingest_ytdlp_output_dir
         # Deprecated/unused global archive; per-show archives under Shows/<slug>/.

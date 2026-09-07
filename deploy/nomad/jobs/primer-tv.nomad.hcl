@@ -161,6 +161,11 @@ variable "content_ingest_jellyfin_base_url" {
   default = "https://jellyfin.fleet.clark.team"
 }
 
+variable "content_ingest_jellyfin_collection_name" {
+  type    = string
+  default = "Primer"
+}
+
 variable "content_ingest_tv_base_url" {
   type    = string
   default = "https://tv.fleet.clark.team/api/v1"

@@ -182,11 +182,16 @@ grep -q 'prohibit_overlap[[:space:]]*=[[:space:]]*true' "${CI}" || fail "prohibi
 grep -q 'moosefs-media' "${CI}" || fail "content-ingest moosefs-media volume"
 grep -qi 'pause' "${ROOT}/README.md" || fail "README must document pause-before-handoff"
 grep -q 'never-from-reconciler-or-ci' "${CI}" || fail "dispatch policy meta missing"
-# YouTube root + kill_timeout (W6): container /media/tv/Primer, ≥4h dumps
-grep -qE 'default[[:space:]]*=[[:space:]]*"/media/tv/Primer"' "${CI}" \
-  || fail "content-ingest ytdlp output default must be /media/tv/Primer"
-grep -qE 'content_ingest_ytdlp_output_dir[[:space:]]*=[[:space:]]*"/media/tv/Primer"' "${ENVF}" \
-  || fail "home.nomadvars ytdlp output must be /media/tv/Primer"
+# YouTube root must not be nested under /media/tv (Jellyfin would resolve the
+# container folder as one Series). Register /media/primer/Shows as a media path.
+grep -qE 'default[[:space:]]*=[[:space:]]*"/media/primer"' "${CI}" \
+  || fail "content-ingest ytdlp output default must be /media/primer"
+grep -qE 'content_ingest_ytdlp_output_dir[[:space:]]*=[[:space:]]*"/media/primer"' "${ENVF}" \
+  || fail "home.nomadvars ytdlp output must be /media/primer"
+grep -q 'INGEST_JELLYFIN_COLLECTION_NAME.*var.content_ingest_jellyfin_collection_name' "${CI}" \
+  || fail "content-ingest must wire the named Jellyfin Collection"
+grep -qE 'content_ingest_jellyfin_collection_name[[:space:]]*=[[:space:]]*"Primer"' "${ENVF}" \
+  || fail "home.nomadvars must select the Primer Collection"
 grep -qE 'kill_timeout[[:space:]]*=[[:space:]]*"4h"' "${CI}" \
   || fail "content-ingest kill_timeout must be 4h"
 grep -q 'INGEST_YTDLP_COOKIES_PATH' "${CI}" \

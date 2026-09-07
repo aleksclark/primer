@@ -33,9 +33,11 @@ content_ingest_sonarr_base_url            = "http://192.168.0.24:8989"
 content_ingest_sonarr_root_folder         = "/media/tv"
 content_ingest_sonarr_quality_profile_id  = "4"
 content_ingest_jellyfin_base_url          = "https://jellyfin.fleet.clark.team"
+content_ingest_jellyfin_collection_name   = "Primer"
 content_ingest_tv_base_url                = "https://tv.fleet.clark.team/api/v1"
-# Canonical YouTube root: host /mnt/moosefs/media/tv/Primer = container path below.
-content_ingest_ytdlp_output_dir           = "/media/tv/Primer"
+# Keep outside /media/tv: Jellyfin needs Shows/<slug> directly below a configured media path.
+# Add /media/primer/Shows as a second path on the existing Shows library.
+content_ingest_ytdlp_output_dir           = "/media/primer"
 # Deprecated/unused — per-show archives at Shows/<slug>/.ytdlp-archive.txt.
 content_ingest_ytdlp_archive_path         = ""
 content_ingest_ytdlp_path                 = "yt-dlp"
