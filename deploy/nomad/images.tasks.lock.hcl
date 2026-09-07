@@ -1,6 +1,6 @@
 # Candidate Tasks image lock; not enrolled in deployment.yaml.
-# IMAGE-SOURCE: 1d10fd6171234248c179e52094da0393fbdbd890
-# Trace tag: sha-1d10fd6171234248c179e52094da0393fbdbd890 (not deployment authority)
-# Publication: https://github.com/aleksclark/primer/actions/runs/34007201476
+# IMAGE-SOURCE: 218f749f7a1f29198fb7eed9c77709bb28706b72
+# Trace tag: sha-218f749f7a1f29198fb7eed9c77709bb28706b72 (not deployment authority)
+# Publication: https://github.com/aleksclark/primer/actions/runs/34115498771
 # A later lock/docs-only RELEASE-MANIFEST commit does not change IMAGE-SOURCE.
-image_primer_tasks = "ghcr.io/aleksclark/primer-tasks@sha256:8697f84d9d0bbffe1c11490aab55b845fb252ba2e2d29f2f939975d5e5ff93e9"
+image_primer_tasks = "ghcr.io/aleksclark/primer-tasks@sha256:d18432d281ca5f3bbba26170322b61e3d7d90fa54ee9a33044dadc281da1c11b"
