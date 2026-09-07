@@ -192,6 +192,17 @@ variable "content_ingest_ytdlp_archive_path" {
   default = ""
 }
 
+# Per-source batch budget, not a cap on eventual library size.
+variable "content_ingest_ytdlp_max_downloads" {
+  type    = string
+  default = "25"
+}
+
+variable "content_ingest_dns_servers" {
+  type    = list(string)
+  default = ["192.168.0.23", "192.168.0.24", "192.168.0.89"]
+}
+
 variable "content_ingest_ytdlp_path" {
   type    = string
   default = "yt-dlp"
@@ -238,6 +249,13 @@ job "content-ingest" {
   group "content-ingest" {
     count = 1
 
+    # Public-only Docker DNS cannot resolve the internal fleet API hosts.
+    network {
+      dns {
+        servers = var.content_ingest_dns_servers
+      }
+    }
+
     # yt-dlp writes into the shared media library; same host volume Radarr/
     # Sonarr/Jellyfin mount from MooseFS.
     volume "moosefs-media" {
@@ -268,6 +286,9 @@ job "content-ingest" {
         INGEST_MANIFEST_PATH             = var.content_ingest_manifest_path
         INGEST_REVIEW_PATH               = var.content_ingest_review_path
         INGEST_REPORT_DIR                = var.content_ingest_report_dir
+        INGEST_HTTP_TIMEOUT              = "5m"
+        INGEST_SYNC_WAIT                 = "30m"
+        INGEST_YTDLP_MAX_DOWNLOADS       = var.content_ingest_ytdlp_max_downloads
         INGEST_RADARR_BASE_URL           = var.content_ingest_radarr_base_url
         INGEST_RADARR_ROOT_FOLDER        = var.content_ingest_radarr_root_folder
         INGEST_RADARR_QUALITY_PROFILE_ID = var.content_ingest_radarr_quality_profile_id

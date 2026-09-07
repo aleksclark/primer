@@ -25,18 +25,19 @@ content_ingest_cpu                        = 1000
 content_ingest_memory                     = 2048
 content_ingest_manifest_path              = "/curriculum/content-manifest.yaml"
 content_ingest_review_path                = "/curriculum/content-review.yaml"
-content_ingest_report_dir                 = "/alloc/logs"
-content_ingest_radarr_base_url            = "http://192.168.0.41:7878"
+# Persist reports beyond allocation garbage collection (outside the scanned Shows subtree).
+content_ingest_report_dir                 = "/media/primer/.ingest-reports"
+content_ingest_radarr_base_url            = "https://radarr.fleet.clark.team"
 content_ingest_radarr_root_folder         = "/media/movies"
 content_ingest_radarr_quality_profile_id  = "4"
-content_ingest_sonarr_base_url            = "http://192.168.0.24:8989"
+content_ingest_sonarr_base_url            = "https://sonarr.fleet.clark.team"
 content_ingest_sonarr_root_folder         = "/media/tv"
 content_ingest_sonarr_quality_profile_id  = "4"
 content_ingest_jellyfin_base_url          = "https://jellyfin.fleet.clark.team"
 content_ingest_jellyfin_collection_name   = "Primer"
 content_ingest_tv_base_url                = "https://tv.fleet.clark.team/api/v1"
 # Keep outside /media/tv: Jellyfin needs Shows/<slug> directly below a configured media path.
-# Add /media/primer/Shows as a second path on the existing Shows library.
+# Dedicated Primer Sources library scans /media/primer/Shows with remote metadata/subtitles disabled.
 content_ingest_ytdlp_output_dir           = "/media/primer"
 # Deprecated/unused — per-show archives at Shows/<slug>/.ytdlp-archive.txt.
 content_ingest_ytdlp_archive_path         = ""

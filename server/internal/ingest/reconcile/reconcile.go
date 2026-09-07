@@ -45,12 +45,13 @@ type Deps struct {
 	// YtDlpOutputDir / YtDlpArchivePath / YtDlpBinary configure downloads.
 	// YtDlpArchivePath is deprecated unused for new downloads; acquire uses
 	// PerShowArchivePath. Cookies/JSRuntime are wired onto DownloadOpts.
-	YtDlpOutputDir   string
-	YtDlpArchivePath string
-	YtDlpArchiveDir  string
-	YtDlpBinary      string
-	YtDlpCookiesPath string
-	YtDlpJSRuntime   string
+	YtDlpOutputDir    string
+	YtDlpArchivePath  string
+	YtDlpArchiveDir   string
+	YtDlpBinary       string
+	YtDlpCookiesPath  string
+	YtDlpJSRuntime    string
+	YtDlpMaxDownloads int
 
 	// SyncWait / SyncPollInterval control Jellyfin scan waiting.
 	SyncWait         time.Duration
@@ -578,6 +579,7 @@ func (e *Engine) acquire(ctx context.Context, m *manifest.Manifest, rep *Report,
 				Binary:             e.deps.YtDlpBinary,
 				CookiesPath:        e.deps.YtDlpCookiesPath,
 				JSRuntime:          e.deps.YtDlpJSRuntime,
+				MaxDownloads:       e.deps.YtDlpMaxDownloads,
 				MinDurationSeconds: manifest.EffectiveMinDuration(it.Filters),
 				ExcludeShorts:      &excludeShorts,
 				ExcludeLive:        &excludeLive,

@@ -290,11 +290,12 @@ func TestYouTubeAcquireWiresPerShowArchiveCookiesAndCleanup(t *testing.T) {
 	minOff := false
 	eng := reconcile.New(reconcile.Deps{
 		YtDlp: yt, TV: tvclient.NewFake(),
-		YtDlpOutputDir:   out,
-		YtDlpArchivePath: filepath.Join(dir, "deprecated-global.txt"),
-		YtDlpCookiesPath: "/run/secrets/youtube.cookies",
-		YtDlpJSRuntime:   "node",
-		ReportDir:        filepath.Join(dir, "reports"),
+		YtDlpOutputDir:    out,
+		YtDlpArchivePath:  filepath.Join(dir, "deprecated-global.txt"),
+		YtDlpCookiesPath:  "/run/secrets/youtube.cookies",
+		YtDlpJSRuntime:    "node",
+		YtDlpMaxDownloads: 25,
+		ReportDir:         filepath.Join(dir, "reports"),
 	})
 	m := &manifest.Manifest{Items: []manifest.Item{{
 		ID: "paul-sellers", Title: "Paul Sellers",
@@ -319,6 +320,7 @@ func TestYouTubeAcquireWiresPerShowArchiveCookiesAndCleanup(t *testing.T) {
 	assert.NotEqual(t, filepath.Join(dir, "deprecated-global.txt"), got.ArchivePath)
 	assert.Equal(t, "/run/secrets/youtube.cookies", got.CookiesPath)
 	assert.Equal(t, "node", got.JSRuntime)
+	assert.Equal(t, 25, got.MaxDownloads)
 	assert.Equal(t, 90, got.MinDurationSeconds)
 	require.NotNil(t, got.ExcludeShorts)
 	assert.False(t, *got.ExcludeShorts)

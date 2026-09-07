@@ -45,6 +45,9 @@ type DownloadOpts struct {
 	Binary string
 	// Format overrides DefaultFormat.
 	Format string
+	// MaxDownloads bounds new videos per source per pass; zero is unlimited.
+	// Replays skip archived IDs and continue through the remaining backlog.
+	MaxDownloads int
 	// ExtraArgs are appended before the URL.
 	ExtraArgs []string
 	// CookiesPath, when set, is passed as --cookies.
@@ -85,6 +88,9 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 	if opts.OutputDir == "" {
 		return fmt.Errorf("ytdlp: output dir is required")
 	}
+	if opts.MaxDownloads < 0 {
+		return fmt.Errorf("ytdlp: max downloads must be nonnegative")
+	}
 	if err := rejectTabURL(opts); err != nil {
 		return err
 	}
@@ -122,12 +128,17 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	runErr := cmd.Run()
+	budgetReached := false
 	if runErr != nil {
 		// Exit 1 is a partial channel failure with --ignore-errors: completed
 		// bundles remain useful. Never finalize after cancellation or a bad
 		// invocation (exit 2 / executable unavailable).
 		var exitErr *exec.ExitError
-		if ctx.Err() != nil || !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 1 {
+		if ctx.Err() != nil || !errors.As(runErr, &exitErr) {
+			return fmt.Errorf("ytdlp: download failed: %w", runErr)
+		}
+		budgetReached = opts.MaxDownloads > 0 && exitErr.ExitCode() == 101
+		if exitErr.ExitCode() != 1 && !budgetReached {
 			return fmt.Errorf("ytdlp: download failed: %w", runErr)
 		}
 	}
@@ -143,7 +154,7 @@ func (ExecRunner) Download(ctx context.Context, opts DownloadOpts) error {
 			return fmt.Errorf("ytdlp: finalize: %w", errors.Join(err, runErr))
 		}
 	}
-	if runErr != nil {
+	if runErr != nil && !budgetReached {
 		// Preserve the upstream failure in the report even when some files
 		// were finalized. An old archive is not proof of a successful refresh.
 		return fmt.Errorf("ytdlp: download failed: %w", runErr)
@@ -211,6 +222,9 @@ func BuildArgs(opts DownloadOpts) []string {
 		args = append(args, "--match-filter", mf)
 	}
 	args = append(args, "-f", format, "-o", outTemplate)
+	if opts.MaxDownloads > 0 {
+		args = append(args, "--max-downloads", strconv.Itoa(opts.MaxDownloads))
+	}
 	if opts.ArchivePath != "" {
 		args = append(args, "--download-archive", opts.ArchivePath)
 	}

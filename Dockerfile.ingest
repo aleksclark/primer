@@ -63,7 +63,8 @@ ENV INGEST_REPORT_DIR=/var/log/content-ingest
 ENV INGEST_YTDLP_PATH=yt-dlp
 # Canonical YouTube root (job env still wins). Host: /mnt/moosefs/media/primer.
 # Jellyfin tvshows treated /media/tv/Primer as a Series before its Shows/slug;
-# /media/primer/Shows is the second configured path on the existing JF Shows library.
+# /media/primer/Shows belongs to Primer Sources, an NFO-only Jellyfin library.
+# The named Primer Collection groups eligible media across this and existing libraries.
 ENV INGEST_YTDLP_OUTPUT_DIR=/media/primer
 # Global INGEST_YTDLP_ARCHIVE_PATH is deprecated/unused. Per-show archives live at
 # {OutputDir}/Shows/<slug>/.ytdlp-archive.txt (managed by the reconciler).

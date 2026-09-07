@@ -63,6 +63,7 @@ Environment: INGEST_* (see internal/ingest/config). Key vars:
   INGEST_TV_BASE_URL     e.g. http://localhost:8081/api/v1
   INGEST_TV_ADMIN_KEY
   INGEST_YTDLP_OUTPUT_DIR / INGEST_YTDLP_ARCHIVE_PATH / INGEST_YTDLP_PATH
+  INGEST_YTDLP_MAX_DOWNLOADS  default 25 new videos/source/pass; 0 is unlimited
 `
 
 type cliCommand struct {
@@ -216,6 +217,7 @@ func buildDeps(cfg *config.Config) (reconcile.Deps, error) {
 		YtDlpBinary:            cfg.YtDlpPath,
 		YtDlpCookiesPath:       cfg.YtDlpCookiesPath,
 		YtDlpJSRuntime:         cfg.YtDlpJSRuntime,
+		YtDlpMaxDownloads:      cfg.YtDlpMaxDownloads,
 		SyncWait:               cfg.SyncWait,
 		SyncPollInterval:       cfg.SyncPollInterval,
 		JellyfinCollectionName: cfg.JellyfinCollectionName,
