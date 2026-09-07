@@ -2,10 +2,7 @@ package com.aleksclark.primer.control.device
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
@@ -20,7 +17,9 @@ import com.aleksclark.primer.ui.PrimerSectionHeader
 import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerQrMark
+import com.aleksclark.primer.ui.PrimerFormColumn
 import com.aleksclark.primer.ui.PrimerTextField
+import com.aleksclark.primer.ui.primerScreenInsets
 import com.aleksclark.primertasks.client.ApprovedApp
 import com.aleksclark.primertasks.client.DesiredState
 import com.aleksclark.primertasks.client.Enrollment
@@ -42,7 +41,7 @@ fun DevicesScreen(
     onDiscoveryUnattended: (Boolean) -> Unit = {},
     onOpenInstallSettings: () -> Unit = {},
 ) {
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.primerScreenInsets().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PrimerSectionHeader(
             label = "Device management",
             title = "Household devices",
@@ -106,10 +105,7 @@ fun DeviceDetailScreen(
     mutating: Boolean = false,
 ) {
     val policy = desired?.policyRevision?.policy
-    Column(
-        Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    PrimerFormColumn {
         PrimerSectionHeader(label = "Device", title = device.displayName, trailing = { PrimerButton(text = "Back", onClick = onBack, variant = PrimerButtonVariant.Quiet) })
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
         PrimerRecordRow(label = "State", value = device.state)

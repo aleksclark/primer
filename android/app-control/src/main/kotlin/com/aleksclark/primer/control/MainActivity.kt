@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         val app = application as ControlApp
         val apiBase = ControlOriginPolicy.apiBase(BuildConfig.CONFIGURED_API_ORIGIN, BuildConfig.DEBUG)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContent {
             PrimerTheme {
                 val model: ControlViewModel = viewModel(
@@ -133,6 +134,14 @@ private fun ControlAppScreen(
             onSignIn = model::signIn,
             onSignOut = model::signOut,
             signedIn = state.signedIn,
+            secondFactorRequired = state.secondFactorRequired,
+            secondFactorCode = state.secondFactorCode,
+            onSecondFactorCode = { value -> model.update { it.copy(secondFactorCode = value) } },
+            onContinueSecondFactor = model::continueSecondFactor,
+            secondFactorStrategies = state.secondFactorStrategies,
+            selectedSecondFactor = state.selectedSecondFactor,
+            onSelectSecondFactor = model::selectSecondFactor,
+            onCancelSecondFactor = model::cancelSecondFactor,
         )
         return
     }
@@ -232,9 +241,9 @@ private fun ControlAppScreen(
                         onStudent = { value -> model.update { it.copy(scheduleStudentId = value) } },
                         onTask = { value -> model.update { it.copy(scheduleTaskId = value) } },
                         onStudentQuery = model::setStudentQuery,
-                        onTaskQuery = { value -> model.update { it.copy(taskQuery = value) }; model.loadTasks() },
+                        onTaskQuery = model::setScheduleTaskQuery,
                         onMoreStudents = { model.loadStudents(reset = false) },
-                        onMoreTasks = { model.loadTasks(reset = false) },
+                        onMoreTasks = { model.loadPublishedTasks(reset = false) },
                         studentsHasMore = state.studentsHasMore,
                         tasksHasMore = state.tasksHasMore,
                         onKind = { value ->
@@ -275,10 +284,7 @@ private fun ControlAppScreen(
                     ReviewScreen(
                         occurrences = state.occurrences,
                         message = state.message,
-                        onApprove = { item -> model.update { it.copy(selectedOccurrence = item, decisionReason = "") } },
-                        onReject = { item -> model.update { it.copy(selectedOccurrence = item, decisionReason = "") } },
-                        onRetry = { item -> model.retryOccurrence(item) },
-                        onOpen = { item -> model.update { it.copy(selectedOccurrence = item) } },
+                        onOpen = { item -> model.update { it.copy(selectedOccurrence = item, decisionReason = "") } },
                         hasMore = state.occurrencesHasMore,
                         onMore = { model.loadOccurrences(reset = false) },
                     )

@@ -302,6 +302,83 @@ class ControlViewModelTest {
     }
 
     @Test
+    fun secondFactorContinuationActivatesTheNewSession() = runBlocking {
+        server.dispatcher = sessionAndStudents()
+        val identity = FakeIdentity()
+        identity.secondFactor = SignInOutcome.NeedsSecondFactor(
+            strategies = listOf("totp", "backup_code"),
+            selectedStrategy = "totp",
+            message = "Enter the authenticator code for this account.",
+        )
+        val model = model(identity)
+        model.update { it.copy(email = "parent@example.test", password = "secret") }
+        model.signIn()
+        repeat(40) {
+            if (model.state.value.secondFactorRequired) return@repeat
+            delay(25)
+        }
+        assertTrue(model.state.value.secondFactorRequired)
+        assertEquals("totp", model.state.value.selectedSecondFactor)
+        assertFalse(model.state.value.householdOk)
+        identity.secondFactor = null
+        identity.signInAs("sid-a", "token-a")
+        model.update { it.copy(secondFactorCode = "123456") }
+        model.continueSecondFactor()
+        awaitHousehold(model)
+        repeat(40) {
+            if (!model.state.value.secondFactorRequired && model.state.value.householdOk) return@repeat
+            delay(25)
+        }
+        assertEquals(1, identity.continues.get())
+        assertTrue(model.state.value.householdOk)
+        assertFalse("second factor still required: ${model.state.value}", model.state.value.secondFactorRequired)
+        assertEquals("", model.state.value.secondFactorCode)
+    }
+
+    @Test
+    fun decideWithoutReasonDoesNotCallTheServer() = runBlocking {
+        val decisions = AtomicInteger(0)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path?.endsWith("/decision") == true) {
+                    decisions.incrementAndGet()
+                    return MockResponse().setBody("""{"occurrenceId":"occ-1","decisionId":"d1","accepted":true,"status":"completed"}""")
+                }
+                return when {
+                    request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                    request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val model = model(identity)
+        awaitHousehold(model)
+        val occurrence = com.aleksclark.primertasks.client.Occurrence(
+            attemptNumber = 1,
+            dueAt = "2026-01-01T00:00:00Z",
+            dueOffsetMinutes = 0,
+            dueSemantics = "due",
+            id = "occ-1",
+            instructions = "Do the work",
+            nominalAt = "2026-01-01T00:00:00Z",
+            revisionId = "r1",
+            scheduleId = "sch-1",
+            scheduleVersion = 1,
+            status = "awaiting_verification",
+            studentId = "st-1",
+            studentName = "Ada",
+            taskRevisionVersion = 1,
+            timezone = "UTC",
+            title = "Brush",
+        )
+        model.decide(true, occurrence, "   ")
+        assertEquals(0, decisions.get())
+        assertEquals("Enter a reason before approving or rejecting this work.", model.state.value.message)
+    }
+
+    @Test
     fun doubleSignInOnlyCallsProviderOnce() = runBlocking {
         server.dispatcher = sessionAndStudents()
         val identity = FakeIdentity()
@@ -397,7 +474,7 @@ class ControlViewModelTest {
                     request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
                     request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
                     request.path == "/api/managed-releases" -> MockResponse().setBody(releasePageJson())
-                    request.path == "/api/managed-releases/rel-2/apk" -> MockResponse().setBody(okio.Buffer().write(apkBytes))
+                    request.path == "/api/managed-releases/00000000-0000-4000-8000-000000000002/apk" -> MockResponse().setBody(okio.Buffer().write(apkBytes))
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -608,7 +685,7 @@ class ControlViewModelTest {
     private fun releasePageJson() = """{"items":[{
         "byteSize":12,
         "channel":"stable",
-        "id":"rel-2",
+        "id":"00000000-0000-4000-8000-000000000002",
         "manifest":{"byteSize":12,"channel":"stable","minSdk":28,"packageName":"com.aleksclark.primer.control","sha256":"59ffe12a70df15109e0345955e3230a978f31ebc28d8fe3e42d306afb28b8e81","signerSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","supportedAbis":["arm64-v8a"],"versionCode":2,"versionName":"0.2.0"},
         "manifestPayloadBase64":"payload",
         "manifestSignature":"sig",
@@ -736,11 +813,38 @@ class ControlViewModelTest {
             return token.get()
         }
 
+        var secondFactor: SignInOutcome.NeedsSecondFactor? = null
+        var continueOutcome: SignInOutcome? = null
+        val continues = AtomicInteger(0)
+        val cancels = AtomicInteger(0)
+
         override suspend fun signIn(email: String, password: String): SignInOutcome {
             signInHold.get()?.await()
             signIns.incrementAndGet()
+            secondFactor?.let { return it }
             val id = sid.get() ?: return SignInOutcome.Failed("no session")
             return SignInOutcome.SignedIn(id)
+        }
+
+        override suspend fun prepareSecondFactor(strategy: String): SignInOutcome {
+            return SignInOutcome.NeedsSecondFactor(
+                strategies = secondFactor?.strategies ?: listOf(strategy),
+                selectedStrategy = strategy,
+                message = "Enter the code for $strategy.",
+            )
+        }
+
+        override suspend fun continueSecondFactor(code: String, strategy: String): SignInOutcome {
+            continues.incrementAndGet()
+            return continueOutcome ?: run {
+                val id = sid.get() ?: return SignInOutcome.Failed("no session")
+                SignInOutcome.SignedIn(id)
+            }
+        }
+
+        override suspend fun cancelIncompleteSignIn() {
+            cancels.incrementAndGet()
+            secondFactor = null
         }
 
         override suspend fun signOutProvider(): SignOutOutcome {

@@ -81,7 +81,7 @@ data class ControlUiState(
     val editingSchedule: Schedule? = null,
     val occurrences: List<Occurrence> = emptyList(),
     val selectedOccurrence: Occurrence? = null,
-    val decisionReason: String = "Parent observed completion.",
+    val decisionReason: String = "",
     val devices: List<ManagedDevice> = emptyList(),
     val selectedDevice: ManagedDevice? = null,
     val desired: DesiredState? = null,
@@ -91,6 +91,10 @@ data class ControlUiState(
     val selectedReleaseId: String = "",
     val email: String = "",
     val password: String = "",
+    val secondFactorRequired: Boolean = false,
+    val secondFactorCode: String = "",
+    val secondFactorStrategies: List<String> = emptyList(),
+    val selectedSecondFactor: String = "",
     val recovery: RecoveryBinding? = null,
     val approvedAppDraft: ApprovedAppDraft = ApprovedAppDraft(),
     val creatingStudent: Boolean = false,
@@ -191,25 +195,132 @@ class ControlViewModel(
             try {
                 fence()
                 when (val outcome = identity.signIn(email, password)) {
-                    is SignInOutcome.SignedIn -> {
-                        val attemptEpoch = epoch.current()
-                        val token = identity.sessionToken(skipCache = true)
-                        val liveSid = identity.sessionId()
-                        if (!epoch.isCurrent(attemptEpoch)) return@launch
-                        if (token.isNullOrBlank() || liveSid != outcome.sessionId) {
-                            _state.value = signedOut(message = "Clerk did not activate the newly created session.")
-                            return@launch
-                        }
-                        session = AuthContext(sessionId = liveSid, epoch = attemptEpoch, token = token)
-                        logoutAttempt = null
-                        refreshAuth()
-                    }
-                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false, message = outcome.message)
-                    is SignInOutcome.Failed -> _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false, message = outcome.message)
+                    is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
+                    is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = true,
+                        secondFactorCode = "",
+                        secondFactorStrategies = outcome.strategies,
+                        selectedSecondFactor = outcome.selectedStrategy,
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = false,
+                        secondFactorCode = "",
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.Failed -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        message = outcome.message,
+                    )
                 }
             } finally {
                 authGate.end()
             }
+        }
+    }
+
+    fun continueSecondFactor() {
+        if (mutations.isBusy() || !authGate.tryBegin()) {
+            _state.value = _state.value.copy(message = "Wait for the current change to finish.")
+            return
+        }
+        val code = _state.value.secondFactorCode
+        val strategy = _state.value.selectedSecondFactor
+        _state.value = _state.value.copy(secondFactorCode = "", message = null)
+        viewModelScope.launch {
+            try {
+                fence()
+                when (val outcome = identity.continueSecondFactor(code, strategy)) {
+                    is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
+                    is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = true,
+                        secondFactorStrategies = outcome.strategies,
+                        selectedSecondFactor = outcome.selectedStrategy,
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = false,
+                        secondFactorCode = "",
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.Failed -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = true,
+                        message = outcome.message,
+                    )
+                }
+            } finally {
+                authGate.end()
+            }
+        }
+    }
+
+    fun selectSecondFactor(strategy: String) {
+        if (mutations.isBusy() || !authGate.tryBegin()) {
+            _state.value = _state.value.copy(message = "Wait for the current change to finish.")
+            return
+        }
+        _state.value = _state.value.copy(selectedSecondFactor = strategy, secondFactorCode = "", message = null)
+        viewModelScope.launch {
+            try {
+                when (val outcome = identity.prepareSecondFactor(strategy)) {
+                    is SignInOutcome.NeedsSecondFactor -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = true,
+                        secondFactorStrategies = outcome.strategies,
+                        selectedSecondFactor = outcome.selectedStrategy,
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.Failed -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = true,
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.Incomplete -> _state.value = _state.value.copy(
+                        ready = true,
+                        signedIn = false,
+                        householdOk = false,
+                        secondFactorRequired = false,
+                        message = outcome.message,
+                    )
+                    is SignInOutcome.SignedIn -> completeSignedIn(outcome.sessionId)
+                }
+            } finally {
+                authGate.end()
+            }
+        }
+    }
+
+    fun cancelSecondFactor() {
+        viewModelScope.launch {
+            identity.cancelIncompleteSignIn()
+            _state.value = _state.value.copy(
+                secondFactorRequired = false,
+                secondFactorCode = "",
+                secondFactorStrategies = emptyList(),
+                selectedSecondFactor = "",
+                message = null,
+            )
         }
     }
 
@@ -220,11 +331,26 @@ class ControlViewModel(
         }
         viewModelScope.launch {
             try {
+                identity.cancelIncompleteSignIn()
                 signOutLocked()
             } finally {
                 authGate.end()
             }
         }
+    }
+
+    private suspend fun completeSignedIn(sessionId: String) {
+        val attemptEpoch = epoch.current()
+        val token = identity.sessionToken(skipCache = true)
+        val liveSid = identity.sessionId()
+        if (!epoch.isCurrent(attemptEpoch)) return
+        if (token.isNullOrBlank() || liveSid != sessionId) {
+            _state.value = signedOut(message = "Clerk did not activate the newly created session.")
+            return
+        }
+        session = AuthContext(sessionId = liveSid, epoch = attemptEpoch, token = token)
+        logoutAttempt = null
+        refreshAuth()
     }
 
     private suspend fun signOutLocked() {
@@ -444,9 +570,10 @@ class ControlViewModel(
             scheduleStudentId = "",
             scheduleTaskId = "",
             scheduleDraft = ScheduleDraft(),
+            taskQuery = "",
         )
         loadStudents()
-        loadTasks()
+        loadPublishedTasks()
     }
 
     fun beginEditSchedule(schedule: Schedule) {
@@ -458,12 +585,23 @@ class ControlViewModel(
             scheduleDraft = scheduleDraftFrom(schedule),
         )
         loadStudents()
-        loadTasks()
+        loadPublishedTasks()
     }
+
+    fun setScheduleTaskQuery(value: String) {
+        _state.value = _state.value.copy(taskQuery = value)
+        loadPublishedTasks()
+    }
+
+    fun loadPublishedTasks(reset: Boolean = true) = act { ctx -> refreshPublishedTasks(ctx, reset) }
 
     fun decide(accepted: Boolean, occurrence: Occurrence? = null, reason: String? = null) {
         val target = occurrence ?: _state.value.selectedOccurrence ?: return
         val decision = (reason ?: _state.value.decisionReason).trim()
+        if (decision.isEmpty()) {
+            _state.value = _state.value.copy(message = "Enter a reason before approving or rejecting this work.")
+            return
+        }
         mutate(ConflictResource.Occurrence) { ctx ->
             tasksFor(ctx).decide(target.id, accepted, decision)
             val latest = tasksFor(ctx).getOccurrence(target.id)
@@ -659,14 +797,18 @@ class ControlViewModel(
         commit(ctx) { it.copy(students = items, studentsHasMore = items.size < page.totalCount.toInt(), message = null) }
     }
 
-    private suspend fun refreshTasks(ctx: AuthContext, reset: Boolean = true) {
+    private suspend fun refreshTasks(ctx: AuthContext, reset: Boolean = true, status: String = "active") {
         val query = _state.value.taskQuery
         val gen = taskQueryGen.incrementAndGet()
         val offset = if (reset) 0L else _state.value.tasks.size.toLong()
-        val page = tasksFor(ctx).listTasks(query, offset, "active")
+        val page = tasksFor(ctx).listTasks(query, offset, status)
         if (!stillValid(ctx) || gen != taskQueryGen.get()) return
         val items = if (reset) page.items else _state.value.tasks + page.items
         commit(ctx) { it.copy(tasks = items, tasksHasMore = items.size < page.totalCount.toInt()) }
+    }
+
+    private suspend fun refreshPublishedTasks(ctx: AuthContext, reset: Boolean = true) {
+        refreshTasks(ctx, reset, status = "published")
     }
 
     private suspend fun refreshSchedules(ctx: AuthContext, reset: Boolean = true) {
@@ -675,7 +817,7 @@ class ControlViewModel(
         val items = if (reset) page.items else _state.value.schedules + page.items
         commit(ctx) { it.copy(schedules = items, schedulesHasMore = items.size < page.totalCount.toInt()) }
         if (reset && stillValid(ctx)) {
-            refreshTasks(ctx)
+            refreshPublishedTasks(ctx)
             refreshStudents(ctx)
         }
     }
@@ -844,7 +986,11 @@ class ControlViewModel(
         if (!epoch.isCurrent(attemptEpoch)) return
         if (!signedIn || sessionId == null || apiBase == null) {
             session = null
-            _state.value = signedOut(signedIn = signedIn)
+            if (_state.value.secondFactorRequired && !signedIn) {
+                _state.value = _state.value.copy(ready = true, signedIn = false, householdOk = false)
+            } else {
+                _state.value = signedOut(signedIn = signedIn)
+            }
             return
         }
         if (session != null && session?.sessionId != sessionId) {
@@ -872,7 +1018,21 @@ class ControlViewModel(
         session = ctx
         try {
             tasksFor(ctx).session()
-            commit(ctx) { it.copy(ready = true, signedIn = true, householdOk = true, message = null, logoutIncomplete = false, pairing = null, enrollment = null) }
+            commit(ctx) {
+                it.copy(
+                    ready = true,
+                    signedIn = true,
+                    householdOk = true,
+                    message = null,
+                    logoutIncomplete = false,
+                    pairing = null,
+                    enrollment = null,
+                    secondFactorRequired = false,
+                    secondFactorCode = "",
+                    secondFactorStrategies = emptyList(),
+                    selectedSecondFactor = "",
+                )
+            }
             if (_state.value.discovery.periodicEnabled && catalogJob?.isActive != true) syncCatalogTicker()
             if (stillValid(ctx)) refreshStudents(ctx)
         } catch (error: CancellationException) {

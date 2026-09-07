@@ -36,7 +36,17 @@ class ParentTasksRepository(
     suspend fun issuePairing(id: String) = client.issuePairing(id)
 
     suspend fun listTasks(q: String, offset: Long, status: String, limit: Long = PAGE) =
-        client.listTasks(TasksListQuery(q = q.ifBlank { null }, limit = limit, offset = offset, status = status, view = "templates", sort = "title", dir = "asc"))
+        client.listTasks(
+            TasksListQuery(
+                q = q.ifBlank { null },
+                limit = limit,
+                offset = offset,
+                status = status,
+                view = "templates",
+                sort = "title",
+                dir = "asc",
+            ),
+        )
     suspend fun createTask(title: String, instructions: String) = client.createTask(
         TaskInput(title = title, instructions = instructions, requirements = listOf(parentApproval)),
     )
@@ -55,7 +65,7 @@ class ParentTasksRepository(
         client.listOccurrences(OccurrencesListQuery(limit = limit, offset = offset, status = status.ifBlank { null }, dir = dir, sort = "nominalAt"))
     suspend fun getOccurrence(id: String) = client.getOccurrence(id)
     suspend fun decide(id: String, accepted: Boolean, reason: String) =
-        client.decideOccurrence(id, DecisionInput(accepted = accepted, reason = reason))
+        client.decideOccurrence(id, DecisionInput(accepted = accepted, reason = reason.trim()))
     suspend fun retry(id: String) = client.retryOccurrence(id)
     suspend fun skip(id: String) = client.skipOccurrence(id)
     suspend fun cancel(id: String) = client.cancelOccurrence(id)
