@@ -62,6 +62,7 @@ data class ControlUiState(
     val ready: Boolean = false,
     val signedIn: Boolean = false,
     val householdOk: Boolean = false,
+    val householdDenied: Boolean = false,
     val message: String? = null,
     val logoutIncomplete: Boolean = false,
     val mutating: Boolean = false,
@@ -1065,7 +1066,17 @@ class ControlViewModel(
             throw error
         } catch (error: TasksHttpException) {
             if (!stillValid(ctx)) return
-            if (error.statusCode == 401 || error.statusCode == 403) {
+            if (error.statusCode == 401) {
+                fence()
+                session = null
+                _state.value = signedOut(
+                    signedIn = true,
+                    message = claims?.sessionAuthMessage() ?: controlMessage(error),
+                    clerkAuthorizedParty = claims?.authorizedParty,
+                    clerkIssuer = claims?.issuer,
+                    householdDenied = false,
+                )
+            } else if (error.statusCode == 403) {
                 fence()
                 session = null
                 _state.value = signedOut(
@@ -1073,6 +1084,7 @@ class ControlViewModel(
                     message = controlMessage(error),
                     clerkAuthorizedParty = claims?.authorizedParty,
                     clerkIssuer = claims?.issuer,
+                    householdDenied = true,
                 )
             } else {
                 commit(ctx) {
@@ -1118,6 +1130,7 @@ class ControlViewModel(
         message: String? = null,
         clerkAuthorizedParty: String? = null,
         clerkIssuer: String? = null,
+        householdDenied: Boolean = false,
     ): ControlUiState {
         catalogJob?.cancel()
         catalogJob = null
@@ -1125,6 +1138,7 @@ class ControlViewModel(
             ready = true,
             signedIn = signedIn,
             householdOk = false,
+            householdDenied = householdDenied,
             email = _state.value.email,
             message = message,
             discovery = _state.value.discovery,

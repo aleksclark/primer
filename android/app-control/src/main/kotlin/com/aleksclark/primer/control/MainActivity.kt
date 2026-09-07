@@ -133,7 +133,7 @@ private fun ControlAppScreen(
         }
         ControlSignInScreen(
             configured = clerkConfigured && originConfigured,
-            denied = state.signedIn && state.message != null,
+            denied = state.householdDenied,
             message = setup,
             email = state.email,
             password = state.password,

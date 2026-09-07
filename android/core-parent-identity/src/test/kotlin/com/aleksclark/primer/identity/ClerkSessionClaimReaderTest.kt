@@ -31,6 +31,16 @@ class ClerkSessionClaimReaderTest {
     }
 
     @Test
+    fun missingAzpIsSessionAuthNotHouseholdDenial() {
+        val jwt = jwt("""{"iss":"https://clerk.primerlms.com","sid":"s","sub":"u"}""")
+        val claims = ClerkSessionClaimReader.fromJwt(jwt)!!
+        val message = claims.sessionAuthMessage()!!
+        assertTrue(message.contains("Authorized party missing"))
+        assertTrue(message.contains("not a household-membership denial"))
+        assertFalse(message.contains("does not include your account"))
+    }
+
+    @Test
     fun missingOrMalformedJwtReturnsNull() {
         assertNull(ClerkSessionClaimReader.fromJwt(null))
         assertNull(ClerkSessionClaimReader.fromJwt(""))

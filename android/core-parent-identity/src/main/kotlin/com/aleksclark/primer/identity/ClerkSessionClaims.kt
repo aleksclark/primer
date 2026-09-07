@@ -15,6 +15,13 @@ data class ClerkSessionClaims(
 ) {
     override fun toString(): String =
         "issuer=$issuer azp=$authorizedParty aud=$audience sid=${if (hasSessionId) "present" else "missing"} sub=${if (hasSubject) "present" else "missing"}"
+
+    fun sessionAuthMessage(): String? {
+        if (authorizedParty.isNullOrBlank()) {
+            return "Clerk session issuer ${issuer ?: "missing"}. Authorized party missing. Tasks requires JWT azp (native application ID or the web origin). This is not a household-membership denial."
+        }
+        return null
+    }
 }
 
 object ClerkSessionClaimReader {

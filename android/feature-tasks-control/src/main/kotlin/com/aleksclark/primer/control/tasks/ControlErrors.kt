@@ -16,7 +16,7 @@ fun controlState(error: Throwable?): ControlLoadState = when (error) {
 
 fun controlMessage(error: Throwable): String = when (error) {
     is TasksHttpException -> when (error.statusCode) {
-        401 -> "Sign in again. The parent session is missing or expired."
+        401 -> "Tasks rejected the Clerk session (401). This is authentication, not household membership."
         403 -> "This household does not include your account."
         409 -> "The record changed. Refresh and try again."
         else -> error.detail ?: error.message ?: "The Tasks service could not complete that request."
