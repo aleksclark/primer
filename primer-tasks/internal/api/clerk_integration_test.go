@@ -104,6 +104,17 @@ func TestClerkReleaseParentAndUnchangedStudentBoundary(t *testing.T) {
 	if rec := call("GET", "/auth/session", a, ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"subjectRef":"parent-a"`) {
 		t.Fatal("local actor mapping lost")
 	}
+	signer, e := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: key, KeyID: "release-test"}}, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	omitted, e := jwt.Signed(signer).Claims(map[string]any{"iss": issuer, "sub": "clerk-parent-a", "sid": "session-a", "aud": "tasks", "exp": time.Now().Add(time.Minute).Unix(), "nbf": time.Now().Add(-time.Minute).Unix()}).Serialize()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if rec := call("GET", "/auth/session", omitted, ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"subjectRef":"parent-a"`) {
+		t.Fatalf("omitted azp native session rejected: %d %s", rec.Code, rec.Body.String())
+	}
 	for _, method := range []string{"GET", "PATCH", "DELETE"} {
 		body := ""
 		if method == "PATCH" {

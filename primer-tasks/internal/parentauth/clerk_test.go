@@ -107,3 +107,44 @@ func TestPublishedVerifierKeyRotationAndBoundedOutage(t *testing.T) {
 		t.Fatal("startup accepted unavailable JWKS")
 	}
 }
+
+func TestNativeSessionOmitsAzpButRejectsWrongParty(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "one", Algorithm: "RS256", Use: "sig"}}})
+	}))
+	defer server.Close()
+	verifier, err := New(context.Background(), "https://clerk.example", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := auth.AuthenticationPolicy{AcceptedCredentials: []auth.CredentialKind{auth.CredentialSession}, AuthorizedParties: []string{"https://api.primerlms.com"}}
+	sign := func(claims map[string]any) auth.Credential {
+		t.Helper()
+		signer, e := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: key, KeyID: "one"}}, nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		base := map[string]any{"iss": "https://clerk.example", "sub": "user", "sid": "session", "exp": time.Now().Add(time.Minute).Unix()}
+		for k, v := range claims {
+			base[k] = v
+		}
+		raw, e := jwt.Signed(signer).Claims(base).Serialize()
+		if e != nil {
+			t.Fatal(e)
+		}
+		return auth.Credential{Token: raw}
+	}
+	if p, e := verifier.Authenticate(context.Background(), sign(nil), policy); e != nil || p.SessionID != "session" || p.Subject != "user" {
+		t.Fatalf("omitted azp rejected: principal=%#v err=%v", p, e)
+	}
+	if _, e := verifier.Authenticate(context.Background(), sign(map[string]any{"azp": "https://foreign.example"}), policy); e == nil {
+		t.Fatal("wrong azp accepted")
+	}
+	if p, e := verifier.Authenticate(context.Background(), sign(map[string]any{"azp": "https://api.primerlms.com"}), policy); e != nil || p.SessionID != "session" {
+		t.Fatalf("matching azp rejected: err=%v", e)
+	}
+}

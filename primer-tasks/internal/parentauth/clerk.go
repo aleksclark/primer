@@ -4,10 +4,12 @@ package parentauth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,11 +81,54 @@ func (c *Clerk) Authenticate(ctx context.Context, credential auth.Credential, po
 	if c.verifier == nil || time.Since(c.loaded) > time.Hour {
 		return auth.Principal{}, auth.ErrUnauthenticated
 	}
-	principal, err := c.verifier.Authenticate(ctx, credential, policy)
+	principal, err := c.authenticate(ctx, credential, policy)
 	if err != nil && time.Since(c.attempted) > 5*time.Second {
 		if c.refresh(ctx) == nil {
-			return c.verifier.Authenticate(ctx, credential, policy)
+			return c.authenticate(ctx, credential, policy)
 		}
 	}
 	return principal, err
+}
+
+func (c *Clerk) authenticate(ctx context.Context, credential auth.Credential, policy auth.AuthenticationPolicy) (auth.Principal, error) {
+	return c.verifier.Authenticate(ctx, credential, sessionPartyPolicy(policy, credential.Token))
+}
+
+// sessionPartyPolicy keeps AuthorizedParties when Clerk included azp. Clerk's
+// session-token docs say azp is the Frontend API Origin header and may be
+// omitted when Origin is empty or null (native SDK token fetch). Omitting the
+// party allowlist in that case does not invent azp, skip issuer/signature/
+// expiry/session checks, or accept a present mismatched azp.
+func sessionPartyPolicy(policy auth.AuthenticationPolicy, raw string) auth.AuthenticationPolicy {
+	if _, present := clerkAuthorizedParty(raw); present {
+		return policy
+	}
+	next := policy
+	next.AuthorizedParties = nil
+	return next
+}
+
+func clerkAuthorizedParty(raw string) (string, bool) {
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return "", false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", false
+	}
+	var claims map[string]any
+	if json.Unmarshal(payload, &claims) != nil {
+		return "", false
+	}
+	value, ok := claims["azp"]
+	if !ok || value == nil {
+		return "", false
+	}
+	party, _ := value.(string)
+	party = strings.TrimSpace(party)
+	if party == "" {
+		return "", false
+	}
+	return party, true
 }
