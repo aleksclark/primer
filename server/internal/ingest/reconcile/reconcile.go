@@ -1065,7 +1065,7 @@ func (e *Engine) importItems(ctx context.Context, m *manifest.Manifest, rep *Rep
 						upd.EpisodeKey = &k
 						changed = true
 					}
-					if uploadDate != "" && existingItem.UploadDate != uploadDate {
+					if uploadDate != "" && calendarDate(existingItem.UploadDate) != uploadDate {
 						d := uploadDate
 						upd.UploadDate = &d
 						changed = true
@@ -1426,6 +1426,15 @@ func episodeKeyFromFilename(path string) string {
 		return ""
 	}
 	return fmt.Sprintf("S%02dE%03d", season, ep)
+}
+
+// PostgreSQL DATE values currently serialize through time.Time as RFC3339 in
+// the TV API, whereas NFO <aired> is YYYY-MM-DD. They are the same calendar date.
+func calendarDate(value string) string {
+	if date, err := time.Parse(time.RFC3339, value); err == nil {
+		return date.Format("2006-01-02")
+	}
+	return value
 }
 
 func youtubeUploadDate(mediaPath string) string {
