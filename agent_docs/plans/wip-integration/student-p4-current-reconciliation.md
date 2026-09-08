@@ -82,12 +82,111 @@ Local logs: `/tmp/student-p4-current-gates/`.
 - `full-tasks-corrected` and `coverage`: interrupted before aggregate receipt;
   no exit file, no PASS. Fresh combined-master reruns remain required.
 
-## Remaining at implementation checkpoint
+## Final candidate and source binding
 
-Merge parent-authorized current master after this checkpoint, then rerun full
-Tasks tests/85% coverage, clients, web and feasible real-stack browser exploration.
-Kotlin/native compilation must use Gradle workers=1 and isolated output. Parent
-may own the final all-Android suite/lint/assembly after integration. Full race10,
-CI, live provider, native Control loop, camera/device, release and deployment
-acceptance are not claimed; no floor/budget is relaxed. The separate management
-replacement double-epoch defect remains outside this work.
+- Narrow implementation checkpoint: `32ac8b3d`.
+- Parent-authorized master `3237c404` merged as
+  `0655effe2ec9f8177b7d9b454d9fb2342de6d9f9`. This includes parent-owned format,
+  Control test lifecycle and management strict-fixture repairs. No donor branch
+  was merged wholesale and this lane did not merge its candidate into master.
+- Final **code**: `08bff02470089616e9f90389b509116967ecd2a3`, tree
+  `d754383ec79deec6ca4d4cb1186e3f358b6f3f0d`.
+- The last code commit serializes the initial restore snapshot and incomplete
+  cleanup under the pairing-publication mutex. The parent-discovered null-read /
+  new-pair / stale-clear race has a deterministic `UNDISPATCHED` +
+  `CompletableDeferred` store-barrier test using the production publication seam.
+  Network I/O remains outside the mutex. It also exports the missing
+  `StudentRequirement` façade **typealias**, not a duplicate model.
+- Full Go/web receipts name `0655effe`; the only subsequent code changes are
+  `TasksSession.kt`, `TasksLateResultTest.kt`, and Kotlin `Models.kt`. Their stamp
+  is not rewritten. Final focused Go/TS tests ran again after `08bff024`; corrected
+  Kotlin tests compiled/exercised the final bytes immediately before that commit.
+- Final read-only reviewer found **no remaining source blocker** at `08bff024`.
+  The exact source-bound review is committed alongside this report as
+  [student-p4-current-review.md](student-p4-current-review.md). Reviewer inspected
+  receipts but did not rerun tests/browser; review does not waive coverage.
+
+## Fresh gate results
+
+Exact commands, exit codes, source trees, log hashes, contract digest and screenshot
+hashes are committed in `test-artifacts/student-p4-current/receipts.json`.
+Go module commands below use `GOWORK=off GOFLAGS=-mod=readonly` unless noted.
+
+| Gate | Observed result / source scope |
+|---|---|
+| `cd primer-tasks && go test ./... -count=1` | PASS at combined `0655effe`; API334.839s. All subsequent Go source bytes unchanged. |
+| `cd primer-tasks && make cover` | **FAIL**, total **71.0% < 85%**, make exit2. API336.667s. Original floor/measurement preserved; public child-process coverage is not invented. |
+| `go vet ./...`, `go build ./...` | PASS, combined Go tree. |
+| `make clients-typescript` | PASS both combined and final code checkpoints: generation, typecheck, boundaries, 8 runtime tests, 3 generation/mutation tests, actual tagged generated-client public manual/dialogue conformance. Final public API5.995s. |
+| Final focused Go public tests | PASS at `08bff024`, API15.119s: native compatibility/custody/query negatives, mixed selected manual, safe capability projection and Clerk browser fixture. |
+| Workspace native compatibility | PASS with default root workspace: `GOFLAGS=-mod=readonly go test ./primer-tasks/internal/api -run '^TestPublicNativeManualRequirementCompatibility$' -count=1`. Not a full workspace suite. |
+| `node clients/kotlin/generate-client.mjs`, `node --test clients/kotlin/generate-client.test.mjs` | PASS from the fresh combined producer; strict constraints preserved. |
+| Web `lint`, `typecheck`, `test:unit`, `build` | PASS, 26 web unit tests; build regenerates client. Existing Vite config-loader/chunk-size warnings retained, not suppressed. |
+| Kotlin client + Student feature debug/release JVM tests, feature `lintDebug` | PASS: 37 client tests +96 Student variant executions, zero failures/errors/skips. Three late-result tests pass in both variants. Gradle workers=1, forced rerun, isolated output under `/tmp/student-p4-current-gates/gradle-output`. |
+
+The original focused Kotlin run failed compilation because the donor test imported
+`StudentRequirement` without a public façade alias. That RED receipt remains;
+`final-kotlin-corrected` proves the alias correction and all final store regressions.
+No generated OpenAPI/client sources are committed. Final normalized contract digest:
+`34f650af536e8b0d44655ad88f9eb7f67df4ca90fd02f68c512553c0d045a1f7`.
+
+## Fresh browser evidence
+
+Real isolated PostgreSQL + Tasks process + test issuer + Vite, using the repository
+scripted Fantasy provider; managed Chrome context `student-p4-current`. The owned
+host-stack name is `student-p4-current-0655effe`, not the live `wet-parrot` stack.
+No route interception, direct SQL success rows, ad hoc browser transport or device
+operation was used. This is L1 implementer exploration, not independent Chrome or
+promoted Playwright acceptance.
+
+Observed through the UI:
+
+1. Parent signs in through the test issuer, creates a named student and mixed
+   parent-approval + curated dialogue task. Generated config limits disable an
+   incomplete draft; save/publish/schedule use named server-backed choices.
+2. Browser pairing uses the freshly issued one-use code. Student selects manual
+   requirement, starts/submits, then explicitly selects and starts dialogue.
+3. A correct first answer is accepted. An insufficient answer and a second answer
+   rejected by the narrow scripted fixture remain in history without advancement.
+   The fixture's canonical second answer succeeds; reload at2/3 retains the third
+   question. Third success accepts dialogue while explicitly leaving the whole
+   task incomplete because manual approval remains outstanding.
+4. Parent inspector displays original answers, safe evaluations, criteria, source
+   version/hash and3/3. Next events advances the bounded URL cursor to20 and shows
+   the final original answer/evaluation. Inspector fields have unique id/name.
+5. Parent selects manual approval; only then does assignment become completed.
+   Student reload reads explicit server completion and no answer composer.
+6. Foreign requirement query and unavailable occurrence both show refusal/error,
+   with no inferred manual or dialogue fallback.
+
+Reviewed dark desktop/mobile and mobile light screenshots preserve System C,
+Instrument Sans and ruled structure. Mobile document width equals390px with no
+horizontal overflow. Screenshots and saved completion/inspection/unavailable
+snapshots are hashed in the receipt; detailed local procedure is
+`.paseo-e2e/student-p4-current/exploration.md`.
+
+Diagnostics remain explicit: development mount/reload emitted a WebSocket
+closed-before-established warning before successful connected/replayed flow;
+Student selector/composer emitted missing id/name diagnostics. Some old-tab MCP
+screenshot/evaluation calls timed out; fresh-tab reads and mobile capture succeeded
+on the same URL, but the timeout cause was not established. These tool calls are
+not silently relabeled PASS. No full long-form keyboard/IME or browser adversarial
+matrix is claimed.
+
+## Disposition and gaps
+
+**Candidate reconciled; full qualification is blocked by the existing85% gate.**
+Parent owns baseline coverage/measurement analysis and final combined Android
+app suite/lint/build. This lane does not introduce a new coverage scheme, change
+CI floors/budgets or touch the separate management replacement double-epoch bug.
+
+Still not claimed: full race/count10, full workspace suite, complete CI, independent
+Chrome/Playwright promotion, native lock-wait revocation winner-order race proof,
+full Android app/device/camera/Control loop, live Clerk/provider, signing, release,
+publication or deployment. No push or merge of the candidate into master occurred.
+The owned browser-stack API/issuer/Vite sessions were stopped after testing; its
+uniquely named PostgreSQL containers were stopped, not removed, preserving their
+temporary data. No live emulator, `wet-parrot` service, donor worktree, independent
+pairing branch or archived repository state was changed. Chrome tool cleanup
+closed its last test tab but subsequently returned a stale-selected-page error;
+remaining isolated test tabs were not force-cleaned through a shared browser.
