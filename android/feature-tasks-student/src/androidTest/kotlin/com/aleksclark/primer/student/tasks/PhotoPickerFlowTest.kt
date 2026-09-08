@@ -12,11 +12,11 @@ class PhotoPickerFlowTest {
     @Test
     fun studentIdentityIsDistinctFromPrototype() {
         assertEquals("com.aleksclark.primer.student", STUDENT_PACKAGE)
-        assertEquals("Import pairing QR image", IMPORT_ACTION)
+        assertEquals(PairingActions.IMPORT_IMAGE, IMPORT_ACTION)
     }
 
     private companion object {
         const val STUDENT_PACKAGE = "com.aleksclark.primer.student"
-        const val IMPORT_ACTION = "Import pairing QR image"
+        const val IMPORT_ACTION = PairingActions.IMPORT_IMAGE
     }
 }
