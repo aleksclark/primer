@@ -19,6 +19,7 @@ import (
 
 func requireAPKTools(t *testing.T) {
 	t.Helper()
+	skipChildProcessRaceRepeat(t)
 	sdk := androidSDKRoot()
 	if sdk != "" {
 		for _, tools := range androidBuildToolDirs(sdk) {

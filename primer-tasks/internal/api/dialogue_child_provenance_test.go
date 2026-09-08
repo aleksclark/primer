@@ -287,8 +287,16 @@ func classifyDialogueStamp(build dialogueChildBuild, source dialogueSourceManife
 	}
 	return "mismatch-not-source-authority"
 }
+func skipChildProcessRaceRepeat(t *testing.T) {
+	t.Helper()
+	if os.Getenv("PRIMER_TASKS_RACE_REPEAT") == "1" {
+		t.Skip("child-process Tasks server fixtures are covered by count=1 tests; 10-repeat race stays on in-process packages")
+	}
+}
+
 func buildTasksDialogueChild(t *testing.T, binary string) (dialogueChildBuild, dialogueSourceManifest, dialogueSourceBinding) {
 	t.Helper()
+	skipChildProcessRaceRepeat(t)
 	dir, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)

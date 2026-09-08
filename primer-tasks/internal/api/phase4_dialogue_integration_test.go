@@ -55,6 +55,7 @@ func newPublicDialogueHarnessWithPolicy(t *testing.T, followUps, maxTurns int, m
 }
 func newPublicDialogueHarnessWithConfig(t *testing.T, policy domain.DialogueConfig, manual bool) *publicDialogueHarness {
 	t.Helper()
+	skipChildProcessRaceRepeat(t)
 	t.Setenv("TASKS_TEST_DATABASE_URL", "")
 	t.Setenv("PRIMER_TASKS_COVERAGE_GATE", "1")
 	pool := integrationPool(t)

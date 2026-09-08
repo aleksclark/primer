@@ -70,6 +70,7 @@ func buildDialogueChild(t *testing.T, binary, target string, race bool) dialogue
 }
 func buildDialogueChildInDir(t *testing.T, binary, target string, race bool, dir string) dialogueChildBuild {
 	t.Helper()
+	skipChildProcessRaceRepeat(t)
 	args := []string{"build"}
 	if race {
 		args = append(args, "-race")
