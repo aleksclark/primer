@@ -18,6 +18,8 @@ internal object StudentOccurrenceCopy {
 internal enum class OccurrenceStatusTone {
     Neutral,
     Accent,
+    InProgress,
+    Sent,
     Attention,
     Filled,
 }
@@ -76,10 +78,27 @@ internal fun occurrenceStatusLabel(status: String, retried: Boolean): String = w
 
 internal fun occurrenceStatusTone(status: String, retried: Boolean): OccurrenceStatusTone = when (status) {
     "completed" -> OccurrenceStatusTone.Filled
-    "awaiting_verification", "in_progress" -> OccurrenceStatusTone.Accent
-    "pending" -> if (retried) OccurrenceStatusTone.Attention else OccurrenceStatusTone.Neutral
-    else -> OccurrenceStatusTone.Attention
+    "awaiting_verification" -> OccurrenceStatusTone.Sent
+    "in_progress" -> OccurrenceStatusTone.InProgress
+    "pending" -> if (retried) OccurrenceStatusTone.Attention else OccurrenceStatusTone.Accent
+    else -> OccurrenceStatusTone.Neutral
 }
+
+internal fun terminalOccurrenceStatus(status: String): Boolean =
+    status == "completed" || status == "excused" || status == "canceled"
+
+internal fun statusPriority(status: String, retried: Boolean): Int = when {
+    status == "in_progress" -> 0
+    status == "pending" && retried -> 1
+    status == "pending" -> 2
+    status == "awaiting_verification" -> 3
+    else -> 4
+}
+
+internal fun sortOccurrencesForStudent(items: List<OccurrenceResponse>): List<OccurrenceResponse> =
+    items.withIndex()
+        .sortedWith(compareBy<IndexedValue<OccurrenceResponse>> { statusPriority(it.value.status, it.value.attemptNumber > 0) }.thenBy { it.index })
+        .map { it.value }
 
 internal fun replaceOccurrence(
     items: List<OccurrenceResponse>,

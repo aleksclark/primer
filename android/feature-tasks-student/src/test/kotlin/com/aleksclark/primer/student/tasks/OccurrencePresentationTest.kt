@@ -95,6 +95,24 @@ class OccurrencePresentationTest {
     }
 
     @Test
+    fun studentOrderingFinishesStartedWorkBeforeStartingAnotherTask() {
+        val ready = occurrence(id = "ready", status = "pending")
+        val sent = occurrence(id = "sent", status = "awaiting_verification")
+        val retry = occurrence(id = "retry", status = "pending", attemptNumber = 1)
+        val active = occurrence(id = "active", status = "in_progress")
+        val completed = occurrence(id = "completed", status = "completed")
+
+        assertEquals(
+            listOf("active", "retry", "ready", "sent", "completed"),
+            sortOccurrencesForStudent(listOf(ready, sent, completed, retry, active)).map { it.id },
+        )
+        assertTrue(terminalOccurrenceStatus("completed"))
+        assertTrue(terminalOccurrenceStatus("excused"))
+        assertTrue(terminalOccurrenceStatus("canceled"))
+        assertFalse(terminalOccurrenceStatus("awaiting_verification"))
+    }
+
+    @Test
     fun replaceOccurrenceUpdatesMatchingRowOnly() {
         val first = occurrence(id = "occ-1", status = "pending")
         val second = occurrence(id = "occ-2", status = "pending")

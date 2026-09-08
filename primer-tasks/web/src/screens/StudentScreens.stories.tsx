@@ -14,14 +14,14 @@ type Story = StoryObj;
 const noop = fn();
 const occurrence = (args: StudentOccurrenceScreenProps) => <StudentOccurrenceScreen {...args} />;
 const checklistItems = [
-  { id: "fractions", title: "Practice fractions", description: "Complete problems 1 through 12 and show each reduction.", status: "Ready to start", href: "#fractions" },
-  { id: "essay", title: "Revise history essay", description: "Finish the conclusion and check every citation.", status: "In progress", href: "#essay" },
-  { id: "reading", title: "Read The Hobbit", description: "Read chapter 4 and mark two unfamiliar words.", status: "Sent to your parent", href: "#reading" },
-  { id: "workbench", title: "Measure the workbench", description: "Measure again and record each dimension to the nearest eighth inch.", status: "Needs another try", href: "#workbench" },
-  { id: "science", title: "Record plant growth", description: "Measure the seedling and add today’s observation.", status: "Approved", href: "#science" },
-  { id: "map", title: "Label the river map", description: "Label the major rivers discussed this week.", status: "Skipped", href: "#map" },
-  { id: "vocabulary", title: "Review vocabulary", description: "Define this week’s ten vocabulary words.", status: "Canceled", href: "#vocabulary" },
-  { id: "cad", title: "Inspect the CAD model", description: "Open the model and check the mounting-hole spacing.", status: "Unavailable on this device", href: "#cad" },
+  { id: "fractions", title: "Practice fractions", description: "Complete problems 1 through 12 and show each reduction.", status: "pending" as const, href: "#fractions" },
+  { id: "essay", title: "Revise history essay", description: "Finish the conclusion and check every citation.", status: "in_progress" as const, href: "#essay" },
+  { id: "reading", title: "Read The Hobbit", description: "Read chapter 4 and mark two unfamiliar words.", status: "awaiting_verification" as const, href: "#reading" },
+  { id: "workbench", title: "Measure the workbench", description: "Measure again and record each dimension to the nearest eighth inch.", status: "pending" as const, retried: true, href: "#workbench" },
+  { id: "science", title: "Record plant growth", description: "Measure the seedling and add today’s observation.", status: "completed" as const, href: "#science" },
+  { id: "map", title: "Label the river map", description: "Label the major rivers discussed this week.", status: "excused" as const, href: "#map" },
+  { id: "vocabulary", title: "Review vocabulary", description: "Define this week’s ten vocabulary words.", status: "canceled" as const, href: "#vocabulary" },
+  { id: "cad", title: "Inspect the CAD model", description: "Open the model and check the mounting-hole spacing.", status: "unavailable" as const, href: "#cad" },
 ];
 
 function PairingStory({ initialState = "ready" as RequestState }) {
@@ -45,7 +45,7 @@ export const Pairing: Story = {
 };
 
 export const PairingExpired: Story = { render: () => <PairingStory initialState="expired" /> };
-const storyLink = (item: ChecklistScreenItem, children: ReactNode, className: string) => <a className={className} href={item.href} aria-label={`Open ${item.title}, ${item.status}`} key={item.id}>{children}</a>;
+const storyLink = (item: ChecklistScreenItem, children: ReactNode, className: string, accessibleName: string) => <a className={className} href={item.href} aria-label={accessibleName} key={item.id}>{children}</a>;
 export const EmptyChecklist: Story = { render: () => <StudentChecklistScreen name="Ada" state="empty" items={[]} onRefresh={noop} /> };
 export const MixedChecklist: Story = {
   render: () => <StudentChecklistScreen name="Ada" state="ready" items={checklistItems} renderLink={storyLink} />,
@@ -63,10 +63,10 @@ export const MixedChecklist: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Hide completed tasks" }));
   },
 };
-const notStarted: StudentOccurrenceScreenProps = { title: "Practice fractions", instructions: checklistItems[0].description, status: "Ready to start", action: "start", onAction: noop, onRefresh: noop, onBack: noop };
+const notStarted: StudentOccurrenceScreenProps = { title: "Practice fractions", instructions: checklistItems[0].description, status: "pending", action: "start", onAction: noop, onRefresh: noop, onBack: noop };
 export const NotStarted: Story = { render: () => occurrence(notStarted) };
-export const InProgress: Story = { render: () => occurrence({ ...notStarted, status: "In progress", action: "submit" }) };
-export const WaitingForParent: Story = { render: () => occurrence({ ...notStarted, status: "Sent to your parent", action: undefined, explanation: "Your work is saved. You can return to today’s tasks while your parent checks it." }) };
-export const RejectedRetry: Story = { render: () => occurrence({ ...notStarted, status: "Needs another try", action: "retry", explanation: "Try the task again with care. Your previous work is still saved." }) };
-export const Completed: Story = { render: () => occurrence({ ...notStarted, status: "Approved", action: undefined, explanation: "Nice work. Your parent approved this task." }) };
-export const Unsupported: Story = { render: () => occurrence({ ...notStarted, status: "Unavailable on this device", action: undefined, supported: false, explanation: "Ask your parent for help opening this task on a supported device." }) };
+export const InProgress: Story = { render: () => occurrence({ ...notStarted, status: "in_progress", action: "submit" }) };
+export const WaitingForParent: Story = { render: () => occurrence({ ...notStarted, status: "awaiting_verification", action: undefined, explanation: "Your work is saved. You can return to today’s tasks while your parent checks it." }) };
+export const RejectedRetry: Story = { render: () => occurrence({ ...notStarted, status: "pending", retried: true, action: "retry", explanation: "Try the task again with care. Your previous work is still saved." }) };
+export const Completed: Story = { render: () => occurrence({ ...notStarted, status: "completed", action: undefined, explanation: "Nice work. Your parent approved this task." }) };
+export const Unsupported: Story = { render: () => occurrence({ ...notStarted, status: "unavailable", action: undefined, explanation: "Ask your parent for help opening this task on a supported device." }) };

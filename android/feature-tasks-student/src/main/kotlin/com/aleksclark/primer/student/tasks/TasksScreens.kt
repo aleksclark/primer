@@ -564,11 +564,9 @@ internal fun ChecklistScreen(
     val waiting = occurrences.count { it.status == "awaiting_verification" }
     val actionRequired = occurrences.count { presentOccurrence(it).studentActionRequired } + items.count { it.status == "pending" || it.status == "in_progress" }
     val terminalCount = occurrences.count { terminalOccurrenceStatus(it.status) } + items.count { terminalOccurrenceStatus(it.status) }
-    val visibleOccurrences = occurrences
-        .filter { showCompleted || !terminalOccurrenceStatus(it.status) }
-        .withIndex()
-        .sortedWith(compareBy<IndexedValue<OccurrenceResponse>> { occurrencePriority(it.value) }.thenBy { it.index })
-        .map { it.value }
+    val visibleOccurrences = sortOccurrencesForStudent(
+        occurrences.filter { showCompleted || !terminalOccurrenceStatus(it.status) },
+    )
     val visibleItems = items
         .filter { showCompleted || !terminalOccurrenceStatus(it.status) }
         .withIndex()
@@ -693,20 +691,6 @@ private fun StudentTaskRow(
     }
 }
 
-private fun terminalOccurrenceStatus(status: String): Boolean =
-    status == "completed" || status == "excused" || status == "canceled"
-
-private fun statusPriority(status: String, retried: Boolean): Int = when {
-    status == "in_progress" -> 0
-    status == "pending" && retried -> 1
-    status == "pending" -> 2
-    status == "awaiting_verification" -> 3
-    else -> 4
-}
-
-private fun occurrencePriority(occurrence: OccurrenceResponse): Int =
-    statusPriority(occurrence.status, occurrence.attemptNumber > 0)
-
 @Composable
 private fun studentStatusColor(status: String, retried: Boolean): Color = when {
     status == "in_progress" -> PrimerTheme.colors.statusInProgress
@@ -747,9 +731,11 @@ internal fun OccurrenceDetailScreen(
             presented.statusLabel,
             tone = when (presented.tone) {
                 OccurrenceStatusTone.Filled -> PrimerStatusTone.Filled
-                OccurrenceStatusTone.Attention -> if (presented.studentActionRequired) PrimerStatusTone.Filled else PrimerStatusTone.Attention
-                OccurrenceStatusTone.Accent -> if (presented.studentActionRequired) PrimerStatusTone.Filled else PrimerStatusTone.Accent
-                OccurrenceStatusTone.Neutral -> if (presented.studentActionRequired) PrimerStatusTone.Filled else PrimerStatusTone.Neutral
+                OccurrenceStatusTone.Attention -> PrimerStatusTone.Attention
+                OccurrenceStatusTone.Accent -> PrimerStatusTone.Accent
+                OccurrenceStatusTone.InProgress -> PrimerStatusTone.Accent
+                OccurrenceStatusTone.Sent -> PrimerStatusTone.Accent
+                OccurrenceStatusTone.Neutral -> PrimerStatusTone.Neutral
             },
         )
         Text("WHAT TO DO", style = PrimerTheme.typography.label, color = PrimerTheme.colors.textMuted)

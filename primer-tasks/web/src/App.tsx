@@ -372,9 +372,9 @@ function StudentOccurrenceRecord({ id }: { id: string }) {
   if (selected.kind !== "parent_approval" || selected.interaction !== "parent_action") return <>{selection}<p className="notice">This requirement has no supported action here. Ask your parent; it has not been replaced with manual approval.</p></>;
   const manualState = manualActionState(occurrence, selected);
   const explanation = manualState === "waiting" ? "Your work is saved. You can return to today’s tasks while your parent checks it." : manualState === "accepted" ? "Your parent approved this part. Finish any other required work." : manualState === "unavailable" ? "Ask your parent for help opening this task on a supported device." : manualState === "closed" ? occurrence.status === "completed" ? "Nice work. Your parent approved this task." : "This task is closed." : manualState === "start" && occurrence.status === "pending" && selected.attemptStatus === "rejected" ? "Try the task again with care. Your previous work is still saved." : undefined;
-  const status = manualState === "waiting" ? "Sent to your parent" : manualState === "start" && selected.attemptStatus === "rejected" ? "Needs another try" : manualState === "unavailable" ? "Unavailable on this device" : occurrence.status === "completed" ? "Approved" : statusLabel(occurrence.status);
+  const status = manualState === "unavailable" ? "unavailable" : occurrence.status;
   const action = manualState === "start" ? selected.attemptStatus === "rejected" ? "retry" : "start" : manualState === "submit" ? "submit" : undefined;
-  return <>{selection}<StudentOccurrenceScreen title={occurrence.title} instructions={occurrence.instructions} status={status} explanation={explanation} supported={manualState !== "unavailable"} action={action} busy={busy} onAction={() => void manual(manualState === "submit")} onRefresh={() => void load()} onBack={() => navigate("/student")} /></>;
+  return <>{selection}<StudentOccurrenceScreen title={occurrence.title} instructions={occurrence.instructions} status={status} retried={selected.attemptStatus === "rejected"} explanation={explanation} action={action} busy={busy} onAction={() => void manual(manualState === "submit")} onRefresh={() => void load()} onBack={() => navigate("/student")} /></>;
 }
 
 function occurrenceActions(o: Occurrence, decide: (id: string, accepted: boolean, requirementId: string) => void, load: () => void, setError: (error: unknown) => void) {
@@ -400,8 +400,8 @@ function StudentChecklistPage() {
   useEffect(load, [load]);
   if (state === "loading") return <><PageHeader eyebrow="Your tasks" title="Today" /><StateNotice state="loading" /></>;
   if (state === "error" || state === "denied" || state === "revoked" || state === "expired") return <><PageHeader eyebrow="Your tasks" title="Today" /><ErrorNotice error={error} onRetry={load} /><p className="meta">If access was revoked or expired, ask a parent for a new pairing code.</p></>;
-  const screenItems = [...occurrences.map((item) => ({ id: item.id, title: item.title, description: item.instructions, status: studentStatusLabel(item), href: `/student/occurrences/${item.id}` })), ...items.map((item) => ({ id: item.id, title: item.title, description: item.description ?? "", status: statusLabel(item.status) }))];
-  return <StudentChecklistScreen name={profile?.displayName ?? "you"} state={state} items={screenItems} onRefresh={load} renderLink={(item, children, className) => <NavLink className={className} data-review-target={`checklist.item.${item.id}`} aria-label={`Open ${item.title}, ${item.status}`} to={item.href ?? "/student"} key={item.id}>{children}</NavLink>} />;
+  const screenItems = [...occurrences.map((item) => ({ id: item.id, title: item.title, description: item.instructions, status: item.status, retried: item.status === "pending" && item.verification?.some((requirement) => requirement.attemptStatus === "rejected"), href: `/student/occurrences/${item.id}` })), ...items.map((item) => ({ id: item.id, title: item.title, description: item.description ?? "", status: item.status }))];
+  return <StudentChecklistScreen name={profile?.displayName ?? "you"} state={state} items={screenItems} onRefresh={load} renderLink={(item, children, className, accessibleName) => <NavLink className={className} data-review-target={`checklist.item.${item.id}`} aria-label={accessibleName} to={item.href ?? "/student"} key={item.id}>{children}</NavLink>} />;
 }
 
 function Pagination({ offset, limit, total, onChange }: { offset: number; limit: number; total: number; onChange: (offset: number) => void }) {
@@ -412,12 +412,6 @@ function Pagination({ offset, limit, total, onChange }: { offset: number; limit:
 function verificationStatusLabel(occurrence: Occurrence) {
   if (occurrence.status === "awaiting_verification" && occurrence.verification?.some(item => item.kind === "agent_dialogue")) return "Verification in progress";
   return statusLabel(occurrence.status);
-}
-
-function studentStatusLabel(occurrence: Occurrence) {
-  if (occurrence.status === "pending" && occurrence.verification?.some((item) => item.attemptStatus === "rejected")) return "Needs another try";
-  const names: Record<string, string> = { pending: "Ready to start", in_progress: "In progress", awaiting_verification: "Sent to your parent", completed: "Approved", excused: "Skipped", canceled: "Canceled" };
-  return names[occurrence.status] ?? occurrence.status.replaceAll("_", " ");
 }
 
 function statusLabel(status: string) {
