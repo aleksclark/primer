@@ -1,5 +1,7 @@
 package com.aleksclark.primer.control
 
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import com.aleksclark.primer.control.device.ControlSelfUpdatePhase
 import com.aleksclark.primer.control.device.DeviceRepository
 import com.aleksclark.primer.control.tasks.ParentTasksRepository
@@ -18,10 +20,16 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -41,6 +49,8 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ControlViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
+    private val viewModelStore = ViewModelStore()
+    private val modelJobs = mutableListOf<Job>()
     private lateinit var server: MockWebServer
 
     @Before
@@ -52,8 +62,23 @@ class ControlViewModelTest {
 
     @After
     fun tearDown() {
-        server.shutdown()
-        Dispatchers.resetMain()
+        try {
+            runBlocking { clearModels() }
+        } finally {
+            try {
+                server.shutdown()
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+    }
+
+    private suspend fun clearModels() {
+        // Match the Activity's lifecycle ownership. Merely stopping discovery
+        // leaves auth/mutation work alive; cancelling alone still lets blocking
+        // TasksClient IO return through TestMainDispatcher during resetMain.
+        viewModelStore.clear()
+        withTimeout(5_000) { modelJobs.joinAll() }
     }
 
     @Test
@@ -767,6 +792,109 @@ class ControlViewModelTest {
         }
     }
 
+    @Test
+    fun clearingOwnerCancelsInitialAuthWithoutCallingTheServer() = runBlocking {
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        identity.holdToken()
+        val model = model(identity)
+        val job = model.viewModelScope.coroutineContext.job
+        assertFalse(model.state.value.ready)
+
+        clearModels()
+        identity.releaseToken()
+        dispatcher.scheduler.runCurrent()
+
+        assertTrue(job.isCancelled)
+        assertTrue(job.isCompleted)
+        assertFalse(model.state.value.ready)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun clearingOwnerStopsSleepingCatalogTicker() = runBlocking {
+        server.dispatcher = sessionAndStudents()
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val now = AtomicLong(1_000)
+        val model = model(identity, catalogPeriodMs = 40, clock = { now.get() })
+        awaitHousehold(model)
+        model.setDiscovery(periodicEnabled = true, checkOnResume = false)
+        val job = model.viewModelScope.coroutineContext.job
+
+        clearModels()
+        val stateAfterClear = model.state.value
+        val requestsAfterClear = server.requestCount
+        now.addAndGet(400)
+        dispatcher.scheduler.advanceTimeBy(400)
+        dispatcher.scheduler.runCurrent()
+
+        // Keep discovery enabled: ending the owner, not changing preferences or
+        // signing out, must cancel both the ticker and its auth-fenced work.
+        assertTrue(model.state.value.discovery.periodicEnabled)
+        assertTrue(job.isCancelled)
+        assertTrue(job.isCompleted)
+        assertFalse(job.children.any())
+        assertEquals(stateAfterClear, model.state.value)
+        assertEquals(requestsAfterClear, server.requestCount)
+    }
+
+    @Test
+    fun clearingOwnerWaitsForInFlightCatalogBeforeResettingMain() = runBlocking {
+        val catalogStarted = CompletableDeferred<Unit>()
+        val releaseCatalog = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/auth/session" -> MockResponse().setBody(sessionJson())
+                request.path?.startsWith("/api/students?") == true -> MockResponse().setBody(emptyPage())
+                request.path == "/api/managed-devices" -> MockResponse().setBody("""{"items":[]}""")
+                request.path == "/api/managed-releases" -> {
+                    catalogStarted.complete(Unit)
+                    releaseCatalog.await(5, TimeUnit.SECONDS)
+                    MockResponse().setBody(releasePageJson())
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val identity = FakeIdentity()
+        identity.signInAs("sid-a", "token-a")
+        val now = AtomicLong(1_000)
+        val model = model(identity, catalogPeriodMs = 40, clock = { now.get() })
+        awaitHousehold(model)
+        model.update { it.copy(discovery = it.discovery.copy(lastCatalogCheckAtMs = 1)) }
+        model.setDiscovery(periodicEnabled = true, checkOnResume = false)
+        val job = model.viewModelScope.coroutineContext.job
+
+        try {
+            withTimeout(5_000) { catalogStarted.await() }
+            // Start the same owner teardown used by @After while real IO is
+            // suspended in the server. No sleep is used to arrange this race.
+            val clearing = async(start = CoroutineStart.UNDISPATCHED) { clearModels() }
+            assertTrue(job.isCancelled)
+            assertFalse("owner teardown must await the returning IO child", clearing.isCompleted)
+            val stateAtClear = model.state.value
+            val requestsAtClear = server.requestCount
+
+            releaseCatalog.countDown()
+            withTimeout(5_000) { clearing.await() }
+            assertTrue(job.isCompleted)
+            assertFalse(job.children.any())
+            now.addAndGet(400)
+            dispatcher.scheduler.advanceTimeBy(400)
+            dispatcher.scheduler.runCurrent()
+
+            assertEquals("cancelled catalog must not publish its late response", stateAtClear, model.state.value)
+            assertEquals(requestsAtClear, server.requestCount)
+            assertTrue(model.state.value.releases.isEmpty())
+            // Exercise the precise failing boundary only after all Main users
+            // have completed; restore it for the normal @After path.
+            Dispatchers.resetMain()
+            Dispatchers.setMain(dispatcher)
+        } finally {
+            releaseCatalog.countDown()
+        }
+    }
+
     private fun model(
         identity: FakeIdentity,
         updater: ControlSelfUpdateCoordinator? = null,
@@ -787,7 +915,10 @@ class ControlViewModelTest {
             clock = clock,
             tasksFactory = { token -> ParentTasksRepository(origin, token, http) },
             devicesFactory = { token -> DeviceRepository(origin, token, http) },
-        )
+        ).also { model ->
+            viewModelStore.put("control-${modelJobs.size}", model)
+            modelJobs += model.viewModelScope.coroutineContext.job
+        }
     }
 
     private fun coordinator(session: RecordingSession) = ControlSelfUpdateCoordinator(
