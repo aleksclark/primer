@@ -83,6 +83,7 @@ type ScheduleInput2 struct {
 	RRULE            string     `json:"rrule,omitempty"`
 	DueOffsetMinutes int        `json:"dueOffsetMinutes"`
 }
+
 // StudentRequirement is the student-safe occurrence summary. It names the
 // issued requirement without config, source, rubric, or other payloads.
 type StudentRequirement struct {
