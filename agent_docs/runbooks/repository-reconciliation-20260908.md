@@ -237,6 +237,14 @@ registered. Targets were checked for live non-agent processes and changed
 source/loose files. No blanket `git clean`, remote branch deletion, or PR closure
 was performed.
 
+Final integrity checking also found a stale split commit-graph cache (dated
+September 6) referencing missing unreachable objects. Object/ref connectivity
+passed with that derived cache disabled. The old graph files and initial failure
+logs were preserved outside the repository; the cache was then rebuilt from
+reachable refs. Normal `git commit-graph verify` and `git fsck
+--connectivity-only --no-dangling` now pass without a configuration override.
+No Git objects were pruned and no persistent Git configuration was changed.
+
 Four worktrees remain: mainline, the blocked P4 candidate, the independent active
 pairing-flow task, and the live `wet-parrot` development/device workspace.
 Nineteen local branches remain, including unmerged donor/roadmap work and the open
