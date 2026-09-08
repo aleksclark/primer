@@ -3,6 +3,8 @@ package com.aleksclark.primer.student.tasks
 import com.aleksclark.primertasks.client.TasksClient
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -14,6 +16,46 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TasksLateResultTest {
+    @Test
+    fun incompleteRestoreSnapshotCannotClearNewPairingPublication() = runBlocking {
+        val readEntered = CompletableDeferred<Unit>()
+        val releaseRead = CompletableDeferred<Unit>()
+        var saved: String? = null
+        var firstRead = true
+        var publications = 0
+        val tokens = object : TokenStore {
+            override suspend fun read(): String? {
+                val snapshot = saved
+                if (firstRead) {
+                    firstRead = false
+                    readEntered.complete(Unit)
+                    releaseRead.await()
+                }
+                return snapshot
+            }
+            override suspend fun save(token: String) { saved = token; publications += 1 }
+            override suspend fun clear() { saved = null }
+        }
+        val bindings = InMemoryBindingStore()
+        val session = TasksSession(tokens, bindings, { error("incomplete restore must not call network") }, "https://tasks.example.test", false)
+        val restore = async(start = CoroutineStart.UNDISPATCHED) { session.restore() }
+        readEntered.await()
+        val newBinding = StudentMetadata("new-student", "New", "https://tasks.example.test/api", "new-pair")
+        // This is the exact no-network publication seam used after pairDevice.
+        // UNDISPATCHED runs it until the mutex wait: no sleeps/polling or mock
+        // HTTP timing decide whether the new credential escaped the lock.
+        val publish = async(start = CoroutineStart.UNDISPATCHED) { session.persistPairing("new-token", newBinding) }
+        try {
+            assertEquals(0, publications)
+            assertFalse(publish.isCompleted)
+        } finally { releaseRead.complete(Unit) }
+        assertTrue(restore.await() is TasksRestoreResult.Unpaired)
+        publish.await()
+        assertEquals("new-token", saved)
+        assertEquals(newBinding, bindings.metadata)
+        assertEquals(1, publications)
+    }
+
     @Test
     fun delayedRestoreCannotResurrectRevokedOrReplacedPairing() = runBlocking {
         for (success in listOf(false, true)) for (replace in listOf(false, true)) {

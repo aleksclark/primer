@@ -37,13 +37,19 @@ class TasksSession(
     private val pairingMutex = Mutex()
 
     suspend fun restore(): TasksRestoreResult {
-        val savedToken = tokenStore.read()
-        val savedMetadata = bindingStore.read()
-        if (savedToken == null || savedMetadata == null || savedMetadata.origin.isBlank()) {
-            clearPairing()
-            return TasksRestoreResult.Unpaired()
-        }
-        return load(savedToken, savedMetadata)
+        val snapshot = pairingMutex.withLock {
+            val savedToken = tokenStore.read()
+            val savedMetadata = bindingStore.read()
+            if (savedToken == null || savedMetadata == null || savedMetadata.origin.isBlank()) {
+                // Snapshot and incomplete-state cleanup share the publication
+                // lock. Never clear a newer pairing using an older null read.
+                tokenStore.clear()
+                bindingStore.clear()
+                null
+            } else savedToken to savedMetadata
+        } ?: return TasksRestoreResult.Unpaired()
+        // No network call is made under the storage mutex.
+        return load(snapshot.first, snapshot.second)
     }
 
     suspend fun pair(rawQr: String): TasksRestoreResult {
@@ -66,10 +72,7 @@ class TasksSession(
             val binding = StudentMetadata(paired.studentId, "", apiBase, qr.pairingId)
             // Persist the one-use credential before any follow-up call so a lost
             // profile/checklist response cannot discard the newly issued bearer.
-            pairingMutex.withLock {
-                tokenStore.save(paired.token)
-                bindingStore.save(binding)
-            }
+            persistPairing(paired.token, binding)
             load(paired.token, binding)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -120,6 +123,11 @@ class TasksSession(
 
     suspend fun submit(token: String, origin: String, id: String): OccurrenceActionResult =
         mutate(token, origin, id) { client -> client.submitStudentOccurrence(token, id) }
+
+    internal suspend fun persistPairing(token: String, binding: StudentMetadata) = pairingMutex.withLock {
+        tokenStore.save(token)
+        bindingStore.save(binding)
+    }
 
     suspend fun clearPairing() = pairingMutex.withLock {
         tokenStore.clear()

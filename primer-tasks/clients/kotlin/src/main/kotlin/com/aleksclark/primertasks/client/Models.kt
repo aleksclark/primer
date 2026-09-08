@@ -52,6 +52,7 @@ import com.aleksclark.primertasks.generated.StateChangeInput as GeneratedStateCh
 import com.aleksclark.primertasks.generated.StatusResponse as GeneratedStatusResponse
 import com.aleksclark.primertasks.generated.Student as GeneratedStudent
 import com.aleksclark.primertasks.generated.StudentPage as GeneratedStudentPage
+import com.aleksclark.primertasks.generated.StudentRequirement as GeneratedStudentRequirement
 import com.aleksclark.primertasks.generated.StudentsListQuery as GeneratedStudentsListQuery
 import com.aleksclark.primertasks.generated.TaskInput2 as GeneratedTaskInput
 import com.aleksclark.primertasks.generated.TaskPage2 as GeneratedTaskPage
@@ -67,6 +68,7 @@ typealias CreateStudent = GeneratedCreateStudent
 typealias UpdateStudent = GeneratedUpdateStudent
 typealias Student = GeneratedStudent
 typealias StudentPage = GeneratedStudentPage
+typealias StudentRequirement = GeneratedStudentRequirement
 typealias StudentsListQuery = GeneratedStudentsListQuery
 typealias Pairing = GeneratedPairing
 typealias PairCode = GeneratedPairCode
