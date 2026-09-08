@@ -19,6 +19,89 @@ import (
 	"primer-tasks/internal/repo"
 )
 
+// The student explicitly selects manual work before starting dialogue. Only
+// public setup/mutations are used; SQL below is observation, never success setup.
+func TestPublicMixedSelectedManualMutation(t *testing.T) {
+	h := newPublicDialogueHarnessWithPolicy(t, 2, 9, true)
+	var occurrence Occurrence2
+	h.request(h.student, "GET", "/student/occurrences/"+h.occurrence, nil, 200, &occurrence)
+	if len(occurrence.Verification) != 2 || occurrence.Verification[0].Kind != "agent_dialogue" || occurrence.Verification[1].Kind != "parent_approval" {
+		t.Fatal("public fixture is not dialogue-first/manual-second")
+	}
+	manual := occurrence.Verification[1].ID
+	for _, action := range []string{"start", "submit"} {
+		h.request(h.student, "POST", "/student/occurrences/"+h.occurrence+"/"+action+"?requirementId="+manual, nil, 200, nil)
+	}
+	var selected, other, dialogue, jobs, messages, events int
+	err := h.pool.QueryRow(context.Background(), `SELECT
+	 (SELECT count(*) FROM verification_attempts WHERE occurrence_id=$1 AND requirement_id=$2),
+	 (SELECT count(*) FROM verification_attempts WHERE occurrence_id=$1 AND requirement_id<>$2),
+	 (SELECT count(*) FROM dialogue_attempts WHERE occurrence_id=$1),
+	 (SELECT count(*) FROM verification_jobs j JOIN verification_attempts a ON a.tenant_id=j.tenant_id AND a.id=j.attempt_id WHERE a.occurrence_id=$1),
+	 (SELECT count(*) FROM verification_messages m JOIN verification_attempts a ON a.tenant_id=m.tenant_id AND a.id=m.attempt_id WHERE a.occurrence_id=$1),
+	 (SELECT count(*) FROM verification_events e JOIN verification_attempts a ON a.tenant_id=e.tenant_id AND a.id=e.attempt_id WHERE a.occurrence_id=$1)`, h.occurrence, manual).Scan(&selected, &other, &dialogue, &jobs, &messages, &events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected != 1 || other != 0 || dialogue != 0 || jobs != 0 || messages != 0 || events != 0 {
+		t.Fatalf("selected manual attempt=%d, other attempts=%d, dialogue=%d jobs=%d messages=%d events=%d; want 1,0,0,0,0,0", selected, other, dialogue, jobs, messages, events)
+	}
+	exercisePublicManualSelection(h)
+}
+
+// Public capability reads must use issued requirement IDs, not editable config,
+// and distinguish an unstarted dialogue from a failed/denied dialogue read.
+func TestPublicOccurrenceVerificationCapabilities(t *testing.T) {
+	h := newPublicDialogueHarnessWithPolicy(t, 2, 9, true)
+	var before, parent Occurrence2
+	h.request(h.student, "GET", "/student/occurrences/"+h.occurrence, nil, 200, &before)
+	h.request(h.parent, "GET", "/occurrences/"+h.occurrence, nil, 200, &parent)
+	if len(before.Verification) != 2 || len(parent.Verification) != 2 || parent.StudentName == "" {
+		t.Fatal("missing named issued capabilities")
+	}
+	dialogue, manual := before.Verification[0], before.Verification[1]
+	if dialogue.Kind != "agent_dialogue" || dialogue.Interaction != "chat" || dialogue.DialogueStarted || dialogue.AttemptID != "" || manual.Kind != "parent_approval" {
+		t.Fatal("unstarted/mixed capabilities misclassified")
+	}
+	if _, err := uuid.Parse(dialogue.ID); err != nil {
+		t.Fatal("capability is not an actual issued requirement ID")
+	}
+	encoded, _ := json.Marshal(before.Verification)
+	for _, forbidden := range []string{"sourceText", "sourceRef", "rubric", "snapshotDigest", "questionPlan", "config"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatal("private policy leaked through capability")
+		}
+	}
+	h.request(h.student, "GET", "/student/occurrences/"+h.occurrence+"/dialogue?requirementId="+dialogue.ID, nil, 404, nil)
+	h.request(h.parent, "POST", "/tasks/"+h.task.TemplateID+"/revisions", TaskInput2{Title: "Changed draft", Requirements: []Requirement{{Kind: "parent_approval", ConfigVersion: 1, Config: map[string]any{}, Interaction: "parent_action", Executor: "human"}}}, 201, nil)
+	h.begin()
+	conn := h.socket(0)
+	h.wait(conn, func(e wireStudentEvent) bool { return e.Kind == "question" })
+	conn.CloseNow()
+	var after Occurrence2
+	h.request(h.student, "GET", "/student/occurrences/"+h.occurrence, nil, 200, &after)
+	if len(after.Verification) != 2 || after.Verification[0].ID != dialogue.ID || !after.Verification[0].DialogueStarted || after.Verification[0].AttemptID != h.attempt || after.Verification[1].ID != manual.ID || after.Verification[1].AttemptStatus != "open" {
+		t.Fatal("issued capabilities or latest attempts changed incorrectly")
+	}
+	var page OccurrencePage2
+	h.request(h.parent, "GET", "/occurrences?limit=1", nil, 200, &page)
+	if len(page.Items) != 1 || len(page.Items[0].Verification) != 2 {
+		t.Fatal("bounded parent list omitted capabilities")
+	}
+	var history DialogueInspect
+	h.request(h.parent, "GET", "/occurrences/"+h.occurrence+"/inspect?attemptId="+h.attempt, nil, 200, &history)
+	h.request(h.parent, "POST", "/occurrences/"+h.occurrence+"/override", DialogueOverrideRequest{AttemptID: h.attempt, ExpectedVersion: history.Version, ClientRequestID: "capability-reject", Accepted: false, Reason: "Parent requests a fresh attempt."}, 200, nil)
+	h.request(h.parent, "POST", "/occurrences/"+h.occurrence+"/retry?requirementId="+dialogue.ID+"&attemptId="+h.attempt, nil, 200, nil)
+	var retried Occurrence2
+	h.request(h.parent, "GET", "/occurrences/"+h.occurrence, nil, 200, &retried)
+	if retried.Verification[0].DialogueStarted || retried.Verification[0].AttemptID == h.attempt || retried.Verification[0].HistoryAttemptID != h.attempt {
+		t.Fatal("unstarted retry hides or retargets retained history")
+	}
+	h.request(h.parent, "GET", "/occurrences/"+h.occurrence+"/inspect?attemptId="+retried.Verification[0].HistoryAttemptID, nil, 200, nil)
+	h.request(h.student, "GET", "/student/occurrences/"+uuid.NewString(), nil, 404, nil)
+	h.request(&http.Client{}, "GET", "/student/occurrences/"+h.occurrence, nil, 401, nil)
+}
+
 // Corruption is an explicit NEGATIVE fixture appended to real public history.
 // Production immutable UPDATE/DELETE constraints remain enabled; no accepted
 // decision/result is fabricated and the real parent router must fail closed.

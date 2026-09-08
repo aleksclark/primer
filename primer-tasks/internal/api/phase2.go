@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -83,6 +84,7 @@ type ScheduleInput2 struct {
 	RRULE            string     `json:"rrule,omitempty"`
 	DueOffsetMinutes int        `json:"dueOffsetMinutes"`
 }
+
 // StudentRequirement is the student-safe occurrence summary. It names the
 // issued requirement without config, source, rubric, or other payloads.
 type StudentRequirement struct {
@@ -94,25 +96,48 @@ type StudentRequirement struct {
 }
 
 type Occurrence2 struct {
-	StudentName         string               `json:"studentName,omitempty"`
-	ID                  string               `json:"id"`
-	StudentID           string               `json:"studentId"`
-	ScheduleID          string               `json:"scheduleId"`
-	RevisionID          string               `json:"revisionId"`
-	Title               string               `json:"title"`
-	Instructions        string               `json:"instructions"`
-	Status              string               `json:"status"`
-	NominalAt           time.Time            `json:"nominalAt"`
-	DueAt               time.Time            `json:"dueAt"`
-	Timezone            string               `json:"timezone"`
-	DueOffsetMinutes    int                  `json:"dueOffsetMinutes"`
-	DueSemantics        string               `json:"dueSemantics"`
-	TaskRevisionVersion int                  `json:"taskRevisionVersion"`
-	ScheduleVersion     int                  `json:"scheduleVersion"`
-	AttemptNumber       int                  `json:"attemptNumber"`
-	Requirements        []StudentRequirement `json:"requirements,omitempty" nullable:"false"`
-	StudentCapability   string               `json:"studentCapability,omitempty" enum:"parent_approval,unsupported"`
+	Verification        []OccurrenceVerification `json:"verification,omitempty" nullable:"false"`
+	StudentName         string                   `json:"studentName,omitempty"`
+	ID                  string                   `json:"id"`
+	StudentID           string                   `json:"studentId"`
+	ScheduleID          string                   `json:"scheduleId"`
+	RevisionID          string                   `json:"revisionId"`
+	Title               string                   `json:"title"`
+	Instructions        string                   `json:"instructions"`
+	Status              string                   `json:"status"`
+	NominalAt           time.Time                `json:"nominalAt"`
+	DueAt               time.Time                `json:"dueAt"`
+	Timezone            string                   `json:"timezone"`
+	DueOffsetMinutes    int                      `json:"dueOffsetMinutes"`
+	DueSemantics        string                   `json:"dueSemantics"`
+	TaskRevisionVersion int                      `json:"taskRevisionVersion"`
+	ScheduleVersion     int                      `json:"scheduleVersion"`
+	AttemptNumber       int                      `json:"attemptNumber"`
+	Requirements        []StudentRequirement     `json:"requirements,omitempty" nullable:"false"`
+	StudentCapability   string                   `json:"studentCapability,omitempty" enum:"parent_approval,unsupported"`
 }
+
+// OccurrenceVerification projects issued capabilities without source or rubric.
+// It does not confer mutation authority; every action still checks current state.
+type OccurrenceVerification struct {
+	ID               string `json:"id"`
+	Kind             string `json:"kind"`
+	Interaction      string `json:"interaction"`
+	AttemptID        string `json:"attemptId"`
+	AttemptStatus    string `json:"attemptStatus"`
+	DialogueStarted  bool   `json:"dialogueStarted"`
+	HistoryAttemptID string `json:"historyAttemptId"`
+}
+
+const occurrenceVerificationColumns = `,COALESCE((SELECT jsonb_agg(jsonb_build_object(
+ 'id',vr.id,'kind',vr.kind,'interaction',vr.interaction,
+ 'attemptId',COALESCE(a.id::text,''),'attemptStatus',COALESCE(a.status,''),
+ 'dialogueStarted',EXISTS(SELECT 1 FROM dialogue_attempts d WHERE d.tenant_id=o.tenant_id AND d.occurrence_id=o.id AND d.attempt_id=a.id),
+ 'historyAttemptId',COALESCE((SELECT d.attempt_id::text FROM dialogue_attempts d JOIN verification_attempts v ON v.tenant_id=d.tenant_id AND v.id=d.attempt_id WHERE d.tenant_id=o.tenant_id AND d.occurrence_id=o.id AND d.requirement_id=vr.id ORDER BY v.number DESC LIMIT 1),'')) ORDER BY vr.ordinal)
+ FROM verification_requirements vr LEFT JOIN LATERAL
+ (SELECT id,status FROM verification_attempts WHERE tenant_id=o.tenant_id AND occurrence_id=o.id AND requirement_id=vr.id ORDER BY number DESC LIMIT 1) a ON true
+ WHERE vr.tenant_id=o.tenant_id AND vr.revision_id=o.revision_id),'[]'::jsonb)`
+
 type OccurrencePage2 struct {
 	Items      []Occurrence2 `json:"items" nullable:"false"`
 	TotalCount int           `json:"totalCount"`
@@ -128,6 +153,16 @@ type DecisionInput2 struct {
 type OccurrenceAction2 struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
+}
+
+// StudentManualAction2 preserves the typed native action while exposing the
+// exact browser-selected requirement and attempt in the generated contract.
+type StudentManualAction2 struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	RequirementID string `json:"requirementId"`
+	AttemptID     string `json:"attemptId"`
+	AttemptStatus string `json:"attemptStatus"`
 }
 
 type OccurrenceDecision2 struct {
@@ -202,12 +237,6 @@ func (s *Server) attachStudentRequirements(ctx context.Context, items ...*Occurr
 	return nil
 }
 
-func parentApprovalRequirement(reqs []StudentRequirement) (StudentRequirement, bool) {
-	if studentCapabilityFor(reqs) != "parent_approval" {
-		return StudentRequirement{}, false
-	}
-	return reqs[0], true
-}
 func parsePage(r *http.Request) (int, int) {
 	limit, offset := 20, 0
 	if n, e := strconv.Atoi(r.URL.Query().Get("limit")); e == nil && n > 0 && n <= 100 {
@@ -437,7 +466,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	if r.URL.Query().Get("dir") == "desc" {
 		dir = "DESC"
 	}
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0),st.display_name FROM task_occurrences o JOIN students st ON st.tenant_id=o.tenant_id AND st.id=o.student_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at `+dir+`,o.id LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0),st.display_name`+occurrenceVerificationColumns+` FROM task_occurrences o JOIN students st ON st.tenant_id=o.tenant_id AND st.id=o.student_id WHERE o.tenant_id=$1 AND ($2='' OR o.status=$2) ORDER BY o.nominal_at `+dir+`,o.id LIMIT $3 OFFSET $4`, sc.Tenant, q, limit, offset)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -446,7 +475,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	out := []Occurrence2{}
 	for rows.Next() {
 		var x Occurrence2
-		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber, &x.StudentName); e != nil {
+		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber, &x.StudentName, &x.Verification); e != nil {
 			problem(w, 500, "internal", e.Error())
 			return
 		}
@@ -463,7 +492,7 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	jsonOK(w, OccurrencePage2{out, total, limit, offset})
 }
 func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0)`+occurrenceVerificationColumns+` FROM task_occurrences o WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return
@@ -472,7 +501,7 @@ func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id 
 	out := []Occurrence2{}
 	for rows.Next() {
 		var x Occurrence2
-		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber); e != nil {
+		if e = rows.Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber, &x.Verification); e != nil {
 			problem(w, 500, "internal", e.Error())
 			return
 		}
@@ -488,98 +517,14 @@ func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id 
 	}
 	jsonOK(w, OccurrencePage2{Items: out, TotalCount: len(out), Limit: 100, Offset: 0})
 }
+
+// Device actions share requirement-bound transitions, not browser credentials.
 func (s *Server) startOccurrence2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	oid := chi.URLParam(r, "id")
-	tx, e := s.DB.Begin(r.Context())
-	if e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var current string
-	if e = tx.QueryRow(r.Context(), `SELECT status FROM task_occurrences WHERE id=$1 AND student_id=$2 FOR UPDATE`, oid, id).Scan(&current); e != nil {
-		problem(w, 404, "not_found", "occurrence unavailable")
-		return
-	}
-	if current == string(domain.OccurrenceInProgress) {
-		if e = tx.Commit(r.Context()); e != nil {
-			problem(w, 500, "internal", e.Error())
-			return
-		}
-		jsonOK(w, OccurrenceAction2{ID: oid, Status: current})
-		return
-	}
-	if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceInProgress) {
-		problem(w, 409, "conflict", "occurrence cannot be started")
-		return
-	}
-	var n int
-	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='in_progress' WHERE id=$1 AND student_id=$2 AND status=$3 RETURNING 1`, oid, id, current).Scan(&n); e != nil {
-		problem(w, 409, "conflict", "occurrence changed concurrently")
-		return
-	}
-	if e = tx.Commit(r.Context()); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	jsonOK(w, OccurrenceAction2{ID: oid, Status: "in_progress"})
+	s.manualMutation2(w, r, id, false, true)
 }
 
 func (s *Server) submitOccurrence2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	oid := chi.URLParam(r, "id")
-	tx, e := s.DB.Begin(r.Context())
-	if e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var tenant, rev, current string
-	if e = tx.QueryRow(r.Context(), `SELECT tenant_id,revision_id,status FROM task_occurrences WHERE id=$1 AND student_id=$2 FOR UPDATE`, oid, id).Scan(&tenant, &rev, &current); e != nil {
-		problem(w, 404, "not_found", "occurrence unavailable")
-		return
-	}
-	if current == string(domain.OccurrenceAwaitingVerification) {
-		if e = tx.Commit(r.Context()); e != nil {
-			problem(w, 500, "internal", e.Error())
-			return
-		}
-		jsonOK(w, OccurrenceAction2{ID: oid, Status: current})
-		return
-	}
-	if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceAwaitingVerification) {
-		problem(w, 409, "conflict", "occurrence cannot be submitted")
-		return
-	}
-	var n int
-	if e = tx.QueryRow(r.Context(), `UPDATE task_occurrences SET status='awaiting_verification' WHERE id=$1 AND student_id=$2 AND status=$3 RETURNING 1`, oid, id, current).Scan(&n); e != nil {
-		problem(w, 409, "conflict", "occurrence changed concurrently")
-		return
-	}
-	reqs, e := s.loadStudentRequirements(r.Context(), rev)
-	if e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	manual, ok := parentApprovalRequirement(reqs)
-	if !ok {
-		problem(w, 409, "unsupported_task", "this assigned work cannot be submitted as parent approval")
-		return
-	}
-	req := manual.ID
-	var next int
-	if e = tx.QueryRow(r.Context(), `SELECT COALESCE(max(number),0)+1 FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2`, tenant, oid).Scan(&next); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	if _, e = tx.Exec(r.Context(), `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, uuid.New(), tenant, oid, req, next); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	if e = tx.Commit(r.Context()); e != nil {
-		problem(w, 500, "internal", e.Error())
-		return
-	}
-	jsonOK(w, OccurrenceAction2{ID: oid, Status: "awaiting_verification"})
+	s.manualMutation2(w, r, id, true, true)
 }
 
 func (s *Server) decideOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
@@ -833,7 +778,7 @@ func (s *Server) setOccurrenceStatus2(w http.ResponseWriter, r *http.Request, sc
 }
 func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc scope) {
 	var x Occurrence2
-	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o WHERE o.tenant_id=$1 AND o.id=$2`, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber)
+	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0),(SELECT display_name FROM students st WHERE st.tenant_id=o.tenant_id AND st.id=o.student_id)`+occurrenceVerificationColumns+` FROM task_occurrences o WHERE o.tenant_id=$1 AND o.id=$2`, sc.Tenant, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber, &x.StudentName, &x.Verification)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
@@ -850,7 +795,7 @@ func (s *Server) parentGetOccurrence2(w http.ResponseWriter, r *http.Request, sc
 }
 func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var x Occurrence2
-	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0) FROM task_occurrences o WHERE o.student_id=$1 AND o.id=$2`, id, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber)
+	e := s.DB.QueryRow(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0)`+occurrenceVerificationColumns+` FROM task_occurrences o WHERE o.student_id=$1 AND o.id=$2`, id, chi.URLParam(r, "id")).Scan(&x.ID, &x.StudentID, &x.ScheduleID, &x.RevisionID, &x.Title, &x.Instructions, &x.Status, &x.NominalAt, &x.DueAt, &x.Timezone, &x.DueOffsetMinutes, &x.DueSemantics, &x.TaskRevisionVersion, &x.ScheduleVersion, &x.AttemptNumber, &x.Verification)
 	if errors.Is(e, pgx.ErrNoRows) {
 		problem(w, 404, "not_found", "occurrence not found")
 		return
@@ -865,11 +810,191 @@ func (s *Server) studentDetail2(w http.ResponseWriter, r *http.Request, id uuid.
 	}
 	jsonOK(w, x)
 }
+
+// Browser manual admission is requirement-scoped. The legacy device adapter
+// remains separate; it cannot be used as a browser bearer fallback.
 func (s *Server) studentStart2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	s.startOccurrence2(w, r, id)
+	s.studentManualMutation2(w, r, id, false)
 }
 func (s *Server) studentSubmit2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	s.submitOccurrence2(w, r, id)
+	s.studentManualMutation2(w, r, id, true)
+}
+func (s *Server) studentManualMutation2(w http.ResponseWriter, r *http.Request, student uuid.UUID, submit bool) {
+	s.manualMutation2(w, r, student, submit, false)
+}
+func (s *Server) manualMutation2(w http.ResponseWriter, r *http.Request, student uuid.UUID, submit, device bool) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	var authority verification.StudentAuthority
+	var err error
+	if !device {
+		authority, err = s.studentIdentityFromRequest(r)
+		if err != nil || authority.StudentID != student.String() {
+			dialogueProblem(w, verification.ErrDialogueRevoked)
+			return
+		}
+	} else if r.URL.RawQuery != "" {
+		// Native supports only a single parent-approval check. Selection must
+		// not become a mixed-work or query-credential fallback.
+		problem(w, 400, "invalid_request", "Device manual actions do not accept query parameters.")
+		return
+	}
+	query, parseErr := url.ParseQuery(r.URL.RawQuery)
+	if parseErr != nil {
+		problem(w, 400, "invalid_request", "Invalid manual mutation query.")
+		return
+	}
+	values, explicit := query["requirementId"]
+	requirement := ""
+	if explicit {
+		if len(values) != 1 {
+			problem(w, 400, "invalid_request", "Select one issued manual requirement.")
+			return
+		}
+		parsed, parseErr := uuid.Parse(values[0])
+		if parseErr != nil {
+			problem(w, 400, "invalid_request", "Select a valid issued requirement.")
+			return
+		}
+		requirement = parsed.String()
+	}
+	// Cookie authority always needs Origin/CSRF, including the unambiguous
+	// single-manual compatibility call. Omission never weakens browser custody.
+	if !device && !s.studentMutationAllowed(r) {
+		problem(w, 403, "denied", "Origin or CSRF rejected.")
+		return
+	}
+	for key := range query {
+		if key != "requirementId" {
+			problem(w, 400, "invalid_request", "Unknown manual mutation parameter.")
+			return
+		}
+	}
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		if device {
+			problem(w, 500, "internal", "Unable to begin manual action.")
+		} else {
+			dialogueProblem(w, err)
+		}
+		return
+	}
+	defer tx.Rollback(ctx)
+	checkAuthority := func() error { return verification.CheckLockedStudentAuthority(ctx, tx, authority) }
+	if device {
+		authority, err = lockManualDeviceAuthority(ctx, tx, r, student)
+		// Device and student rows remain share-locked through commit. This
+		// credential has no time-based expiry, unlike the browser session.
+		checkAuthority = func() error { return nil }
+	} else {
+		err = verification.LockStudentAuthority(ctx, tx, authority)
+	}
+	if err != nil {
+		dialogueProblem(w, err)
+		return
+	}
+	occurrence := chi.URLParam(r, "id")
+	var revision, current string
+	if err = tx.QueryRow(ctx, `SELECT revision_id,status FROM task_occurrences WHERE tenant_id=$1 AND student_id=$2 AND id=$3 FOR UPDATE`, authority.TenantID, authority.StudentID, occurrence).Scan(&revision, &current); err != nil {
+		dialogueProblem(w, verification.ErrDialogueContext)
+		return
+	}
+	if err = checkAuthority(); err != nil {
+		dialogueProblem(w, err)
+		return
+	}
+	// Only a genuinely single-manual legacy request may omit selection. An
+	// omitted/foreign/non-manual ID must not inherit an occurrence-level 200.
+	if !explicit {
+		var count int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM verification_requirements WHERE tenant_id=$1 AND revision_id=$2`, authority.TenantID, revision).Scan(&count); err != nil {
+			dialogueProblem(w, err)
+			return
+		}
+		if count != 1 {
+			problem(w, 409, "unsupported_task", "Select an issued manual requirement in a supported client.")
+			return
+		}
+	}
+	var selected StudentRequirement
+	if err = tx.QueryRow(ctx, `SELECT id,kind,config_version,interaction,executor FROM verification_requirements WHERE tenant_id=$1 AND revision_id=$2 AND ($3='' OR id::text=$3)`, authority.TenantID, revision, requirement).Scan(&selected.ID, &selected.Kind, &selected.ConfigVersion, &selected.Interaction, &selected.Executor); err != nil {
+		dialogueProblem(w, verification.ErrDialogueContext)
+		return
+	}
+	requirement = selected.ID
+	if studentCapabilityFor([]StudentRequirement{selected}) != "parent_approval" {
+		problem(w, 409, "unsupported_task", "This requirement does not support manual student submission.")
+		return
+	}
+	if domain.IsTerminal(domain.OccurrenceStatus(current)) || (device && !submit && current == "awaiting_verification") {
+		dialogueProblem(w, verification.ErrDialogueTerminal)
+		return
+	}
+	var attempt, attemptStatus string
+	var number int
+	err = tx.QueryRow(ctx, `SELECT id,status,number FROM verification_attempts WHERE tenant_id=$1 AND occurrence_id=$2 AND requirement_id=$3 ORDER BY number DESC LIMIT 1 FOR UPDATE`, authority.TenantID, occurrence, requirement).Scan(&attempt, &attemptStatus, &number)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		dialogueProblem(w, err)
+		return
+	}
+	if attemptStatus != "" && attemptStatus != "open" && attemptStatus != "accepted" && attemptStatus != "rejected" {
+		dialogueProblem(w, verification.ErrDialogueTerminal)
+		return
+	}
+	// Accepted selected work is idempotent while another requirement remains;
+	// it cannot regress the occurrence or create a replacement attempt.
+	next := current
+	if attemptStatus != "accepted" {
+		if submit {
+			if current != "in_progress" && current != "awaiting_verification" {
+				dialogueProblem(w, verification.ErrDialogueConflict)
+				return
+			}
+			if attemptStatus != "open" {
+				attempt = uuid.NewString()
+				if _, err = tx.Exec(ctx, `INSERT INTO verification_attempts(id,tenant_id,occurrence_id,requirement_id,number) VALUES($1,$2,$3,$4,$5)`, attempt, authority.TenantID, occurrence, requirement, number+1); err != nil {
+					dialogueProblem(w, err)
+					return
+				}
+				attemptStatus = "open"
+			}
+			next = "awaiting_verification"
+		} else if current == "pending" {
+			next = "in_progress"
+		} else if current != "in_progress" && current != "awaiting_verification" {
+			dialogueProblem(w, verification.ErrDialogueConflict)
+			return
+		}
+	}
+	if next != current {
+		if !domain.CanTransition(domain.OccurrenceStatus(current), domain.OccurrenceStatus(next)) {
+			dialogueProblem(w, verification.ErrDialogueConflict)
+			return
+		}
+		tag, updateErr := tx.Exec(ctx, `UPDATE task_occurrences SET status=$1 WHERE tenant_id=$2 AND student_id=$3 AND id=$4 AND status=$5`, next, authority.TenantID, authority.StudentID, occurrence, current)
+		if updateErr != nil {
+			dialogueProblem(w, updateErr)
+			return
+		}
+		if tag.RowsAffected() != 1 {
+			dialogueProblem(w, verification.ErrDialogueConflict)
+			return
+		}
+	}
+	if err = checkAuthority(); err != nil {
+		dialogueProblem(w, err)
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		dialogueProblem(w, err)
+		return
+	}
+	if device {
+		jsonOK(w, OccurrenceAction2{ID: occurrence, Status: next})
+	} else {
+		jsonOK(w, StudentManualAction2{ID: occurrence, Status: next, RequirementID: requirement, AttemptID: attempt, AttemptStatus: attemptStatus})
+	}
 }
 func (s *Server) studentListWrapper(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	s.studentOccurrences2(w, r, id)

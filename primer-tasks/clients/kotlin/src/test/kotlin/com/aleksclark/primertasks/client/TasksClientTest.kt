@@ -313,7 +313,7 @@ class TasksClientTest {
     fun studentOccurrenceDecodesCapabilityWithoutRequirementConfig() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
-                """{"id":"occ-1","studentId":"st-1","scheduleId":"sch-1","revisionId":"r1","title":"Brush","instructions":"twice","status":"pending","nominalAt":"2026-01-01T00:00:00Z","dueAt":"2026-01-01T00:00:00Z","timezone":"UTC","dueOffsetMinutes":0,"dueSemantics":"offset_from_nominal","taskRevisionVersion":1,"scheduleVersion":1,"attemptNumber":0,"requirements":[{"id":"req-1","kind":"parent_approval","configVersion":1,"interaction":"parent_action","executor":"human"}],"studentCapability":"parent_approval"}""",
+                """{"id":"occ-1","studentId":"st-1","scheduleId":"sch-1","revisionId":"r1","title":"Brush","instructions":"twice","status":"pending","nominalAt":"2026-01-01T00:00:00Z","dueAt":"2026-01-01T00:00:00Z","timezone":"UTC","dueOffsetMinutes":0,"dueSemantics":"offset_from_nominal","taskRevisionVersion":1,"scheduleVersion":1,"attemptNumber":0,"requirements":[{"id":"req-1","kind":"parent_approval","configVersion":1,"interaction":"parent_action","executor":"human"}],"studentCapability":"parent_approval","verification":[{"id":"req-1","kind":"parent_approval","interaction":"parent_action","attemptId":"","attemptStatus":"","dialogueStarted":false,"historyAttemptId":""}]}""",
             ),
         )
         val occurrence = TasksClient(
@@ -324,6 +324,9 @@ class TasksClientTest {
         assertEquals("req-1", occurrence.requirements.orEmpty().single().id)
         assertEquals("parent_approval", occurrence.requirements.orEmpty().single().kind)
         assertEquals(1L, occurrence.requirements.orEmpty().single().configVersion)
+        assertEquals(occurrence.requirements.orEmpty().single().id, occurrence.verification.orEmpty().single().id)
+        assertEquals(false, occurrence.verification.orEmpty().single().dialogueStarted)
+        assertEquals("", occurrence.verification.orEmpty().single().attemptId)
         assertEquals("/api/device/occurrences/occ-1", take().path)
     }
 

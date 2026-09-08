@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { TasksApiError, tasksClient, type Task, type Student, type Schedule } from "@primer-tasks/client";
+import DialogueTaskForm, { dialogueFormValid } from "./DialogueTaskForm";
 import { compilePreset, defaultSettings, localDateTime, saveScheduleTimes, settingsForSchedule, weekdays, type Preset, type SaveResult } from "./schedule-presets";
 
 function FormError({ error }: { error: unknown }) {
@@ -19,30 +20,34 @@ export function TaskEditor({ task, onSaved, onClose }: { task?: Task; onSaved: (
   const [instructions, setInstructions] = useState(task?.instructions ?? "Complete the task, then ask a parent to check it.");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [requirements, setRequirements] = useState(() => task ? task.requirements ?? [] : parentApproval);
+  const validRequirements = dialogueFormValid(requirements);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose?.(); };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [busy, onClose]);
   const save = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError(null);
-    const body = { title: title.trim(), instructions: instructions.trim(), requirements: task?.requirements?.length ? task.requirements : parentApproval };
+    event.preventDefault();
+    if (busy || !validRequirements) return;
+    setBusy(true); setError(null);
+    const body = { title: title.trim(), instructions: instructions.trim(), requirements };
     try {
       if (task) await tasksClient.reviseTask(task.templateId, body);
       else await tasksClient.createTask(body);
       setTitle(""); onSaved();
     } catch (e) { setError(e); } finally { setBusy(false); }
   };
-  const form = <form onSubmit={save} className={task ? "modal" : "task-form"} aria-label={task ? "Edit task" : "Create task"}>
+  const form = <form onSubmit={save} className={task ? "modal task-editor" : "task-form task-editor"} aria-label={task ? "Edit task" : "Create task"}>
     <div className="modal-header"><h2>{task ? `Edit ${task.title}` : "Create a task"}</h2></div>
     <div className="modal-body">
       {task && <p>Save your changes as a new draft, then publish when you’re ready. Work already assigned keeps its original instructions. Existing schedules keep their current task version.</p>}
       <label className="field">Task title<input className="input" required autoFocus={Boolean(task)} value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} /></label>
       <label className="field">Instructions<textarea className="input" rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} disabled={busy} /></label>
-      <p>Your student will ask you to check the task when it’s done.</p>
+      <DialogueTaskForm requirements={requirements} onChange={setRequirements} disabled={busy} />
       <FormError error={error} />
     </div>
-    <div className="modal-footer">{onClose && <button className="button quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button>}<button className="button" type="submit" disabled={busy || !title.trim()}>{busy ? "Saving…" : task ? "Save new draft" : "Create draft"}</button></div>
+    <div className="modal-footer">{onClose && <button className="button quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button>}<button className="button" type="submit" disabled={busy || !title.trim() || !validRequirements}>{busy ? "Saving…" : task ? "Save new draft" : "Create draft"}</button></div>
   </form>;
   return task ? <div className="modal-backdrop"><div role="dialog" aria-modal="true" aria-label="Edit task">{form}</div></div> : form;
 }

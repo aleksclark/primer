@@ -178,3 +178,40 @@ textarea.input { resize: vertical; }
   .agent-inspector { order: -1; }
   .agent-queued { align-items: flex-start; flex-direction: column; }
 }
+
+/* CP4 — Configure, Decide/Learn and Inspect; System C roles only. */
+.verification-config, .verification-requirement, .dialogue-policy { display: grid; gap: var(--primer-space-4); min-width: 0; }
+.verification-config h3, .dialogue-transcript h2, .inspect-panel h2 { margin: 0; }
+.verification-requirement { margin: 0; padding: var(--primer-space-4) 0; border: 0; border-top: var(--primer-rule-default) solid var(--rule-strong); }
+.verification-requirement legend { font-family: var(--primer-font-system); font-size: var(--primer-type-label-size); text-transform: uppercase; letter-spacing: var(--primer-type-label-tracking); padding-right: var(--primer-space-2); }
+.verification-requirement p { margin: 0; }
+.dialogue-policy { padding-top: var(--primer-space-4); }
+.dialogue-preview { border-left: var(--primer-rule-active) solid var(--rule-strong); padding: var(--primer-space-4); display: grid; gap: var(--primer-space-3); }
+.dialogue-introduction, .dialogue-current, .inspect-manual { padding: var(--primer-space-6) 0; border-bottom: var(--primer-rule-default) solid var(--rule-strong); }
+.dialogue-current h2 { font-size: var(--primer-type-h2-size); line-height: var(--primer-type-h2-line-height); font-weight: var(--primer-type-h2-weight); max-width: 48rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialogue-state { display: flex; align-items: baseline; gap: var(--primer-space-4); padding: var(--primer-space-4) 0; border-bottom: var(--primer-rule-default) solid var(--rule); }
+.dialogue-composer, .inspect-override-form { display: grid; gap: var(--primer-space-4); padding: var(--primer-space-5) 0; }
+.dialogue-composer-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--primer-space-4); }
+.dialogue-composer-footer p { max-width: 36rem; }
+.dialogue-transcript { margin-top: var(--primer-space-6); border-top: var(--primer-rule-default) solid var(--rule-strong); padding-top: var(--primer-space-5); }
+.dialogue-entry, .inspect-entry { border-top: var(--primer-rule-default) solid var(--rule); padding: var(--primer-space-5) 0; }
+.dialogue-entry header, .inspect-entry header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--primer-space-3); }
+.dialogue-entry p, .inspect-entry > p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialogue-message_ack, .inspect-message_ack { border-left: var(--primer-rule-active) solid var(--rule-strong); padding-left: var(--primer-space-4); }
+.dialogue-error, .inspect-override { border-left: var(--primer-rule-active) solid var(--attention); padding-left: var(--primer-space-4); }
+.inspect-selector { margin: var(--primer-space-5) 0; max-width: 36rem; }
+.inspect-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem); gap: var(--primer-space-6); padding-top: var(--primer-space-6); align-items: start; }
+.inspect-timeline, .inspect-panel { min-width: 0; }
+.inspect-panel { border-left: var(--primer-rule-default) solid var(--rule-strong); padding-left: var(--primer-space-5); }
+.ruled-metadata { margin: var(--primer-space-4) 0; }
+.ruled-metadata div { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(0, 2fr); gap: var(--primer-space-3); padding: var(--primer-space-3) 0; border-top: var(--primer-rule-default) solid var(--rule); }
+.ruled-metadata dt { font: var(--primer-type-label-size)/var(--primer-type-label-line-height) var(--primer-font-system); color: var(--muted); text-transform: uppercase; letter-spacing: var(--primer-type-label-tracking); }
+.ruled-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.inspect-identities { padding: var(--primer-space-5) 0; border-top: var(--primer-rule-default) solid var(--rule); }
+@media (max-width: 760px) {
+  .inspect-layout { grid-template-columns: minmax(0, 1fr); }
+  .inspect-panel { border-left: 0; border-top: var(--primer-rule-default) solid var(--rule-strong); padding: var(--primer-space-5) 0; }
+  .dialogue-state, .dialogue-composer-footer { align-items: stretch; flex-direction: column; }
+  .dialogue-composer .button, .inspect-override-form .button { width: 100%; }
+  .task-editor .button, .task-editor .input, .student-dialogue-workspace .button, .student-dialogue-workspace .input, .occurrence-inspect .button, .occurrence-inspect .input, .inspect-selector .input { min-height: calc(var(--primer-space-12) - var(--primer-space-1)); }
+}

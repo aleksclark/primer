@@ -3,6 +3,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { TasksApiError, tasksClient, type Occurrence, type Schedule, type Student, type Task } from "@primer-tasks/client";
 import AgentCommandPage from "./AgentCommandPage";
+import StudentDialoguePage, { manualActionState, performManualAction } from "./StudentDialoguePage";
+import OccurrenceInspectPage, { requirementName } from "./OccurrenceInspectPage";
 import { TaskEditor, ScheduleForm } from "./TaskForms";
 import { cadenceLabel, localDateTime } from "./schedule-presets";
 import "./index.css";
@@ -118,7 +120,7 @@ function ParentAuthGate() {
   }, [identity.ready, identity.signedIn]);
   if (status === "loading") return <AuthFrame><StateNotice state="loading" /></AuthFrame>;
   if (status !== "ready") return <LoginPage theme={theme} toggle={toggle} denied={status === "denied"} />;
-  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="agent" element={<AgentCommandPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
+  return <ParentShell><Routes><Route path="students" element={<StudentsPage />} /><Route path="students/:studentId" element={<StudentDetailPage />} /><Route path="tasks" element={<TasksPage />} /><Route path="schedules" element={<SchedulesPage />} /><Route path="occurrences" element={<OccurrencesPage />} /><Route path="occurrences/:id/inspect" element={<OccurrenceInspectPage />} /><Route path="agent" element={<AgentCommandPage />} /><Route path="*" element={<Navigate to="students" replace />} /></Routes></ParentShell>;
 }
 
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -321,34 +323,69 @@ function OccurrencesPage() {
   const [params, setParams] = useSearchParams();
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [error, setError] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
   const status = params.get("status") ?? "";
+  const offset = Math.max(0, Number(params.get("offset")) || 0);
   const dir = params.get("dir") === "desc" ? "desc" : "asc";
-  const load = useCallback(() => tasksClient.listOccurrences({ limit: 50, offset: 0, sort: "nominalAt", dir, status: status || undefined }).then((p) => setOccurrences(p.items ?? [])).catch(setError), [dir, status]);
-  useEffect(() => { void load(); }, [load]);
-  const decide = (id: string, accepted: boolean) => void tasksClient.decideOccurrence(id, { accepted, reason: accepted ? "Parent observed completion." : "Try again with care." }).then(load).catch(setError);
-  const setCollection = (key: string, value: string) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next); };
-  return <><PageHeader eyebrow="For parents" title="Assigned work" lede="Review assigned work and check tasks your student has finished." actions={<button className="button secondary" type="button" onClick={load}>Refresh</button>} />{error ? <ErrorNotice error={error} onRetry={load} /> : null}<section className="record"><div className="record-toolbar"><label className="field"><span className="system-label">Status filter</span><select className="input" aria-label="Assigned work status filter" value={status} onChange={(e) => setCollection("status", e.target.value)}><option value="">All statuses</option><option value="pending">Not started</option><option value="awaiting_verification">Waiting for parent</option><option value="completed">Completed</option></select></label><label className="field"><span className="system-label">Sort direction</span><select className="input" aria-label="Assigned work sort direction" value={dir} onChange={(e) => setCollection("dir", e.target.value)}><option value="asc">Soonest first</option><option value="desc">Latest first</option></select></label></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Student</th><th>Due</th><th>Status</th><th>Decision</th></tr></thead><tbody>{occurrences.map((o) => <tr key={o.id}><td><strong>{o.title}</strong><span className="secondary-cell">{o.id}</span></td><td>{o.studentName ?? "Student name unavailable"}</td><td className="meta">{formatOccurrenceTime(o)}</td><td><span className="status">{statusLabel(o.status)}</span></td><td>{occurrenceActions(o, decide, load, setError)}</td></tr>)}</tbody></table></div>{occurrences.length === 0 && <div className="empty"><h2>No assigned work</h2><p>Publish a task and create a schedule to add work here.</p></div>}</section></>;
+  const load = useCallback((signal?: AbortSignal) => {
+    setLoading(true); setError(null);
+    return tasksClient.listOccurrences({ limit: 20, offset, sort: "nominalAt", dir, status: status || undefined }, { signal }).then(page => {
+      if (!signal?.aborted) { setOccurrences(page.items ?? []); setTotal(page.totalCount); }
+    }).catch(next => { if (!signal?.aborted) setError(next); }).finally(() => { if (!signal?.aborted) setLoading(false); });
+  }, [dir, status, offset]);
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
+  const decide = (id: string, accepted: boolean, requirementId: string) => void tasksClient.decideOccurrence(id, { requirementId, accepted, reason: accepted ? "Parent observed completion." : "Try again with care." }).then(() => load()).catch(setError);
+  const setCollection = (key: string, value: string) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); if (key !== "offset") next.delete("offset"); setParams(next); };
+  return <><PageHeader eyebrow="For parents" title="Assigned work" lede="Review assigned work and check tasks your student has finished." actions={<button className="button secondary" type="button" onClick={() => void load()}>Refresh</button>} />{error ? <ErrorNotice error={error} onRetry={() => void load()} /> : null}{loading && <StateNotice state="loading" />}<section className="record"><div className="record-toolbar"><label className="field"><span className="system-label">Status filter</span><select className="input" aria-label="Assigned work status filter" value={status} onChange={(e) => setCollection("status", e.target.value)}><option value="">All statuses</option><option value="pending">Not started</option><option value="awaiting_verification">Awaiting verification</option><option value="completed">Completed</option></select></label><label className="field"><span className="system-label">Sort direction</span><select className="input" aria-label="Assigned work sort direction" value={dir} onChange={(e) => setCollection("dir", e.target.value)}><option value="asc">Soonest first</option><option value="desc">Latest first</option></select></label></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Student</th><th>Due</th><th>Status</th><th>Decision</th></tr></thead><tbody>{!loading && !error && occurrences.map((o) => <tr key={o.id}><td><strong>{o.title}</strong><span className="secondary-cell">{o.id}</span></td><td>{o.studentName ?? "Student name unavailable"}</td><td className="meta">{formatOccurrenceTime(o)}</td><td><span className="status">{verificationStatusLabel(o)}</span></td><td>{occurrenceActions(o, decide, () => void load(), setError)}</td></tr>)}</tbody></table></div>{!loading && !error && occurrences.length === 0 && <div className="empty"><h2>No assigned work</h2><p>Publish a task and create a schedule to add work here.</p></div>}{!loading && !error && <Pagination offset={offset} limit={20} total={total} onChange={value => setCollection("offset", String(value))} />}</section></>;
 }
 
 function StudentOccurrencePage() {
   const { id = "" } = useParams();
+  return <StudentOccurrenceRecord key={id} id={id} />;
+}
+function StudentOccurrenceRecord({ id }: { id: string }) {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [occurrence, setOccurrence] = useState<Occurrence | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const load = useCallback(() => tasksClient.studentOccurrence(id).then(setOccurrence).catch(setError), [id]);
-  useEffect(() => { void load(); }, [load]);
-  if (!occurrence) return <><PageHeader eyebrow="Your tasks" title="Task detail" />{error ? <ErrorNotice error={error} onRetry={load} /> : <StateNotice state="loading" />}</>;
-  return <><PageHeader eyebrow="Your tasks" title={occurrence.title} lede="Start when you’re ready. When you finish, ask your parent to check your work." actions={<button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button>} /><section className="pair-card"><p>{occurrence.instructions}</p><p className="status">{statusLabel(occurrence.status)}</p>{occurrence.status === "pending" && <button className="button" type="button" onClick={() => void tasksClient.startStudentOccurrence(id).then(load).catch(setError)}>Start task</button>}{occurrence.status === "in_progress" && <button className="button" type="button" onClick={() => void tasksClient.submitStudentOccurrence(id).then(load).catch(setError)}>Submit for parent approval</button>}{occurrence.status === "awaiting_verification" && <p className="meta">Waiting for parent approval.</p>}{occurrence.status === "completed" && <p className="status active">Checked by parent</p>}</section></>;
+  const load = useCallback((signal?: AbortSignal) => {
+    setLoading(true); setError(null);
+    return tasksClient.studentOccurrence(id, { signal }).then(record => { if (!signal?.aborted) setOccurrence(record); }).catch(next => { if (!signal?.aborted) setError(next); }).finally(() => { if (!signal?.aborted) setLoading(false); });
+  }, [id]);
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
+  const manual = async (submit: boolean) => {
+    if (busy || !occurrence || !selected) return;
+    setBusy(true);
+    try { await performManualAction(tasksClient, occurrence, selected, submit); await load(); }
+    catch (next) { setError(next); } finally { setBusy(false); }
+  };
+  if (loading) return <StateNotice state="loading" />;
+  if (error) return <ErrorNotice error={error} onRetry={() => void load()} />;
+  if (!occurrence) return <><PageHeader eyebrow="Your tasks" title="Task detail" />{error ? <ErrorNotice error={error} onRetry={() => void load()} /> : <StateNotice state="loading" />}</>;
+  const capabilities = occurrence.verification;
+  if (!capabilities?.length) return <p className="notice error" role="alert">Verification capabilities are unavailable. No manual or dialogue action can be inferred.</p>;
+  const selected = capabilities.find(item => item.id === params.get("requirementId")) ?? (params.has("requirementId") ? undefined : capabilities[0]);
+  const selection = <label className="field inspect-selector">Verification requirement<select className="input" value={selected?.id ?? ""} onChange={event => setParams({ requirementId: event.target.value })}><option value="" disabled>Choose a requirement</option>{capabilities.map((item, index) => <option value={item.id} key={item.id}>{requirementName(item, index)}</option>)}</select></label>;
+  if (!selected) return <>{selection}<p className="notice error" role="alert">The selected requirement does not belong to this assignment.</p></>;
+  if (selected.kind === "agent_dialogue" && selected.interaction === "chat") return <>{selection}<StudentDialoguePage key={selected.id} occurrence={occurrence} capability={selected} onRefresh={() => void load()} /></>;
+  if (selected.kind !== "parent_approval" || selected.interaction !== "parent_action") return <>{selection}<p className="notice">This requirement has no supported action here. Ask your parent; it has not been replaced with manual approval.</p></>;
+  const manualState = manualActionState(occurrence, selected);
+  return <>{selection}<PageHeader eyebrow="Your tasks" title={occurrence.title} lede="Start when you’re ready. When you finish, ask your parent to check your work." actions={<button className="button secondary" type="button" onClick={() => navigate("/student")}>Back to today</button>} /><section className="pair-card"><p>{occurrence.instructions}</p><p className="status">{statusLabel(occurrence.status)}</p>{manualState === "start" && <button className="button" type="button" disabled={busy} onClick={() => void manual(false)}>Start task</button>}{manualState === "submit" && <><p>This selected requirement has not been approved. Finish its work, then submit it for parent approval.</p><button className="button" type="button" disabled={busy} onClick={() => void manual(true)}>Submit for parent approval</button></>}{manualState === "waiting" && <p className="meta">This requirement is waiting for parent approval.</p>}{manualState === "accepted" && <p className="meta">Parent approval recorded for this requirement. Other required work is still outstanding.</p>}{manualState === "unavailable" && <p className="notice error" role="alert">The selected requirement is unavailable. Refresh the record or ask your parent.</p>}{manualState === "closed" && <p className="status">{occurrence.status === "completed" ? "All required work completed" : "This assignment is closed"}</p>}</section></>;
 }
 
-function occurrenceActions(o: Occurrence, decide: (id: string, accepted: boolean) => void, load: () => void, setError: (error: unknown) => void) {
+function occurrenceActions(o: Occurrence, decide: (id: string, accepted: boolean, requirementId: string) => void, load: () => void, setError: (error: unknown) => void) {
   const terminal = o.status === "completed" || o.status === "canceled" || o.status === "excused";
-  if (terminal) return null;
-  return <div className="row-actions">
-    {o.status === "awaiting_verification" && <><button className="button" type="button" onClick={() => decide(o.id, true)}>Approve</button><button className="button danger" type="button" onClick={() => decide(o.id, false)}>Reject</button></>}
-    {o.status === "pending" && <button className="button secondary" type="button" onClick={() => void tasksClient.retryOccurrence(o.id).then(load).catch(setError)}>Retry</button>}
-    <button className="button quiet" type="button" onClick={() => void tasksClient.skipOccurrence(o.id).then(load).catch(setError)}>Skip</button>
-    <button className="button quiet" type="button" onClick={() => void tasksClient.cancelOccurrence(o.id).then(load).catch(setError)}>Cancel</button>
+  const only = o.verification?.length === 1 ? o.verification[0] : undefined;
+  return <div className="row-actions"><NavLink className="button secondary" to={`/parent/occurrences/${o.id}/inspect`}>Inspect</NavLink>
+    {!terminal && <>
+      {o.status === "awaiting_verification" && only?.kind === "parent_approval" && only.interaction === "parent_action" && only.attemptStatus === "open" && <><button className="button" type="button" onClick={() => decide(o.id, true, only.id)}>Approve</button><button className="button danger" type="button" onClick={() => decide(o.id, false, only.id)}>Reject</button></>}
+      {o.status === "pending" && only?.kind === "parent_approval" && only.interaction === "parent_action" && only.attemptStatus === "rejected" && <button className="button secondary" type="button" onClick={() => void tasksClient.retryOccurrence(o.id).then(load).catch(setError)}>Retry</button>}
+      <button className="button quiet" type="button" onClick={() => void tasksClient.skipOccurrence(o.id).then(load).catch(setError)}>Skip</button>
+      <button className="button quiet" type="button" onClick={() => void tasksClient.cancelOccurrence(o.id).then(load).catch(setError)}>Cancel</button>
+    </>}
   </div>;
 }
 
@@ -362,12 +399,17 @@ function StudentChecklistPage() {
   useEffect(load, [load]);
   if (state === "loading") return <><PageHeader eyebrow="Your tasks" title="Today" /><StateNotice state="loading" /></>;
   if (state === "error" || state === "denied" || state === "revoked" || state === "expired") return <><PageHeader eyebrow="Your tasks" title="Today" /><ErrorNotice error={error} onRetry={load} /><p className="meta">If access was revoked or expired, ask a parent for a new pairing code.</p></>;
-  return <><PageHeader eyebrow="Your tasks" title={`Today with ${profile?.displayName ?? "you"}`} lede="Choose a task to get started. Your parent will check your work when you’re done." /><section className="checklist" aria-live="polite">{state === "empty" ? <div className="empty"><h2>Nothing assigned yet</h2><p>Your parent has not scheduled anything for today. This empty checklist is ready for the next task.</p></div> : <>{occurrences.map((item) => <NavLink className="checklist-row" to={`/student/occurrences/${item.id}`} key={item.id}><div><h3>{item.title}</h3><p>{item.instructions}</p></div><span className="status">{statusLabel(item.status)}</span></NavLink>)}{items.map((item) => <div className="checklist-row" key={item.id}><div><h3>{item.title}</h3>{item.description && <p>{item.description}</p>}</div><span className="status">{statusLabel(item.status)}</span></div>)}</>}</section></>;
+  return <><PageHeader eyebrow="Your tasks" title={`Today with ${profile?.displayName ?? "you"}`} lede="Choose a task to get started, then follow its assigned checks. Saved evidence stays with your work." /><section className="checklist" aria-live="polite">{state === "empty" ? <div className="empty"><h2>Nothing assigned yet</h2><p>Your parent has not scheduled anything for today. This empty checklist is ready for the next task.</p></div> : <>{occurrences.map((item) => <NavLink className="checklist-row" to={`/student/occurrences/${item.id}`} key={item.id}><div><h3>{item.title}</h3><p>{item.instructions}</p></div><span className="status">{verificationStatusLabel(item)}</span></NavLink>)}{items.map((item) => <div className="checklist-row" key={item.id}><div><h3>{item.title}</h3>{item.description && <p>{item.description}</p>}</div><span className="status">{statusLabel(item.status)}</span></div>)}</>}</section></>;
 }
 
 function Pagination({ offset, limit, total, onChange }: { offset: number; limit: number; total: number; onChange: (offset: number) => void }) {
   if (total <= limit) return null;
   return <div className="record-toolbar"><span className="meta">{offset + 1}–{Math.min(offset + limit, total)} of {total}</span><div className="page-actions"><button className="button secondary" type="button" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}>Previous</button><button className="button secondary" type="button" disabled={offset + limit >= total} onClick={() => onChange(offset + limit)}>Next</button></div></div>;
+}
+
+function verificationStatusLabel(occurrence: Occurrence) {
+  if (occurrence.status === "awaiting_verification" && occurrence.verification?.some(item => item.kind === "agent_dialogue")) return "Verification in progress";
+  return statusLabel(occurrence.status);
 }
 
 function statusLabel(status: string) {

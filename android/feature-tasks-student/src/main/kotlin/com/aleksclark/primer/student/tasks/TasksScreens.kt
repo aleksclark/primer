@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -46,6 +48,7 @@ import com.aleksclark.primer.ui.PrimerRecordRow
 import com.aleksclark.primer.ui.PrimerSectionHeader
 import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
+import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
 import com.aleksclark.primertasks.client.ChecklistItem
 import com.aleksclark.primertasks.client.OccurrenceResponse
@@ -93,6 +96,14 @@ fun StudentTasksApp(
     var occurrences by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var upcoming by remember { mutableStateOf<List<OccurrenceResponse>>(emptyList()) }
     var selectedOccurrence by remember { mutableStateOf<OccurrenceResponse?>(null) }
+    val occurrenceView = remember { OccurrenceViewGate() }
+    var restoreGeneration by remember { mutableStateOf(0L) }
+
+    suspend fun restoreCurrent(): TasksRestoreResult {
+        val generation = restoreGeneration
+        val result = session.restore()
+        return if (generation == restoreGeneration) result else TasksRestoreResult.Superseded
+    }
     var deepLinkUnavailable by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(true) }
     var scanning by remember { mutableStateOf(false) }
@@ -100,6 +111,7 @@ fun StudentTasksApp(
 
     fun apply(result: TasksRestoreResult) {
         when (result) {
+            TasksRestoreResult.Superseded -> Unit
             is TasksRestoreResult.Paired -> {
                 token = result.token
                 metadata = result.metadata
@@ -111,6 +123,8 @@ fun StudentTasksApp(
             }
             is TasksRestoreResult.Unpaired -> {
                 if (result.retainedToken == null) {
+                    restoreGeneration += 1
+                    occurrenceView.invalidate()
                     token = null
                     metadata = null
                     checklist = emptyList()
@@ -126,13 +140,25 @@ fun StudentTasksApp(
                 message = result.message
                 busy = false
             }
+            is TasksRestoreResult.Unavailable -> {
+                token = result.token
+                metadata = result.metadata
+                message = result.message
+                busy = false
+            }
         }
     }
 
-    fun applyLookup(lookup: OccurrenceLookup) {
+    fun applyLookup(lookup: OccurrenceLookup, request: OccurrenceViewRequest) {
+        if (token != request.token || metadata?.origin != request.origin) return
+        // Revocation of this pairing still clears Tasks after Back; a stale
+        // success/error cannot reopen detail or replace a different selection.
+        if (lookup !is OccurrenceLookup.Revoked && !occurrenceView.accepts(request)) return
         when (lookup) {
             is OccurrenceLookup.Found -> {
                 selectedOccurrence = lookup.occurrence
+                occurrences = replaceOccurrence(occurrences, lookup.occurrence)
+                upcoming = replaceOccurrence(upcoming, lookup.occurrence)
                 deepLinkUnavailable = false
             }
             OccurrenceLookup.Unavailable -> {
@@ -145,6 +171,8 @@ fun StudentTasksApp(
                 message = lookup.message
             }
             is OccurrenceLookup.Revoked -> {
+                restoreGeneration += 1
+                occurrenceView.invalidate()
                 token = null
                 metadata = null
                 checklist = emptyList()
@@ -159,18 +187,26 @@ fun StudentTasksApp(
         }
     }
 
-    fun applyAction(result: OccurrenceActionResult) {
+    fun applyAction(result: OccurrenceActionResult, request: OccurrenceViewRequest) {
+        if (token != request.token || metadata?.origin != request.origin) return
+        if (result !is OccurrenceActionResult.Revoked && !occurrenceView.accepts(request)) return
         when (result) {
             is OccurrenceActionResult.Updated -> {
                 selectedOccurrence = result.occurrence
+                occurrences = replaceOccurrence(occurrences, result.occurrence)
+                upcoming = replaceOccurrence(upcoming, result.occurrence)
                 message = null
             }
             is OccurrenceActionResult.Conflict -> {
                 selectedOccurrence = result.occurrence
+                occurrences = replaceOccurrence(occurrences, result.occurrence)
+                upcoming = replaceOccurrence(upcoming, result.occurrence)
                 message = result.message
             }
             is OccurrenceActionResult.Failed -> message = result.message
             is OccurrenceActionResult.Revoked -> {
+                restoreGeneration += 1
+                occurrenceView.invalidate()
                 token = null
                 metadata = null
                 checklist = emptyList()
@@ -186,7 +222,7 @@ fun StudentTasksApp(
     }
 
     LaunchedEffect(Unit) {
-        apply(session.restore())
+        apply(restoreCurrent())
     }
 
     LaunchedEffect(deepLink) {
@@ -194,19 +230,23 @@ fun StudentTasksApp(
         val savedToken = token
         val savedMetadata = metadata
         if (savedToken != null && savedMetadata != null) {
-            applyLookup(session.loadOccurrence(savedToken, savedMetadata.origin, occurrenceId))
+            val request = occurrenceView.begin(savedToken, savedMetadata.origin, occurrenceId)
+            applyLookup(session.loadOccurrence(request.token, request.origin, request.occurrenceId), request)
         } else {
-            val restored = session.restore()
+            val restored = restoreCurrent()
             apply(restored)
             val paired = restored as? TasksRestoreResult.Paired
             if (paired != null) {
-                applyLookup(session.loadOccurrence(paired.token, paired.metadata.origin, occurrenceId))
+                val request = occurrenceView.begin(paired.token, paired.metadata.origin, occurrenceId)
+                applyLookup(session.loadOccurrence(request.token, request.origin, request.occurrenceId), request)
             }
         }
         onDeepLinkConsumed?.invoke()
     }
 
     fun pair(raw: String) {
+        restoreGeneration += 1
+        occurrenceView.invalidate()
         scanning = false
         busy = true
         scope.launch { apply(session.pair(raw)) }
@@ -216,6 +256,8 @@ fun StudentTasksApp(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
+            restoreGeneration += 1
+            occurrenceView.invalidate()
             busy = true
             scope.launch { apply(session.importImage(context, uri)) }
         }
@@ -226,31 +268,35 @@ fun StudentTasksApp(
             busy && metadata == null -> LoadingScreen()
             metadata != null && token != null && deepLinkUnavailable -> UnavailableOccurrenceScreen(
                 onBack = {
+                    occurrenceView.invalidate()
                     deepLinkUnavailable = false
                     message = null
-                    onLeave?.invoke()
                 },
             )
             metadata != null && token != null && selectedOccurrence != null -> OccurrenceDetailScreen(
                 occurrence = selectedOccurrence!!,
                 message = message,
                 onBack = {
+                    occurrenceView.invalidate()
                     selectedOccurrence = null
-                    onLeave?.invoke()
+                    message = null
                 },
                 onRefresh = {
+                    val request = occurrenceView.begin(token!!, metadata!!.origin, selectedOccurrence!!.id)
                     scope.launch {
-                        applyLookup(session.loadOccurrence(token!!, metadata!!.origin, selectedOccurrence!!.id))
+                        applyLookup(session.loadOccurrence(request.token, request.origin, request.occurrenceId), request)
                     }
                 },
                 onStart = {
+                    val request = occurrenceView.begin(token!!, metadata!!.origin, selectedOccurrence!!.id)
                     scope.launch {
-                        applyAction(session.start(token!!, metadata!!.origin, selectedOccurrence!!.id))
+                        applyAction(session.start(request.token, request.origin, request.occurrenceId), request)
                     }
                 },
                 onSubmit = {
+                    val request = occurrenceView.begin(token!!, metadata!!.origin, selectedOccurrence!!.id)
                     scope.launch {
-                        applyAction(session.submit(token!!, metadata!!.origin, selectedOccurrence!!.id))
+                        applyAction(session.submit(request.token, request.origin, request.occurrenceId), request)
                     }
                 },
             )
@@ -260,7 +306,14 @@ fun StudentTasksApp(
                 occurrences = occurrences,
                 upcoming = upcoming,
                 message = message,
-                onOpen = { selectedOccurrence = it },
+                onOpen = {
+                    occurrenceView.invalidate()
+                    selectedOccurrence = it
+                },
+                onRefresh = {
+                    busy = true
+                    scope.launch { apply(restoreCurrent()) }
+                },
                 onBack = onLeave,
             )
             scanning -> PayloadQrScanner(
@@ -289,6 +342,7 @@ fun StudentTasksApp(
                         imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
                 },
+                onPaste = ::pair,
                 onRequestParentCameraGrant = onRequestParentCameraGrant,
                 onBack = onLeave,
             )
@@ -303,15 +357,26 @@ private fun LoadingScreen() {
     }
 }
 
+internal object PairingActions {
+    const val SCAN = "Scan pairing QR"
+    const val IMPORT_IMAGE = "Import pairing QR image"
+    const val PASTE_LABEL = "Paste pairing QR payload (fallback, not a scan)"
+    const val PASTE_ACTION = "Pair with pasted payload"
+    const val PASTE_HELP =
+        "If the camera or a saved QR image cannot be used, paste the pairing payload from your parent. This is a fallback, not a scan."
+}
+
 @Composable
 internal fun PairingScreen(
     message: String?,
     onScan: () -> Unit,
     onImportImage: () -> Unit,
+    onPaste: (String) -> Unit = {},
     pairing: com.aleksclark.primer.devicepolicy.PairingCapability? = null,
     onRequestParentCameraGrant: (() -> Unit)? = null,
     onBack: (() -> Unit)? = null,
 ) {
+    var payload by remember { mutableStateOf("") }
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -319,14 +384,33 @@ internal fun PairingScreen(
         PrimerSectionHeader(
             label = "Primer Tasks",
             title = "Pair this device",
-            description = "Scan the one-use QR code shown by your parent. Old Primer Tasks pairings cannot be copied; request a new Student QR.",
+            description = "Scan the one-use QR code shown by your parent. Image import and paste are labeled fallbacks. Old Primer Tasks pairings cannot be copied; request a new Student QR.",
         )
-        PrimerButton(text = "Scan pairing QR", onClick = onScan)
+        PrimerButton(text = PairingActions.SCAN, onClick = onScan)
         PrimerButton(
-            text = "Import pairing QR image",
+            text = PairingActions.IMPORT_IMAGE,
             onClick = onImportImage,
             variant = PrimerButtonVariant.Secondary,
-            modifier = Modifier.semantics { contentDescription = "Import pairing QR image" },
+            modifier = Modifier.semantics { contentDescription = PairingActions.IMPORT_IMAGE },
+        )
+        Text(PairingActions.PASTE_HELP, style = PrimerTheme.typography.body, color = PrimerTheme.colors.textMuted)
+        PrimerTextField(
+            value = payload,
+            onValueChange = { payload = it },
+            label = PairingActions.PASTE_LABEL,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
+            modifier = Modifier.semantics { contentDescription = PairingActions.PASTE_LABEL },
+        )
+        PrimerButton(
+            text = PairingActions.PASTE_ACTION,
+            onClick = {
+                val raw = payload
+                payload = ""
+                onPaste(raw)
+            },
+            enabled = payload.isNotBlank(),
+            variant = PrimerButtonVariant.Quiet,
+            modifier = Modifier.semantics { contentDescription = PairingActions.PASTE_ACTION },
         )
         if (pairing != null && !pairing.canScan) {
             PrimerStatus(pairing.message, tone = PrimerStatusTone.Attention)
@@ -451,6 +535,7 @@ private fun ChecklistScreen(
     upcoming: List<OccurrenceResponse>,
     message: String?,
     onOpen: (OccurrenceResponse) -> Unit,
+    onRefresh: () -> Unit,
     onBack: (() -> Unit)?,
 ) {
     val sections = checklistSections(occurrences.size, upcoming.size)
@@ -467,12 +552,13 @@ private fun ChecklistScreen(
             item { PrimerEmptyState(title = "Nothing assigned yet", message = "Your checklist is empty.") }
         }
         items(occurrences, key = { it.id }) { occurrence ->
+            val presented = presentOccurrence(occurrence)
             PrimerButton(
-                text = occurrence.title,
+                text = "${occurrence.title} · ${presented.statusLabel}",
                 onClick = { onOpen(occurrence) },
                 variant = PrimerButtonVariant.Secondary,
                 modifier = Modifier.fillMaxWidth().semantics {
-                    contentDescription = "Today task ${occurrence.title}, ${occurrence.status}"
+                    contentDescription = "Today task ${occurrence.title}, ${presented.statusLabel}"
                 },
             )
         }
@@ -493,6 +579,13 @@ private fun ChecklistScreen(
                     },
                 )
             }
+        }
+        item {
+            PrimerButton(
+                text = StudentOccurrenceCopy.REFRESH,
+                onClick = onRefresh,
+                variant = PrimerButtonVariant.Secondary,
+            )
         }
         if (message != null) item { PrimerStatus(message, tone = PrimerStatusTone.Attention) }
         if (onBack != null) item { PrimerButton(text = "Back to Student", onClick = onBack, variant = PrimerButtonVariant.Quiet) }
@@ -517,6 +610,7 @@ private fun OccurrenceDetailScreen(
     onStart: () -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val presented = presentOccurrence(occurrence)
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PrimerSectionHeader(label = "Task detail", title = occurrence.title)
         Text(occurrence.instructions, style = PrimerTheme.typography.body)
@@ -524,13 +618,24 @@ private fun OccurrenceDetailScreen(
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
         PrimerRecordRow(
             label = "Status",
-            value = occurrence.status,
-            status = occurrence.status,
-            statusTone = if (occurrence.status == "completed") PrimerStatusTone.Filled else PrimerStatusTone.Accent,
+            value = presented.statusLabel,
+            status = presented.statusLabel,
+            statusTone = when (presented.tone) {
+                OccurrenceStatusTone.Filled -> PrimerStatusTone.Filled
+                OccurrenceStatusTone.Attention -> PrimerStatusTone.Attention
+                OccurrenceStatusTone.Accent -> PrimerStatusTone.Accent
+                OccurrenceStatusTone.Neutral -> PrimerStatusTone.Neutral
+            },
         )
-        if (occurrence.status == "pending") PrimerButton(text = "Start task", onClick = onStart)
-        if (occurrence.status == "in_progress") PrimerButton(text = "Submit for parent approval", onClick = onSubmit)
-        PrimerButton(text = "Refresh from server", onClick = onRefresh, variant = PrimerButtonVariant.Secondary)
+        if (presented.explanation != null) {
+            PrimerStatus(
+                presented.explanation,
+                tone = if (presented.supported) PrimerStatusTone.Accent else PrimerStatusTone.Attention,
+            )
+        }
+        if (presented.canStart) PrimerButton(text = StudentOccurrenceCopy.START, onClick = onStart)
+        if (presented.canSubmit) PrimerButton(text = StudentOccurrenceCopy.SUBMIT, onClick = onSubmit)
+        PrimerButton(text = StudentOccurrenceCopy.REFRESH, onClick = onRefresh, variant = PrimerButtonVariant.Secondary)
         PrimerButton(text = "Back to today", onClick = onBack, variant = PrimerButtonVariant.Quiet)
     }
 }

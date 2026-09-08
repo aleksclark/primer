@@ -24,7 +24,35 @@ const loaded = await loadTestClient();
 let dialogue;
 try {
   const api = loaded.client.createTasksClient({ baseUrl: context.baseUrl, fetch: transport });
-  const state = await api.startStudentDialogue(context.occurrenceId);
+  const occurrence = await api.studentOccurrence(context.occurrenceId);
+  const capability = occurrence.verification?.[0];
+  if (!capability || capability.kind !== "agent_dialogue" || capability.dialogueStarted || capability.attemptId || capability.historyAttemptId || "config" in capability) throw new Error("Generated occurrence capability is not a safe unstarted dialogue");
+  // Exercise selected manual mutations through the real generated operations,
+  // before any dialogue initialization can bootstrap a manual attempt.
+  const templates = await api.listTasks({ q: occurrence.title, limit: 20, view: "templates" });
+  const original = templates.items?.find(task => task.id === occurrence.revisionId);
+  const originalDialogue = original?.requirements?.find(requirement => requirement.kind === "agent_dialogue");
+  if (!originalDialogue) throw new Error("Public source requirement unavailable");
+  const manualDefinition = { id: "manual", kind: "parent_approval", configVersion: 1, config: {}, interaction: "parent_action", executor: "human" };
+  for (const requirements of [[originalDialogue, manualDefinition], [manualDefinition, originalDialogue]]) {
+    const task = await api.createTask({ title: "Generated selected manual check", instructions: "Check the selected work", requirements });
+    await api.publishTask(task.id);
+    const schedule = await api.createSchedule({ studentId: occurrence.studentId, templateId: task.templateId, revisionId: task.id, kind: "one_off", timezone: "UTC", startAt: new Date(Date.now() - 60000).toISOString(), dueOffsetMinutes: 0 });
+    const page = await api.listOccurrences({ limit: 20 });
+    const issued = page.items?.find(item => item.scheduleId === schedule.id);
+    const manual = issued?.verification?.find(item => item.kind === "parent_approval");
+    if (!issued || !manual) throw new Error("Generated selected manual capability unavailable");
+    await api.startStudentOccurrence(issued.id, {}, { requirementId: manual.id });
+    await Promise.all([api.submitStudentOccurrence(issued.id, {}, { requirementId: manual.id }), api.submitStudentOccurrence(issued.id, {}, { requirementId: manual.id })]);
+    const submitted = await api.studentOccurrence(issued.id);
+    if (!submitted.verification?.find(item => item.id === manual.id)?.attemptId || submitted.verification.find(item => item.kind === "agent_dialogue")?.attemptId) throw new Error("Generated manual mutation targeted the wrong requirement");
+    await api.decideOccurrence(issued.id, { requirementId: manual.id, accepted: true, reason: "Parent observed only the selected manual work." });
+    const checked = await api.getOccurrence(issued.id);
+    if (checked.status !== "awaiting_verification" || checked.verification?.find(item => item.kind === "agent_dialogue")?.attemptId) throw new Error("Generated manual decision bypassed other required work");
+  }
+  const state = await api.startStudentDialogue(context.occurrenceId, { requirementId: capability.id });
+  const started = await api.studentOccurrence(context.occurrenceId);
+  if (started.verification?.[0].attemptId !== state.attemptId || started.verification[0].historyAttemptId !== state.attemptId || !started.verification[0].dialogueStarted) throw new Error("Generated occurrence capability did not follow the real attempt");
   dialogue = loaded.client.createDialogueClient({ occurrenceId: state.occurrenceId, attemptId: state.attemptId, baseUrl: context.baseUrl, reconnect: false,
     webSocketFactory: (url, protocols) => new NativeSocket(url, { protocols, headers: { Origin: origin, Cookie: context.studentCookies } }),
   });

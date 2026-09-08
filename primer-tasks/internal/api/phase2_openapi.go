@@ -39,6 +39,18 @@ type DecisionInputEnvelope2 struct {
 type OccurrenceIDInput2 struct {
 	ID string `path:"id"`
 }
+
+// Only single-manual legacy browser work may omit selection. Every browser
+// mutation requires cookie custody and Origin/CSRF; native stays /device-only.
+type StudentManualInput2 struct {
+	ID            string `path:"id"`
+	RequirementID string `query:"requirementId" doc:"Issued manual requirement ID; required for mixed work"`
+}
+type StudentManualOutput2 struct {
+	ResponseHeaders
+	Body StudentManualAction2
+}
+
 type TaskIDInput2 struct {
 	ID string `path:"id"`
 }
@@ -154,13 +166,13 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[Occurrence2](ctx, s.requireStudent(s.studentDetail2), nil)
 		return &OccurrenceOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "student-occurrence-start", Method: http.MethodPost, Path: "/student/occurrences/{id}/start", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*OccurrenceActionOutput2, error) {
-		b, h, e := legacyJSON[OccurrenceAction2](ctx, s.requireStudent(s.studentStart2), nil)
-		return &OccurrenceActionOutput2{h, b}, e
+	register(api, huma.Operation{OperationID: "student-occurrence-start", Method: http.MethodPost, Path: "/student/occurrences/{id}/start", Errors: []int{400, 401, 403, 404, 409, 503}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *StudentManualInput2) (*StudentManualOutput2, error) {
+		b, h, e := legacyJSON[StudentManualAction2](ctx, s.requireStudent(s.studentStart2), nil)
+		return &StudentManualOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "student-occurrence-submit", Method: http.MethodPost, Path: "/student/occurrences/{id}/submit", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*OccurrenceActionOutput2, error) {
-		b, h, e := legacyJSON[OccurrenceAction2](ctx, s.requireStudent(s.studentSubmit2), nil)
-		return &OccurrenceActionOutput2{h, b}, e
+	register(api, huma.Operation{OperationID: "student-occurrence-submit", Method: http.MethodPost, Path: "/student/occurrences/{id}/submit", Errors: []int{400, 401, 403, 404, 409, 503}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *StudentManualInput2) (*StudentManualOutput2, error) {
+		b, h, e := legacyJSON[StudentManualAction2](ctx, s.requireStudent(s.studentSubmit2), nil)
+		return &StudentManualOutput2{h, b}, e
 	})
 	register(api, huma.Operation{OperationID: "device-today", Method: http.MethodGet, Path: "/device/today", Errors: []int{401}}, func(ctx context.Context, _ *struct{}) (*OccurrencePageOutput2, error) {
 		b, h, e := legacyJSON[OccurrencePage2](ctx, s.requireDevice(s.deviceListWrapper), nil)
@@ -174,11 +186,11 @@ func (s *Server) registerPhase2(api huma.API) {
 		b, h, e := legacyJSON[Occurrence2](ctx, s.requireDevice(s.deviceDetailWrapper), nil)
 		return &OccurrenceOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "device-occurrence-start", Method: http.MethodPost, Path: "/device/occurrences/{id}/start", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*OccurrenceActionOutput2, error) {
+	register(api, huma.Operation{OperationID: "device-occurrence-start", Method: http.MethodPost, Path: "/device/occurrences/{id}/start", Errors: []int{400, 401, 404, 409, 500, 503}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*OccurrenceActionOutput2, error) {
 		b, h, e := legacyJSON[OccurrenceAction2](ctx, s.requireDevice(s.deviceStartWrapper), nil)
 		return &OccurrenceActionOutput2{h, b}, e
 	})
-	register(api, huma.Operation{OperationID: "device-occurrence-submit", Method: http.MethodPost, Path: "/device/occurrences/{id}/submit", Errors: []int{400, 401, 404, 409}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*OccurrenceActionOutput2, error) {
+	register(api, huma.Operation{OperationID: "device-occurrence-submit", Method: http.MethodPost, Path: "/device/occurrences/{id}/submit", Errors: []int{400, 401, 404, 409, 500, 503}, SkipValidateBody: true, SkipValidateParams: true}, func(ctx context.Context, _ *OccurrenceIDInput2) (*OccurrenceActionOutput2, error) {
 		b, h, e := legacyJSON[OccurrenceAction2](ctx, s.requireDevice(s.deviceSubmitWrapper), nil)
 		return &OccurrenceActionOutput2{h, b}, e
 	})
