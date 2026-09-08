@@ -7,6 +7,8 @@ import com.aleksclark.primertasks.client.OccurrenceResponse
 import com.aleksclark.primertasks.client.TasksClient
 import com.aleksclark.primertasks.client.TasksHttpException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Tasks pairing/session state. Failures and revocation clear only Tasks
@@ -32,14 +34,22 @@ class TasksSession(
         allowEmulatorOrigin = allowEmulatorOrigin,
     )
 
+    private val pairingMutex = Mutex()
+
     suspend fun restore(): TasksRestoreResult {
-        val savedToken = tokenStore.read()
-        val savedMetadata = bindingStore.read()
-        if (savedToken == null || savedMetadata == null || savedMetadata.origin.isBlank()) {
-            clearPairing()
-            return TasksRestoreResult.Unpaired()
-        }
-        return load(savedToken, savedMetadata)
+        val snapshot = pairingMutex.withLock {
+            val savedToken = tokenStore.read()
+            val savedMetadata = bindingStore.read()
+            if (savedToken == null || savedMetadata == null || savedMetadata.origin.isBlank()) {
+                // Snapshot and incomplete-state cleanup share the publication
+                // lock. Never clear a newer pairing using an older null read.
+                tokenStore.clear()
+                bindingStore.clear()
+                null
+            } else savedToken to savedMetadata
+        } ?: return TasksRestoreResult.Unpaired()
+        // No network call is made under the storage mutex.
+        return load(snapshot.first, snapshot.second)
     }
 
     suspend fun pair(rawQr: String): TasksRestoreResult {
@@ -62,8 +72,7 @@ class TasksSession(
             val binding = StudentMetadata(paired.studentId, "", apiBase, qr.pairingId)
             // Persist the one-use credential before any follow-up call so a lost
             // profile/checklist response cannot discard the newly issued bearer.
-            tokenStore.save(paired.token)
-            bindingStore.save(binding)
+            persistPairing(paired.token, binding)
             load(paired.token, binding)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -115,9 +124,25 @@ class TasksSession(
     suspend fun submit(token: String, origin: String, id: String): OccurrenceActionResult =
         mutate(token, origin, id) { client -> client.submitStudentOccurrence(token, id) }
 
-    suspend fun clearPairing() {
+    internal suspend fun persistPairing(token: String, binding: StudentMetadata) = pairingMutex.withLock {
+        tokenStore.save(token)
+        bindingStore.save(binding)
+    }
+
+    suspend fun clearPairing() = pairingMutex.withLock {
         tokenStore.clear()
         bindingStore.clear()
+    }
+
+    private suspend fun ifCurrentBinding(
+        token: String,
+        metadata: StudentMetadata,
+        block: suspend () -> TasksRestoreResult,
+    ): TasksRestoreResult = pairingMutex.withLock {
+        val current = bindingStore.read()
+        if (tokenStore.read() != token || current?.studentId != metadata.studentId ||
+            current.origin != metadata.origin || current.pairingId != metadata.pairingId
+        ) TasksRestoreResult.Superseded else block()
     }
 
     private suspend fun load(token: String, metadata: StudentMetadata): TasksRestoreResult {
@@ -125,32 +150,37 @@ class TasksSession(
             val client = clientFactory(metadata.origin)
             val profile = client.studentProfile(token)
             if (profile.id != metadata.studentId) {
-                return TasksRestoreResult.Unpaired(
-                    message = "This pairing belongs to a different student. Request a new QR code.",
-                    retainedToken = token,
-                    retainedMetadata = metadata,
-                )
+                return ifCurrentBinding(token, metadata) {
+                    TasksRestoreResult.Unpaired(
+                        message = "This pairing belongs to a different student. Request a new QR code.",
+                        retainedToken = token,
+                        retainedMetadata = metadata,
+                    )
+                }
             }
             val bound = metadata.copy(displayName = profile.displayName, studentId = metadata.studentId)
-            bindingStore.save(bound)
-            TasksRestoreResult.Paired(
-                token = token,
-                metadata = bound,
-                checklist = client.studentChecklist(token).items,
-                today = client.studentToday(token).items,
-                upcoming = client.studentUpcoming(token).items,
-            )
+            val checklist = client.studentChecklist(token).items
+            val today = client.studentToday(token).items
+            val upcoming = client.studentUpcoming(token).items
+            ifCurrentBinding(token, metadata) {
+                bindingStore.save(bound)
+                TasksRestoreResult.Paired(token, bound, checklist, today, upcoming)
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: TasksHttpException) {
             if (error.statusCode == 401 || error.statusCode == 403) {
-                clearIfCurrent(token)
-                TasksRestoreResult.Unpaired("This device pairing is no longer active. Scan a new QR code.")
+                if (clearIfCurrent(token)) TasksRestoreResult.Unpaired("This device pairing is no longer active. Scan a new QR code.")
+                else TasksRestoreResult.Superseded
             } else {
-                TasksRestoreResult.Unpaired("Unable to load the checklist. Try again.", token, metadata)
+                ifCurrentBinding(token, metadata) {
+                    TasksRestoreResult.Unavailable(token, metadata, "Unable to load the checklist. Try again.")
+                }
             }
         } catch (_: Exception) {
-            TasksRestoreResult.Unpaired("Unable to reach the Primer server. Try again.", token, metadata)
+            ifCurrentBinding(token, metadata) {
+                TasksRestoreResult.Unavailable(token, metadata, "Unable to reach the Primer server. Try again.")
+            }
         }
     }
 
@@ -174,7 +204,16 @@ class TasksSession(
                 }
                 409 -> {
                     val refreshed = runCatching { client.studentOccurrence(token, id) }.getOrNull()
-                    if (refreshed != null) {
+                    if (error.code == "unsupported_task") {
+                        if (refreshed != null) {
+                            OccurrenceActionResult.Conflict(
+                                refreshed,
+                                StudentOccurrenceCopy.UNSUPPORTED,
+                            )
+                        } else {
+                            OccurrenceActionResult.Failed(StudentOccurrenceCopy.UNSUPPORTED)
+                        }
+                    } else if (refreshed != null) {
                         OccurrenceActionResult.Conflict(refreshed, "This task changed. Showing the server state.")
                     } else {
                         OccurrenceActionResult.Failed("This task changed. Refresh and try again.")
@@ -193,15 +232,19 @@ class TasksSession(
         return OccurrenceLookup.Revoked("This device pairing is no longer active. Scan a new QR code.")
     }
 
-    private suspend fun clearIfCurrent(expectedToken: String) {
-        if (tokenStore.read() == expectedToken) {
+    private suspend fun clearIfCurrent(expectedToken: String): Boolean = pairingMutex.withLock {
+        if (tokenStore.read() != expectedToken) false else {
             tokenStore.clear()
             bindingStore.clear()
+            true
         }
     }
 }
 
 sealed interface TasksRestoreResult {
+    /** A newer revocation or pairing owns the screen; never publish old custody. */
+    data object Superseded : TasksRestoreResult
+
     data class Paired(
         val token: String,
         val metadata: StudentMetadata,
@@ -215,6 +258,12 @@ sealed interface TasksRestoreResult {
         val message: String? = null,
         val retainedToken: String? = null,
         val retainedMetadata: StudentMetadata? = null,
+    ) : TasksRestoreResult
+
+    data class Unavailable(
+        val token: String,
+        val metadata: StudentMetadata,
+        val message: String,
     ) : TasksRestoreResult
 }
 

@@ -65,7 +65,11 @@ class TasksSessionIsolationTest {
             """{"v":1,"api":"/api","origin":"https://tasks.example.test","code":"ABC123ABC123ABC123ABC123ABC123AB","pairingId":"pair-1"}""",
         )
 
-        assertTrue(result is TasksRestoreResult.Unpaired)
+        assertTrue(result is TasksRestoreResult.Unavailable)
+        val unavailable = result as TasksRestoreResult.Unavailable
+        assertEquals("new-token", unavailable.token)
+        assertEquals("student-1", unavailable.metadata.studentId)
+        assertEquals("Unable to load the checklist. Try again.", unavailable.message)
         assertEquals("new-token", tokens.token)
         assertEquals("student-1", bindings.metadata?.studentId)
         assertEquals("/api/device/pair", server.takeRequest(1, TimeUnit.SECONDS)?.path)
@@ -137,6 +141,46 @@ class TasksSessionIsolationTest {
         assertEquals("POST", server.takeRequest(1, TimeUnit.SECONDS)?.method)
         assertEquals("GET", server.takeRequest(1, TimeUnit.SECONDS)?.method)
         assertEquals(0, tokens.cleared)
+    }
+
+    @Test
+    fun unsupportedSubmitKeepsServerOccurrenceAndDoesNotInventCompletion() = runBlocking {
+        tokens.token = "saved-token"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(409)
+                .setBody("""{"code":"unsupported_task","message":"this assigned work cannot be submitted as parent approval","detail":"this assigned work cannot be submitted as parent approval"}"""),
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """{"id":"occ-1","status":"in_progress","title":"Dialogue","instructions":"Talk","studentId":"student-1","scheduleId":"s","revisionId":"r","timezone":"UTC","dueAt":"2026-01-01T00:00:00Z","nominalAt":"2026-01-01T00:00:00Z","dueSemantics":"hard","dueOffsetMinutes":0,"attemptNumber":0,"scheduleVersion":1,"taskRevisionVersion":1,"studentCapability":"unsupported","requirements":[{"id":"req-1","kind":"agent_dialogue","configVersion":1,"interaction":"student_chat","executor":"agent"}]}""",
+            ),
+        )
+
+        val result = session().submit("saved-token", server.url("/").toString(), "occ-1")
+        assertTrue(result is OccurrenceActionResult.Conflict)
+        val conflict = result as OccurrenceActionResult.Conflict
+        assertEquals("in_progress", conflict.occurrence.status)
+        assertEquals("unsupported", conflict.occurrence.studentCapability)
+        assertEquals(StudentOccurrenceCopy.UNSUPPORTED, conflict.message)
+        assertEquals(0, tokens.cleared)
+    }
+
+    @Test
+    fun restoreNetworkFailureKeepsPairingAndDoesNotClearProtectedData() = runBlocking {
+        tokens.token = "saved-token"
+        bindings.metadata = StudentMetadata("student-1", "Maya", server.url("/").toString(), "pair-1")
+        server.enqueue(MockResponse().setResponseCode(503).setBody("down"))
+
+        val result = session().restore()
+        assertTrue(result is TasksRestoreResult.Unavailable)
+        val unavailable = result as TasksRestoreResult.Unavailable
+        assertEquals("saved-token", unavailable.token)
+        assertEquals("student-1", unavailable.metadata.studentId)
+        assertEquals("Unable to load the checklist. Try again.", unavailable.message)
+        assertEquals("saved-token", tokens.token)
+        assertEquals(0, tokens.cleared)
+        assertEquals(0, bindings.cleared)
     }
 
     @Test(expected = CancellationException::class)
