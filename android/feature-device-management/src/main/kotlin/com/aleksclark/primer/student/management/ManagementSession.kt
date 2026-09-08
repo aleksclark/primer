@@ -61,6 +61,14 @@ class ManagementSession(
     private val boot: () -> Int,
     private val json: Json = Json { encodeDefaults = false; ignoreUnknownKeys = true },
     private val mutex: Mutex = Mutex(),
+    private val deviceCapabilities: () -> DeviceCapabilities = {
+        DeviceCapabilities(
+            androidApi = Build.VERSION.SDK_INT.toLong(),
+            supportedAbis = runCatching { Build.SUPPORTED_ABIS.toList() }.getOrDefault(emptyList()),
+            deviceOwner = true,
+            lockTaskSupported = true,
+        )
+    },
 ) {
     suspend fun enroll(rawQr: String, replace: Boolean = false): ManagementSyncResult {
         if (replace) ManagementAuthorization.revoke()
@@ -93,12 +101,7 @@ class ManagementSession(
                     stableDeviceKey = credentials.stableDeviceKey(),
                     enrollmentKeyId = keyId,
                     enrollmentPublicKey = publicKey,
-                    capabilities = DeviceCapabilities(
-                        androidApi = Build.VERSION.SDK_INT.toLong(),
-                        supportedAbis = runCatching { Build.SUPPORTED_ABIS.toList() }.getOrDefault(emptyList()),
-                        deviceOwner = true,
-                        lockTaskSupported = true,
-                    ),
+                    capabilities = deviceCapabilities(),
                 ),
             )
             if (ManagementAuthorization.current() != epoch) {
