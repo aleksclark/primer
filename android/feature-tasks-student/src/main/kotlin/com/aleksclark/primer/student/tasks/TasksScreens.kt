@@ -3,6 +3,7 @@ package com.aleksclark.primer.student.tasks
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -263,6 +264,22 @@ fun StudentTasksApp(
         }
     }
 
+    BackHandler(enabled = scanning || selectedOccurrence != null || deepLinkUnavailable) {
+        when {
+            scanning -> scanning = false
+            deepLinkUnavailable -> {
+                occurrenceView.invalidate()
+                deepLinkUnavailable = false
+                message = null
+            }
+            selectedOccurrence != null -> {
+                occurrenceView.invalidate()
+                selectedOccurrence = null
+                message = null
+            }
+        }
+    }
+
     Column(modifier.fillMaxSize()) {
         when {
             busy && metadata == null -> LoadingScreen()
@@ -385,6 +402,13 @@ internal fun PairingScreen(
             label = "Primer Tasks",
             title = "Pair this device",
             description = "Scan the one-use QR code shown by your parent. Image import and paste are labeled fallbacks. Old Primer Tasks pairings cannot be copied; request a new Student QR.",
+            trailing = if (onBack != null) {
+                {
+                    PrimerButton(text = "Back", onClick = onBack, variant = PrimerButtonVariant.Quiet)
+                }
+            } else {
+                null
+            },
         )
         PrimerButton(text = PairingActions.SCAN, onClick = onScan)
         PrimerButton(
@@ -418,7 +442,6 @@ internal fun PairingScreen(
                 PrimerButton(text = "Grant camera for pairing", onClick = onRequestParentCameraGrant)
             }
         }
-        if (onBack != null) PrimerButton(text = "Back to Student", onClick = onBack, variant = PrimerButtonVariant.Quiet)
         if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
     }
 }
@@ -545,7 +568,17 @@ private fun ChecklistScreen(
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
         item {
-            PrimerSectionHeader(label = "Primer Tasks", title = name, description = "One student · one device")
+            PrimerSectionHeader(
+                label = "Primer Tasks",
+                title = name,
+                trailing = if (onBack != null) {
+                    {
+                        PrimerButton(text = "Back", onClick = onBack, variant = PrimerButtonVariant.Quiet)
+                    }
+                } else {
+                    null
+                },
+            )
         }
         item { Text("Today", style = PrimerTheme.typography.sectionTitle) }
         if (!sections.showToday && items.isEmpty()) {
@@ -588,7 +621,6 @@ private fun ChecklistScreen(
             )
         }
         if (message != null) item { PrimerStatus(message, tone = PrimerStatusTone.Attention) }
-        if (onBack != null) item { PrimerButton(text = "Back to Student", onClick = onBack, variant = PrimerButtonVariant.Quiet) }
     }
 }
 

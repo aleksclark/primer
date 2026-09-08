@@ -6,7 +6,7 @@ Native Tasks pairing/checklist/start/submit for Primer Student.
 
 - Compose: `com.aleksclark.primer.student.tasks.StudentTasksRoute(deepLink, onLeave)`
 - Session: `TasksSession` uses the existing `com.aleksclark.primertasks.client.TasksClient` façade.
-- Student shell: `MainActivity` → `Open Tasks` / `primerstudent://occurrences/{id}` (legacy `primertasks://occurrences/{id}` still parsed, no credential forwarding).
+- Student shell: configured home is a dashboard with a Tasks card (`StudentTasksDashboardCard`) plus `primerstudent://occurrences/{id}` (legacy `primertasks://occurrences/{id}` still parsed, no credential forwarding). Back from Tasks returns to that dashboard.
 
 ## Lifecycle / session contracts
 
