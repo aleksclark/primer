@@ -2,13 +2,17 @@ package api
 
 import (
 	"context"
-	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
-	"primer-tasks/internal/schedule"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"primer-tasks/internal/domain/parent"
+	"primer-tasks/internal/repo"
+	"primer-tasks/internal/schedule"
+	"primer-tasks/internal/verification"
 )
 
 func uuidMust(s string) uuid.UUID { return uuid.MustParse(s) }
@@ -86,4 +90,93 @@ func TestPhase2HandlersSurfaceDatabaseFailures(t *testing.T) {
 		s.updateSchedule2(w, req(http.MethodPatch, "/schedules/"+tenantA, `{"studentId":"`+tenantA+`","templateId":"`+tenantA+`","revisionId":"`+tenantA+`","kind":"one_off","timezone":"UTC","startAt":"`+time.Now().UTC().Format(time.RFC3339)+`","dueOffsetMinutes":0}`), sc)
 	})
 	run("schedule-retire", s.retireSchedule2)
+	run("students", s.listStudents)
+	run("create-student", func(w http.ResponseWriter, r *http.Request, sc scope) {
+		s.createStudent(w, req(http.MethodPost, "/students", `{"displayName":"Ada"}`), sc)
+	})
+	run("archive-student", s.archiveStudent)
+	run("pairing", s.issuePairing)
+	run("dialogue-inspect", s.dialogueInspect)
+	run("dialogue-override", s.dialogueOverride)
+	run("agent-conversation", s.createAgentConversation)
+	run("dialogue-start", func(w http.ResponseWriter, r *http.Request, sc scope) {
+		s.studentDialogueStart(w, req(http.MethodPost, "/student/occurrences/"+tenantA+"/dialogue", `{}`))
+	})
+	run("dialogue-state", func(w http.ResponseWriter, r *http.Request, sc scope) {
+		s.studentDialogueState(w, req(http.MethodGet, "/student/occurrences/"+tenantA+"/dialogue", ""))
+	})
+	run("update-student", s.updateStudent)
+	run("student-profile", func(w http.ResponseWriter, r *http.Request, sc scope) {
+		s.studentProfile(w, r, uuidMust(tenantA))
+	})
+	engine := verification.DialogueEngine{DB: pool}
+	auth := verification.StudentAuthority{TenantID: tenantA, StudentID: tenantA, SessionID: tenantA}
+	ctx := context.Background()
+	if _, err := engine.Start(ctx, auth, tenantA, ""); err == nil {
+		t.Fatal("start accepted closed DB")
+	}
+	if _, err := engine.Admit(ctx, auth, tenantA, tenantA, verification.DialogueMessage{}); err == nil {
+		t.Fatal("admit accepted closed DB")
+	}
+	if err := engine.CommitQuestion(ctx, auth, tenantA, tenantA, verification.DialogueLease{JobID: tenantA}, "wall"); err == nil {
+		t.Fatal("commit question accepted closed DB")
+	}
+	if err := engine.CommitEvaluation(ctx, auth, tenantA, tenantA, verification.DialogueLease{JobID: tenantA}, verification.DialogueEvaluation{}); err == nil {
+		t.Fatal("commit evaluation accepted closed DB")
+	}
+	if err := engine.Retry(ctx, auth, tenantA, tenantA, 1); err == nil {
+		t.Fatal("retry accepted closed DB")
+	}
+	if err := engine.Progress(ctx, auth, tenantA, tenantA, verification.DialogueLease{JobID: tenantA}, "thinking"); err == nil {
+		t.Fatal("progress accepted closed DB")
+	}
+	if err := engine.ReconcileDialogueJobs(ctx); err == nil {
+		t.Fatal("reconcile accepted closed DB")
+	}
+	if _, err := verification.ResolveStudentAuthority(ctx, pool, make([]byte, 32)); err == nil {
+		t.Fatal("resolve accepted closed DB")
+	}
+	if err := repo.NewDialogueRepository(pool).PublishRevisionPolicies(ctx, tenantA, tenantA); err == nil {
+		t.Fatal("publish policies accepted closed DB")
+	}
+	if _, err := repo.NewDialogueRepository(pool).RevisionPolicy(ctx, tenantA, tenantA, tenantA); err == nil {
+		t.Fatal("revision policy accepted closed DB")
+	}
+	adapters := phase3Services{s: s}
+	scope := parent.ServiceContext{TenantID: tenantA, ActorID: "parent-a", IdempotencyKey: "closed-db"}
+	if _, err := adapters.ListStudents(ctx, scope, parent.StudentQuery{}); err == nil {
+		t.Fatal("phase3 list students accepted closed DB")
+	}
+	if _, err := adapters.GetStudent(ctx, scope, tenantA); err == nil {
+		t.Fatal("phase3 get student accepted closed DB")
+	}
+	if _, err := adapters.ListTasks(ctx, scope, parent.TaskQuery{}); err == nil {
+		t.Fatal("phase3 list tasks accepted closed DB")
+	}
+	if _, err := adapters.GetTask(ctx, scope, tenantA); err == nil {
+		t.Fatal("phase3 get task accepted closed DB")
+	}
+	if _, err := adapters.ListSchedules(ctx, scope, parent.ScheduleQuery{}); err == nil {
+		t.Fatal("phase3 list schedules accepted closed DB")
+	}
+	if _, err := adapters.GetSchedule(ctx, scope, tenantA); err == nil {
+		t.Fatal("phase3 get schedule accepted closed DB")
+	}
+	if _, err := adapters.ListOccurrences(ctx, scope, parent.OccurrenceQuery{}); err == nil {
+		t.Fatal("phase3 list occurrences accepted closed DB")
+	}
+	if _, err := adapters.DraftTask(ctx, scope, parent.TaskDraftInput{Title: "x", Instructions: "y"}); err == nil {
+		t.Fatal("phase3 draft accepted closed DB")
+	}
+	if _, _, _, err := engine.WorkerState(ctx, auth, tenantA, tenantA, verification.DialogueLease{JobID: tenantA}); err == nil {
+		t.Fatal("worker state accepted closed DB")
+	}
+	if err := engine.FailDialogueJob(ctx, verification.DialogueJobReference{JobID: tenantA, TenantID: tenantA, Owner: "x", Generation: 1}, "provider_unavailable"); err == nil {
+		t.Fatal("fail job accepted closed DB")
+	}
+	tx, err := pool.Begin(ctx)
+	if err == nil {
+		_, _ = verification.OverrideDialogue(ctx, tx, tenantA, "parent-a", tenantA, tenantA, "req", "Parent independently reviewed the attempt.", 1, false)
+		_ = tx.Rollback(ctx)
+	}
 }

@@ -109,10 +109,75 @@ func TestVerifyIDTokenChecksIssuerAudienceExpiryAndSignature(t *testing.T) {
 	if _, err := s.verifyIDToken("malformed"); err == nil {
 		t.Fatal("malformed token accepted")
 	}
+	if _, err := s.verifyIDToken("%%% .payload.sig"); err == nil {
+		t.Fatal("bad header encoding accepted")
+	}
+	badAlgHeader := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	payload, _ := json.Marshal(valid)
+	part := base64.RawURLEncoding.EncodeToString(payload)
+	if _, err := s.verifyIDToken(badAlgHeader + "." + part + ".sig"); err == nil {
+		t.Fatal("unsupported algorithm accepted")
+	}
+	oidc := NewWithAuth(nil, "test", AuthConfig{Mode: "oidc", IssuerURL: "https://issuer.test", PublicIssuerURL: "https://issuer.test", ClientID: "tasks", SessionSecret: []byte("state-secret")})
+	if _, err := oidc.verifyIDToken(makeToken(valid)); err == nil {
+		t.Fatal("HS256 token accepted in oidc mode")
+	}
+	clerk := NewWithAuth(nil, "test", AuthConfig{Mode: "clerk", IssuerURL: "https://issuer.test", ClientID: "tasks", SessionSecret: []byte("state-secret")})
+	if _, err := clerk.verifyIDToken(makeToken(valid)); err == nil {
+		t.Fatal("clerk mode token accepted")
+	}
 	parts := strings.Split(makeToken(valid), ".")
 	parts[2] = "bad"
 	if _, err := s.verifyIDToken(strings.Join(parts, ".")); err == nil {
 		t.Fatal("bad signature accepted")
+	}
+}
+
+func TestFetchOIDCKeysRejectsDiscoveryAndJWKSFailures(t *testing.T) {
+	s := NewWithAuth(nil, "test", AuthConfig{Mode: "oidc", IssuerURL: "://bad", ClientID: "tasks"})
+	if _, err := s.fetchOIDCKeys(context.Background()); err == nil {
+		t.Fatal("invalid issuer discovery accepted")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "openid-configuration"):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"issuer":%q,"jwks_uri":%q}`, strings.TrimRight("http://"+r.Host, "/"), "http://"+r.Host+"/jwks")
+		case strings.HasSuffix(r.URL.Path, "/jwks"):
+			http.Error(w, "no", http.StatusBadGateway)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	s = NewWithAuth(nil, "test", AuthConfig{Mode: "oidc", IssuerURL: server.URL, ClientID: "tasks"})
+	if _, err := s.fetchOIDCKeys(context.Background()); err == nil {
+		t.Fatal("failed jwks accepted")
+	}
+	badJSON := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not-json"))
+	}))
+	defer badJSON.Close()
+	s = NewWithAuth(nil, "test", AuthConfig{Mode: "oidc", IssuerURL: badJSON.URL, ClientID: "tasks"})
+	if _, err := s.fetchOIDCKeys(context.Background()); err == nil {
+		t.Fatal("malformed discovery accepted")
+	}
+	unusable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "openid-configuration"):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"issuer":%q,"jwks_uri":%q}`, strings.TrimRight("http://"+r.Host, "/"), "http://"+r.Host+"/jwks")
+		case strings.HasSuffix(r.URL.Path, "/jwks"):
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"keys":[{"kty":"RSA","alg":"RS256","kid":"k1"},{"kty":"EC","crv":"P-256","alg":"ES256","kid":"k2","use":"enc","x":"AA","y":"AA"},{"kty":"EC","crv":"P-256","alg":"ES256","kid":"k3","use":"sig","x":"%%%%","y":"AA"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer unusable.Close()
+	s = NewWithAuth(nil, "test", AuthConfig{Mode: "oidc", IssuerURL: unusable.URL, ClientID: "tasks"})
+	if _, err := s.fetchOIDCKeys(context.Background()); err == nil {
+		t.Fatal("unusable jwks accepted")
 	}
 }
 

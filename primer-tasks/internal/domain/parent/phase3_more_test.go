@@ -65,6 +65,20 @@ func TestParentStudentResolutionAndConfirmationActions(t *testing.T) {
 	if _, err := tools.ResolveStudent(context.Background(), ctx, "", "Unknown"); !errors.Is(err, ErrClarification) {
 		t.Fatalf("unknown selector=%v", err)
 	}
+	if _, err := tools.ResolveStudent(context.Background(), ctx, "", ""); !errors.Is(err, ErrClarification) {
+		t.Fatalf("empty selector=%v", err)
+	}
+	students.items = []Student{{ID: "student-1", DisplayName: "Alex"}, {ID: "student-2", DisplayName: "Alex"}}
+	if _, err := tools.ResolveStudent(context.Background(), ctx, "", "Alex"); !errors.Is(err, ErrClarification) {
+		t.Fatalf("ambiguous selector=%v", err)
+	}
+	students.items = []Student{{ID: "student-1", DisplayName: "Alex"}}
+	if _, err := tools.CreateSchedule(context.Background(), ctx, ScheduleInput{}, "Alex"); err != nil {
+		t.Fatalf("name schedule=%v", err)
+	}
+	if _, err := tools.UpdateSchedule(context.Background(), ctx, ScheduleUpdateInput{ScheduleID: "schedule-1"}, "Alex"); err != nil {
+		t.Fatalf("name update=%v", err)
+	}
 	preview, err := tools.PreviewDisableSchedule(context.Background(), ctx, "schedule-1")
 	if err != nil {
 		t.Fatal(err)
@@ -90,8 +104,68 @@ func TestParentStudentResolutionAndConfirmationActions(t *testing.T) {
 	}
 }
 
+func TestNewToolSetRejectsUnknownAndBlankNames(t *testing.T) {
+	if _, err := NewToolSet([]string{" "}); err == nil {
+		t.Fatal("blank tool name accepted")
+	}
+	if _, err := NewToolSet([]string{"not-a-tool"}); err == nil {
+		t.Fatal("unknown tool accepted")
+	}
+}
+
+func TestExecuteConfirmedRejectsUnknownKind(t *testing.T) {
+	ctx := testContext(t, ToolConfirmAction)
+	tools := &Tools{Confirmations: NewMemoryConfirmationStore()}
+	if _, err := tools.executeConfirmed(context.Background(), ctx, ConfirmationPreview{Action: Action{Kind: "unknown", TargetIDs: []string{"x"}}}); err == nil {
+		t.Fatal("unknown confirmed action accepted")
+	}
+}
+
+func TestNormalizeActionAndEmptyHandleFailClosed(t *testing.T) {
+	if _, _, err := normalizeAction(Action{Kind: ActionDisableSchedule}); err == nil {
+		t.Fatal("empty targets accepted")
+	}
+	if _, _, err := normalizeAction(Action{Kind: ActionDisableSchedule, TargetIDs: []string{" "}}); err == nil {
+		t.Fatal("blank target accepted")
+	}
+	ctx := testContext(t, ToolConfirmAction)
+	tools := &Tools{Confirmations: NewMemoryConfirmationStore()}
+	if _, err := tools.ConfirmAction(context.Background(), ctx, ConfirmActionInput{Handle: "   "}); err == nil {
+		t.Fatal("blank handle accepted")
+	}
+}
+
+func TestParentToolsRequireAllowlistedOperations(t *testing.T) {
+	ctx := testContext(t, ToolListStudents)
+	tools := &Tools{Students: &fakeStudents{}, Tasks: &fakeTasks{}, Schedules: &fakeSchedules{}, Occurrences: fakeOccurrences{}, Confirmations: NewMemoryConfirmationStore()}
+	if _, err := tools.ListTasks(context.Background(), ctx, TaskQuery{}); err == nil {
+		t.Fatal("list tasks without allowlist accepted")
+	}
+	if _, err := tools.ListSchedules(context.Background(), ctx, ScheduleQuery{}); err == nil {
+		t.Fatal("list schedules without allowlist accepted")
+	}
+	if _, err := tools.ListOccurrences(context.Background(), ctx, OccurrenceQuery{}); err == nil {
+		t.Fatal("list occurrences without allowlist accepted")
+	}
+	if _, err := tools.PublishTask(context.Background(), ctx, "task"); err == nil {
+		t.Fatal("publish without allowlist accepted")
+	}
+	if _, err := tools.CreateSchedule(context.Background(), ctx, ScheduleInput{}, "Ada"); err == nil {
+		t.Fatal("create schedule without allowlist accepted")
+	}
+	if _, err := tools.UpdateSchedule(context.Background(), ctx, ScheduleUpdateInput{ScheduleID: "s"}, "Ada"); err == nil {
+		t.Fatal("update schedule without allowlist accepted")
+	}
+	if _, err := tools.PreviewAction(context.Background(), ctx, Action{}, ""); err == nil {
+		t.Fatal("preview without allowlist accepted")
+	}
+	if _, err := tools.ConfirmAction(context.Background(), ctx, ConfirmActionInput{Handle: "h"}); err == nil {
+		t.Fatal("confirm without allowlist accepted")
+	}
+}
+
 func TestParentToolsFailClosedOnMissingServicesAndInvalidInputs(t *testing.T) {
-	ctx := testContext(t, ToolListTasks, ToolGetTask, ToolDraftTask, ToolUpdateTask, ToolPublishTask, ToolListSchedules, ToolListOccurrences, ToolCreateSchedule, ToolUpdateSchedule, ToolPreviewAction)
+	ctx := testContext(t, ToolListStudents, ToolListTasks, ToolGetTask, ToolDraftTask, ToolUpdateTask, ToolPublishTask, ToolListSchedules, ToolListOccurrences, ToolCreateSchedule, ToolUpdateSchedule, ToolPreviewAction, ToolConfirmAction)
 	empty := &Tools{}
 	if _, err := empty.ListTasks(context.Background(), ctx, TaskQuery{}); !errors.Is(err, ErrServiceMissing) {
 		t.Fatalf("list tasks=%v", err)
@@ -126,6 +200,27 @@ func TestParentToolsFailClosedOnMissingServicesAndInvalidInputs(t *testing.T) {
 	}
 	if _, err := (&Tools{Confirmations: NewMemoryConfirmationStore()}).PreviewAction(context.Background(), ctx, Action{}, ""); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("invalid preview=%v", err)
+	}
+	if _, err := empty.ResolveStudent(context.Background(), ctx, "", "Ada"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("resolve=%v", err)
+	}
+	if _, err := empty.CreateSchedule(context.Background(), ctx, ScheduleInput{}, "Ada"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("create schedule=%v", err)
+	}
+	if _, err := empty.UpdateSchedule(context.Background(), ctx, ScheduleUpdateInput{ScheduleID: "s"}, "Ada"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("update schedule=%v", err)
+	}
+	if _, err := empty.PreviewRetireTask(context.Background(), ctx, "task"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("preview retire=%v", err)
+	}
+	if _, err := empty.PreviewDisableSchedule(context.Background(), ctx, "schedule"); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("preview disable=%v", err)
+	}
+	if _, err := empty.ConfirmAction(context.Background(), ctx, ConfirmActionInput{Handle: "h"}); !errors.Is(err, ErrServiceMissing) {
+		t.Fatalf("confirm=%v", err)
+	}
+	if _, err := (&Tools{Schedules: &fakeSchedules{}}).UpdateSchedule(context.Background(), ctx, ScheduleUpdateInput{}, ""); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("empty schedule id=%v", err)
 	}
 }
 

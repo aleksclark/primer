@@ -130,6 +130,14 @@ func TestDialogueStrictConfigurationPreservesCanonicalEnvelope(t *testing.T) {
 			t.Fatalf("unsupported key %s accepted", key)
 		}
 	}
+	emptySource := make(map[string]any, len(config))
+	for k, v := range config {
+		emptySource[k] = v
+	}
+	emptySource["sourceRef"] = ""
+	if _, err := ParseDialogueConfig(emptySource); err == nil {
+		t.Fatal("empty sourceRef accepted")
+	}
 	for _, key := range []string{"rubric", "allowedFollowUps", "retentionPolicy"} {
 		copy := make(map[string]any, len(config))
 		for k, v := range config {

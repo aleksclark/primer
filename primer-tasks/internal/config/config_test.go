@@ -47,7 +47,7 @@ func TestClerkNeedsNoIdentityOrParentSecret(t *testing.T) {
 }
 func TestAuthorizedPartiesStayAdditive(t *testing.T) {
 	c := validConfig()
-	c.ClerkAuthorizedParties = []string{"com.aleksclark.primer.control", c.PublicOrigin}
+	c.ClerkAuthorizedParties = parseAuthorizedParties("com.aleksclark.primer.control,, " + c.PublicOrigin + ", com.aleksclark.primer.control, https://control.example")
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -55,12 +55,17 @@ func TestAuthorizedPartiesStayAdditive(t *testing.T) {
 	if got[0] != c.PublicOrigin {
 		t.Fatalf("web origin must remain first, got %q", got)
 	}
-	if len(got) != 2 || got[1] != "com.aleksclark.primer.control" {
+	if len(got) != 3 || got[1] != "com.aleksclark.primer.control" || got[2] != "https://control.example" {
 		t.Fatalf("authorized parties = %v", got)
 	}
 	c.ClerkAuthorizedParties = []string{"not a party"}
 	if c.Validate() == nil {
 		t.Fatal("invalid extra azp must fail")
+	}
+	c = validConfig()
+	c.ClerkAuthorizedParties = []string{"http://insecure.example"}
+	if c.Validate() == nil {
+		t.Fatal("insecure extra origin accepted in production")
 	}
 }
 func TestLoadDefaultsAndClerk(t *testing.T) {
@@ -117,5 +122,13 @@ func TestDevelopmentOIDCCompatibility(t *testing.T) {
 	c.ClientID = ""
 	if c.Validate() == nil {
 		t.Fatal("missing legacy client")
+	}
+	c = Config{Env: "development", DatabaseURL: "postgres://tasks@db/primer_tasks", AuthMode: "oidc", ClientID: "tasks", RedirectURL: "http://tasks/auth/callback"}
+	if c.Validate() == nil {
+		t.Fatal("missing issuer accepted")
+	}
+	c = Config{Env: "development", DatabaseURL: "postgres://tasks@db/primer_tasks", AuthMode: "oidc", IssuerURL: "://bad", ClientID: "tasks", RedirectURL: "http://tasks/auth/callback"}
+	if c.Validate() == nil {
+		t.Fatal("invalid issuer accepted")
 	}
 }

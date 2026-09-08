@@ -7,8 +7,29 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
 	"primer-tasks/internal/agent/protocol"
 )
+
+func TestLimitsValidRejectsOutOfRangeValues(t *testing.T) {
+	good := Limits{MaxSteps: 1, MaxTokens: 1, Deadline: time.Second}
+	if err := good.valid(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []Limits{
+		{MaxSteps: 0, MaxTokens: 1, Deadline: time.Second},
+		{MaxSteps: 101, MaxTokens: 1, Deadline: time.Second},
+		{MaxSteps: 1, MaxTokens: 0, Deadline: time.Second},
+		{MaxSteps: 1, MaxTokens: 200001, Deadline: time.Second},
+		{MaxSteps: 1, MaxTokens: 1, Deadline: 0},
+		{MaxSteps: 1, MaxTokens: 1, Deadline: 31 * time.Minute},
+		{MaxSteps: 1, MaxTokens: 1, Deadline: time.Second, MaxRetries: 6},
+	} {
+		if err := bad.valid(); err == nil {
+			t.Fatalf("invalid limits accepted: %+v", bad)
+		}
+	}
+}
 
 func TestRunLimitsTransitionsAndPreviewValidation(t *testing.T) {
 	base := Run{MaxSteps: 1, MaxTokens: 1, Deadline: time.Now().Add(time.Minute)}
@@ -69,6 +90,26 @@ func TestRunLimitsTransitionsAndPreviewValidation(t *testing.T) {
 	used.UsedAt = &now
 	if err := ValidatePreview(used, "tenant-a", "parent-a", "retire", []byte("task-1"), now); !errors.Is(err, ErrPreviewExpired) {
 		t.Fatalf("used preview error=%v", err)
+	}
+}
+
+func TestReadConfirmationPreviewRejectsNonText(t *testing.T) {
+	if _, ok := readConfirmationPreview(fantasy.ToolResultOutputContentError{}); ok {
+		t.Fatal("error result treated as preview")
+	}
+	if _, ok := readConfirmationPreview(fantasy.ToolResultOutputContentText{Text: "{}"}); ok {
+		t.Fatal("empty preview accepted")
+	}
+}
+
+func TestNilRuntimeExecuteIsDisabled(t *testing.T) {
+	var r *Runtime
+	if _, err := r.Execute(context.Background(), "run", "prompt", nil); err == nil {
+		t.Fatal("nil runtime accepted")
+	}
+	r = &Runtime{Limits: Limits{}}
+	if _, err := r.Execute(context.Background(), "run", "prompt", nil); err == nil {
+		t.Fatal("invalid runtime limits accepted")
 	}
 }
 

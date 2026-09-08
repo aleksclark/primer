@@ -227,6 +227,26 @@ func TestManagementEnrollmentPolicyIsolationReplayAndCAS(t *testing.T) {
 	_ = bob
 }
 
+func TestManagementParentReadsRejectUnauthenticatedAndUnknownDevices(t *testing.T) {
+	pool := integrationPool(t)
+	_, _ = seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("management-secret"), IssuerSecret: []byte("management-issuer"), PublicOrigin: "https://tasks.test"})
+	h := s.Routes()
+	unknown := "00000000-0000-0000-0000-000000000099"
+	if rec := requestJSON(t, h, http.MethodGet, "/managed-devices", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated list=%d", rec.Code)
+	}
+	if rec := requestJSON(t, h, http.MethodGet, "/managed-devices/"+unknown, "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated get=%d", rec.Code)
+	}
+	if rec := requestJSON(t, h, http.MethodGet, "/managed-devices/"+unknown+"/desired", "parent-a", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown desired=%d %s", rec.Code, rec.Body.String())
+	}
+	if rec := requestJSON(t, h, http.MethodPost, "/managed-devices/enrollments/"+unknown+"/abandon", "parent-a", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown abandon=%d", rec.Code)
+	}
+}
+
 func base64URLPad(v string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(v))
 }

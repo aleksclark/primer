@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 type dialogueSourceFile struct {
@@ -398,6 +399,92 @@ func verifyDialogueRunningExecutable(pid int, expected string) (string, error) {
 	return actual, nil
 }
 
+func (h *publicDialogueHarness) prepareChildCoverageLaunch(env *[]string) {
+	h.t.Helper()
+	root := os.Getenv("PRIMER_TASKS_CHILD_COVER_ROOT")
+	h.coverDir, h.coverLaunchID = "", ""
+	if root == "" {
+		return
+	}
+	if !h.build.Cover {
+		h.t.Fatal("coverage gate launched an uninstrumented Tasks server child")
+	}
+	id := fmt.Sprintf("%s-%d", strings.ReplaceAll(h.t.Name(), "/", "_"), time.Now().UnixNano())
+	dir := filepath.Join(root, "launches", id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		h.t.Fatal(err)
+	}
+	h.coverLaunchID, h.coverDir = id, dir
+	filtered := (*env)[:0]
+	for _, value := range *env {
+		if strings.HasPrefix(value, "GOCOVERDIR=") {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	*env = append(filtered, "GOCOVERDIR="+dir)
+}
+
+func (h *publicDialogueHarness) recordChildCoverageLaunch(exit dialogueChildExit) {
+	h.t.Helper()
+	if h.coverDir == "" {
+		return
+	}
+	class := "normal"
+	switch {
+	case exit.CrashRequested && !exit.BeforeSignal && !exit.TimedOut:
+		class = "sigkill"
+	case exit.WaitError != nil || exit.BeforeSignal || exit.TimedOut || exit.RaceReport:
+		class = "failed"
+	}
+	meta := map[string]any{
+		"id": h.coverLaunchID, "dir": h.coverDir, "runId": os.Getenv("PRIMER_TASKS_CHILD_COVER_RUN_ID"),
+		"sourceSha": h.source.HEAD, "binarySha256": h.build.SHA256, "cover": h.build.Cover,
+		"coverMode": childCoverageMode(), "coverPkg": os.Getenv("PRIMER_TASKS_CHILD_COVERPKG"),
+		"exitClass": class, "crashRequested": exit.CrashRequested, "beforeSignal": exit.BeforeSignal,
+		"timedOut": exit.TimedOut, "raceReport": exit.RaceReport,
+	}
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(h.coverDir, "meta.json"), encoded, 0600); err != nil {
+		h.t.Fatal(err)
+	}
+	if class == "normal" {
+		if err = requireChildCoverageCounters(h.coverDir); err != nil {
+			h.t.Errorf("normal child exit omitted coverage counters: %v", err)
+		}
+	}
+}
+
+func requireChildCoverageCounters(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var meta, counters bool
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case strings.HasPrefix(entry.Name(), "covmeta."):
+			meta = info.Size() > 0
+		case strings.HasPrefix(entry.Name(), "covcounters."):
+			counters = info.Size() > 0
+		}
+	}
+	if !meta || !counters {
+		return errors.New("coverage metadata or counters missing")
+	}
+	return nil
+}
+
 func TestDialogueSourceManifestIncludesUntrackedInputsAndRejectsDrift(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "new_dialogue.go")
@@ -457,5 +544,80 @@ func TestDialogueSourceManifestIncludesUntrackedInputsAndRejectsDrift(t *testing
 	}
 	if _, err = verifyDialogueRunningExecutable(os.Getpid(), actual); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestChildCoverageLaunchIsolationAndNormalExitCounters(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PRIMER_TASKS_CHILD_COVER_ROOT", root)
+	t.Setenv("PRIMER_TASKS_CHILD_COVER_RUN_ID", "run-test")
+	t.Setenv("PRIMER_TASKS_CHILD_COVER_MODE", "atomic")
+	t.Setenv("PRIMER_TASKS_CHILD_COVERPKG", "primer-tasks/internal/api")
+	h := &publicDialogueHarness{t: t, build: dialogueChildBuild{Cover: true, SHA256: "abc"}, source: dialogueSourceManifest{HEAD: "src"}}
+	env := []string{"GOCOVERDIR=/tmp/stale", "TASKS_ENV=test"}
+	h.prepareChildCoverageLaunch(&env)
+	if h.coverDir == "" || !strings.HasPrefix(h.coverDir, filepath.Join(root, "launches")) {
+		t.Fatal("coverage launch directory was not allocated under the gate root")
+	}
+	var sawGOCOVER bool
+	for _, value := range env {
+		if strings.HasPrefix(value, "GOCOVERDIR=") {
+			if sawGOCOVER || value != "GOCOVERDIR="+h.coverDir {
+				t.Fatal("inherited GOCOVERDIR leaked into the child")
+			}
+			sawGOCOVER = true
+		}
+	}
+	if !sawGOCOVER {
+		t.Fatal("child GOCOVERDIR missing")
+	}
+	first := h.coverDir
+	h.prepareChildCoverageLaunch(&env)
+	if h.coverDir == first {
+		t.Fatal("restart reused a previous coverage directory")
+	}
+	if err := os.WriteFile(filepath.Join(h.coverDir, "covmeta.x"), []byte("meta"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.coverDir, "covcounters.x"), []byte("counters"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h.recordChildCoverageLaunch(dialogueChildExit{})
+	raw, err := os.ReadFile(filepath.Join(h.coverDir, "meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"exitClass":"normal"`)) {
+		t.Fatalf("normal exit metadata missing: %s", raw)
+	}
+}
+
+func TestChildCoverageNormalExitWithoutCountersFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PRIMER_TASKS_CHILD_COVER_ROOT", root)
+	if err := requireChildCoverageCounters(root); err == nil {
+		t.Fatal("empty coverage directory accepted")
+	}
+	h := &publicDialogueHarness{t: t, build: dialogueChildBuild{Cover: true, SHA256: "abc"}, source: dialogueSourceManifest{HEAD: "src"}}
+	env := []string{}
+	h.prepareChildCoverageLaunch(&env)
+	if err := requireChildCoverageCounters(h.coverDir); err == nil {
+		t.Fatal("metadata-only normal exit was accepted")
+	}
+}
+
+func TestObservedSigkillDoesNotRequireCoverageCounters(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PRIMER_TASKS_CHILD_COVER_ROOT", root)
+	h := &publicDialogueHarness{t: t, build: dialogueChildBuild{Cover: true, SHA256: "abc"}, source: dialogueSourceManifest{HEAD: "src"}}
+	env := []string{}
+	h.prepareChildCoverageLaunch(&env)
+	h.recordChildCoverageLaunch(dialogueChildExit{CrashRequested: true, SignalSent: true})
+	raw, err := os.ReadFile(filepath.Join(h.coverDir, "meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"exitClass":"sigkill"`)) {
+		t.Fatalf("sigkill class missing: %s", raw)
 	}
 }

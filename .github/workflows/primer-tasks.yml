@@ -9,6 +9,7 @@ on:
       - "go.work"
       - "go.work.sum"
       - "scripts/enforce-module-cover.sh"
+      - "scripts/covermerge/**"
       - ".github/workflows/primer-tasks.yml"
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - "go.work"
       - "go.work.sum"
       - "scripts/enforce-module-cover.sh"
+      - "scripts/covermerge/**"
       - ".github/workflows/primer-tasks.yml"
   workflow_dispatch: {}
 
