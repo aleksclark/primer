@@ -15,7 +15,8 @@ class OccurrencePresentationTest {
         assertTrue(presented.supported)
         assertTrue(presented.canStart)
         assertFalse(presented.canSubmit)
-        assertEquals("Not started", presented.statusLabel)
+        assertTrue(presented.studentActionRequired)
+        assertEquals("Ready to start", presented.statusLabel)
         assertNull(presented.explanation)
     }
 
@@ -24,6 +25,7 @@ class OccurrencePresentationTest {
         val presented = presentOccurrence(occurrence(status = "in_progress", capability = "parent_approval"))
         assertTrue(presented.canSubmit)
         assertFalse(presented.canStart)
+        assertTrue(presented.studentActionRequired)
         assertEquals("In progress", presented.statusLabel)
     }
 
@@ -34,7 +36,8 @@ class OccurrencePresentationTest {
         )
         assertFalse(presented.canStart)
         assertFalse(presented.canSubmit)
-        assertEquals("Waiting for parent approval", presented.statusLabel)
+        assertFalse(presented.studentActionRequired)
+        assertEquals("Sent to your parent", presented.statusLabel)
         assertEquals(StudentOccurrenceCopy.WAITING_APPROVAL, presented.explanation)
     }
 
@@ -44,7 +47,7 @@ class OccurrencePresentationTest {
             occurrence(status = "pending", capability = "parent_approval", attemptNumber = 1),
         )
         assertTrue(presented.canStart)
-        assertEquals("Rejected — retry", presented.statusLabel)
+        assertEquals("Needs another try", presented.statusLabel)
         assertEquals(StudentOccurrenceCopy.REJECTED_RETRY, presented.explanation)
         assertEquals(OccurrenceStatusTone.Attention, presented.tone)
     }

@@ -35,7 +35,7 @@ async function pairStudentBrowser(context: BrowserContext, code: string, name: s
   await page.goto("/student/pair");
   await page.getByLabel("Pairing code").fill(code);
   await page.getByRole("button", { name: /pair this browser/i }).click();
-  await expect(page.getByText("Nothing assigned yet")).toBeVisible();
+  await expect(page.getByText("You don’t have any tasks today")).toBeVisible();
   await expect(page.getByText(new RegExp(`Today with ${name}`))).toBeVisible();
   return page;
 }
@@ -70,7 +70,7 @@ test("parent and student pairing lifecycle stays real, tenant-scoped, and revoca
 
     const paired = await pairStudentBrowser(studentBrowser, code, studentA);
     await paired.reload();
-    await expect(paired.getByText("Nothing assigned yet")).toBeVisible();
+    await expect(paired.getByText("You don’t have any tasks today")).toBeVisible();
 
     const replayPage = await replayBrowser.newPage();
     await replayPage.goto("/student/pair");

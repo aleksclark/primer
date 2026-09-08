@@ -9,6 +9,8 @@
   --primer-color-accent-hover: #86A9FF;
   --primer-color-on-accent: #0E1013;
   --primer-color-attention: #FF8A6B;
+  --primer-color-status-in-progress: #3DE0F0;
+  --primer-color-status-sent: #B98BFF;
 }
 
 [data-theme="light"] {
@@ -22,6 +24,8 @@
   --primer-color-accent-hover: #174AAE;
   --primer-color-on-accent: #FFFFFF;
   --primer-color-attention: #B8431F;
+  --primer-color-status-in-progress: #087E8B;
+  --primer-color-status-sent: #6B35A5;
 }
 
 :root {

@@ -115,7 +115,7 @@ test("public task schedule, student verification, collections, and tenant bounda
     await studentPage.getByRole("button", { name: /^Start task$/ }).click();
     await expect(studentPage.getByText("In progress", { exact: true })).toBeVisible();
     await studentPage.getByRole("button", { name: /^Submit for parent approval$/ }).click();
-    await expect(studentPage.getByText("Waiting for parent", { exact: true })).toBeVisible();
+    await expect(studentPage.getByText("Sent to your parent", { exact: true })).toBeVisible();
 
     await parentPage.goto("/parent/occurrences?status=awaiting_verification");
     let awaiting = parentPage.getByRole("row").filter({ hasText: taskTitle });
@@ -143,8 +143,10 @@ test("public task schedule, student verification, collections, and tenant bounda
     await expect(awaiting).toContainText("Completed");
 
     await studentPage.goto("/student");
+    await expect(studentPage.getByText(taskTitle)).toHaveCount(0);
+    await studentPage.getByRole("button", { name: "Show completed tasks (1)" }).click();
     await expect(studentPage.getByText(taskTitle)).toBeVisible();
-    await expect(studentPage.getByText(/completed/i)).toBeVisible();
+    await expect(studentPage.getByText("Approved", { exact: true })).toBeVisible();
 
     const parentBPage = await parentB.newPage();
     await signIn(parentBPage, "B");

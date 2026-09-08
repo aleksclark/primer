@@ -33,7 +33,7 @@ class PairingScreenAccessibilityTest {
             }
         }
 
-        composeRule.onNodeWithText("SCAN PAIRING QR")
+        composeRule.onNodeWithText("SCAN PARENT’S QR CODE")
             .assertIsDisplayed()
             .assertHasClickAction()
             .performClick()
@@ -60,15 +60,16 @@ class PairingScreenAccessibilityTest {
             }
         }
 
+        composeRule.onNodeWithText(PairingActions.FALLBACK).performClick()
         composeRule.onNodeWithText(PairingActions.PASTE_HELP).assertIsDisplayed()
         composeRule.onNodeWithContentDescription(PairingActions.PASTE_LABEL).assertIsDisplayed()
-        composeRule.onNodeWithText("PAIR WITH PASTED PAYLOAD")
+        composeRule.onNodeWithText("CONNECT THIS DEVICE")
             .assertIsDisplayed()
             .assertIsNotEnabled()
 
         composeRule.onNodeWithContentDescription(PairingActions.PASTE_LABEL)
             .performTextInput("{\"code\":\"ABC\"}")
-        composeRule.onNodeWithText("PAIR WITH PASTED PAYLOAD")
+        composeRule.onNodeWithText("CONNECT THIS DEVICE")
             .assertHasClickAction()
             .performClick()
 

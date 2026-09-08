@@ -14,7 +14,9 @@
       "accent": "#5B8CFF",
       "accentHover": "#86A9FF",
       "onAccent": "#0E1013",
-      "attention": "#FF8A6B"
+      "attention": "#FF8A6B",
+      "statusInProgress": "#3DE0F0",
+      "statusSent": "#B98BFF"
     },
     "light": {
       "surface": "#FFFFFF",
@@ -26,7 +28,9 @@
       "accent": "#2E62D8",
       "accentHover": "#174AAE",
       "onAccent": "#FFFFFF",
-      "attention": "#B8431F"
+      "attention": "#B8431F",
+      "statusInProgress": "#087E8B",
+      "statusSent": "#6B35A5"
     }
   },
   "typography": {

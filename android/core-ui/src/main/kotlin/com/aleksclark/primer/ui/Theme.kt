@@ -33,6 +33,8 @@ data class PrimerColorScheme(
     val accentHover: Color,
     val onAccent: Color,
     val attention: Color,
+    val statusInProgress: Color,
+    val statusSent: Color,
     val focus: Color = accent,
 )
 
@@ -74,6 +76,8 @@ val PrimerDarkColorScheme = PrimerColorScheme(
     accentHover = PrimerTokens.Dark.accentHover,
     onAccent = PrimerTokens.Dark.onAccent,
     attention = PrimerTokens.Dark.attention,
+    statusInProgress = PrimerTokens.Dark.statusInProgress,
+    statusSent = PrimerTokens.Dark.statusSent,
 )
 
 val PrimerLightColorScheme = PrimerColorScheme(
@@ -87,6 +91,8 @@ val PrimerLightColorScheme = PrimerColorScheme(
     accentHover = PrimerTokens.Light.accentHover,
     onAccent = PrimerTokens.Light.onAccent,
     attention = PrimerTokens.Light.attention,
+    statusInProgress = PrimerTokens.Light.statusInProgress,
+    statusSent = PrimerTokens.Light.statusSent,
 )
 
 val PrimerDefaultSpacing = PrimerSpacing()
