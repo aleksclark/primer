@@ -16,6 +16,8 @@ Version 0.2.0. Dark mode is the default.
 | `accentHover` | `#86A9FF` |
 | `onAccent` | `#0E1013` |
 | `attention` | `#FF8A6B` |
+| `statusInProgress` | `#3DE0F0` |
+| `statusSent` | `#B98BFF` |
 
 ## Light colors
 
@@ -31,6 +33,8 @@ Version 0.2.0. Dark mode is the default.
 | `accentHover` | `#174AAE` |
 | `onAccent` | `#FFFFFF` |
 | `attention` | `#B8431F` |
+| `statusInProgress` | `#087E8B` |
+| `statusSent` | `#6B35A5` |
 
 ## Typography
 

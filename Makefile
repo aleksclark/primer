@@ -27,7 +27,7 @@ IDENTITY_COVER_MIN := 80
 	studio-e2e studio-e2e-go dev-db-studio migrate-studio \
 	identity-build identity-test identity-cover identity-openapi identity-test-oauth \
 	identity-e2e identity-live-stytch dev-db-identity migrate-identity \
-	tasks-client tasks-web tasks-typecheck tasks-lint \
+	tasks-client tasks-web tasks-typecheck tasks-lint tasks-ui-mocks tasks-ui-mocks-review tasks-ui-mocks-update \
 	tasks-check tasks-up tasks-dev tasks-status tasks-endpoints tasks-logs tasks-down \
 	tasks-destroy tasks-build tasks-test tasks-cover tasks-clients tasks-agent-compat \
 	tasks-android tasks-e2e tasks-browser-test tasks-proof \
@@ -511,6 +511,15 @@ tasks-lint:
 
 tasks-web:
 	$(MAKE) -C primer-tasks tasks-web
+
+tasks-ui-mocks: design-system
+	$(MAKE) -C primer-tasks ui-mocks
+
+tasks-ui-mocks-review:
+	$(MAKE) -C primer-tasks ui-mocks-review
+
+tasks-ui-mocks-update:
+	$(MAKE) -C primer-tasks ui-mocks-update
 
 tasks-check:
 	./primer-tasks/scripts/dev check

@@ -33,6 +33,9 @@ const (
 
 func integrationPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	if os.Getenv("PRIMER_TASKS_RACE_REPEAT") == "1" && os.Getenv("TASKS_TEST_DATABASE_URL") == "" {
+		t.Skip("testcontainer-backed API tests run at count=1; repeated race coverage stays on in-process API paths")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 

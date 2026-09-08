@@ -51,6 +51,8 @@ def validate_contrast(tokens: dict) -> None:
             "text/surface": (colors["text"], colors["surface"]),
             "muted/surface": (colors["textMuted"], colors["surface"]),
             "onAccent/accent": (colors["onAccent"], colors["accent"]),
+            "statusInProgress/surface": (colors["statusInProgress"], colors["surface"]),
+            "statusSent/surface": (colors["statusSent"], colors["surface"]),
         }
         for name, values in pairs.items():
             ratio = contrast(*values)

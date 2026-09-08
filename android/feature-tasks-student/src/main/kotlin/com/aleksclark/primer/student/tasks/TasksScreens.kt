@@ -13,9 +13,13 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,11 +37,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -375,12 +386,13 @@ private fun LoadingScreen() {
 }
 
 internal object PairingActions {
-    const val SCAN = "Scan pairing QR"
-    const val IMPORT_IMAGE = "Import pairing QR image"
-    const val PASTE_LABEL = "Paste pairing QR payload (fallback, not a scan)"
-    const val PASTE_ACTION = "Pair with pasted payload"
+    const val SCAN = "Scan parent’s QR code"
+    const val IMPORT_IMAGE = "Use a saved QR image"
+    const val FALLBACK = "Can’t scan the code?"
+    const val PASTE_LABEL = "Pairing information"
+    const val PASTE_ACTION = "Connect this device"
     const val PASTE_HELP =
-        "If the camera or a saved QR image cannot be used, paste the pairing payload from your parent. This is a fallback, not a scan."
+        "Paste the pairing information from your parent only when scanning and image import are unavailable."
 }
 
 @Composable
@@ -394,14 +406,15 @@ internal fun PairingScreen(
     onBack: (() -> Unit)? = null,
 ) {
     var payload by remember { mutableStateOf("") }
+    var showFallback by rememberSaveable { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().testTag("tasks.pair").padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         PrimerSectionHeader(
             label = "Primer Tasks",
-            title = "Pair this device",
-            description = "Scan the one-use QR code shown by your parent. Image import and paste are labeled fallbacks. Old Primer Tasks pairings cannot be copied; request a new Student QR.",
+            title = "Connect this device",
+            description = "Scan the one-use QR code shown by your parent.",
             trailing = if (onBack != null) {
                 {
                     PrimerButton(text = "Back", onClick = onBack, variant = PrimerButtonVariant.Quiet)
@@ -417,25 +430,32 @@ internal fun PairingScreen(
             variant = PrimerButtonVariant.Secondary,
             modifier = Modifier.semantics { contentDescription = PairingActions.IMPORT_IMAGE },
         )
-        Text(PairingActions.PASTE_HELP, style = PrimerTheme.typography.body, color = PrimerTheme.colors.textMuted)
-        PrimerTextField(
-            value = payload,
-            onValueChange = { payload = it },
-            label = PairingActions.PASTE_LABEL,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
-            modifier = Modifier.semantics { contentDescription = PairingActions.PASTE_LABEL },
-        )
         PrimerButton(
-            text = PairingActions.PASTE_ACTION,
-            onClick = {
-                val raw = payload
-                payload = ""
-                onPaste(raw)
-            },
-            enabled = payload.isNotBlank(),
+            text = PairingActions.FALLBACK,
+            onClick = { showFallback = !showFallback },
             variant = PrimerButtonVariant.Quiet,
-            modifier = Modifier.semantics { contentDescription = PairingActions.PASTE_ACTION },
         )
+        if (showFallback) {
+            Text(PairingActions.PASTE_HELP, style = PrimerTheme.typography.body, color = PrimerTheme.colors.textMuted)
+            PrimerTextField(
+                value = payload,
+                onValueChange = { payload = it },
+                label = PairingActions.PASTE_LABEL,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
+                modifier = Modifier.semantics { contentDescription = PairingActions.PASTE_LABEL },
+            )
+            PrimerButton(
+                text = PairingActions.PASTE_ACTION,
+                onClick = {
+                    val raw = payload
+                    payload = ""
+                    onPaste(raw)
+                },
+                enabled = payload.isNotBlank(),
+                variant = PrimerButtonVariant.Secondary,
+                modifier = Modifier.semantics { contentDescription = PairingActions.PASTE_ACTION },
+            )
+        }
         if (pairing != null && !pairing.canScan) {
             PrimerStatus(pairing.message, tone = PrimerStatusTone.Attention)
             if (pairing.parentCanGrantCamera && onRequestParentCameraGrant != null) {
@@ -551,7 +571,7 @@ private class QrAnalyzer(
 }
 
 @Composable
-private fun ChecklistScreen(
+internal fun ChecklistScreen(
     name: String,
     items: List<ChecklistItem>,
     occurrences: List<OccurrenceResponse>,
@@ -561,16 +581,35 @@ private fun ChecklistScreen(
     onRefresh: () -> Unit,
     onBack: (() -> Unit)?,
 ) {
+    var showCompleted by rememberSaveable { mutableStateOf(false) }
     val sections = checklistSections(occurrences.size, upcoming.size)
+    val approved = occurrences.count { it.status == "completed" }
+    val waiting = occurrences.count { it.status == "awaiting_verification" }
+    val actionRequired = occurrences.count { presentOccurrence(it).studentActionRequired } + items.count { it.status == "pending" || it.status == "in_progress" }
+    val terminalCount = occurrences.count { terminalOccurrenceStatus(it.status) } + items.count { terminalOccurrenceStatus(it.status) }
+    val visibleOccurrences = sortOccurrencesForStudent(
+        occurrences.filter { showCompleted || !terminalOccurrenceStatus(it.status) },
+    )
+    val visibleItems = items
+        .filter { showCompleted || !terminalOccurrenceStatus(it.status) }
+        .withIndex()
+        .sortedWith(compareBy<IndexedValue<ChecklistItem>> { statusPriority(it.value.status, false) }.thenBy { it.index })
+        .map { it.value }
+    val summary = buildList {
+        add("$actionRequired active")
+        add("$approved approved")
+        if (waiting > 0) add("$waiting sent to your parent")
+    }.joinToString(" · ")
     LazyColumn(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().testTag("tasks.checklist").padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
         item {
             PrimerSectionHeader(
-                label = "Primer Tasks",
+                label = "Today",
                 title = name,
+                description = summary,
                 trailing = if (onBack != null) {
                     {
                         PrimerButton(text = "Back", onClick = onBack, variant = PrimerButtonVariant.Quiet)
@@ -580,53 +619,130 @@ private fun ChecklistScreen(
                 },
             )
         }
-        item { Text("Today", style = PrimerTheme.typography.sectionTitle) }
         if (!sections.showToday && items.isEmpty()) {
-            item { PrimerEmptyState(title = "Nothing assigned yet", message = "Your checklist is empty.") }
-        }
-        items(occurrences, key = { it.id }) { occurrence ->
-            val presented = presentOccurrence(occurrence)
-            PrimerButton(
-                text = "${occurrence.title} · ${presented.statusLabel}",
-                onClick = { onOpen(occurrence) },
-                variant = PrimerButtonVariant.Secondary,
-                modifier = Modifier.fillMaxWidth().semantics {
-                    contentDescription = "Today task ${occurrence.title}, ${presented.statusLabel}"
-                },
-            )
-        }
-        if (occurrences.isEmpty()) {
-            items(items, key = { it.id }) { checklistItem ->
-                Text("• ${checklistItem.title}", style = PrimerTheme.typography.body)
-            }
-        }
-        if (sections.showUpcoming) {
-            item { Text("Upcoming", style = PrimerTheme.typography.sectionTitle) }
-            items(upcoming.take(10), key = { "upcoming-${it.id}" }) { occurrence ->
-                PrimerButton(
-                    text = "${occurrence.title} · ${occurrence.nominalAt}",
-                    onClick = { onOpen(occurrence) },
-                    variant = PrimerButtonVariant.Secondary,
-                    modifier = Modifier.fillMaxWidth().semantics {
-                        contentDescription = "Upcoming task ${occurrence.title}, ${occurrence.nominalAt}"
-                    },
+            item {
+                PrimerEmptyState(
+                    title = "You don’t have any tasks today",
+                    message = "You’re all caught up. Check back later or ask your parent.",
                 )
             }
         }
-        item {
-            PrimerButton(
-                text = StudentOccurrenceCopy.REFRESH,
-                onClick = onRefresh,
-                variant = PrimerButtonVariant.Secondary,
+        items(visibleOccurrences, key = { it.id }) { occurrence ->
+            val presented = presentOccurrence(occurrence)
+            StudentTaskRow(
+                title = occurrence.title,
+                detail = occurrence.instructions,
+                status = presented.statusLabel,
+                statusColor = studentStatusColor(occurrence.status, occurrence.attemptNumber > 0),
+                studentActionRequired = presented.studentActionRequired,
+                contentDescription = "Open ${occurrence.title}, ${presented.statusLabel}",
+                modifier = Modifier.testTag("tasks.checklist.today.${occurrence.id}"),
+                onClick = { onOpen(occurrence) },
             )
         }
+        if (occurrences.isEmpty()) {
+            items(visibleItems, key = { it.id }) { checklistItem ->
+                StudentTaskRow(
+                    title = checklistItem.title,
+                    detail = checklistItem.description ?: "",
+                    status = occurrenceStatusLabel(checklistItem.status, false),
+                    statusColor = studentStatusColor(checklistItem.status, false),
+                    studentActionRequired = checklistItem.status == "pending" || checklistItem.status == "in_progress",
+                    contentDescription = "${checklistItem.title}, ${occurrenceStatusLabel(checklistItem.status, false)}",
+                    onClick = null,
+                )
+            }
+        }
+        if (sections.showUpcoming) {
+            item { Text("Coming up", style = PrimerTheme.typography.sectionTitle) }
+            items(upcoming.take(10), key = { "upcoming-${it.id}" }) { occurrence ->
+                StudentTaskRow(
+                    title = occurrence.title,
+                    detail = "Scheduled ${studentScheduleTime(occurrence.nominalAt)}",
+                    status = "Coming up",
+                    statusColor = PrimerTheme.colors.textMuted,
+                    studentActionRequired = false,
+                    contentDescription = "Open ${occurrence.title}, coming up ${studentScheduleTime(occurrence.nominalAt)}",
+                    modifier = Modifier.testTag("tasks.checklist.upcoming.${occurrence.id}"),
+                    onClick = { onOpen(occurrence) },
+                )
+            }
+        }
+        if (terminalCount > 0) {
+            item {
+                PrimerButton(
+                    text = if (showCompleted) "Hide completed tasks" else "Show completed tasks ($terminalCount)",
+                    onClick = { showCompleted = !showCompleted },
+                    variant = PrimerButtonVariant.Quiet,
+                )
+            }
+        }
+        item { PrimerButton(text = StudentOccurrenceCopy.REFRESH, onClick = onRefresh, variant = PrimerButtonVariant.Quiet) }
         if (message != null) item { PrimerStatus(message, tone = PrimerStatusTone.Attention) }
     }
 }
 
 @Composable
-private fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+private fun StudentTaskRow(
+    title: String,
+    detail: String,
+    status: String,
+    statusColor: Color,
+    studentActionRequired: Boolean,
+    contentDescription: String,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val interactive = if (onClick == null) modifier else modifier.clickable(onClick = onClick)
+    Column(
+        interactive
+            .fillMaxWidth()
+            .semantics {
+                this.contentDescription = contentDescription
+                if (onClick != null) role = Role.Button
+            }
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = PrimerTheme.typography.sectionTitle, color = PrimerTheme.colors.text)
+                if (detail.isNotBlank()) Text(detail, style = PrimerTheme.typography.body, color = PrimerTheme.colors.textMuted)
+            }
+            Text(if (onClick == null) "" else "Open →", style = PrimerTheme.typography.label, color = PrimerTheme.colors.accent)
+        }
+        Text(
+            status.uppercase(),
+            style = PrimerTheme.typography.label,
+            color = if (status == "Ready to start") PrimerTheme.colors.onAccent else statusColor,
+            modifier = Modifier
+                .background(if (status == "Ready to start") statusColor else Color.Transparent)
+                .border(PrimerTheme.spacing.rule, statusColor)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        HorizontalDivider(color = if (studentActionRequired) statusColor else PrimerTheme.colors.rule)
+    }
+}
+
+@Composable
+private fun studentStatusColor(status: String, retried: Boolean): Color = when {
+    status == "in_progress" -> PrimerTheme.colors.statusInProgress
+    status == "awaiting_verification" -> PrimerTheme.colors.statusSent
+    status == "pending" && retried -> PrimerTheme.colors.attention
+    status == "pending" -> PrimerTheme.colors.accent
+    else -> PrimerTheme.colors.ruleStrong
+}
+
+private fun studentScheduleTime(value: String): String = value
+    .replace("T", " at ")
+    .removeSuffix("Z")
+    .substringBeforeLast(":")
+
+@Composable
+internal fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().testTag("tasks.occurrence.unavailable").padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PrimerSectionHeader(label = "Task unavailable", title = "This task is unavailable.")
         Text("The requested task could not be opened.", style = PrimerTheme.typography.body)
         PrimerButton(text = "Back to today", onClick = onBack)
@@ -634,7 +750,7 @@ private fun UnavailableOccurrenceScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun OccurrenceDetailScreen(
+internal fun OccurrenceDetailScreen(
     occurrence: OccurrenceResponse,
     message: String?,
     onBack: () -> Unit,
@@ -643,31 +759,44 @@ private fun OccurrenceDetailScreen(
     onSubmit: () -> Unit,
 ) {
     val presented = presentOccurrence(occurrence)
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        PrimerSectionHeader(label = "Task detail", title = occurrence.title)
-        Text(occurrence.instructions, style = PrimerTheme.typography.body)
-        Text("Status: ${occurrence.status}", style = PrimerTheme.typography.sectionTitle)
-        if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
-        PrimerRecordRow(
-            label = "Status",
-            value = presented.statusLabel,
-            status = presented.statusLabel,
-            statusTone = when (presented.tone) {
+    Column(Modifier.fillMaxSize().testTag("tasks.occurrence").padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        PrimerButton(text = "← Back to today", onClick = onBack, variant = PrimerButtonVariant.Quiet)
+        PrimerSectionHeader(label = "Your tasks", title = occurrence.title)
+        PrimerStatus(
+            presented.statusLabel,
+            tone = when (presented.tone) {
                 OccurrenceStatusTone.Filled -> PrimerStatusTone.Filled
                 OccurrenceStatusTone.Attention -> PrimerStatusTone.Attention
                 OccurrenceStatusTone.Accent -> PrimerStatusTone.Accent
+                OccurrenceStatusTone.InProgress -> PrimerStatusTone.Accent
+                OccurrenceStatusTone.Sent -> PrimerStatusTone.Accent
                 OccurrenceStatusTone.Neutral -> PrimerStatusTone.Neutral
             },
         )
+        Text("WHAT TO DO", style = PrimerTheme.typography.label, color = PrimerTheme.colors.textMuted)
+        Text(occurrence.instructions, style = PrimerTheme.typography.body)
+        if (message != null) PrimerStatus(message, tone = PrimerStatusTone.Attention)
         if (presented.explanation != null) {
-            PrimerStatus(
+            Text(
                 presented.explanation,
-                tone = if (presented.supported) PrimerStatusTone.Accent else PrimerStatusTone.Attention,
+                style = PrimerTheme.typography.body,
+                color = if (presented.supported) PrimerTheme.colors.text else PrimerTheme.colors.attention,
             )
         }
-        if (presented.canStart) PrimerButton(text = StudentOccurrenceCopy.START, onClick = onStart)
-        if (presented.canSubmit) PrimerButton(text = StudentOccurrenceCopy.SUBMIT, onClick = onSubmit)
-        PrimerButton(text = StudentOccurrenceCopy.REFRESH, onClick = onRefresh, variant = PrimerButtonVariant.Secondary)
-        PrimerButton(text = "Back to today", onClick = onBack, variant = PrimerButtonVariant.Quiet)
+        if (presented.canStart) {
+            PrimerButton(
+                text = if (occurrence.attemptNumber > 0) StudentOccurrenceCopy.RETRY else StudentOccurrenceCopy.START,
+                onClick = onStart,
+                modifier = Modifier.fillMaxWidth().testTag("tasks.occurrence.start"),
+            )
+        }
+        if (presented.canSubmit) {
+            Text("Your work will stay saved while your parent checks it.", style = PrimerTheme.typography.body, color = PrimerTheme.colors.textMuted)
+            PrimerButton(text = StudentOccurrenceCopy.SUBMIT, onClick = onSubmit, modifier = Modifier.fillMaxWidth().testTag("tasks.occurrence.submit"))
+        }
+        PrimerButton(text = StudentOccurrenceCopy.REFRESH, onClick = onRefresh, variant = PrimerButtonVariant.Quiet, modifier = Modifier.testTag("tasks.occurrence.refresh"))
+        if (!presented.canStart && !presented.canSubmit) {
+            PrimerButton(text = "Back to today’s tasks", onClick = onBack, variant = PrimerButtonVariant.Secondary)
+        }
     }
 }

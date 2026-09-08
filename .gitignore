@@ -23,6 +23,11 @@ web/node_modules/
 web/dist/
 tv-web/node_modules/
 tv-web/dist/
+primer-tasks/web/node_modules/
+primer-tasks/web/dist/
+primer-tasks/web/storybook-static/
+primer-tasks/web/test-results/
+primer-tasks/web/test-artifacts/ui-mocks-report/
 
 # Embedded SPA bundles (placeholder index.html stays tracked; `make bundle` and
 # `make tv-bundle` replace them locally, the Dockerfile replaces them in CI)

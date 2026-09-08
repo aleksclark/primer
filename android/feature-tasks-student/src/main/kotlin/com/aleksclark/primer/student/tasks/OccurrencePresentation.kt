@@ -5,18 +5,21 @@ import com.aleksclark.primertasks.client.OccurrenceResponse
 /** Server-owned student work presentation. Never invents completion or extra actions. */
 internal object StudentOccurrenceCopy {
     const val START = "Start task"
-    const val SUBMIT = "Submit for parent approval"
-    const val REFRESH = "Refresh from server"
+    const val RETRY = "Try this task again"
+    const val SUBMIT = "Send to my parent"
+    const val REFRESH = "Check for updates"
     const val UNSUPPORTED =
-        "This assigned work cannot be completed on this device. Ask a parent for a parent-approval task."
-    const val WAITING_APPROVAL = "Waiting for a parent to approve, reject, or retry. Refresh to see the server state."
-    const val REJECTED_RETRY = "A parent rejected this work. Start again if you should retry."
-    const val APPROVED = "A parent approved this work."
+        "Ask your parent for help opening this task on a supported device."
+    const val WAITING_APPROVAL = "Your work is saved. You can return to today’s tasks while your parent checks it."
+    const val REJECTED_RETRY = "Try the task again with care. Your previous work is still saved."
+    const val APPROVED = "Nice work. Your parent approved this task."
 }
 
 internal enum class OccurrenceStatusTone {
     Neutral,
     Accent,
+    InProgress,
+    Sent,
     Attention,
     Filled,
 }
@@ -26,6 +29,7 @@ internal data class OccurrencePresentation(
     val tone: OccurrenceStatusTone,
     val canStart: Boolean,
     val canSubmit: Boolean,
+    val studentActionRequired: Boolean,
     val supported: Boolean,
     val explanation: String?,
 )
@@ -56,15 +60,16 @@ internal fun presentOccurrence(occurrence: OccurrenceResponse): OccurrencePresen
         tone = occurrenceStatusTone(occurrence.status, retried),
         canStart = supported && occurrence.status == "pending",
         canSubmit = supported && occurrence.status == "in_progress",
+        studentActionRequired = supported && (occurrence.status == "pending" || occurrence.status == "in_progress"),
         supported = supported,
         explanation = explanation,
     )
 }
 
 internal fun occurrenceStatusLabel(status: String, retried: Boolean): String = when (status) {
-    "pending" -> if (retried) "Rejected — retry" else "Not started"
+    "pending" -> if (retried) "Needs another try" else "Ready to start"
     "in_progress" -> "In progress"
-    "awaiting_verification" -> "Waiting for parent approval"
+    "awaiting_verification" -> "Sent to your parent"
     "completed" -> "Approved"
     "excused" -> "Excused"
     "canceled" -> "Canceled"
@@ -73,10 +78,27 @@ internal fun occurrenceStatusLabel(status: String, retried: Boolean): String = w
 
 internal fun occurrenceStatusTone(status: String, retried: Boolean): OccurrenceStatusTone = when (status) {
     "completed" -> OccurrenceStatusTone.Filled
-    "awaiting_verification", "in_progress" -> OccurrenceStatusTone.Accent
-    "pending" -> if (retried) OccurrenceStatusTone.Attention else OccurrenceStatusTone.Neutral
-    else -> OccurrenceStatusTone.Attention
+    "awaiting_verification" -> OccurrenceStatusTone.Sent
+    "in_progress" -> OccurrenceStatusTone.InProgress
+    "pending" -> if (retried) OccurrenceStatusTone.Attention else OccurrenceStatusTone.Accent
+    else -> OccurrenceStatusTone.Neutral
 }
+
+internal fun terminalOccurrenceStatus(status: String): Boolean =
+    status == "completed" || status == "excused" || status == "canceled"
+
+internal fun statusPriority(status: String, retried: Boolean): Int = when {
+    status == "in_progress" -> 0
+    status == "pending" && retried -> 1
+    status == "pending" -> 2
+    status == "awaiting_verification" -> 3
+    else -> 4
+}
+
+internal fun sortOccurrencesForStudent(items: List<OccurrenceResponse>): List<OccurrenceResponse> =
+    items.withIndex()
+        .sortedWith(compareBy<IndexedValue<OccurrenceResponse>> { statusPriority(it.value.status, it.value.attemptNumber > 0) }.thenBy { it.index })
+        .map { it.value }
 
 internal fun replaceOccurrence(
     items: List<OccurrenceResponse>,

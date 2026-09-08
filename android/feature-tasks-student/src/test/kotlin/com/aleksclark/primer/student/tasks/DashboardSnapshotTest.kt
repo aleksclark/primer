@@ -39,9 +39,9 @@ class DashboardSnapshotTest {
         assertEquals("Maya", snapshot.greetingName)
         assertEquals(listOf("a", "b", "f"), snapshot.pendingToday.map { it.id })
         assertEquals("3 pending today", snapshot.pendingSummary)
-        assertEquals("Not started", snapshot.pendingToday[0].statusLabel)
+        assertEquals("Ready to start", snapshot.pendingToday[0].statusLabel)
         assertEquals("In progress", snapshot.pendingToday[1].statusLabel)
-        assertEquals("Waiting for parent approval", snapshot.pendingToday[2].statusLabel)
+        assertEquals("Sent to your parent", snapshot.pendingToday[2].statusLabel)
     }
 
     @Test

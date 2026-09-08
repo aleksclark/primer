@@ -14,6 +14,8 @@ object PrimerTokens {
         val accentHover = Color(0xFF86A9FF)
         val onAccent = Color(0xFF0E1013)
         val attention = Color(0xFFFF8A6B)
+        val statusInProgress = Color(0xFF3DE0F0)
+        val statusSent = Color(0xFFB98BFF)
     }
 
     object Light {
@@ -27,6 +29,8 @@ object PrimerTokens {
         val accentHover = Color(0xFF174AAE)
         val onAccent = Color(0xFFFFFFFF)
         val attention = Color(0xFFB8431F)
+        val statusInProgress = Color(0xFF087E8B)
+        val statusSent = Color(0xFF6B35A5)
     }
 
     object Space {

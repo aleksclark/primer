@@ -6,6 +6,7 @@ DEV := ./scripts/dev
 .PHONY: check up dev status endpoints logs down destroy proof \
 	build test cover openapi agent-protocol clients clients-typescript tasks-client tasks-agent-compat kotlin-client tasks-typecheck tasks-lint \
 	web tasks-web browser-test android e2e host-up host-down host-e2e host-proof \
+	ui-mocks ui-mocks-web ui-mocks-android ui-mocks-review ui-mocks-update \
 	tasks-test tasks-cover tasks-clients tasks-android tasks-e2e tasks-release
 
 check:
@@ -84,6 +85,26 @@ web: clients
 	npm --prefix web run build
 
 tasks-web: web
+
+ui-mocks-web: clients
+	npm --prefix web ci --no-audit --no-fund
+	npm --prefix web run typecheck
+	npm --prefix web run test:unit
+	npm --prefix web run storybook:build
+	npm --prefix web run storybook:test
+	npm --prefix web run storybook:visual
+
+ui-mocks-android: clients
+	cd ../android && JAVA_HOME=$${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk} ANDROID_HOME=$${ANDROID_HOME:-/opt/android-sdk} ./gradlew :feature-tasks-student:testDebugUnitTest :feature-tasks-student:assembleDebug --no-daemon --max-workers=2
+
+ui-mocks: ui-mocks-web ui-mocks-android
+
+ui-mocks-review:
+	@test -n "$$CHROMATIC_PROJECT_TOKEN" || (echo "CHROMATIC_PROJECT_TOKEN is required"; exit 1)
+	npm --prefix web run chromatic
+
+ui-mocks-update:
+	npm --prefix web run storybook:visual:update
 
 browser-test:
 	npm --prefix web run browser:test
