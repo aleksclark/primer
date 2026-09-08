@@ -1,4 +1,11 @@
-# Architecture — System Design
+# Educational target architecture — tutoring model
+
+This document preserves the original pedagogical/agent design, including its
+prototype-era technology rationale. It is **not the current deployment or data
+storage architecture**, and proposed capabilities here are not acceptance claims.
+For the implemented multi-service/workspace layout, PostgreSQL ownership, browser
+and native surfaces, and commands, start with the [repository guide](../README.md)
+and [current authentication boundaries](authentication.md).
 
 ## Agent Topology
 
