@@ -19,13 +19,12 @@ import (
 
 func requireAPKTools(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("aapt2"); err != nil {
-		if os.Getenv("ANDROID_HOME") != "" {
-			t.Setenv("PATH", os.Getenv("ANDROID_HOME")+"/build-tools/35.0.0:"+os.Getenv("PATH"))
+	skipChildProcessRaceRepeat(t)
+	sdk := androidSDKRoot()
+	if sdk != "" {
+		for _, tools := range androidBuildToolDirs(sdk) {
+			t.Setenv("PATH", tools+":"+os.Getenv("PATH"))
 		}
-	}
-	if _, err := exec.LookPath("aapt2"); err != nil {
-		t.Setenv("PATH", "/opt/android-sdk/build-tools/35.0.0:"+os.Getenv("PATH"))
 	}
 	if _, err := exec.LookPath("aapt2"); err != nil || exec.Command("aapt2", "version").Run() != nil {
 		t.Fatalf("aapt2 required for APK publication tests: %v", err)
@@ -33,6 +32,53 @@ func requireAPKTools(t *testing.T) {
 	if _, err := exec.LookPath("apksigner"); err != nil {
 		t.Fatal("apksigner required for APK publication tests")
 	}
+}
+
+func androidSDKRoot() string {
+	for _, key := range []string{"ANDROID_HOME", "ANDROID_SDK_ROOT"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	if _, err := os.Stat("/opt/android-sdk"); err == nil {
+		return "/opt/android-sdk"
+	}
+	return ""
+}
+
+func androidBuildToolDirs(sdk string) []string {
+	root := filepath.Join(sdk, "build-tools")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].IsDir() {
+			dirs = append(dirs, filepath.Join(root, entries[i].Name()))
+		}
+	}
+	return dirs
+}
+
+func androidJar(t *testing.T) string {
+	t.Helper()
+	sdk := androidSDKRoot()
+	if sdk == "" {
+		t.Fatal("Android SDK root is required for APK publication tests")
+	}
+	for _, api := range []string{"34", "35", "33"} {
+		path := filepath.Join(sdk, "platforms", "android-"+api, "android.jar")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	matches, _ := filepath.Glob(filepath.Join(sdk, "platforms", "android-*", "android.jar"))
+	if len(matches) > 0 {
+		return matches[len(matches)-1]
+	}
+	t.Fatalf("android.jar not found under %s", sdk)
+	return ""
 }
 
 func TestReleasePublisherParentDistinctionAndInvalidArtifacts(t *testing.T) {
@@ -245,9 +291,8 @@ func buildUnsignedAPK(t *testing.T, pkg string, version int64, name string) stri
 	if err := os.WriteFile(manifest, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	androidJar := "/opt/android-sdk/platforms/android-34/android.jar"
 	apk := filepath.Join(dir, "app.apk")
-	link := exec.Command("aapt2", "link", "-o", apk, "-I", androidJar, "--manifest", manifest)
+	link := exec.Command("aapt2", "link", "-o", apk, "-I", androidJar(t), "--manifest", manifest)
 	if out, err := link.CombinedOutput(); err != nil {
 		t.Fatalf("aapt2 link: %v %s", err, out)
 	}

@@ -10,6 +10,17 @@ import (
 	"primer-tasks/internal/domain/parent"
 )
 
+func TestPhase3BeginToolEffectRejectsZeroStep(t *testing.T) {
+	pool := integrationPool(t)
+	s := New(pool, "test")
+	adapters := phase3Services{s: s}
+	ctx := context.Background()
+	scope := parent.ServiceContext{TenantID: tenantA, ActorID: "parent-a", RunID: tenantA, ToolStep: 0, IdempotencyKey: "zero-step"}
+	if _, err := adapters.beginToolEffect(ctx, scope, parent.ToolDraftTask, map[string]any{"title": "x"}); err == nil {
+		t.Fatal("zero tool step accepted")
+	}
+}
+
 func TestPhase3DomainAdaptersCoverScheduleAndRevisionBoundaries(t *testing.T) {
 	pool := integrationPool(t)
 	student, _ := seedIntegration(t, pool)
@@ -57,6 +68,15 @@ func TestPhase3DomainAdaptersCoverScheduleAndRevisionBoundaries(t *testing.T) {
 	}
 	if got, err := adapters.GetSchedule(ctx, scope, sch.ID); err != nil || got.ID != sch.ID {
 		t.Fatalf("get schedule=%+v err=%v", got, err)
+	}
+	if _, err = adapters.UpdateSchedule(ctx, scope, parent.ScheduleUpdateInput{ScheduleID: sch.ID, ExpectedVersion: 0, ScheduleInput: parent.ScheduleInput{StudentID: student, TemplateID: published.TemplateID, RevisionID: published.ID, Kind: "one_off", Timezone: "America/Chicago", StartAt: start, RRULE: ""}}); err == nil {
+		t.Fatal("zero expected version accepted")
+	}
+	if _, err = adapters.UpdateSchedule(ctx, scope, parent.ScheduleUpdateInput{ScheduleID: uuid.NewString(), ExpectedVersion: 1, ScheduleInput: parent.ScheduleInput{StudentID: student, TemplateID: published.TemplateID, RevisionID: published.ID, Kind: "one_off", Timezone: "UTC", StartAt: start}}); !errors.Is(err, parent.ErrConfirmationStale) {
+		t.Fatalf("missing schedule=%v", err)
+	}
+	if _, err = adapters.UpdateSchedule(ctx, scope, parent.ScheduleUpdateInput{ScheduleID: sch.ID, ExpectedVersion: sch.Version + 9, ScheduleInput: parent.ScheduleInput{StudentID: student, TemplateID: published.TemplateID, RevisionID: published.ID, Kind: "one_off", Timezone: "UTC", StartAt: start}}); !errors.Is(err, parent.ErrConfirmationStale) {
+		t.Fatalf("stale schedule update=%v", err)
 	}
 	if _, err = adapters.UpdateSchedule(ctx, scope, parent.ScheduleUpdateInput{ScheduleID: sch.ID, ExpectedVersion: sch.Version, ScheduleInput: parent.ScheduleInput{StudentID: student, TemplateID: published.TemplateID, RevisionID: published.ID, Kind: "one_off", Timezone: "America/Chicago", StartAt: start, RRULE: ""}}); err != nil {
 		t.Fatal(err)

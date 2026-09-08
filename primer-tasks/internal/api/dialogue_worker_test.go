@@ -13,15 +13,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
 
 type dialogueChildBuild struct {
-	Race     bool   `json:"race"`
-	SHA256   string `json:"sha256"`
-	Revision string `json:"revision"`
-	Modified bool   `json:"modified"`
+	Race      bool   `json:"race"`
+	Cover     bool   `json:"cover"`
+	CoverMode string `json:"coverMode,omitempty"`
+	SHA256    string `json:"sha256"`
+	Revision  string `json:"revision"`
+	Modified  bool   `json:"modified"`
 }
 
 func inspectDialogueChild(path string, parentRace bool) (proof dialogueChildBuild, err error) {
@@ -33,11 +36,18 @@ func inspectDialogueChild(path string, parentRace bool) (proof dialogueChildBuil
 		switch setting.Key {
 		case "-race":
 			proof.Race = setting.Value == "true"
+		case "-cover":
+			proof.Cover = setting.Value == "true"
+		case "-covermode":
+			proof.CoverMode = setting.Value
 		case "vcs.revision":
 			proof.Revision = setting.Value
 		case "vcs.modified":
 			proof.Modified = setting.Value == "true"
 		}
+	}
+	if !proof.Cover {
+		proof.Cover, proof.CoverMode = inspectDialogueChildCoverFallback(path)
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -60,9 +70,14 @@ func buildDialogueChild(t *testing.T, binary, target string, race bool) dialogue
 }
 func buildDialogueChildInDir(t *testing.T, binary, target string, race bool, dir string) dialogueChildBuild {
 	t.Helper()
+	skipChildProcessRaceRepeat(t)
 	args := []string{"build"}
 	if race {
 		args = append(args, "-race")
+	}
+	coverRequested := childCoverageRequested() && strings.Contains(target, "cmd/tasks-server")
+	if coverRequested {
+		args = append(args, "-cover", "-covermode", childCoverageMode(), "-coverpkg", childCoveragePackages())
 	}
 	args = append(args, "-o", binary, target)
 	command := exec.Command("go", args...)
@@ -78,7 +93,49 @@ func buildDialogueChildInDir(t *testing.T, binary, target string, race bool, dir
 	if proof.Race != race {
 		t.Fatal("effective child race setting differs from requested build mode")
 	}
+	if coverRequested && !proof.Cover {
+		t.Fatal("coverage gate received an uninstrumented Tasks server child")
+	}
 	return proof
+}
+
+func childCoverageRequested() bool {
+	return os.Getenv("PRIMER_TASKS_CHILD_COVER_ROOT") != ""
+}
+
+func childCoverageMode() string {
+	if mode := os.Getenv("PRIMER_TASKS_CHILD_COVER_MODE"); mode != "" {
+		return mode
+	}
+	return "atomic"
+}
+
+func childCoveragePackages() string {
+	if pkgs := os.Getenv("PRIMER_TASKS_CHILD_COVERPKG"); pkgs != "" {
+		return pkgs + ",primer-tasks/cmd/tasks-server"
+	}
+	return "./internal/...,./cmd/tasks-server"
+}
+
+func inspectDialogueChildCoverFallback(path string) (bool, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, ""
+	}
+	covered := bytes.Contains(data, []byte("runtime/coverage")) && bytes.Contains(data, []byte("GOCOVERDIR"))
+	if !covered {
+		return false, ""
+	}
+	mode := ""
+	switch {
+	case bytes.Contains(data, []byte("atomic")):
+		mode = "atomic"
+	case bytes.Contains(data, []byte("count")):
+		mode = "count"
+	case bytes.Contains(data, []byte("set")):
+		mode = "set"
+	}
+	return true, mode
 }
 
 type dialogueChildExit struct {
@@ -254,6 +311,9 @@ func main(){if len(os.Args)>1&&os.Args[1]=="wait"{for{time.Sleep(time.Second)}};
 	}
 	if err := validateDialogueChildExit(dialogueChildExit{SignalSent: true}); err != nil {
 		t.Fatal(err)
+	}
+	if ordinaryProof.Cover {
+		t.Fatal("standalone qualification fixture unexpectedly coverage-instrumented")
 	}
 	t.Logf("effective instrumentation verified: ordinary=%t instrumented=%t; real detector report/exit66 rejected; only observed requested SIGKILL accepted", ordinaryProof.Race, proof.Race)
 }

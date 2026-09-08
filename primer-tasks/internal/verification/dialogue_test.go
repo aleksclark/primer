@@ -1,6 +1,7 @@
 package verification
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -55,6 +56,33 @@ func evaluate(t *testing.T, s DialogueState, accepted bool) DialogueState {
 		t.Fatal(err)
 	}
 	return next
+}
+
+func TestDialogueContextAndStateValidationRejectIncompleteBindings(t *testing.T) {
+	if err := (DialogueContext{}).Validate(); err == nil {
+		t.Fatal("empty dialogue context accepted")
+	}
+	s := dialogueState(t)
+	s.Context.PolicyVersion = "dialogue.v0"
+	if err := s.Context.Validate(); err == nil {
+		t.Fatal("wrong policy version accepted")
+	}
+	s = dialogueState(t)
+	s.Version = 0
+	if err := s.Validate(); err == nil {
+		t.Fatal("zero version accepted")
+	}
+	s = dialogueState(t)
+	s.Snapshot.RequirementID = "other"
+	if err := s.Validate(); err == nil {
+		t.Fatal("mismatched snapshot requirement accepted")
+	}
+}
+
+func TestFailDialogueJobRejectsUnknownCodes(t *testing.T) {
+	if err := (DialogueEngine{}).FailDialogueJob(context.Background(), DialogueJobReference{}, "not-a-code"); err == nil {
+		t.Fatal("unknown failure code accepted")
+	}
 }
 
 func TestDialogueAuthorityRequiresThreeDistinctBoundAnswers(t *testing.T) {

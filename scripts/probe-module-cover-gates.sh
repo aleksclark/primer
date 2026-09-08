@@ -328,6 +328,32 @@ else
   assert_not_contains "$HELPER_OUT" "OK:" "helper missing-bc is not OK"
 fi
 
+echo "== probe: tasks child-coverage merge rejects missing/corrupt/stale artifacts =="
+COVERMERGE_DIR="$ROOT/scripts/covermerge"
+if [[ ! -d "$COVERMERGE_DIR" ]]; then
+  fail "scripts/covermerge missing"
+else
+  set +e
+  COVERMERGE_OUT="$(cd "$COVERMERGE_DIR" && GOWORK=off go test -count=1 ./... 2>&1)"
+  COVERMERGE_EC=$?
+  set -e
+  if [[ "$COVERMERGE_EC" -eq 0 ]]; then
+    pass "covermerge qualification tests"
+  else
+    fail "covermerge qualification tests"
+    printf '%s\n' "$COVERMERGE_OUT" >&2
+  fi
+fi
+
+# Isolated Tasks-label fixture still uses the parent-only high/low floors; child
+# merge is skipped unless PRIMER_TASKS_CHILD_COVER_ROOT is later supplied by the
+# real Tasks gate. The label-specific path must not break ordinary fixtures.
+mod="$(make_fixture_module tasks-low low)"
+run_helper "$mod" 85 tasks
+assert_eq 1 "$HELPER_EC" "helper tasks low coverage exit 1"
+assert_contains "$HELPER_OUT" "below 85%" "helper tasks low floor message"
+assert_not_contains "$HELPER_OUT" "OK:" "helper tasks low is not OK"
+
 # Live module trees must be byte-identical to the pre-probe snapshot.
 echo "== probe: live trees unchanged (before/after snapshot) =="
 snapshot_live_modules "$LIVE_SNAP_AFTER"

@@ -73,4 +73,10 @@ func TestPostgresRepositoryDurableReplayAndIdempotency(t *testing.T) {
 	if err != nil || len(events) != 1 {
 		t.Fatalf("replay=%#v err=%v", events, err)
 	}
+	if _, err = store.GetRun(ctx, tenant, NewID()); err == nil {
+		t.Fatal("missing run accepted")
+	}
+	if err = store.TransitionRun(ctx, tenant, NewID(), RunRunning, 0, Usage{}); err == nil {
+		t.Fatal("missing run transition accepted")
+	}
 }

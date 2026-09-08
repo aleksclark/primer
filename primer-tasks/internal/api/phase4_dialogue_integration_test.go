@@ -40,6 +40,8 @@ type publicDialogueHarness struct {
 	binding                                      dialogueSourceBinding
 	runningSHA                                   string
 	pid                                          int
+	coverDir                                     string
+	coverLaunchID                                string
 }
 
 func newPublicDialogueHarness(t *testing.T) *publicDialogueHarness {
@@ -53,6 +55,7 @@ func newPublicDialogueHarnessWithPolicy(t *testing.T, followUps, maxTurns int, m
 }
 func newPublicDialogueHarnessWithConfig(t *testing.T, policy domain.DialogueConfig, manual bool) *publicDialogueHarness {
 	t.Helper()
+	skipChildProcessRaceRepeat(t)
 	t.Setenv("TASKS_TEST_DATABASE_URL", "")
 	t.Setenv("PRIMER_TASKS_COVERAGE_GATE", "1")
 	pool := integrationPool(t)
@@ -139,11 +142,13 @@ func (h *publicDialogueHarness) start() {
 	u, _ := url.Parse(h.base)
 	var env []string
 	for _, v := range os.Environ() {
-		if !strings.HasPrefix(v, "TASKS_") && !strings.HasPrefix(v, "GORACE=") {
-			env = append(env, v)
+		if strings.HasPrefix(v, "TASKS_") || strings.HasPrefix(v, "GORACE=") || strings.HasPrefix(v, "GOCOVERDIR=") || strings.HasPrefix(v, "PRIMER_TASKS_CHILD_COVER_") {
+			continue
 		}
+		env = append(env, v)
 	}
 	env = append(env, "GORACE=halt_on_error=1 exitcode=66 log_path=stderr", "TASKS_ENV=test", "TASKS_AUTH_MODE=test", "TASKS_HOST=127.0.0.1", "TASKS_PORT="+u.Port(), "TASKS_DATABASE_URL="+h.pool.Config().ConnString(), "TASKS_PUBLIC_ORIGIN="+h.base, "TASKS_MODEL_PROVIDER=scripted", "TASKS_AGENT_MODE=scripted", "TASKS_AGENT_ACTIVE_TOOLS=list_students", "TASKS_AGENT_SCRIPTED_DIALOGUE_FAULT="+h.fault, "TASKS_AGENT_SCRIPTED_DIALOGUE_DELAY_MS="+h.delay)
+	h.prepareChildCoverageLaunch(&env)
 	h.process = exec.Command(h.binary)
 	h.process.Env = env
 	h.process.Stdout, h.process.Stderr = h.log, h.log
@@ -224,6 +229,7 @@ func (h *publicDialogueHarness) stop(crash bool) {
 	report, err := h.childDiagnostics()
 	observation.RaceReport = report
 	h.recordChild("termination", &observation)
+	h.recordChildCoverageLaunch(observation)
 	h.verifyChildSource()
 	if err != nil {
 		h.t.Error("owned child diagnostics unavailable")

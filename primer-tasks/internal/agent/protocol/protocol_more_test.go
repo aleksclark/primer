@@ -23,6 +23,7 @@ func TestCommandValidationRejectsMalformedAndAcceptsAllKinds(t *testing.T) {
 		}
 	}
 	invalid := []CommandEnvelope{
+		{Protocol: Version, Kind: CommandAck, Cursor: -1},
 		{Protocol: 99, Kind: CommandHello},
 		{Protocol: Version, Kind: CommandSubscribe},
 		{Protocol: Version, Kind: CommandUnsubscribe},
