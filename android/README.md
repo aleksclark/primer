@@ -47,9 +47,14 @@ pulls `androidx.browser:browser:1.9.0` (`minCompileSdk=36`). Other modules still
 against 35 until their owners raise them; TV/Student consumers of Clerk/browser need the
 same compileSdk 36 bump before they can depend on those artifacts.
 
+Local Clerk credentials live in `~/.config/clerk/primer.env` (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`; never copy `CLERK_SECRET_KEY` into the APK). Source that file, then assemble:
+
 ```bash
 cd android
-PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+set -a
+. ~/.config/clerk/primer.env
+set +a
+PRIMER_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
 PRIMER_API_ORIGIN=https://api.primerlms.com/tasks/api \
 ./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
 ```
@@ -131,8 +136,9 @@ weaken server authorized-party, issuer, or membership policy to make login work.
    password or disable MFA from this tree.
 3. After operator approval, provision two parent users and two household
    memberships (A and B). Do not reuse browser test-issuer principals.
-4. Publishable key only on the device (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secret
-   keys stay in operator env.
+4. Publishable key only on the device (`PRIMER_CLERK_PUBLISHABLE_KEY`, from
+   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `~/.config/clerk/primer.env`). Secret
+   keys stay in operator env and must never be bundled.
 
 **Tasks host (operator env, parent L0 owns the port; Control does not edit these files):**
 
@@ -152,7 +158,10 @@ stays required. Optional `TASKS_CLERK_AUDIENCE` only if this Clerk instance emit
 
 ```bash
 cd android
-PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+set -a
+. ~/.config/clerk/primer.env
+set +a
+PRIMER_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
 PRIMER_API_ORIGIN=https://<tasks-host>/tasks/api \
 ./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
 ```
