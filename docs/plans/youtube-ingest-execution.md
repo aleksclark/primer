@@ -1,6 +1,14 @@
-# YouTube Ingest Repair + Mark Rober E2E — Implementation Plan
+# Historical: YouTube Ingest Repair + Mark Rober E2E
 
-> Plan-only W0 commit. Execute from this file + `/tmp/primer-youtube-orchestration/04-execution-index.md`.
+> **Superseded operational instructions — do not execute this plan.** The
+> September recovery proved its nested `/media/tv/Primer` layout incorrect.
+> Use the [current YouTube runbook](../../agent_docs/runbooks/youtube-shows.md)
+> for `/media/primer/Shows`, Collection reconciliation, and recovery. The
+> [recovery record](../../agent_docs/runbooks/primer-ingest-recovery-20260907.md)
+> contains dated evidence. Branch pins, `/tmp` files, wave ownership, and commands
+> below are historical context, not live dispatch or deployment authority.
+
+> Historical opening: Plan-only W0 commit. Execute from this file + `/tmp/primer-youtube-orchestration/04-execution-index.md`.
 > Sources (do not re-audit): `01-current-setup-audit.md`, `02-metadata-contract-plan.md`, `03-mark-rober-acquisition-plan.md`.
 
 **Goal:** One JF-visible YouTube root, stable per-video identity, seven-channel repair, then all 266 official Mark Rober videos as schedulable Primer items. No schedule/VOD mutations.
