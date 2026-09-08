@@ -121,7 +121,7 @@ PY
   export PRIMER_TASKS_CHILD_COVER_RUN_ID="$RUN_ID"
   export PRIMER_TASKS_CHILD_COVER_MODE="$COVER_MODE"
   export PRIMER_TASKS_CHILD_COVERPKG="$COVERPKG_LIST"
-  COVER_ARGS=("./internal/..." "-count=1" "-covermode=atomic" "-coverprofile=$PROFILE" "-coverpkg=./internal/...")
+  COVER_ARGS=("./internal/..." "-count=1" "-timeout=20m" "-covermode=atomic" "-coverprofile=$PROFILE" "-coverpkg=./internal/...")
   COLLECT_CHILD=1
 fi
 

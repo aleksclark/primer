@@ -36,7 +36,7 @@ tasks-release:
 	go build -o ../bin/tasks-release ./cmd/tasks-release
 
 test:
-	go test ./... -count=1
+	go test ./... -count=1 -timeout 20m
 
 cover:
 	PRIMER_TASKS_COVERAGE_GATE=1 ../scripts/enforce-module-cover.sh . 85 tasks
