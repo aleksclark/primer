@@ -234,4 +234,12 @@ class TasksSessionIsolationTest {
         assertEquals(false, afterLeave.showTasks)
         assertNull(afterLeave.pendingOccurrenceLink)
     }
+
+    @Test
+    fun leaveFromChecklistReturnsToHomeNavState() {
+        val opened = TasksNavState(showTasks = true)
+        val home = TasksDeepLinkRouting.leave(opened)
+        assertEquals(false, home.showTasks)
+        assertNull(home.pendingOccurrenceLink)
+    }
 }

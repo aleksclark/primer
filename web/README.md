@@ -21,7 +21,11 @@ parent-guarded APIs and need a Bearer session token:
 2. Paste a token, or
 3. Set `VITE_PARENT_TOKEN` before `npm run dev`.
 
-Token is stored in `localStorage` key `primer-parent-token`.
+Token is stored in `localStorage` key `primer-parent-token`. The parent API also
+accepts a configured Primer Identity JWT and resolves it to a local educator
+with `parent`/`admin` role. This legacy browser Bearer storage is not a completed
+BFF/Clerk migration; see the [current authentication boundaries](../agent_docs/authentication.md).
+Do not place production tokens in frontend build-time variables or commit them.
 
 ## Codegen
 

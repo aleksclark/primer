@@ -52,9 +52,12 @@ import com.aleksclark.primer.ui.PrimerTextField
 import com.aleksclark.primer.ui.PrimerTheme
 import com.aleksclark.primer.student.tasks.PayloadQrScanner
 import com.aleksclark.primer.student.tasks.QrImageImporter
+import com.aleksclark.primer.student.tasks.StudentDashboardSnapshot
+import com.aleksclark.primer.student.tasks.StudentTasksDashboardCard
 import com.aleksclark.primer.student.tasks.StudentTasksRoute
 import com.aleksclark.primer.student.tasks.TasksDeepLinkRouting
 import com.aleksclark.primer.student.tasks.TasksNavState
+import com.aleksclark.primer.student.tasks.rememberStudentDashboardUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -168,6 +171,7 @@ private fun StudentScreen(
     var replaceEnrollment by remember { mutableStateOf(false) }
     var scanningEnrollment by remember { mutableStateOf(false) }
     var tasksNav by remember { mutableStateOf(TasksDeepLinkRouting.incoming(TasksNavState(), deepLink)) }
+    var dashboardRefresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -265,7 +269,10 @@ private fun StudentScreen(
         val pending = tasksNav.pendingOccurrenceLink?.let(Uri::parse)
         StudentTasksRoute(
             deepLink = pending,
-            onLeave = { tasksNav = TasksDeepLinkRouting.leave(tasksNav) },
+            onLeave = {
+                tasksNav = TasksDeepLinkRouting.leave(tasksNav)
+                dashboardRefresh++
+            },
             onDeepLinkConsumed = { tasksNav = TasksDeepLinkRouting.consumed(tasksNav) },
             pairing = runtime.policy.pairingCapability(),
             onRequestParentCameraGrant = {
@@ -274,6 +281,37 @@ private fun StudentScreen(
                 }
             },
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+        )
+        return
+    }
+    val dashboard = rememberStudentDashboardUi(
+        enabled = configured && !maintenance && !tasksNav.showTasks,
+        refreshKey = dashboardRefresh,
+    )
+    if (configured && !maintenance) {
+        StudentDashboardHome(
+            snapshot = dashboard.snapshot,
+            loading = dashboard.loading,
+            apps = runtime.policy.store.apps(),
+            lifecycleFailure = lifecycleFailure,
+            message = message,
+            showRecovery = showRecovery,
+            recoveryInput = recoveryInput,
+            onRecoveryInput = { recoveryInput = it },
+            onOpenTasks = { tasksNav = TasksNavState(showTasks = true) },
+            onLaunchApp = { app -> action { runtime.policy.launchApproved(app) } },
+            onToggleRecovery = {
+                recoveryInput = ""
+                showRecovery = !showRecovery
+            },
+            onOpenMaintenance = {
+                action {
+                    val code = recoveryInput
+                    recoveryInput = ""
+                    message = runtime.openMaintenance(code)
+                    showRecovery = !runtime.policy.inMaintenance
+                }
+            },
         )
         return
     }
@@ -515,42 +553,12 @@ private fun StudentScreen(
                 PrimerButton(text = "Open ${app.label}", onClick = { action { runtime.policy.launchApproved(app) } })
             }
             item {
-                PrimerButton(text = "Open Tasks", onClick = { tasksNav = TasksNavState(showTasks = true) })
                 Text(
                     "Old Primer Tasks (com.aleksclark.primertasks) pairings cannot be copied. Request a new Student QR, then revoke the old pairing. Tasks failures never clear device owner or recovery.",
                     style = PrimerTheme.typography.body,
                     color = PrimerTheme.colors.textMuted,
                 )
-                if (!maintenance) {
-                    PrimerButton(
-                        text = "Parent maintenance",
-                        onClick = {
-                            recoveryInput = ""
-                            showRecovery = !showRecovery
-                        },
-                    )
-                }
             }
-        }
-        if (configured && !maintenance && showRecovery) item {
-            PrimerTextField(
-                value = recoveryInput,
-                onValueChange = { recoveryInput = it },
-                label = "One-use recovery code",
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-            )
-            PrimerButton(
-                text = "Open maintenance",
-                onClick = {
-                    action {
-                        val code = recoveryInput
-                        recoveryInput = ""
-                        message = runtime.openMaintenance(code)
-                        showRecovery = !runtime.policy.inMaintenance
-                    }
-                },
-            )
         }
         if (maintenance) item {
             PrimerRule()
@@ -726,6 +734,73 @@ private fun StudentScreen(
                     },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StudentDashboardHome(
+    snapshot: StudentDashboardSnapshot?,
+    loading: Boolean,
+    apps: List<ApprovedApp>,
+    lifecycleFailure: String?,
+    message: String?,
+    showRecovery: Boolean,
+    recoveryInput: String,
+    onRecoveryInput: (String) -> Unit,
+    onOpenTasks: () -> Unit,
+    onLaunchApp: (ApprovedApp) -> Unit,
+    onToggleRecovery: () -> Unit,
+    onOpenMaintenance: () -> Unit,
+) {
+    val name = snapshot?.greetingName ?: "Student"
+    LazyColumn(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            PrimerSectionHeader(
+                label = "Primer / Student",
+                title = name,
+                description = "Today's work and approved apps.",
+            )
+        }
+        if (lifecycleFailure != null) item { PrimerStatus(lifecycleFailure, tone = PrimerStatusTone.Attention) }
+        if (message != null) item { PrimerStatus(message, tone = PrimerStatusTone.Accent) }
+        item {
+            StudentTasksDashboardCard(
+                snapshot = snapshot,
+                loading = loading,
+                onOpenTasks = onOpenTasks,
+            )
+        }
+        if (apps.isNotEmpty()) {
+            item {
+                PrimerRule()
+                Text("APPROVED APPLICATIONS", style = PrimerTheme.typography.label, color = PrimerTheme.colors.textMuted)
+            }
+            items(apps.size) { index ->
+                val app = apps[index]
+                PrimerButton(text = "Open ${app.label}", onClick = { onLaunchApp(app) })
+            }
+        }
+        item {
+            PrimerButton(
+                text = "Parent maintenance",
+                onClick = onToggleRecovery,
+                variant = PrimerButtonVariant.Quiet,
+            )
+        }
+        if (showRecovery) item {
+            PrimerTextField(
+                value = recoveryInput,
+                onValueChange = onRecoveryInput,
+                label = "One-use recovery code",
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            )
+            PrimerButton(text = "Open maintenance", onClick = onOpenMaintenance)
         }
     }
 }

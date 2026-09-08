@@ -1,8 +1,10 @@
 package com.aleksclark.primer.control.tasks
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -154,6 +156,62 @@ fun ControlSignInScreen(
 }
 
 @Composable
+fun ControlSettingsScreen(
+    students: List<Student>,
+    query: String,
+    onQuery: (String) -> Unit,
+    message: String?,
+    selectedStudent: Student?,
+    creatingStudent: Boolean,
+    pairing: Pairing?,
+    name: String,
+    onName: (String) -> Unit,
+    onOpen: (Student) -> Unit,
+    onCreate: () -> Unit,
+    onRetry: () -> Unit,
+    hasMore: Boolean,
+    onMore: (() -> Unit)?,
+    onSave: () -> Unit,
+    onArchive: () -> Unit,
+    onIssueQr: () -> Unit,
+    onBack: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f)) {
+            if (selectedStudent == null && !creatingStudent) {
+                RosterScreen(
+                    students = students,
+                    query = query,
+                    onQuery = onQuery,
+                    message = message,
+                    onOpen = onOpen,
+                    onCreate = onCreate,
+                    onRetry = onRetry,
+                    hasMore = hasMore,
+                    onMore = onMore,
+                )
+            } else {
+                StudentDetailScreen(
+                    student = selectedStudent,
+                    pairing = pairing,
+                    name = name,
+                    onName = onName,
+                    message = message,
+                    onSave = onSave,
+                    onArchive = onArchive,
+                    onIssueQr = onIssueQr,
+                    onBack = onBack,
+                )
+            }
+        }
+        Column(Modifier.padding(8.dp)) {
+            PrimerButton(text = "Sign out", onClick = onSignOut, variant = PrimerButtonVariant.Quiet)
+        }
+    }
+}
+
+@Composable
 fun RosterScreen(
     students: List<Student>,
     query: String,
@@ -166,7 +224,7 @@ fun RosterScreen(
     onMore: (() -> Unit)? = null,
 ) {
     Column(Modifier.primerScreenInsets().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        PrimerSectionHeader(label = "For parents", title = "Students", description = "Add students and issue a one-use pairing QR.") {
+        PrimerSectionHeader(label = "Settings", title = "Students", description = "Add students and issue a one-use pairing QR.") {
             PrimerButton(text = "Add student", onClick = onCreate)
         }
         PrimerTextField(value = query, onValueChange = onQuery, label = "Search students")

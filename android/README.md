@@ -1,18 +1,23 @@
-# Primer TV — Android client
+# Primer Android — Student, Control, and TV
 
-This Gradle build also includes the initial **Primer Student device-owner
-qualification** target (`:app-student`), with `:core-device-policy` and
-`:core-updates`. See the [A16 qualification runbook](../agent_docs/runbooks/android-a16-provisioning.md)
-and [physical-device evidence](../test-artifacts/android-student/device-owner-qualification.md).
-It is not yet the full Student/Control platform, and silent Student updates remain
-an open verification gate on the tested handset/signing configuration.
+This Gradle build contains the native **Student** (`:app-student`), **Control**
+(`:app-control`), and **TV** (`:app`) apps plus shared device, update, security,
+identity, and UI libraries. It consumes the generated Tasks client; the older
+standalone client under `primer-tasks/android/` has separate build/test commands.
+`make tasks-android` does not certify this entire platform.
 
-The student-facing half of [Video As Instruction](../agent_docs/plans/video-as-instruction.md).
-One APK runs on the tablet and on the living-room Android TV box; the shell is
-chosen at runtime from `UiModeManager.currentModeType`.
+Implementation is not full native/device acceptance. See the
+[completion audit](../agent_docs/plans/primer-android-platform/completion-audit.md),
+[A16 runbook](../agent_docs/runbooks/android-a16-provisioning.md), and
+[physical-device evidence](../test-artifacts/android-student/device-owner-qualification.md).
+Evidence is specific to its recorded build and handset; silent Student updates
+remain an open gate for the tested signing/Play Protect configuration.
 
-This phase covers **on-demand viewing only**. The programmed channel (a
-scheduled linear stream with a fully locked player) is a later phase.
+TV implements both on-demand viewing and the programmed channel/guide. Its
+single TV APK chooses tablet or living-room presentation at runtime from
+`UiModeManager.currentModeType`; Student and Control are separate APKs. The
+[Video As Instruction plan](../agent_docs/plans/video-as-instruction.md) records
+the original implementation sequence, not a current “on-demand only” limit.
 
 ## Modules
 
@@ -23,7 +28,7 @@ scheduled linear stream with a fully locked player) is a later phase.
 | `app`  | Android: Compose UI (tablet + leanback), ExoPlayer host, DataStore persistence. |
 | `feature-tasks-student` | Migrated Tasks pairing/checklist/start/submit for Student. Entry: `StudentTasksRoute`. |
 | `app-student` | Device-owner launcher. Tasks, approved apps, and parent maintenance; recovery stays in `StudentRuntime`. |
-| `core-parent-identity` | Official Clerk Android SDK 0.1.31 password sign-in adapter. Publishable key only. Live Clerk acceptance is not claimed. |
+| `core-parent-identity` | Official Clerk Android SDK 0.1.31 password/Google sign-in and supported second-factor continuation. Publishable key only. Live Clerk acceptance is not inferred from compilation. |
 | `feature-tasks-control` | Native parent roster/tasks/schedules/review using `:tasks-client`. |
 | `feature-device-control` | Unprivileged parent device/release surfaces using generated parent JWT calls. |
 | `app-control` | Primer Control (`com.aleksclark.primer.control`). Not a device owner. |
@@ -42,9 +47,14 @@ pulls `androidx.browser:browser:1.9.0` (`minCompileSdk=36`). Other modules still
 against 35 until their owners raise them; TV/Student consumers of Clerk/browser need the
 same compileSdk 36 bump before they can depend on those artifacts.
 
+Local Clerk credentials live in `~/.config/clerk/primer.env` (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`; never copy `CLERK_SECRET_KEY` into the APK). Source that file, then assemble:
+
 ```bash
 cd android
-PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+set -a
+. ~/.config/clerk/primer.env
+set +a
+PRIMER_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
 PRIMER_API_ORIGIN=https://api.primerlms.com/tasks/api \
 ./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
 ```
@@ -56,7 +66,7 @@ physical acceptance. Needed configuration, without changing canonical auth here:
 - Native SDK is Clerk Android API **0.1.31** because 1.1.x ships Kotlin 2.4 metadata. Hosted Account Portal is not in 0.1.31. Control implements official `SignIn.create` password and official Google OAuth (`SignIn.authenticateWithRedirect` / `OAuthProvider.GOOGLE` with redirect `clerk://com.aleksclark.primer.control.oauth`), then continues Clerk-supported second factors on the same SignIn object: TOTP, backup code, SMS, or email code (`attemptSecondFactor` / `prepareSecondFactor`). Only the **new** session ID is activated. Google sign-up without an existing parent is incomplete, not household creation. Unsupported incomplete states stay incomplete. Do not weaken server policy. Clerk Dashboard must allow that native redirect URL; this tree does not change instance MFA or authorized parties.
 - Declared 0.1.31 coordinates (POM / Gradle metadata, not live runtime): Kotlin stdlib 2.1.20, serialization-json 1.9.0 (Kotlin 2.2 metadata), coroutines 1.10.2, androidx.browser 1.9.0 (`minAndroidGradlePluginVersion=8.9.1`, `minCompileSdk=36`), Compose BOM 2026.01.00 / runtime 1.10.1. The catalog pins AGP **8.10.0**, Gradle **8.11.1**, Kotlin **2.2.0**, serialization **1.9.0**, coroutines **1.10.2**, lifecycle **2.10.0**, and Compose BOM **2026.01.00** so those artifacts resolve without forced downgrades, `-Xskip-metadata-version-check`, or lint disable/baseline. `:app-control` and `:core-parent-identity` compile against API 36; minSdk remains **28** and targetSdk remains 35. Compile/lint success is not live Clerk runtime evidence. Unit tests do not initialize a live Clerk backend.
 - Control refreshes the official SDK token before authenticated work and on resume. Server logout must succeed before provider sign-out. FLAG_SECURE is applied after household membership succeeds so the sign-in screen can be screenshotted; backup exclusion and password IME stay set. After a native session exists, Control reports public Clerk claims only (`iss`, `azp`, `aud` present/missing). Raw JWTs, session ids, and subjects are never shown.
-- Proposed additive server env (parent L0 owns the port): `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` must remain required; extra parties must not replace the web origin check.
+- Implemented additive server env: `TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control`. `PublicOrigin` remains required; extra parties do not replace the web origin check. The server permits Clerk session tokens without a nonempty `azp` while retaining signature/issuer/session and local membership checks; a present mismatched party is rejected. See [current auth boundaries](../agent_docs/authentication.md). Do not change live server configuration merely to make a local test pass.
 
 ### Control self-update
 
@@ -126,8 +136,9 @@ weaken server authorized-party, issuer, or membership policy to make login work.
    password or disable MFA from this tree.
 3. After operator approval, provision two parent users and two household
    memberships (A and B). Do not reuse browser test-issuer principals.
-4. Publishable key only on the device (`PRIMER_CLERK_PUBLISHABLE_KEY`). Secret
-   keys stay in operator env.
+4. Publishable key only on the device (`PRIMER_CLERK_PUBLISHABLE_KEY`, from
+   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `~/.config/clerk/primer.env`). Secret
+   keys stay in operator env and must never be bundled.
 
 **Tasks host (operator env, parent L0 owns the port; Control does not edit these files):**
 
@@ -139,25 +150,29 @@ TASKS_PUBLIC_ORIGIN=https://<tasks-web-origin>   # remains required
 TASKS_CLERK_AUTHORIZED_PARTIES=com.aleksclark.primer.control
 ```
 
-`TASKS_CLERK_AUTHORIZED_PARTIES` is proposed additive config. PublicOrigin must
-stay required. Optional `TASKS_CLERK_AUDIENCE` only if this Clerk instance emits
+`TASKS_CLERK_AUTHORIZED_PARTIES` is implemented additive config. PublicOrigin
+stays required. Optional `TASKS_CLERK_AUDIENCE` only if this Clerk instance emits
 `aud`. Household membership remains the local Tasks ledger, not Clerk orgs.
 
 **Control debug build (no production mutation):**
 
 ```bash
 cd android
-PRIMER_CLERK_PUBLISHABLE_KEY=pk_test_... \
+set -a
+. ~/.config/clerk/primer.env
+set +a
+PRIMER_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
 PRIMER_API_ORIGIN=https://<tasks-host>/tasks/api \
 ./gradlew :app-control:assembleDebug --no-daemon --max-workers=1
 ```
 
 Acceptance measurements after a real Control login: issuer and authorized party
-are shown on the sign-in/denied screen from the native JWT payload. Session id
-and subject stay boolean-only. Exact `azp` is whatever Clerk emits for this app
-(web origin or `com.aleksclark.primer.control`). Native parties are additive on
-`TASKS_CLERK_AUTHORIZED_PARTIES` and never replace `TASKS_PUBLIC_ORIGIN`. No-membership
-denial, household isolation, and Tasks logout before Clerk.signOut remain required.
+presence/value are shown on the sign-in/denied screen from the native JWT payload.
+Session id and subject stay boolean-only. Record whether `azp` is absent; do not
+assume it is a web origin or `com.aleksclark.primer.control`. Configured native
+parties are additive on `TASKS_CLERK_AUTHORIZED_PARTIES` and never replace
+`TASKS_PUBLIC_ORIGIN`. No-membership denial, household isolation, and Tasks logout
+before Clerk.signOut remain required.
 
 
 ## Build

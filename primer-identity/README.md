@@ -1,6 +1,9 @@
 # Primer Identity
 
-Standalone OpenID Connect / OAuth identity service for Primer products.
+Standalone Stytch-backed human-auth broker and downstream Primer OAuth/JWT
+service. Identity is still consumed by LMS, TV, Studio, and Agents; the Tasks
+Clerk cutover does **not** retire it. See the [current authentication matrix](../agent_docs/authentication.md)
+for implemented boundaries and migration limits.
 
 Module path (frozen): `github.com/aleksclark/primer/identity`
 
@@ -8,23 +11,33 @@ This tree is a **separate deployable** with its own PostgreSQL database
 (`primer_identity`, goose table `identity_goose_db_version`). It does not share
 a database with the LMS (`server/`), TV, or Curriculum Studio.
 
-## Layout (I1 + I2 + IB1 + IB2 token/JWKS/revoke + hardening)
+## Implementation and acceptance
 
-**Status tip:** dual-reviewed IB2 hardening `f5d5b5b` (`impl/IB2-hardening-remed`).
-Resume: `agent_docs/plans/identity-ib2-resume.md`. Next wave: IB3/I7 BFF.
+The checked-in runtime extends beyond IB2: it includes signed webhook handling,
+service principals / `client_credentials`, refresh-token lifecycle, and signing
+key rotation. The [IB2 handoff](../agent_docs/plans/identity-ib2-resume.md) is a
+historical checkpoint, not the current implementation cursor. Later consumer
+integration source is not proof of complete live browser/webhook acceptance.
+
+The [IB0 contract](../agent_docs/plans/stytch-identity-ib0/index.md) retains broker
+and revocation requirements. Keep outstanding live/rollback obligations explicit;
+do not delete Identity state, keys, or legacy links merely because the
+[authstack migration](../agent_docs/plans/authstack-migration/index.md) is planned.
+
+## Layout
 
 ```text
 primer-identity/
   README.md
   go.mod
-  openapi.yaml            # committed IB1+IB2 OpenAPI 3.1 baseline (generated)
-  client/                 # generated IB1+IB2 Go client (identityclient)
+  openapi.yaml            # committed OpenAPI 3.1 baseline (generated)
+  client/                 # generated Go client (identityclient)
   cmd/identity-server/     # HTTP process (health/ready + graceful shutdown)
   cmd/identity-migrate/    # migrate-only entry (module-local)
   cmd/openapi-gen/         # offline Huma OpenAPI 3.1 emitter (no DB/provider)
   internal/config/         # IDENTITY_* envconfig, fail-fast validation
   internal/db/             # pgx pool + embedded goose migrations
-  internal/db/migrations/  # 00001–00009 (IB1 broker + IB2 keys/grants/audit/retention)
+  internal/db/migrations/  # 00001–00011 (foundation, broker/grants, webhook, service principals)
   internal/db/SCHEMA.md    # schema notes
   internal/domain/         # Account, ExternalIdentity, OAuth bounds, typed errors
   internal/password/       # Argon2id PHC KDF (never stores plaintext)
@@ -32,10 +45,11 @@ primer-identity/
   internal/api/            # chi+Huma health + authorize/broker + token/revoke/JWKS/metadata
   internal/app/            # process bootstrap (prod fail-closed without active key)
   internal/broker/         # authorize/start/callback composition
-  internal/oauth/          # code exchange + revoke core (sign-before-commit)
+  internal/oauth/          # code/refresh/client_credentials exchange + revoke
   internal/token/          # ES256 mint/verify + private_key_jwt assertion
-  internal/keys/           # signing custody + TransactionSigner
+  internal/keys/           # signing custody, rotation + TransactionSigner
   internal/stytch/         # official adapter + broker provider boundary
+  internal/webhook/        # signed Stytch webhook handling and revocation
   internal/logging/        # structured JSON logs with secret redaction
   internal/testutil/       # Postgres testcontainer (primer_identity_test)
   internal/testutil/factory/
@@ -98,19 +112,22 @@ export IDENTITY_ENV=development
 
 ## Commands (module-local, executable now)
 
-Root `make identity-build` / `identity-test` / `identity-cover` detect this
-module. Root `make identity-openapi` and `make identity-test-oauth` are the
-fail-closed IB2 OpenAPI drift check and OAuth/keys/token package suite. Root
-`migrate-identity`, `identity-e2e`, and `dev-db-identity` remain F0-owned
-stubs — use the module-local commands below until F0 wires them.
+Run root commands from the repository root. `identity-build`, `identity-test`,
+`identity-cover`, `identity-openapi`, `identity-test-oauth`, `migrate-identity`,
+and `identity-e2e` are implemented. Only `dev-db-identity` remains an unsupported
+stub; provision a disposable Identity-only PostgreSQL separately. The opt-in
+[Compose workflow](../docs/dev-compose.md) provisions LMS/TV databases, not
+Identity. `identity-cover` enforces **80%**; that threshold is not a current
+coverage measurement.
 
 ```bash
-# From repo root (F0 targets):
+# From repo root:
 make identity-build    # -> bin/identity-server
 make identity-test
 make identity-cover
 make identity-openapi      # generate spec+client to private temps and cmp both baselines
-make identity-test-oauth   # IB2 oauth/keys/token/revoke + process tests with -race (real DB)
+make identity-test-oauth   # selected auth packages + process tests with -race (real DB)
+make identity-e2e          # process E2E with real PostgreSQL
 
 # Module-local build
 cd primer-identity
@@ -122,7 +139,7 @@ go run ./cmd/openapi-gen                 # stdout
 go run ./cmd/openapi-gen -out /tmp/id.yaml
 # Update the committed spec baseline (explicit; ordinary check does not write it):
 go run ./cmd/openapi-gen -out openapi.yaml
-# Regenerate the committed IB2 Go client from the spec (pinned oapi-codegen v2 tool):
+# Regenerate the committed Go client from the spec (pinned oapi-codegen v2 tool):
 go tool oapi-codegen -package identityclient -generate types,client -o client/client.gen.go openapi.yaml
 go test ./cmd/openapi-gen ./client -count=1
 
@@ -133,7 +150,7 @@ go run ./cmd/identity-migrate up
 # or: ../bin/identity-migrate up
 # down: go run ./cmd/identity-migrate down
 
-# Process / package E2E (testcontainer; no root identity-e2e target yet)
+# Process / package E2E (testcontainer; equivalent root target: identity-e2e)
 go test ./internal/testutil/e2e/ -count=1
 go test ./... -count=1
 
@@ -144,33 +161,35 @@ go test ./... -count=1
 # GET /metrics  → identity_http_requests_total
 ```
 
-### Root Makefile (F0-owned)
+### Root Makefile
 
 | Target | Behavior |
 | --- | --- |
 | `make migrate-identity` | `go run ./cmd/identity-migrate up` (`IDENTITY_DATABASE_URL` + `IDENTITY_ISSUER` required; fail-closed; never prints DSN) |
 | `make identity-e2e` | `go test ./internal/testutil/e2e/ -count=1` |
 | `make identity-live-stytch` | opt-in Stytch **test-project** provider qualification (`-tags=live_stytch`); requires `IDENTITY_LIVE_STYTCH=1`; not IB8-E10 browser/webhook |
-| `make identity-openapi` | generate IB2 OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
-| `make identity-test-oauth` | IB2 oauth/keys/token/revoke packages plus process tests (including `./client`) with `-race` against real Postgres |
-| `make dev-db-identity` | deferred — no coherent Compose surface for `primer_identity` (refuses hollow compose) |
+| `make identity-openapi` | generate OpenAPI + Go client to private temp files and `cmp` `openapi.yaml` and `client/client.gen.go` |
+| `make identity-test-oauth` | selected auth packages plus process tests (including `./client`) with `-race` against real Postgres; not a substitute for the full module suite |
+| `make dev-db-identity` | unsupported root target; does not provision a database |
 
-IB2 publishes the authorization-code token contract and RFC7009 revoke.
-Full IB8-E10 browser + webhook live proof remains **BLOCKED** until IB3–IB7.
-Opt-in `make identity-live-stytch` may call the Stytch **test** API only through
-the production adapter (fail-closed negatives; optional session token happy path).
-Production/live-project credentials are refused by that harness. `openapi.yaml`
-is generated from handler signatures plus documented `POST /oauth/token` and
-`POST /oauth/revoke` form-urlencoded operations (Huma OpenAPI only; the live
-routes are registered once on chi so Huma never reads the form body). It
-covers health/ready, the IB1 authorize/broker inventory, JWKS,
-authorization-server metadata (including `revocation_endpoint`),
-`POST /oauth/token`, and `POST /oauth/revoke`. It does not include
-refresh-token grant, `client_credentials`, or provider/private payload
-schemas. `client/client.gen.go` is generated from that spec with pinned
-`oapi-codegen` v2 (`go tool oapi-codegen`); do not add handwritten DTOs.
-The generated client has exactly one `OauthToken` operation and exactly one
-`OauthRevoke` operation.
+Live-provider acceptance is separate from implementation. Opt-in
+`make identity-live-stytch` may call the Stytch **test** API only through the
+production adapter (fail-closed negatives; optional session token happy path).
+It requires explicit credentials/authorization and is not full IB8-E10
+browser/webhook proof. Do not run it as a default documentation or unit-test gate.
+
+`openapi.yaml` is generated from handler signatures plus documented
+`POST /oauth/token` and `POST /oauth/revoke` form-urlencoded operations (Huma
+OpenAPI only; the live routes are registered once on chi so Huma never reads the
+form body). The runtime handles authorization-code, refresh-token, and
+client-credentials grants; do not use old IB2 inventory wording to infer current
+runtime or complete generated-contract coverage. Check the token implementation,
+OpenAPI policy tests, and emitted baseline together when changing grant semantics.
+Provider/private payload schemas remain excluded.
+
+`client/client.gen.go` is generated from that spec with pinned `oapi-codegen` v2
+(`go tool oapi-codegen`); do not add handwritten DTOs. The generated client has
+one `OauthToken` operation and one `OauthRevoke` operation.
 
 Token and revoke process proof uses a real `app.Run` listener plus Postgres
 and an active signing key. Codes are issued through production repos and a

@@ -32,13 +32,17 @@ make tv-bundle   # embed the built SPA into the tv-server binary
 
 ## Admin authentication
 
-The TV admin API is guarded by a shared key sent as `X-Admin-Key`
-(`TV_ADMIN_API_KEY` on the server; the server also accepts
-`Authorization: Bearer`). The SPA prompts for the key, keeps it in
-localStorage, attaches it to every request, and returns to the prompt with an
-explicit unauthorized message if the server rejects it. A server started
-without a key configured accepts requests without one, so local development can
-skip the prompt.
+The SPA uses a shared key sent as `X-Admin-Key` (`TV_ADMIN_API_KEY` on the
+server). It prompts for the key, keeps it in localStorage, attaches it to every
+request, and returns to the prompt if the server rejects it.
+
+The API also accepts a configured Primer Identity JWT via
+`Authorization: Bearer`, or the shared key as an opaque Bearer. JWT acceptance currently has no
+TV-local human role lookup; it is not proof of a completed multi-tenant/BFF
+migration. The admin guard is open only when **both** its Identity verifier and
+admin key are absent. Configure authentication before exposing the server, and
+never use empty-secret development behavior as a production default. See the
+[current auth matrix](../agent_docs/authentication.md) for the exact boundaries.
 
 ## Pages
 
@@ -49,5 +53,7 @@ skip the prompt.
 | Schedule | Plain CRUD over the programmed grid |
 | Devices | Register devices, show and re-issue pairing codes, rename, revoke, delete |
 
-A metrics dashboard is not included: the TV server exposes no `/metrics`
-endpoints yet. It belongs with the reporting work in a later phase.
+The SPA also includes **Viewing** (`/metrics`) and **Primer Reports**
+(`/primer-reports`). The TV API's admin-guarded `/metrics` returns viewing
+statistics; it is not a Prometheus scrape endpoint. Primer Reports shows
+instructional-time exports and a manual report pass.

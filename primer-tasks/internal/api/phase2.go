@@ -492,7 +492,22 @@ func (s *Server) listOccurrences2(w http.ResponseWriter, r *http.Request, sc sco
 	jsonOK(w, OccurrencePage2{out, total, limit, offset})
 }
 func (s *Server) studentOccurrences2(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0)`+occurrenceVerificationColumns+` FROM task_occurrences o WHERE o.student_id=$1 AND o.status<>'canceled' AND o.nominal_at>=now()-interval '1 day' ORDER BY o.nominal_at`, id)
+	s.listStudentOccurrences(w, r, id, studentOccurrenceWindow(r.URL.Path))
+}
+
+func studentOccurrenceWindow(path string) string {
+	if strings.HasSuffix(path, "/upcoming") {
+		return "upcoming"
+	}
+	return "today"
+}
+
+func (s *Server) listStudentOccurrences(w http.ResponseWriter, r *http.Request, id uuid.UUID, window string) {
+	filter := `o.nominal_at>=now()-interval '1 day' AND o.nominal_at<date_trunc('day', timezone(COALESCE(NULLIF(o.revision_snapshot->>'timezone',''),'UTC'), now()) + interval '1 day') AT TIME ZONE COALESCE(NULLIF(o.revision_snapshot->>'timezone',''),'UTC')`
+	if window == "upcoming" {
+		filter = `o.nominal_at>=date_trunc('day', timezone(COALESCE(NULLIF(o.revision_snapshot->>'timezone',''),'UTC'), now()) + interval '1 day') AT TIME ZONE COALESCE(NULLIF(o.revision_snapshot->>'timezone',''),'UTC')`
+	}
+	rows, e := s.DB.Query(r.Context(), `SELECT o.id,o.student_id,o.schedule_id,o.revision_id,o.revision_snapshot->>'title',o.revision_snapshot->>'instructions',o.status,o.nominal_at,o.due_at,o.revision_snapshot->>'timezone',(o.revision_snapshot->>'dueOffsetMinutes')::int,o.revision_snapshot->>'dueSemantics',(o.revision_snapshot->>'taskRevisionVersion')::int,(o.revision_snapshot->>'scheduleVersion')::int,COALESCE((SELECT max(number) FROM verification_attempts a WHERE a.occurrence_id=o.id),0)`+occurrenceVerificationColumns+` FROM task_occurrences o WHERE o.student_id=$1 AND o.status<>'canceled' AND `+filter+` ORDER BY o.nominal_at`, id)
 	if e != nil {
 		problem(w, 500, "internal", e.Error())
 		return

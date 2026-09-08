@@ -8,14 +8,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.FactCheck
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -30,22 +39,33 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.aleksclark.primer.control.device.DeviceDetailScreen
 import com.aleksclark.primer.control.device.DevicesScreen
+import com.aleksclark.primer.control.tasks.ControlSettingsScreen
 import com.aleksclark.primer.control.tasks.ControlSignInScreen
 import com.aleksclark.primer.control.tasks.OccurrenceDetailScreen
 import com.aleksclark.primer.control.tasks.ReviewScreen
-import com.aleksclark.primer.control.tasks.RosterScreen
 import com.aleksclark.primer.control.tasks.ScheduleDraft
 import com.aleksclark.primer.control.tasks.ScheduleEditorScreen
 import com.aleksclark.primer.control.tasks.SchedulesScreen
-import com.aleksclark.primer.control.tasks.StudentDetailScreen
 import com.aleksclark.primer.control.tasks.TaskEditorScreen
 import com.aleksclark.primer.control.tasks.TasksScreen
 import com.aleksclark.primer.identity.ControlOriginPolicy
-import com.aleksclark.primer.ui.PrimerButton
-import com.aleksclark.primer.ui.PrimerButtonVariant
 import com.aleksclark.primer.ui.PrimerStatus
 import com.aleksclark.primer.ui.PrimerStatusTone
 import com.aleksclark.primer.ui.PrimerTheme
+
+private data class ControlNavItem(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+)
+
+private val ControlNavItems = listOf(
+    ControlNavItem("tasks", "Tasks", Icons.Outlined.Checklist),
+    ControlNavItem("schedules", "Schedules", Icons.Outlined.CalendarMonth),
+    ControlNavItem("review", "Review", Icons.AutoMirrored.Outlined.FactCheck),
+    ControlNavItem("devices", "Devices", Icons.Outlined.Devices),
+    ControlNavItem("settings", "Settings", Icons.Outlined.Settings),
+)
 
 class MainActivity : ComponentActivity() {
     override fun onResume() {
@@ -159,57 +179,36 @@ private fun ControlAppScreen(
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
+    LaunchedEffect(current) {
+        when (current) {
+            "tasks" -> model.loadTasks()
+            "schedules" -> model.loadSchedules()
+            "review" -> model.loadOccurrences()
+            "devices" -> model.loadDevices()
+            "settings" -> model.loadStudents()
+        }
+    }
     Scaffold(
         bottomBar = {
             NavigationBar {
-                listOf("students" to "Students", "tasks" to "Tasks", "schedules" to "Schedules", "review" to "Review", "devices" to "Devices").forEach { (route, label) ->
+                ControlNavItems.forEach { item ->
                     NavigationBarItem(
-                        selected = current == route,
+                        selected = current == item.route,
                         onClick = {
-                            when (route) {
-                                "tasks" -> model.loadTasks()
-                                "schedules" -> model.loadSchedules()
-                                "review" -> model.loadOccurrences()
-                                "devices" -> model.loadDevices()
+                            nav.navigate(item.route) {
+                                popUpTo(nav.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            nav.navigate(route)
                         },
-                        icon = { Text(label.take(1)) },
-                        label = { Text(label) },
+                        icon = { Icon(item.icon, contentDescription = item.label) },
+                        label = { Text(item.label) },
                     )
                 }
             }
         },
     ) { padding ->
-        NavHost(nav, startDestination = "students", modifier = Modifier.padding(padding)) {
-            composable("students") {
-                val student = state.selectedStudent
-                if (student == null && !state.creatingStudent) {
-                    RosterScreen(
-                        students = state.students,
-                        query = state.studentQuery,
-                        onQuery = model::setStudentQuery,
-                        message = state.message,
-                        onOpen = model::openStudent,
-                        onCreate = { model.update { it.copy(selectedStudent = null, studentName = "", pairing = null, creatingStudent = true) } },
-                        onRetry = { model.loadStudents() },
-                        hasMore = state.studentsHasMore,
-                        onMore = { model.loadStudents(reset = false) },
-                    )
-                } else {
-                    StudentDetailScreen(
-                        student = student,
-                        pairing = state.pairing,
-                        name = state.studentName,
-                        onName = { value -> model.update { it.copy(studentName = value) } },
-                        message = state.message,
-                        onSave = model::saveStudent,
-                        onArchive = model::archiveStudent,
-                        onIssueQr = model::issuePairing,
-                        onBack = { model.update { it.copy(selectedStudent = null, pairing = null, creatingStudent = false, studentName = "") } },
-                    )
-                }
-            }
+        NavHost(nav, startDestination = "tasks", modifier = Modifier.padding(padding)) {
             composable("tasks") {
                 if (state.creatingTask || state.editingTask != null) {
                     TaskEditorScreen(
@@ -366,9 +365,29 @@ private fun ControlAppScreen(
                     )
                 }
             }
-        }
-        Column(Modifier.padding(8.dp)) {
-            PrimerButton(text = "Sign out", onClick = model::signOut, variant = PrimerButtonVariant.Quiet)
+            composable("settings") {
+                ControlSettingsScreen(
+                    students = state.students,
+                    query = state.studentQuery,
+                    onQuery = model::setStudentQuery,
+                    message = state.message,
+                    selectedStudent = state.selectedStudent,
+                    creatingStudent = state.creatingStudent,
+                    pairing = state.pairing,
+                    name = state.studentName,
+                    onName = { value -> model.update { it.copy(studentName = value) } },
+                    onOpen = model::openStudent,
+                    onCreate = { model.update { it.copy(selectedStudent = null, studentName = "", pairing = null, creatingStudent = true) } },
+                    onRetry = { model.loadStudents() },
+                    hasMore = state.studentsHasMore,
+                    onMore = { model.loadStudents(reset = false) },
+                    onSave = model::saveStudent,
+                    onArchive = model::archiveStudent,
+                    onIssueQr = model::issuePairing,
+                    onBack = { model.update { it.copy(selectedStudent = null, pairing = null, creatingStudent = false, studentName = "") } },
+                    onSignOut = model::signOut,
+                )
+            }
         }
     }
 }

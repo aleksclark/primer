@@ -1,12 +1,35 @@
-# primer-agents Coverage Blockers
+# primer-agents coverage — current gate and historical blockers
 
-## Current measurement
+## Current gate
+
+`make agents-cover` enforces **85%** over `primer-agents/internal/...`, through
+`AGENTS_COVER_MIN` in the [root Makefile](../../Makefile) and the
+[module coverage helper](../../scripts/enforce-module-cover.sh). The Agents CI
+workflow also enforces 85%. Do not lower the floor or change the package set to
+match an older measurement.
+
+The coverage-unblock changes are reachable through PR #74 (`da783895`); the
+Makefile records an 85.0% result at that checkpoint. This is **not a measurement
+of the current head**. Re-run the gate and record the exact SHA, command, and
+result before making a new acceptance claim.
+
+## Historical Phase 8 report — not current instructions
+
+The original report below is retained as history. Its 78% gate and proposed
+78→82→85 escalation are superseded, not an approved present-day policy. The old
+blocker diagnoses and estimates have not been revalidated; they must not be used
+to justify skipping tests or requiring a live provider. Go statement coverage is
+execution-counted, not sampled; the original sampling explanation below is not
+an instrumentation guarantee.
+
+### Historical measurement
 
 **78.7%** (`go test ./internal/... -coverpkg=./internal/...` — all packages pass)
 
-**Target**: 85% (`make agents-cover` enforces 78% today, to be raised as blockers resolve)
+**Original target statement (superseded):** 85%, with a claimed 78% intermediate
+gate to be raised as blockers resolved. The current gate above supersedes it.
 
-## Honest blockers
+## Historical blocker diagnoses
 
 ### 1. Worker goroutine paths (worker/execute, heartbeat, cancel poller)
 
@@ -42,18 +65,20 @@ Certain error paths inside `withTx` (Begin failure) are only reachable by inject
 
 **Resolution**: Not worth adding; these are infrastructure error paths.
 
-## What is NOT a blocker
+## Historical non-blocker notes
 
 - `runtime/` is excluded from `./internal/...` coverage (it has its own wave-1 test suite at full coverage)
 - `testutil/dsn_test.go` helper paths are infrastructure; already tested in their own package
 - `logging/attrsToAny` and `WithGroup` — now covered by `TestRedactingHandlerWithAttrsAndWithGroup`
 
-## Gate policy
+## Superseded gate proposal
 
-`make agents-cover` enforces **78%** today. The gate will be raised in increments as blockers 1 and 2 resolve:
+The original report claimed that `make agents-cover` enforced **78%** and proposed
+the following escalation. This is retained for provenance only; the current floor
+is 85%, not any intermediate value in this table:
 
 | Phase | Gate | Blocker resolved |
 |-------|------|-----------------|
-| Now (Phase 8) | 78% | — |
+| Historical Phase 8 proposal | 78% | — |
 | After blocker 1 | 82% | Worker barrier-provider tests |
 | After blocker 2 | 85% | SSE LISTEN/NOTIFY tests |

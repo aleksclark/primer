@@ -133,6 +133,68 @@ func TestPhase2ConcurrentWorkersDoNotDuplicateOccurrences(t *testing.T) {
 	}
 }
 
+func TestDeviceTodayExcludesFutureDailyOccurrences(t *testing.T) {
+	pool := integrationPool(t)
+	alice, _ := seedIntegration(t, pool)
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p2-today"), IssuerSecret: []byte("p2-today")})
+	h := s.Routes()
+	create := requestJSON(t, h, http.MethodPost, "/tasks", "parent-a", `{"title":"Brush your teeth","instructions":"Use the timer","requirements":[{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
+	var task struct {
+		ID, TemplateID string
+	}
+	if e := json.Unmarshal(create.Body.Bytes(), &task); e != nil {
+		t.Fatal(e)
+	}
+	if rec := requestJSON(t, h, http.MethodPost, "/tasks/"+task.ID+"/publish", "parent-a", ""); rec.Code != 200 {
+		t.Fatalf("publish=%d %s", rec.Code, rec.Body.String())
+	}
+	start := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	if rec := requestJSON(t, h, http.MethodPost, "/schedules", "parent-a", `{"studentId":"`+alice+`","templateId":"`+task.TemplateID+`","revisionId":"`+task.ID+`","kind":"recurrence","timezone":"UTC","startAt":"`+start+`","rrule":"FREQ=DAILY","dueOffsetMinutes":0}`); rec.Code != 201 {
+		t.Fatalf("schedule=%d %s", rec.Code, rec.Body.String())
+	}
+	var materialized int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM task_occurrences WHERE student_id=$1`, alice).Scan(&materialized); err != nil {
+		t.Fatal(err)
+	}
+	if materialized < 10 {
+		t.Fatalf("expected a multi-day series, got %d", materialized)
+	}
+	pair := requestJSON(t, h, http.MethodPost, "/students/"+alice+"/pairing", "parent-a", "")
+	code, _ := pairingResponse(t, pair)
+	device := requestJSON(t, h, http.MethodPost, "/device/pair", "", `{"code":"`+code+`"}`)
+	var dv struct {
+		Token string `json:"token"`
+	}
+	if e := json.Unmarshal(device.Body.Bytes(), &dv); e != nil {
+		t.Fatal(e)
+	}
+	today := requestBearer(t, h, http.MethodGet, "/device/today", dv.Token)
+	if today.Code != 200 {
+		t.Fatalf("today=%d %s", today.Code, today.Body.String())
+	}
+	var todayPage OccurrencePage2
+	if e := json.Unmarshal(today.Body.Bytes(), &todayPage); e != nil {
+		t.Fatal(e)
+	}
+	if todayPage.TotalCount != 1 || len(todayPage.Items) != 1 {
+		t.Fatalf("today leaked future work count=%d items=%d body=%s", todayPage.TotalCount, len(todayPage.Items), today.Body.String())
+	}
+	upcoming := requestBearer(t, h, http.MethodGet, "/device/upcoming", dv.Token)
+	if upcoming.Code != 200 {
+		t.Fatalf("upcoming=%d %s", upcoming.Code, upcoming.Body.String())
+	}
+	var upcomingPage OccurrencePage2
+	if e := json.Unmarshal(upcoming.Body.Bytes(), &upcomingPage); e != nil {
+		t.Fatal(e)
+	}
+	if upcomingPage.TotalCount < 9 {
+		t.Fatalf("upcoming missing future work count=%d", upcomingPage.TotalCount)
+	}
+	if todayPage.Items[0].ID == upcomingPage.Items[0].ID {
+		t.Fatalf("today and upcoming returned the same occurrence %s", todayPage.Items[0].ID)
+	}
+}
+
 func TestPhase2WorkerRunStopsOnCancel(t *testing.T) {
 	pool := integrationPool(t)
 	_, _ = seedIntegration(t, pool)
