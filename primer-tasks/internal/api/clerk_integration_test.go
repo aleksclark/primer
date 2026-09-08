@@ -81,6 +81,10 @@ func TestClerkReleaseParentAndUnchangedStudentBoundary(t *testing.T) {
 		}
 		for _, c := range cookies {
 			r.AddCookie(c)
+			if c.Name == "tasks_csrf" {
+				r.Header.Set("Origin", origin)
+				r.Header.Set("X-CSRF-Token", c.Value)
+			}
 		}
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
@@ -205,7 +209,7 @@ func TestClerkReleaseParentAndUnchangedStudentBoundary(t *testing.T) {
 		t.Fatal("parent JWT accepted as device")
 	}
 	for _, action := range []string{"start", "submit"} {
-		if rec = call("POST", "/student/occurrences/"+occ+"/"+action, "", "", cookie); rec.Code != 200 {
+		if rec = call("POST", "/student/occurrences/"+occ+"/"+action, "", "", cookie, csrf); rec.Code != 200 {
 			t.Fatalf("student %s=%d", action, rec.Code)
 		}
 	}

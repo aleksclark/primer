@@ -34,6 +34,8 @@ type ScheduleInputBody = JsonBody<"/schedules", "post">;
 type TaskInputBody = JsonBody<"/tasks", "post">;
 type DecisionInputBody = JsonBody<"/occurrences/{id}/decision", "post">;
 type DialogueStartBody = JsonBody<"/student/occurrences/{id}/dialogue", "post">;
+export type StudentManualStartQuery = Query<"/student/occurrences/{id}/start", "post">;
+export type StudentManualSubmitQuery = Query<"/student/occurrences/{id}/submit", "post">;
 type DialogueOverrideBody = JsonBody<"/occurrences/{id}/override", "post">;
 export type DialogueInspectQuery = Query<"/occurrences/{id}/inspect", "get">;
 export type OccurrenceRetryQuery = Query<"/occurrences/{id}/retry", "post">;
@@ -93,7 +95,8 @@ export function createTasksClient(options: TasksClientOptions = {}) {
   });
   transport.use({
     async onRequest({ request, schemaPath }) {
-      if (schemaPath === "/student/occurrences/{id}/dialogue" && request.method === "POST") request.headers.set("X-CSRF-Token", studentCSRFToken());
+      const manual = schemaPath === "/student/occurrences/{id}/start" || schemaPath === "/student/occurrences/{id}/submit";
+      if ((schemaPath === "/student/occurrences/{id}/dialogue" || manual) && request.method === "POST") request.headers.set("X-CSRF-Token", studentCSRFToken());
       if (options.getParentToken && !schemaPath.startsWith("/student/") && !schemaPath.startsWith("/device/") && schemaPath !== "/health") {
         const token = await options.getParentToken();
         if (token) request.headers.set("Authorization", `Bearer ${token}`);
@@ -258,11 +261,11 @@ export function createTasksClient(options: TasksClientOptions = {}) {
     async studentOccurrence(id: string, options: RequestOptions = {}) {
       return unwrap(transport.GET("/student/occurrences/{id}", { ...options, params: { path: { id } } }));
     },
-    async startStudentOccurrence(id: string, options: RequestOptions = {}) {
-      return unwrap(transport.POST("/student/occurrences/{id}/start", { ...options, params: { path: { id } } }));
+    async startStudentOccurrence(id: string, options: RequestOptions = {}, query: StudentManualStartQuery = {}) {
+      return unwrap(transport.POST("/student/occurrences/{id}/start", { ...options, params: { path: { id }, query } }));
     },
-    async submitStudentOccurrence(id: string, options: RequestOptions = {}) {
-      return unwrap(transport.POST("/student/occurrences/{id}/submit", { ...options, params: { path: { id } } }));
+    async submitStudentOccurrence(id: string, options: RequestOptions = {}, query: StudentManualSubmitQuery = {}) {
+      return unwrap(transport.POST("/student/occurrences/{id}/submit", { ...options, params: { path: { id }, query } }));
     },
     async deviceToday(options: RequestOptions = {}) {
       return unwrap(transport.GET("/device/today", { ...options }));

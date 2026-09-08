@@ -1,16 +1,25 @@
 # Repository reconciliation — 2026-09-08
 
-**Disposition:** CI fixes and the independently qualified Student slice are in
-local `master`. The full P4 candidate is reconciled and retained, **not merged**:
-its coverage gate fails at 71.0% against 85%. Current mainline also fails coverage
-at 71.1%. No threshold was changed and no clean/full-CI claim is made.
+**Updated disposition:** P4 is integrated into `master` at the operator's explicit
+follow-up request to merge and push despite the recorded coverage failure. The
+85% gate is unchanged; its last P4 result remains 71.0%, not a pass. A separate
+Grok-owned PR is authorized to raise coverage and reach a verified merge.
+The earlier deferral and cleanup records below describe the preceding checkpoint;
+this source-integration authorization does not claim full CI/release acceptance.
 
 ## Scope and baseline
 
 User-authorized maintenance: repair the two observed CI failures, reconcile the
 pending Student and Tasks P4 changes against current mainline, review the Control
 stash, archive test evidence, and retire only confirmed-obsolete local branches
-and worktrees. No push, publication, deployment, or device operation is included.
+and worktrees. That initial maintenance did not include push, publication,
+deployment, or device operations.
+
+Follow-up authorization on 2026-09-08: merge P4 candidate `ec042b4c` into `master`,
+push to origin, then dispatch a Grok agent to raise coverage in a new PR and merge
+that PR after verification. This supersedes the source-merge hold only. It does
+not authorize lowering coverage, disabling tests, bypassing the follow-up PR's
+checks, or performing device/deployment operations.
 
 Starting mainline: `ccee6c8b114c73d52876021a3d93c98d70244050`, equal to live
 `origin/master` when inspected. The main checkout and every original linked
@@ -160,7 +169,7 @@ not an unqualified reliably green all-Android gate. No TV source/test change was
 made to conceal it. All failed and passing receipts are preserved under
 `checks/android-final-student/`. These are JVM/build checks, not device acceptance.
 
-## P4 candidate retained behind the coverage gate
+## P4 reconciliation — historical gate hold, subsequently integrated
 
 ```text
 branch: reconcile/student-p4-current
@@ -199,25 +208,27 @@ Retained candidate records:
 - `agent_docs/plans/wip-integration/student-p4-current-review.md`
 - `test-artifacts/student-p4-current/receipts.json`
 
-Those files live on the **candidate branch**, not mainline. Complete local logs
-and browser evidence are copied to `checks/student-p4-current/` in the archive;
+Those records originated on the candidate branch and are now included in
+mainline by the operator-requested merge. Complete local logs and browser
+evidence are copied to `checks/student-p4-current/` in the archive;
 `coverage-measurement-review.md` describes the legitimate collection approach and
 required negative qualifications. The earlier Android checkpoint compilation
 failure is separately retained under `checks/android-p4-checkpoint/`, not relabeled
 as a final-code failure or pass.
 
-Next integration gate: implement and qualify accurate same-source child-process
+Follow-up PR gate: implement and qualify accurate same-source child-process
 coverage collection and/or add real missing coverage; remeasure with the full
-internal-package denominator and unchanged 85% floor. Complete remaining required
-race/browser qualification before treating P4 as accepted. Do not merge the
-candidate merely because source review and functional tests passed.
+internal-package denominator and unchanged 85% floor. Complete the applicable
+CI and review checks on the exact PR head before its separately authorized merge.
+The operator's P4 source merge does not waive the remaining race/browser/native
+qualification or turn the historical coverage failure into acceptance.
 
-## Cleanup result
+## Cleanup snapshot before the follow-up merge
 
 - **13 worktrees retired:** 11 original inactive worktrees plus 2 temporary
   verification worktrees. All had complete verified archives first. The old P4
   worktree copies were retired after handoff; their original branch refs remain
-  available alongside the retained candidate because integration is blocked.
+  available alongside the candidate; integration was blocked at that checkpoint.
 - **65 local branch heads retired:** 63 original heads and 2 temporary verification
   heads. Original proofs cover 57 mainline ancestors, 4 fully patch-equivalent
   branches, the content-reviewed Educator branch, and the reconciled Student
@@ -245,10 +256,12 @@ reachable refs. Normal `git commit-graph verify` and `git fsck
 --connectivity-only --no-dangling` now pass without a configuration override.
 No Git objects were pruned and no persistent Git configuration was changed.
 
-Four worktrees remain: mainline, the blocked P4 candidate, the independent active
-pairing-flow task, and the live `wet-parrot` development/device workspace.
-Nineteen local branches remain, including unmerged donor/roadmap work and the open
-Go-pinning PR lineage. Those are not obsolete merely because they are old.
+At that checkpoint four worktrees remained: mainline, the then-blocked P4
+candidate, the independent active pairing-flow task, and the live `wet-parrot`
+development/device workspace. Nineteen local branches remained, including
+unmerged donor/roadmap work and the open Go-pinning PR lineage. The follow-up
+coverage agent receives a new isolated worktree; these are not live inventory
+counts. Old branches are not obsolete merely because they are old.
 
 Explicit exclusions:
 

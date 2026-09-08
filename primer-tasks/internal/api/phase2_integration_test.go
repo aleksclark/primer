@@ -225,7 +225,7 @@ func TestStudentOccurrenceMetadataAndUnsupportedSubmit(t *testing.T) {
 	if rec = requestBearer(t, h, http.MethodGet, "/device/occurrences/"+mixedOcc.ID, dv.Token); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"studentCapability":"unsupported"`) || strings.Contains(rec.Body.String(), `"sourceText"`) || strings.Contains(rec.Body.String(), `"rubric"`) || strings.Contains(rec.Body.String(), `"learningFocus"`) {
 		t.Fatalf("mixed device detail=%d %s", rec.Code, rec.Body.String())
 	}
-	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+mixedOcc.ID+"/start", dv.Token); rec.Code != 200 {
+	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+mixedOcc.ID+"/start", dv.Token); rec.Code != 409 {
 		t.Fatalf("mixed start=%d %s", rec.Code, rec.Body.String())
 	}
 	if rec = requestBearer(t, h, http.MethodPost, "/device/occurrences/"+mixedOcc.ID+"/submit", dv.Token); rec.Code != 409 {
@@ -236,7 +236,7 @@ func TestStudentOccurrenceMetadataAndUnsupportedSubmit(t *testing.T) {
 func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	pool := integrationPool(t)
 	alice, bob := seedIntegration(t, pool)
-	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p2b"), IssuerSecret: []byte("p2b")})
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p2b"), IssuerSecret: []byte("p2b"), PublicOrigin: "https://example.com"})
 	h := s.Routes()
 	create := requestJSON(t, h, http.MethodPost, "/tasks", "parent-a", `{"title":"Morning care","instructions":"Follow the steps","requirements":[{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
 	if create.Code != 201 {
@@ -356,10 +356,15 @@ func TestPhase2CRUDScheduleAndStudentReadPaths(t *testing.T) {
 	if studentPair.Code != 200 {
 		t.Fatalf("student pair=%d %s", studentPair.Code, studentPair.Body.String())
 	}
-	studentCookie := studentPair.Result().Cookies()[0].Value
 	studentRequest := func(method, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
-		req.AddCookie(&http.Cookie{Name: "tasks_student", Value: studentCookie})
+		req.Header.Set("Origin", s.Auth.PublicOrigin)
+		for _, cookie := range studentPair.Result().Cookies() {
+			req.AddCookie(cookie)
+			if cookie.Name == "tasks_csrf" {
+				req.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		return rec

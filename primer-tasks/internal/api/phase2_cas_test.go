@@ -199,7 +199,7 @@ func TestPhase2SkipDoesNotCompleteAndRequiresStartThenSubmit(t *testing.T) {
 func TestPhase2BrowserStartSubmitIdempotency(t *testing.T) {
 	pool := integrationPool(t)
 	alice, _ := seedIntegration(t, pool)
-	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p2-browser"), IssuerSecret: []byte("p2-browser")})
+	s := NewWithAuth(pool, "test", AuthConfig{SessionSecret: []byte("p2-browser"), IssuerSecret: []byte("p2-browser"), PublicOrigin: "https://example.com"})
 	h := s.Routes()
 	create := requestJSON(t, h, http.MethodPost, "/tasks", "parent-a", `{"title":"Browser lifecycle","instructions":"x","requirements":[{"id":"parent-approval","kind":"parent_approval","configVersion":1,"config":{},"interaction":"parent_action","executor":"human"}]}`)
 	var task struct{ ID, TemplateID string }
@@ -226,10 +226,15 @@ func TestPhase2BrowserStartSubmitIdempotency(t *testing.T) {
 	if studentPair.Code != 200 || len(studentPair.Result().Cookies()) == 0 {
 		t.Fatalf("student pair=%d %s", studentPair.Code, studentPair.Body.String())
 	}
-	cookie := studentPair.Result().Cookies()[0].Value
 	req := func(method, path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, nil)
-		r.AddCookie(&http.Cookie{Name: "tasks_student", Value: cookie})
+		r.Header.Set("Origin", s.Auth.PublicOrigin)
+		for _, cookie := range studentPair.Result().Cookies() {
+			r.AddCookie(cookie)
+			if cookie.Name == "tasks_csrf" {
+				r.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, r)
 		return rec
@@ -523,15 +528,15 @@ func TestPhase2SubmitWithoutRequirementIsBlocked(t *testing.T) {
 	if e := json.Unmarshal(device.Body.Bytes(), &dv); e != nil {
 		t.Fatal(e)
 	}
-	if rec := requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/start", dv.Token); rec.Code != 200 {
-		t.Fatalf("start=%d %s", rec.Code, rec.Body.String())
+	if rec := requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/start", dv.Token); rec.Code != 409 {
+		t.Fatalf("start without requirement=%d %s", rec.Code, rec.Body.String())
 	}
 	if rec := requestBearer(t, h, http.MethodPost, "/device/occurrences/"+occ.ID+"/submit", dv.Token); rec.Code != 409 {
 		t.Fatalf("submit without requirement=%d %s", rec.Code, rec.Body.String())
 	}
 	var status string
 	var attempts int
-	if e := pool.QueryRow(context.Background(), `SELECT status, (SELECT count(*) FROM verification_attempts a WHERE a.occurrence_id=o.id) FROM task_occurrences o WHERE id=$1`, occ.ID).Scan(&status, &attempts); e != nil || status != "in_progress" || attempts != 0 {
+	if e := pool.QueryRow(context.Background(), `SELECT status, (SELECT count(*) FROM verification_attempts a WHERE a.occurrence_id=o.id) FROM task_occurrences o WHERE id=$1`, occ.ID).Scan(&status, &attempts); e != nil || status != "pending" || attempts != 0 {
 		t.Fatalf("blocked submit left status=%q attempts=%d err=%v", status, attempts, e)
 	}
 }

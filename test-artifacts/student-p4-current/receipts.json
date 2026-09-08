@@ -1,0 +1,202 @@
+{
+  "codeCommit": "08bff02470089616e9f90389b509116967ecd2a3",
+  "codeTree": "d754383ec79deec6ca4d4cb1186e3f358b6f3f0d",
+  "masterIntegrated": "3237c404d46e83d109ce1989a430dd514d985717",
+  "fullGoWebReceiptCommit": "0655effe2ec9f8177b7d9b454d9fb2342de6d9f9",
+  "scopeNote": "Only TasksSession.kt, TasksLateResultTest.kt and Kotlin Models.kt differ between full receipt commit and final code commit. Corrected Kotlin tests exercised these final bytes before commit. tip-* Go/TS commands ran after final code commit. This is not full phase/native/CI acceptance.",
+  "unchangedTrees": {
+    "primer-tasks/internal": "5e94695dcbd992a2b2c3bc1d844be827e7f12a65",
+    "primer-tasks/web": "9d16e6ae2c401212c1c8f2b4187ea878f7e86b45",
+    "primer-tasks/clients/typescript": "4d8bab980a279c8e11b03451152806b13c5f1920"
+  },
+  "coverage": {
+    "percent": 71.0,
+    "floor": 85,
+    "passed": false
+  },
+  "kotlinTests": {
+    "_tasks-client": {
+      "suites": 3,
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "_feature-tasks-student": {
+      "suites": 26,
+      "tests": 96,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "contract": {
+    "digest": "34f650af536e8b0d44655ad88f9eb7f67df4ca90fd02f68c512553c0d045a1f7",
+    "normalization": "json-recursive-object-key-order-v1",
+    "format": "primer-tasks/client-contract-v2"
+  },
+  "receipts": [
+    {
+      "label": "final-full-tasks",
+      "command": "go test ./... -count=1",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-full-tasks.log",
+      "sha256": "c86e6e8e8822f9126f152e4d2c340cd52615f724f9f45efb3e4e2b015f42d3bc"
+    },
+    {
+      "label": "final-coverage",
+      "command": "make cover",
+      "exit": 2,
+      "log": "/tmp/student-p4-current-gates/final-coverage.log",
+      "sha256": "f61309032e5705bdee57b7d4bd6982fc0ecd3a6b0fd4969b10744a2b897ac6a9"
+    },
+    {
+      "label": "final-vet",
+      "command": "go vet ./...",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "final-build",
+      "command": "go build ./...",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "final-typescript",
+      "command": "make clients-typescript",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-typescript.log",
+      "sha256": "1ba97c0f5f6c558362e167d9980e0fb5da3b8c8e2f2376a518a6bff5327a895f"
+    },
+    {
+      "label": "final-kotlin-generation",
+      "command": "node clients/kotlin/generate-client.mjs",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-kotlin-generation.log",
+      "sha256": "bafaa6479db5e485613890cc39933371f152554ee7d8ad5c91619214d6db9aeb"
+    },
+    {
+      "label": "final-kotlin-generator-tests",
+      "command": "node --test clients/kotlin/generate-client.test.mjs",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-kotlin-generator-tests.log",
+      "sha256": "5f3a0a7e2df1d6ada17d86fe5b1b84e2a270ab933bc6da35461eccd9ec274d78"
+    },
+    {
+      "label": "final-web-lint",
+      "command": "npm --prefix web run lint",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-web-lint.log",
+      "sha256": "79c54d2fa8741fe3fcbc0e0a9b1ccfa4b46458743bd410d92c99818a9cc9845c"
+    },
+    {
+      "label": "final-web-typecheck",
+      "command": "npm --prefix web run typecheck",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-web-typecheck.log",
+      "sha256": "d957e558edf0faa316edf383b02f0b878049611529e8896a2e0072426e05afea"
+    },
+    {
+      "label": "final-web-unit",
+      "command": "npm --prefix web run test:unit",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-web-unit.log",
+      "sha256": "e8c36f51c31a01a4917a34b9648dec781e1de6c4f3e4d6539d666c0cdb33ac15"
+    },
+    {
+      "label": "final-web-build",
+      "command": "npm --prefix web run build",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-web-build.log",
+      "sha256": "3f8672896bc5f19d66b2b72c7afc562f0c175059cf0a74482b70ff3a45599d4d"
+    },
+    {
+      "label": "tip-focused",
+      "command": "GOWORK=off GOFLAGS=-mod=readonly go test ./internal/api -run '^(TestPublicNativeManualRequirementCompatibility|TestPublicMixedSelectedManualMutation|TestPublicOccurrenceVerificationCapabilities|TestClerkReleaseParentAndUnchangedStudentBoundary)$' -count=1",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/tip-focused.log",
+      "sha256": "28742add1cab4937e613d5c7011bc44c8682682ce3b5a7ea3b7cd123232a4227"
+    },
+    {
+      "label": "tip-typescript",
+      "command": "GOWORK=off GOFLAGS=-mod=readonly make clients-typescript",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/tip-typescript.log",
+      "sha256": "94c210ec5be652ea8be922a384fafed088d6ddc7001238a0b677ce484e2f0d74"
+    },
+    {
+      "label": "tip-workspace-native",
+      "command": "GOFLAGS=-mod=readonly go test ./primer-tasks/internal/api -run '^TestPublicNativeManualRequirementCompatibility$' -count=1",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/tip-workspace-native.log",
+      "sha256": "55bda075d68472389c36e21380189a8e3a3bf79abfe4fbbab1eef8516ffe6657"
+    },
+    {
+      "label": "final-kotlin-corrected",
+      "command": "JAVA_HOME=/usr/lib/jvm/java-17-openjdk ANDROID_HOME=/opt/android-sdk ./gradlew :tasks-client:test :feature-tasks-student:testDebugUnitTest :feature-tasks-student:testReleaseUnitTest :feature-tasks-student:lintDebug --no-daemon --max-workers=1 --rerun-tasks --project-cache-dir /tmp/student-p4-current-gates/gradle-project-cache -I /tmp/student-p4-current-gates/isolated.gradle",
+      "exit": 0,
+      "log": "/tmp/student-p4-current-gates/final-kotlin-corrected.log",
+      "sha256": "8f4639fe1a7ec4caaf8a40b44d36ac652be16403d97c0b533c97498af4a43dbd"
+    }
+  ],
+  "browserArtifacts": [
+    {
+      "path": "/tmp/student-p4-current-gates/browser-inspect-desktop.png",
+      "sha256": "541297f09734187b4fb608909932929d8ed8d4c66269146e72c7487d46bf0156"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-inspect-light-mobile.png",
+      "sha256": "46942d4cd8b648c9aebc4b0a6cfcde13e28cbde9a462f8e3ea204c20e9eca597"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-inspect-mobile-new-page.png",
+      "sha256": "4bac31b19afb96a61477bc2438a680e21638470ca88ad792a57fb332c8967415"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-student-completed-mobile.png",
+      "sha256": "3e5983107e4aacba773775b5babd7d7cbc17d98dd47c57f29721c6d81c7fd040"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-student-desktop.png",
+      "sha256": "4fd51e3f5e7c6ee9d2f0e6f3ad9b8f0cacea92d647bd042bf8ce1bc5f3c78c04"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-student-mobile.png",
+      "sha256": "13a7b5bcbb18ea729a0951eef2d7882aa93642b44a52d54f35a9cb2b2502f295"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-completed.snapshot.txt",
+      "sha256": "064234fd895bc68d7e5f7fd4107ef302359d53c274990cc7fba004d4512ce2ea"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-inspect.snapshot.txt",
+      "sha256": "6904026b630a5404f581aa20c42a9c3a5d946f74c8aef14e961f93b2502f10a8"
+    },
+    {
+      "path": "/tmp/student-p4-current-gates/browser-unavailable.snapshot.txt",
+      "sha256": "8c1e586b1983ed360ed119157657a1a6c3bcead079ee5ef097bb5d21e85e97f4"
+    }
+  ],
+  "review": {
+    "path": "agent_docs/plans/wip-integration/student-p4-current-review.md",
+    "sha256": "d6cf043339081422855e8dadcd5077d28e26b488d53d7a4b13d19146419da939",
+    "verdict": "No remaining source blocker; coverage gate remains failed; no reviewer test/browser rerun"
+  },
+  "preservation": {
+    "migrationsUnchanged": true,
+    "workflowsUnchanged": true,
+    "generatedOutputsTracked": false
+  },
+  "gaps": [
+    "85% coverage gate failed at 71.0%",
+    "full race/count10 not run",
+    "final full Android app/lint/assembly is parent-owned",
+    "no native/device/signing/deployment/live-provider acceptance",
+    "browser explored by implementer, no independently promoted Playwright suite",
+    "native lock-wait revocation winner ordering not specifically race-tested",
+    "browser form-field id/name diagnostics and some old-tab MCP timeouts remain recorded"
+  ]
+}
